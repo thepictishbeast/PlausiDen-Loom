@@ -1,0 +1,22 @@
+[package]
+name = "loom-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PlausiDen-Loom: top-level CLI. `loom lint`, `loom audit`, `loom new`, `loom tokens`."
+
+[[bin]]
+name = "loom"
+path = "src/main.rs"
+
+[dependencies]
+loom-lint = { path = "../loom-lint" }
+loom-tokens = { path = "../loom-tokens" }
+clap = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

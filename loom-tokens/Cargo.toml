@@ -1,0 +1,15 @@
+[package]
+name = "loom-tokens"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PlausiDen-Loom: typed design tokens (palette, spacing, breakpoints, font, radius). Read-only single source of truth for all UI."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
