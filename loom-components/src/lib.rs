@@ -11,7 +11,9 @@
 #![doc(html_no_source)]
 
 pub mod button;
+pub mod form;
 pub mod section;
 
-pub use button::{Button, ButtonSize, ButtonVariant};
+pub use button::{Button, ButtonSize, ButtonVariant, Decoration, IconPosition};
+pub use form::{InputType, Select, SelectOption, TextArea, TextInput};
 pub use section::{Section, SectionTheme};
