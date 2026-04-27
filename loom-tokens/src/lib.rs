@@ -32,8 +32,12 @@ use serde::Serialize;
 #[derive(Debug, Serialize)]
 pub struct AllTokens {
     /// Palette by semantic role (`primary`, `slate-900`, etc.) →
-    /// value (CSS color string).
+    /// value (CSS color string). Light theme.
     pub colors: Vec<ColorRole>,
+    /// Same role list, dark-theme resolutions. Cross-platform
+    /// generators that target a dark surface (GTK dark, Material
+    /// You dynamic) consume this slice.
+    pub colors_dark: Vec<ColorRole>,
     /// Spacing scale steps.
     pub spacing: Vec<Spacing>,
     /// Breakpoints in pixels.
@@ -56,6 +60,7 @@ pub struct AllTokens {
 pub fn tokens_json() -> String {
     let all = AllTokens {
         colors: ColorRole::all().to_vec(),
+        colors_dark: ColorRole::dark_all().to_vec(),
         spacing: Spacing::all().to_vec(),
         breakpoints: Breakpoint::all().to_vec(),
         font_sizes: FontSize::all().to_vec(),
@@ -73,6 +78,7 @@ mod tests {
         let s = tokens_json();
         let v: serde_json::Value = serde_json::from_str(&s).unwrap();
         assert!(v.get("colors").is_some());
+        assert!(v.get("colors_dark").is_some());
         assert!(v.get("spacing").is_some());
         assert!(v.get("breakpoints").is_some());
         assert!(v.get("font_sizes").is_some());

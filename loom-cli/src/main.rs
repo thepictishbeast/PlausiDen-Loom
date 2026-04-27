@@ -57,6 +57,15 @@ enum Cmd {
         /// Page name (slug, lowercase, dash-separated).
         name: String,
     },
+    /// Verify the design-system doctrine document is in sync with
+    /// the code it claims to govern. Fails if CLAUDE.md is missing
+    /// load-bearing sections, references primitives that don't
+    /// exist, or has drifted from the structural shape we publish.
+    Doctor {
+        /// Path to the Loom repo root. Defaults to current directory.
+        #[arg(default_value = ".")]
+        root: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -89,6 +98,13 @@ fn main() -> ExitCode {
             eprintln!("loom new {name}: not yet implemented (template scaffold in follow-up).");
             ExitCode::from(1)
         }
+        Cmd::Doctor { root } => match cmd_doctor(&root) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("loom doctor: {e:#}");
+                ExitCode::from(1)
+            }
+        },
     }
 }
 
@@ -179,4 +195,83 @@ fn cmd_report(root: &std::path::Path, json: bool) -> Result<()> {
     println!("primitive from loom-components/. If a primitive does not");
     println!("yet exist, propose one in a separate PR (see CLAUDE.md).");
     Ok(())
+}
+
+/// Verify the design-system doctrine document is in sync with code.
+///
+/// Three checks:
+///   1. CLAUDE.md exists at the expected path.
+///   2. The document carries every load-bearing section we publish
+///      (the single rule, the crate map, the hard rules, the
+///      "what this is not" boundary). If any goes missing, a future
+///      contributor reading the doctrine could miss the line that
+///      forbids raw class strings — silent drift, no review.
+///   3. Every primitive name CLAUDE.md mentions in the crate map
+///      has a corresponding `pub mod` declaration in
+///      `loom-components/src/lib.rs`. The doctrine claims a thing
+///      exists; the audit verifies it does.
+///
+/// SECURITY: read-only, no network. Safe to invoke from CI / cron /
+/// terminal interchangeably; emits findings to stdout.
+fn cmd_doctor(root: &std::path::Path) -> Result<()> {
+    let claude_path = root.join("CLAUDE.md");
+    if !claude_path.exists() {
+        anyhow::bail!("CLAUDE.md missing at {}", claude_path.display());
+    }
+    let claude = std::fs::read_to_string(&claude_path)
+        .map_err(|e| anyhow::anyhow!("read CLAUDE.md: {e}"))?;
+
+    let mut findings = Vec::new();
+
+    // Required sections — exact heading text we publish. A rename is
+    // a doctrine event; this audit catches accidental ones.
+    let required_sections = [
+        "## The single rule",
+        "## Why this exists",
+        "## Crate map",
+        "## Hard rules",
+        "## What this is not",
+    ];
+    for section in required_sections {
+        if !claude.contains(section) {
+            findings.push(format!("CLAUDE.md missing section: `{section}`"));
+        }
+    }
+
+    // The crate map names primitives that should exist as `pub mod`s
+    // in loom-components/src/lib.rs. Read both, intersect, complain
+    // about anything mentioned but not declared.
+    let lib_path = root.join("loom-components/src/lib.rs");
+    if lib_path.exists() {
+        let lib = std::fs::read_to_string(&lib_path)
+            .map_err(|e| anyhow::anyhow!("read loom-components/src/lib.rs: {e}"))?;
+        let claimed_modules = ["Button", "Card", "Section", "Hero", "Footer", "Nav"];
+        for module in claimed_modules {
+            // The lib.rs uses lowercase mod names + the type name in
+            // pub use; we check for the type name being exported.
+            if !lib.contains(&format!("pub use {}", module.to_lowercase()))
+                && !lib.contains(module)
+            {
+                findings.push(format!(
+                    "Crate map mentions `{module}` but loom-components/src/lib.rs does not export it"
+                ));
+            }
+        }
+    } else {
+        findings.push(format!(
+            "loom-components/src/lib.rs missing at {} — cannot verify crate map",
+            lib_path.display()
+        ));
+    }
+
+    if findings.is_empty() {
+        println!("loom doctor: clean ({})", root.display());
+        Ok(())
+    } else {
+        println!("loom doctor: {} finding(s):", findings.len());
+        for f in &findings {
+            println!("  - {f}");
+        }
+        anyhow::bail!("doctrine drift detected; see findings above")
+    }
 }

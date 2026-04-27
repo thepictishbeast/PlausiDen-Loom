@@ -114,6 +114,104 @@ impl ColorRole {
     pub fn by_name(role: &str) -> Option<&'static Self> {
         Self::all().iter().find(|r| r.role == role)
     }
+
+    /// Dark-theme parallel of [`Self::all`]. Same role names, same
+    /// order; the `color` field carries the dark resolution.
+    ///
+    /// A component composes both layers like:
+    /// `bg-{light_tailwind} dark:bg-{dark_tailwind}`. The Tailwind
+    /// `dark:` variant kicks in based on the `<html>` data-attribute
+    /// or `prefers-color-scheme` media query — Tailwind resolves
+    /// which strategy at compile time.
+    ///
+    /// BUG ASSUMPTION: every role here corresponds 1:1 to a role in
+    /// [`Self::all`]. The `dark_palette_parity` test enforces this.
+    #[must_use]
+    pub const fn dark_all() -> &'static [Self] {
+        &[
+            Self {
+                role: "primary",
+                color: Color {
+                    // Brighten primary in dark mode so it stands out
+                    // against a slate-950 surface; use the 400 step
+                    // for pop without sacrificing contrast.
+                    name: "primary",
+                    tailwind: "primary",
+                    css: "hsl(220 90% 65%)",
+                },
+            },
+            Self {
+                role: "primary-fg",
+                color: Color {
+                    name: "primary-fg",
+                    tailwind: "slate-950",
+                    css: "hsl(222 47% 6%)",
+                },
+            },
+            Self {
+                role: "surface",
+                color: Color {
+                    name: "surface",
+                    tailwind: "slate-950",
+                    css: "hsl(222 47% 6%)",
+                },
+            },
+            Self {
+                role: "surface-muted",
+                color: Color {
+                    name: "surface-muted",
+                    tailwind: "slate-900",
+                    css: "hsl(222 47% 11%)",
+                },
+            },
+            Self {
+                role: "ink",
+                color: Color {
+                    name: "ink",
+                    tailwind: "slate-50",
+                    css: "hsl(210 40% 98%)",
+                },
+            },
+            Self {
+                role: "ink-muted",
+                color: Color {
+                    name: "ink-muted",
+                    tailwind: "slate-400",
+                    css: "hsl(215 20% 65%)",
+                },
+            },
+            Self {
+                role: "border",
+                color: Color {
+                    name: "border",
+                    tailwind: "slate-800",
+                    css: "hsl(217 33% 18%)",
+                },
+            },
+            Self {
+                role: "danger",
+                color: Color {
+                    name: "danger",
+                    tailwind: "red-400",
+                    css: "hsl(0 72% 65%)",
+                },
+            },
+            Self {
+                role: "success",
+                color: Color {
+                    name: "success",
+                    tailwind: "emerald-400",
+                    css: "hsl(160 84% 55%)",
+                },
+            },
+        ]
+    }
+
+    /// Look up the dark-theme mapping for a role.
+    #[must_use]
+    pub fn dark_by_name(role: &str) -> Option<&'static Self> {
+        Self::dark_all().iter().find(|r| r.role == role)
+    }
 }
 
 #[cfg(test)]
@@ -153,5 +251,28 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn dark_palette_parity() {
+        // Every light role must have a dark-mode counterpart with the
+        // same role name. A missing counterpart leaves a hole in the
+        // dark theme that components would discover at runtime; we
+        // catch it at test time instead.
+        let light: std::collections::HashSet<_> =
+            ColorRole::all().iter().map(|r| r.role).collect();
+        let dark: std::collections::HashSet<_> =
+            ColorRole::dark_all().iter().map(|r| r.role).collect();
+        assert_eq!(light, dark, "dark palette must mirror light palette role-for-role");
+    }
+
+    #[test]
+    fn dark_lookup_returns_dark_color() {
+        // Sanity: the dark resolution of `surface` should be a dark
+        // color (slate-950), distinct from the light resolution.
+        let light = ColorRole::by_name("surface").expect("surface light");
+        let dark = ColorRole::dark_by_name("surface").expect("surface dark");
+        assert_ne!(light.color.tailwind, dark.color.tailwind);
+        assert_eq!(dark.color.tailwind, "slate-950");
     }
 }
