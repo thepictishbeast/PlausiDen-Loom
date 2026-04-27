@@ -1,0 +1,59 @@
+name: coverage
+
+# Test coverage report via cargo-tarpaulin. Runs on every push +
+# PR, uploads the lcov + html artifacts, surfaces the line-coverage
+# percentage in the workflow summary.
+#
+# Threshold (--fail-under): set to 0 today so coverage runs report
+# without gating merges. Bump to 80 once we sustain that — see
+# task #78 / #79. The gate-bumping discipline matches PlausiDen's
+# "ratchet up, never down" stance: once 80% lands, the threshold
+# never drops, even temporarily.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tarpaulin:
+    name: "tarpaulin (line coverage)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+
+      - name: Run tarpaulin
+        run: |
+          cargo tarpaulin \
+            --workspace \
+            --timeout 180 \
+            --out Lcov \
+            --out Html \
+            --output-dir target/coverage \
+            --skip-clean \
+            --fail-under 0
+          # Print percentage to the workflow summary so the badge in
+          # GitHub Actions has it.
+          pct=$(grep -oE 'coverage [0-9.]+%' target/coverage/tarpaulin-report.html | head -1 || true)
+          echo "## Coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo "$pct" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ github.run_id }}
+          path: |
+            target/coverage/lcov.info
+            target/coverage/tarpaulin-report.html
+          retention-days: 14
