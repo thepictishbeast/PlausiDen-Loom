@@ -135,7 +135,9 @@ fn column(col: &FooterColumn<'_>) -> Markup {
 }
 
 fn any_contact(items: &[FooterItem<'_>]) -> bool {
-    items.iter().any(|i| matches!(i, FooterItem::Contact { .. }))
+    items
+        .iter()
+        .any(|i| matches!(i, FooterItem::Contact { .. }))
 }
 
 fn item_li(item: &FooterItem<'_>) -> Markup {
@@ -185,8 +187,12 @@ mod tests {
             },
         ];
         const SOLUTIONS: &[FooterItem<'static>] = &[
-            FooterItem::Text { text: "IT Operations" },
-            FooterItem::Text { text: "Cyber Security" },
+            FooterItem::Text {
+                text: "IT Operations",
+            },
+            FooterItem::Text {
+                text: "Cyber Security",
+            },
         ];
         static CONTACT: &[FooterItem<'static>] = &[
             FooterItem::Contact {

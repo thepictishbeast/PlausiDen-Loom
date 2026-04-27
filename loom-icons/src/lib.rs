@@ -269,8 +269,16 @@ mod tests {
     fn every_icon_has_svg_body() {
         for ico in all() {
             assert!(ico.template.contains("<svg"), "{} missing svg open", ico.id);
-            assert!(ico.template.contains("</svg>"), "{} missing svg close", ico.id);
-            assert!(ico.template.contains("__CLS__"), "{} missing class slot", ico.id);
+            assert!(
+                ico.template.contains("</svg>"),
+                "{} missing svg close",
+                ico.id
+            );
+            assert!(
+                ico.template.contains("__CLS__"),
+                "{} missing class slot",
+                ico.id
+            );
         }
     }
 

@@ -221,9 +221,18 @@ mod tests {
     #[test]
     fn select_renders_options_in_order() {
         let opts = [
-            SelectOption { value: "", label: "Pick one" },
-            SelectOption { value: "a", label: "Alpha" },
-            SelectOption { value: "b", label: "Beta" },
+            SelectOption {
+                value: "",
+                label: "Pick one",
+            },
+            SelectOption {
+                value: "a",
+                label: "Alpha",
+            },
+            SelectOption {
+                value: "b",
+                label: "Beta",
+            },
         ];
         let sel = Select {
             id: "service",

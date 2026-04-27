@@ -157,11 +157,7 @@ impl LinkCard<'_> {
     /// Render as `<a><div>...</div></a>`.
     #[must_use]
     pub fn render(&self) -> Markup {
-        let class = compose_class(
-            CardElevation::Soft,
-            CardPadding::Roomy,
-            CardHover::Lift,
-        );
+        let class = compose_class(CardElevation::Soft, CardPadding::Roomy, CardHover::Lift);
         html! {
             a href=(self.href) class="group block" {
                 article class=(class) {
@@ -305,7 +301,10 @@ mod tests {
         assert!(s.contains("w-14 h-14"));
         assert!(s.contains("bg-primary/5"));
         assert!(s.contains("group-hover:bg-primary"));
-        assert!(s.contains(" group"), "outer card needs `group` for group-hover children");
+        assert!(
+            s.contains(" group"),
+            "outer card needs `group` for group-hover children"
+        );
     }
 
     #[test]

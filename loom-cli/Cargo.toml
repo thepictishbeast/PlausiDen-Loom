@@ -12,8 +12,8 @@ name = "loom"
 path = "src/main.rs"
 
 [dependencies]
-loom-lint = { path = "../loom-lint" }
-loom-tokens = { path = "../loom-tokens" }
+loom-lint = { path = "../loom-lint", version = "0.1" }
+loom-tokens = { path = "../loom-tokens", version = "0.1" }
 clap = { workspace = true }
 anyhow = { workspace = true }
 serde_json = { workspace = true }

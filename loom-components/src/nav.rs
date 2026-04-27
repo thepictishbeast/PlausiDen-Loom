@@ -167,8 +167,12 @@ fn render_desktop_cta(cta: &NavCta<'_>) -> Markup {
 /// the visual identity stays consistent across breakpoints.
 fn render_mobile_cta(cta: &NavCta<'_>) -> Markup {
     let class = match cta.variant {
-        ButtonVariant::OutlineSuccess => "mt-2 inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium rounded-md border border-emerald-500/50 text-emerald-700 hover:bg-emerald-50 min-h-8 px-3 text-xs py-2",
-        _ => "inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium rounded-md bg-primary text-primary-foreground min-h-8 px-3 text-xs py-2",
+        ButtonVariant::OutlineSuccess => {
+            "mt-2 inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium rounded-md border border-emerald-500/50 text-emerald-700 hover:bg-emerald-50 min-h-8 px-3 text-xs py-2"
+        }
+        _ => {
+            "inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium rounded-md bg-primary text-primary-foreground min-h-8 px-3 text-xs py-2"
+        }
     };
     html! {
         a href=(cta.href) class=(class) { (cta.label) }

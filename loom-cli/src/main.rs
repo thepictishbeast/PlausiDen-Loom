@@ -125,7 +125,11 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
-        Cmd::New { name, root, template } => match cmd_new(&name, &root, &template) {
+        Cmd::New {
+            name,
+            root,
+            template,
+        } => match cmd_new(&name, &root, &template) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("loom new: {e:#}");
@@ -149,11 +153,18 @@ fn main() -> ExitCode {
 fn cmd_lint(root: &std::path::Path, json: bool) -> Result<usize> {
     let violations = loom_lint::run_default(root)?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&violations).unwrap_or_else(|_| "[]".into()));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&violations).unwrap_or_else(|_| "[]".into())
+        );
     } else if violations.is_empty() {
         println!("loom lint: clean ({})", root.display());
     } else {
-        println!("loom lint: {} violation(s) in {}", violations.len(), root.display());
+        println!(
+            "loom lint: {} violation(s) in {}",
+            violations.len(),
+            root.display()
+        );
         for v in &violations {
             println!("  {}:{}", v.path.display(), v.line);
             println!("    \"{}\"", v.class_string);
@@ -287,8 +298,7 @@ fn cmd_doctor(root: &std::path::Path) -> Result<()> {
         for module in claimed_modules {
             // The lib.rs uses lowercase mod names + the type name in
             // pub use; we check for the type name being exported.
-            if !lib.contains(&format!("pub use {}", module.to_lowercase()))
-                && !lib.contains(module)
+            if !lib.contains(&format!("pub use {}", module.to_lowercase())) && !lib.contains(module)
             {
                 findings.push(format!(
                     "Crate map mentions `{module}` but loom-components/src/lib.rs does not export it"
@@ -353,7 +363,8 @@ fn cmd_audit(journey_path: &str, url: &str) -> Result<()> {
         "viewport": { "w": 1440, "h": 900 },
         "steps": steps,
     });
-    let pretty = serde_json::to_string_pretty(&journey).expect("token tree is finite + serde-clean");
+    let pretty =
+        serde_json::to_string_pretty(&journey).expect("token tree is finite + serde-clean");
     if journey_path == "-" {
         println!("{pretty}");
     } else {
@@ -372,7 +383,10 @@ fn cmd_audit(journey_path: &str, url: &str) -> Result<()> {
 /// caller to wire the route + handler + sitemap entry — those are
 /// per-crate decisions and can't be safely automated from here.
 fn cmd_new(name: &str, root: &std::path::Path, template: &str) -> Result<()> {
-    if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
         anyhow::bail!("name must be lowercase ASCII + dashes (got {name:?})");
     }
     let module_name = name.replace('-', "_");
@@ -384,9 +398,7 @@ fn cmd_new(name: &str, root: &std::path::Path, template: &str) -> Result<()> {
         "landing" => template_landing(name, &module_name),
         "legal" => template_legal(name, &module_name),
         "article" => template_article(name, &module_name),
-        other => anyhow::bail!(
-            "unknown template {other:?}; expected landing | legal | article"
-        ),
+        other => anyhow::bail!("unknown template {other:?}; expected landing | legal | article"),
     };
     std::fs::write(&target, template_body)
         .map_err(|e| anyhow::anyhow!("write {}: {e}", target.display()))?;
@@ -397,7 +409,9 @@ fn cmd_new(name: &str, root: &std::path::Path, template: &str) -> Result<()> {
     println!("  2. Add a handler in src/handlers.rs that calls views::{module_name}::render()");
     println!("  3. Add `.route(\"/{name}\", get(handlers::{module_name}))` in main.rs");
     println!("  4. Add the route to SITEMAP_ROUTES if it should be indexed");
-    println!("  5. Add `snap_route!({module_name}, \"/{name}\")` if the crate uses insta snapshots");
+    println!(
+        "  5. Add `snap_route!({module_name}, \"/{name}\")` if the crate uses insta snapshots"
+    );
     Ok(())
 }
 

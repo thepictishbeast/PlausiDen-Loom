@@ -142,7 +142,9 @@ const fn variant_classes(v: ButtonVariant) -> &'static str {
         ButtonVariant::OutlineSuccess => {
             "bg-white border border-emerald-500/50 text-emerald-700 hover:bg-emerald-50"
         }
-        ButtonVariant::Ghost => "bg-transparent text-white border border-white/20 hover:bg-white/10",
+        ButtonVariant::Ghost => {
+            "bg-transparent text-white border border-white/20 hover:bg-white/10"
+        }
     }
 }
 

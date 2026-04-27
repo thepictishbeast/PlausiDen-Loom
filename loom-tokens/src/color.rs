@@ -259,11 +259,13 @@ mod tests {
         // same role name. A missing counterpart leaves a hole in the
         // dark theme that components would discover at runtime; we
         // catch it at test time instead.
-        let light: std::collections::HashSet<_> =
-            ColorRole::all().iter().map(|r| r.role).collect();
+        let light: std::collections::HashSet<_> = ColorRole::all().iter().map(|r| r.role).collect();
         let dark: std::collections::HashSet<_> =
             ColorRole::dark_all().iter().map(|r| r.role).collect();
-        assert_eq!(light, dark, "dark palette must mirror light palette role-for-role");
+        assert_eq!(
+            light, dark,
+            "dark palette must mirror light palette role-for-role"
+        );
     }
 
     #[test]

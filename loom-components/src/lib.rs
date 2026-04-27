@@ -24,12 +24,14 @@ pub mod typography;
 
 pub use badge::{Badge, BadgeSize, BadgeTone};
 pub use button::{Button, ButtonSize, ButtonVariant, Decoration, IconPosition};
-pub use card::{Card, CardElevation, CardHover, CardPadding, FeatureCard, FeatureCardStyle, LinkCard};
+pub use card::{
+    Card, CardElevation, CardHover, CardPadding, FeatureCard, FeatureCardStyle, LinkCard,
+};
 pub use footer::{Footer, FooterColumn, FooterItem, FooterLegalLink};
 pub use form::{InputType, Select, SelectOption, TextArea, TextInput};
 pub use hero::{Hero, HeroBackground};
 pub use modal::{Modal, ModalSize};
 pub use nav::{Nav, NavCta, NavLink};
-pub use toast::{Toast, ToastDuration, ToastTone};
 pub use section::{Section, SectionTheme};
+pub use toast::{Toast, ToastDuration, ToastTone};
 pub use typography::{BodyText, Heading, HeadingLevel, HeadingTone, HeadingVariant, Lede};
