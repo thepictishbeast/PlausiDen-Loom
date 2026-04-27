@@ -1,0 +1,203 @@
+//! Typed typography primitives — `Heading`, `Lede`, `BodyText`.
+//!
+//! Replace every `text-3xl font-bold ...` raw class string in views.
+//! Adding a level / variant is a doctrine review.
+
+use maud::{Markup, html};
+use serde::{Deserialize, Serialize};
+
+/// Heading level. Maps to the corresponding HTML tag.
+///
+/// Visual variant is decoupled from semantic level so a page can use
+/// a `<h2>` styled as the section heading without embedding font
+/// sizes inline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HeadingLevel {
+    /// `<h1>` — one per page. Hero headlines.
+    H1,
+    /// `<h2>` — section-level. "What we cover", "Why firms come to us".
+    H2,
+    /// `<h3>` — subsection. Capability card titles, FAQ items.
+    H3,
+}
+
+/// Visual style. May differ from semantic level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HeadingVariant {
+    /// Hero-scale display — biggest. `text-4xl md:text-5xl lg:text-6xl`.
+    Display,
+    /// Section heading. `text-3xl md:text-4xl`.
+    Section,
+    /// Card / feature heading. `text-xl`.
+    Sub,
+}
+
+/// Color tone. Mostly determined by surrounding band.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HeadingTone {
+    /// Slate-900 (default on light backgrounds).
+    Ink,
+    /// White (on dark bands).
+    OnDark,
+}
+
+/// A typed heading.
+pub struct Heading<'a> {
+    /// Heading text.
+    pub text: &'a str,
+    /// Semantic level (`h1`/`h2`/`h3`).
+    pub level: HeadingLevel,
+    /// Visual variant.
+    pub variant: HeadingVariant,
+    /// Tone.
+    pub tone: HeadingTone,
+}
+
+impl Heading<'_> {
+    /// Render as the appropriate heading tag.
+    #[must_use]
+    pub fn render(&self) -> Markup {
+        let class = format!(
+            "font-display font-bold leading-tight {variant} {tone}",
+            variant = variant_classes(self.variant),
+            tone = tone_classes(self.tone),
+        );
+        match self.level {
+            HeadingLevel::H1 => html! { h1 class=(class) { (self.text) } },
+            HeadingLevel::H2 => html! { h2 class=(class) { (self.text) } },
+            HeadingLevel::H3 => html! { h3 class=(class) { (self.text) } },
+        }
+    }
+}
+
+const fn variant_classes(v: HeadingVariant) -> &'static str {
+    match v {
+        HeadingVariant::Display => "text-4xl md:text-5xl lg:text-6xl",
+        HeadingVariant::Section => "text-3xl md:text-4xl",
+        HeadingVariant::Sub => "text-xl",
+    }
+}
+
+const fn tone_classes(t: HeadingTone) -> &'static str {
+    match t {
+        HeadingTone::Ink => "text-slate-900",
+        HeadingTone::OnDark => "text-white",
+    }
+}
+
+/// Subhead lede paragraph — the larger body text directly under a
+/// heading.
+pub struct Lede<'a> {
+    /// Text content.
+    pub text: &'a str,
+    /// Tone.
+    pub tone: HeadingTone,
+}
+
+impl Lede<'_> {
+    /// Render as `<p>`.
+    #[must_use]
+    pub fn render(&self) -> Markup {
+        let tone = match self.tone {
+            HeadingTone::Ink => "text-slate-600",
+            HeadingTone::OnDark => "text-slate-400",
+        };
+        let class = format!("text-lg md:text-xl leading-relaxed {tone}");
+        html! { p class=(class) { (self.text) } }
+    }
+}
+
+/// Standard body paragraph.
+pub struct BodyText<'a> {
+    /// Text content.
+    pub text: &'a str,
+    /// Tone.
+    pub tone: HeadingTone,
+}
+
+impl BodyText<'_> {
+    /// Render as `<p>`.
+    #[must_use]
+    pub fn render(&self) -> Markup {
+        let tone = match self.tone {
+            HeadingTone::Ink => "text-slate-700",
+            HeadingTone::OnDark => "text-slate-300",
+        };
+        let class = format!("leading-relaxed {tone}");
+        html! { p class=(class) { (self.text) } }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn h1_emits_h1_tag() {
+        let s = Heading {
+            text: "Hero",
+            level: HeadingLevel::H1,
+            variant: HeadingVariant::Display,
+            tone: HeadingTone::Ink,
+        }
+        .render()
+        .into_string();
+        assert!(s.starts_with("<h1"));
+        assert!(s.contains(">Hero</h1>"));
+    }
+
+    #[test]
+    fn h2_section_emits_section_classes() {
+        let s = Heading {
+            text: "Section",
+            level: HeadingLevel::H2,
+            variant: HeadingVariant::Section,
+            tone: HeadingTone::Ink,
+        }
+        .render()
+        .into_string();
+        assert!(s.contains("text-3xl"));
+        assert!(s.contains("md:text-4xl"));
+        assert!(s.contains("text-slate-900"));
+    }
+
+    #[test]
+    fn ondark_tone_emits_text_white() {
+        let s = Heading {
+            text: "x",
+            level: HeadingLevel::H2,
+            variant: HeadingVariant::Section,
+            tone: HeadingTone::OnDark,
+        }
+        .render()
+        .into_string();
+        assert!(s.contains("text-white"));
+    }
+
+    #[test]
+    fn lede_uses_larger_body_text() {
+        let s = Lede {
+            text: "the lede",
+            tone: HeadingTone::Ink,
+        }
+        .render()
+        .into_string();
+        assert!(s.contains("text-lg"));
+        assert!(s.contains("leading-relaxed"));
+        assert!(s.contains(">the lede<"));
+    }
+
+    #[test]
+    fn body_uses_slate_700_on_ink() {
+        let s = BodyText {
+            text: "x",
+            tone: HeadingTone::Ink,
+        }
+        .render()
+        .into_string();
+        assert!(s.contains("text-slate-700"));
+    }
+}
