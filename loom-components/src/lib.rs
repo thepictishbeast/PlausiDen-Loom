@@ -16,6 +16,7 @@ pub mod card;
 pub mod footer;
 pub mod form;
 pub mod hero;
+pub mod nav;
 pub mod section;
 pub mod typography;
 
@@ -25,5 +26,6 @@ pub use card::{Card, CardElevation, CardHover, CardPadding, FeatureCard, Feature
 pub use footer::{Footer, FooterColumn, FooterItem, FooterLegalLink};
 pub use form::{InputType, Select, SelectOption, TextArea, TextInput};
 pub use hero::{Hero, HeroBackground};
+pub use nav::{Nav, NavCta, NavLink};
 pub use section::{Section, SectionTheme};
 pub use typography::{BodyText, Heading, HeadingLevel, HeadingTone, HeadingVariant, Lede};
