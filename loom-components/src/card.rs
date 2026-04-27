@@ -70,6 +70,20 @@ impl Card<'_> {
     }
 }
 
+/// Visual style for [`FeatureCard`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FeatureCardStyle {
+    /// Compact icon tile (`w-12 h-12 bg-primary/10`), comfortable
+    /// padding. Used on vertical landing pages, in dense capability
+    /// grids.
+    Subtle,
+    /// Larger icon tile (`w-14 h-14 bg-primary/5`) that flips to
+    /// brand color on `group-hover`. Used on the home services grid
+    /// and the services page where the surface invites interaction.
+    Bold,
+}
+
 /// Feature card: icon + title + description. Common shape on
 /// vertical landing pages and "Everything Your Business Needs"
 /// home grid.
@@ -83,23 +97,46 @@ pub struct FeatureCard<'a> {
 }
 
 impl FeatureCard<'_> {
-    /// Render as a `<div>` with icon-tile + heading + body.
+    /// Render with the default subtle style.
     #[must_use]
     pub fn render(&self) -> Markup {
-        let class = compose_class(
-            CardElevation::Soft,
-            CardPadding::Comfortable,
-            CardHover::Lift,
-        );
+        self.render_with_style(FeatureCardStyle::Subtle)
+    }
+
+    /// Render with explicit style.
+    #[must_use]
+    #[allow(clippy::similar_names)] // tile_class / title_class / body_class are clear in context
+    pub fn render_with_style(&self, style: FeatureCardStyle) -> Markup {
+        let (card_padding, tile_class, title_class, body_class) = match style {
+            FeatureCardStyle::Subtle => (
+                CardPadding::Comfortable,
+                "bg-primary/10 w-12 h-12 rounded-lg flex items-center justify-center mb-4",
+                "font-display text-xl font-bold text-slate-900 mb-2",
+                "text-slate-600 text-sm leading-relaxed",
+            ),
+            FeatureCardStyle::Bold => (
+                CardPadding::Roomy,
+                "bg-primary/5 w-14 h-14 rounded-2xl flex items-center justify-center mb-6 \
+                 group-hover:bg-primary group-hover:text-white transition-colors duration-300",
+                "font-display text-xl font-bold text-slate-900 mb-3",
+                "text-slate-600 leading-relaxed",
+            ),
+        };
+        let card_class = compose_class(CardElevation::Soft, card_padding, CardHover::Lift);
+        // Bold style hooks on `.group` so its child can `group-hover:`.
+        let outer_class = match style {
+            FeatureCardStyle::Subtle => card_class,
+            FeatureCardStyle::Bold => format!("{card_class} group"),
+        };
         html! {
-            div class=(class) {
-                div class="bg-primary/10 w-12 h-12 rounded-lg flex items-center justify-center mb-4" {
+            div class=(outer_class) {
+                div class=(tile_class) {
                     (PreEscaped(self.icon_svg))
                 }
-                h3 class="font-display text-xl font-bold text-slate-900 mb-2" {
+                h3 class=(title_class) {
                     (self.title)
                 }
-                p class="text-slate-600 text-sm leading-relaxed" {
+                p class=(body_class) {
                     (self.description)
                 }
             }
@@ -254,6 +291,35 @@ mod tests {
         .render()
         .into_string();
         assert!(!s.contains("shadow-"));
+    }
+
+    #[test]
+    fn feature_card_bold_uses_larger_tile_with_group_hover() {
+        let s = FeatureCard {
+            icon_svg: "<svg/>",
+            title: "T",
+            description: "D",
+        }
+        .render_with_style(FeatureCardStyle::Bold)
+        .into_string();
+        assert!(s.contains("w-14 h-14"));
+        assert!(s.contains("bg-primary/5"));
+        assert!(s.contains("group-hover:bg-primary"));
+        assert!(s.contains(" group"), "outer card needs `group` for group-hover children");
+    }
+
+    #[test]
+    fn feature_card_subtle_uses_compact_tile() {
+        let s = FeatureCard {
+            icon_svg: "<svg/>",
+            title: "T",
+            description: "D",
+        }
+        .render_with_style(FeatureCardStyle::Subtle)
+        .into_string();
+        assert!(s.contains("w-12 h-12"));
+        assert!(s.contains("bg-primary/10"));
+        assert!(!s.contains("group-hover:bg-primary"));
     }
 
     #[test]
