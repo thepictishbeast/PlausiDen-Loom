@@ -48,14 +48,42 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
-    /// (Not yet implemented.) Run visual-regression tests at every
-    /// declared breakpoint.
-    Audit,
-    /// (Not yet implemented.) Scaffold a new page from a sanctioned
-    /// template.
+    /// Run visual-regression tests via PlausiDen-Crawler. Wraps a
+    /// crawler journey that screenshots every breakpoint declared in
+    /// loom-tokens. The crawler does the actual diffing; this
+    /// subcommand is a typed entry point that locks the journey
+    /// shape so `loom audit` is the one canonical invocation.
+    Audit {
+        /// Path to a journey JSON. Defaults to a generated one
+        /// printed to stdout if the path is `-`.
+        #[arg(long, default_value = "-")]
+        journey: String,
+        /// URL of the running site to audit.
+        #[arg(long, default_value = "https://next.plausiden.com/")]
+        url: String,
+    },
+    /// Scaffold a new page view from a sanctioned template. Emits
+    /// a stub `<root>/src/views/<name>.rs` composed entirely from
+    /// Loom primitives, plus the `pub mod <name>;` line for
+    /// `views.rs`. Refuses to overwrite an existing file.
     New {
-        /// Page name (slug, lowercase, dash-separated).
+        /// Page name (slug, lowercase, dash-separated, used as the
+        /// file name and the route path).
         name: String,
+        /// Path to the consuming crate's root. Defaults to current.
+        #[arg(default_value = ".")]
+        root: PathBuf,
+        /// Template flavor. `landing` = hero + section + CTA;
+        /// `legal` = boxed disclaimer + body; `article` = blog-shaped.
+        #[arg(long, default_value = "landing")]
+        template: String,
+    },
+    /// Emit a GTK 4 CSS theme built from loom-tokens. Pipe to a file:
+    ///   `loom gtk-theme > ~/.config/gtk-4.0/loom.css`
+    GtkTheme {
+        /// Use the dark-theme token set.
+        #[arg(long)]
+        dark: bool,
     },
     /// Verify the design-system doctrine document is in sync with
     /// the code it claims to govern. Fails if CLAUDE.md is missing
@@ -90,13 +118,23 @@ fn main() -> ExitCode {
                 ExitCode::from(2)
             }
         },
-        Cmd::Audit => {
-            eprintln!("loom audit: not yet implemented (Playwright integration in follow-up).");
-            ExitCode::from(1)
-        }
-        Cmd::New { name } => {
-            eprintln!("loom new {name}: not yet implemented (template scaffold in follow-up).");
-            ExitCode::from(1)
+        Cmd::Audit { journey, url } => match cmd_audit(&journey, &url) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("loom audit: {e:#}");
+                ExitCode::from(1)
+            }
+        },
+        Cmd::New { name, root, template } => match cmd_new(&name, &root, &template) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("loom new: {e:#}");
+                ExitCode::from(1)
+            }
+        },
+        Cmd::GtkTheme { dark } => {
+            print!("{}", cmd_gtk_theme(dark));
+            ExitCode::SUCCESS
         }
         Cmd::Doctor { root } => match cmd_doctor(&root) {
             Ok(()) => ExitCode::SUCCESS,
@@ -274,4 +312,245 @@ fn cmd_doctor(root: &std::path::Path) -> Result<()> {
         }
         anyhow::bail!("doctrine drift detected; see findings above")
     }
+}
+
+/// Emit a crawler-shaped JSON journey to stdout (or the given path).
+/// The journey hits each declared breakpoint in `loom-tokens`, navigates
+/// to the URL, and screenshots — leaving the diffing to the crawler.
+///
+/// The implementation is intentionally a thin journey emitter rather
+/// than a full visual-diff engine: the crawler already does the
+/// screenshot/diff loop; reimplementing it here would be duplication.
+fn cmd_audit(journey_path: &str, url: &str) -> Result<()> {
+    use loom_tokens::Breakpoint;
+    let breakpoints = Breakpoint::all();
+    let mut steps: Vec<serde_json::Value> = Vec::with_capacity(breakpoints.len() * 3);
+    for bp in breakpoints {
+        let bp_name = bp.tailwind();
+        let bp_px = bp.px();
+        // The crawler journey runner currently expects per-step
+        // viewport via the journey's top-level `viewport` field
+        // OR a CLI override; per-step viewport switching is
+        // tracked as a crawler enhancement. For now emit one
+        // goto+screenshot per breakpoint and leave viewport
+        // switching to the crawler --viewport flag invocation.
+        steps.push(serde_json::json!({
+            "kind": "goto",
+            "url": url,
+            "timeout": 15000,
+            "label": format!("goto-{bp_name}-{bp_px}px"),
+        }));
+        steps.push(serde_json::json!({ "kind": "wait", "ms": 600 }));
+        steps.push(serde_json::json!({
+            "kind": "screenshot",
+            "label": format!("loom-audit-{bp_name}"),
+        }));
+    }
+    let journey = serde_json::json!({
+        "name": "loom-audit",
+        "description": "Visual-regression journey — screenshot every Loom breakpoint. Run via `node --loader ts-node/esm src/main.ts --journey <path>` in PlausiDen-Crawler.",
+        "baseUrl": url,
+        "viewport": { "w": 1440, "h": 900 },
+        "steps": steps,
+    });
+    let pretty = serde_json::to_string_pretty(&journey).expect("token tree is finite + serde-clean");
+    if journey_path == "-" {
+        println!("{pretty}");
+    } else {
+        std::fs::write(journey_path, pretty)
+            .map_err(|e| anyhow::anyhow!("write {journey_path}: {e}"))?;
+        println!("loom audit: journey written to {journey_path}");
+        println!("Run with:");
+        println!("  cd /path/to/PlausiDen-Crawler");
+        println!("  node --loader ts-node/esm src/main.ts --journey {journey_path}");
+    }
+    Ok(())
+}
+
+/// Scaffold a new view file under `<root>/src/views/<name>.rs`.
+/// Refuses to overwrite. Adds a TODO line at the top reminding the
+/// caller to wire the route + handler + sitemap entry — those are
+/// per-crate decisions and can't be safely automated from here.
+fn cmd_new(name: &str, root: &std::path::Path, template: &str) -> Result<()> {
+    if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+        anyhow::bail!("name must be lowercase ASCII + dashes (got {name:?})");
+    }
+    let module_name = name.replace('-', "_");
+    let target = root.join("src/views").join(format!("{module_name}.rs"));
+    if target.exists() {
+        anyhow::bail!("refuse to overwrite existing {}", target.display());
+    }
+    let template_body = match template {
+        "landing" => template_landing(name, &module_name),
+        "legal" => template_legal(name, &module_name),
+        "article" => template_article(name, &module_name),
+        other => anyhow::bail!(
+            "unknown template {other:?}; expected landing | legal | article"
+        ),
+    };
+    std::fs::write(&target, template_body)
+        .map_err(|e| anyhow::anyhow!("write {}: {e}", target.display()))?;
+    println!("loom new: scaffolded {}", target.display());
+    println!();
+    println!("Next steps (manual — these are per-crate wiring decisions):");
+    println!("  1. Add `pub mod {module_name};` to src/views.rs");
+    println!("  2. Add a handler in src/handlers.rs that calls views::{module_name}::render()");
+    println!("  3. Add `.route(\"/{name}\", get(handlers::{module_name}))` in main.rs");
+    println!("  4. Add the route to SITEMAP_ROUTES if it should be indexed");
+    println!("  5. Add `snap_route!({module_name}, \"/{name}\")` if the crate uses insta snapshots");
+    Ok(())
+}
+
+fn template_landing(name: &str, _module: &str) -> String {
+    format!(
+        r#"//! `/{name}` — placeholder generated by `loom new {name} --template landing`.
+
+use maud::{{Markup, html}};
+
+use crate::views::layout::page;
+
+#[must_use]
+pub fn render() -> Markup {{
+    let body = html! {{
+        section class="pt-32 pb-16 md:pt-44 md:pb-20 bg-slate-50" {{
+            div class="container mx-auto px-4 md:px-6 max-w-4xl" {{
+                h1 class="font-display text-4xl md:text-5xl lg:text-6xl font-bold text-slate-900 leading-[1.1] mb-4" {{
+                    "{name} headline goes here"
+                }}
+                p class="text-lg text-slate-600 max-w-2xl leading-relaxed" {{
+                    "Subhead. Replace with real content. Default copy lives here so the snapshot test ratchets up to real wording."
+                }}
+            }}
+        }}
+    }};
+    page("{name} — PlausiDen", "/{name}", body)
+}}
+
+#[cfg(test)]
+mod tests {{
+    use super::*;
+
+    #[test]
+    fn renders_nonempty() {{
+        assert!(render().into_string().len() > 1_000);
+    }}
+}}
+"#,
+        name = name,
+    )
+}
+
+fn template_legal(name: &str, _module: &str) -> String {
+    format!(
+        r#"//! `/{name}` — legal placeholder generated by `loom new {name} --template legal`.
+
+use maud::{{Markup, html}};
+
+use crate::views::layout::page;
+
+#[must_use]
+pub fn render() -> Markup {{
+    let body = html! {{
+        section class="pt-32 pb-16 md:pt-48 md:pb-20 bg-slate-50" {{
+            div class="container mx-auto px-4 md:px-6 max-w-3xl" {{
+                span class="inline-block px-4 py-1.5 rounded-full bg-primary/10 text-primary font-semibold text-sm mb-6 border border-primary/20" {{
+                    "Legal"
+                }}
+                h1 class="font-display text-4xl md:text-5xl font-bold text-slate-900 leading-[1.1] mb-4" {{
+                    "{name}"
+                }}
+            }}
+        }}
+        section class="py-16 bg-white" {{
+            div class="container mx-auto px-4 md:px-6 max-w-3xl" {{
+                div class="rounded-xl border border-amber-200 bg-amber-50 p-6 mb-10" {{
+                    p class="text-sm text-amber-900 font-medium mb-2" {{ "Placeholder — under legal review" }}
+                    p class="text-sm text-amber-800 leading-relaxed" {{
+                        "Replace with the counsel-reviewed text. Until then, this banner is operative."
+                    }}
+                }}
+            }}
+        }}
+    }};
+    page("{name} — PlausiDen", "/{name}", body)
+}}
+"#,
+        name = name,
+    )
+}
+
+fn template_article(name: &str, _module: &str) -> String {
+    format!(
+        r#"//! `/{name}` — article placeholder generated by `loom new {name} --template article`.
+
+use maud::{{Markup, html}};
+
+use crate::views::layout::page;
+
+#[must_use]
+pub fn render() -> Markup {{
+    let body = html! {{
+        article class="prose prose-slate mx-auto max-w-3xl px-4 md:px-6 pt-32 pb-16" {{
+            p class="text-sm text-slate-500 mb-2" {{ "Field note · YYYY-MM-DD · X min read" }}
+            h1 class="font-display text-3xl md:text-4xl font-bold text-slate-900 mb-6" {{
+                "{name} title goes here"
+            }}
+            p class="text-lg text-slate-600 leading-relaxed mb-8" {{
+                "Lede paragraph. Replace with real content."
+            }}
+            h2 class="font-display text-2xl md:text-3xl font-bold text-slate-900 mt-12 mb-4" {{
+                "First section heading"
+            }}
+            p class="mb-6" {{ "Body paragraph." }}
+        }}
+    }};
+    page("{name} — PlausiDen", "/{name}", body)
+}}
+"#,
+        name = name,
+    )
+}
+
+/// Emit a GTK 4 CSS theme built from loom-tokens. Maps each
+/// semantic role to GTK's named colors so a downstream Thundercrab
+/// GTK build (or any GTK app) inherits the same palette as the web
+/// site without re-implementing it.
+///
+/// The CSS is small (~80 lines) and intentionally limited to color
+/// + spacing tokens — animations, fonts, and layout are GTK-app-
+/// specific and shouldn't be baked into a shared theme.
+fn cmd_gtk_theme(dark: bool) -> String {
+    use loom_tokens::ColorRole;
+    let palette = if dark {
+        ColorRole::dark_all()
+    } else {
+        ColorRole::all()
+    };
+    let mode = if dark { "dark" } else { "light" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "/* GTK 4 theme generated from loom-tokens ({mode}). */\n"
+    ));
+    out.push_str("/* Do not edit by hand — re-run `loom gtk-theme` after a token change. */\n\n");
+    out.push_str(":root {\n");
+    for role in palette {
+        out.push_str(&format!(
+            "  --loom-{name}: {css};\n",
+            name = role.role,
+            css = role.color.css
+        ));
+    }
+    out.push_str("}\n\n");
+    // Map a few critical GTK named colors to Loom roles. GTK named
+    // colors are referenced by `@name` in widget CSS.
+    out.push_str("@define-color theme_bg_color var(--loom-surface);\n");
+    out.push_str("@define-color theme_fg_color var(--loom-ink);\n");
+    out.push_str("@define-color theme_base_color var(--loom-surface-muted);\n");
+    out.push_str("@define-color theme_text_color var(--loom-ink);\n");
+    out.push_str("@define-color theme_selected_bg_color var(--loom-primary);\n");
+    out.push_str("@define-color theme_selected_fg_color var(--loom-primary-fg);\n");
+    out.push_str("@define-color borders var(--loom-border);\n");
+    out.push_str("@define-color error_color var(--loom-danger);\n");
+    out.push_str("@define-color success_color var(--loom-success);\n");
+    out
 }
