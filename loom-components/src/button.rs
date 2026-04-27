@@ -1,6 +1,6 @@
 //! Typed `Button` primitive.
 
-use maud::{Markup, html};
+use maud::{Markup, PreEscaped, html};
 use serde::{Deserialize, Serialize};
 
 /// Visual style. Adding a variant requires a doctrine review.
@@ -29,11 +29,33 @@ pub enum ButtonSize {
     Lg,
 }
 
+/// Where an icon sits relative to the label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IconPosition {
+    /// Icon precedes the label.
+    Before,
+    /// Icon follows the label.
+    After,
+}
+
+/// Optional visual decoration. Typed slot so callers can ask for a
+/// shadow without reaching for raw class strings. Adding a variant
+/// requires a doctrine review.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Decoration {
+    /// No extra decoration.
+    None,
+    /// Soft brand-tinted shadow — used on hero CTAs.
+    SoftShadow,
+}
+
 /// A typed button.
 ///
 /// SECURITY: There is no `extra_classes` field. If you find yourself
-/// wanting one, the design system has a real gap; extend it, don't
-/// route around it.
+/// wanting one, the design system has a real gap; extend it (variant,
+/// size, decoration, or icon slot), don't route around it.
 pub struct Button<'a> {
     /// Visible label text.
     pub label: &'a str,
@@ -45,22 +67,49 @@ pub struct Button<'a> {
     /// announce to assistive tech if its label isn't sufficient?
     /// Pass `None` to use `label` verbatim.
     pub aria_label: Option<&'a str>,
+    /// Optional inline SVG markup, pre-escaped, plus its position
+    /// relative to the label. `None` = no icon. The SVG is trusted
+    /// content (constants from a `loom-icons` registry, or vetted
+    /// inline SVG); never accept this from user input.
+    pub icon: Option<(&'a str, IconPosition)>,
+    /// Optional visual decoration (shadows etc.).
+    pub decoration: Decoration,
 }
 
-impl Button<'_> {
+impl<'a> Button<'a> {
+    /// Convenience constructor — minimal config, no icon, no decoration.
+    #[must_use]
+    pub const fn new(label: &'a str, variant: ButtonVariant, size: ButtonSize) -> Self {
+        Self {
+            label,
+            variant,
+            size,
+            aria_label: None,
+            icon: None,
+            decoration: Decoration::None,
+        }
+    }
+
     /// Render as `<button type="button">`.
     #[must_use]
     pub fn render(&self) -> Markup {
         let aria = self.aria_label.unwrap_or(self.label);
         let class = format!(
-            "{base} {size} {variant}",
+            "{base} {size} {variant} {deco}",
             base = base_classes(),
             size = size_classes(self.size),
             variant = variant_classes(self.variant),
+            deco = decoration_classes(self.decoration),
         );
         html! {
-            button type="button" class=(class) aria-label=(aria) {
+            button type="button" class=(class.trim()) aria-label=(aria) {
+                @if let Some((svg, IconPosition::Before)) = self.icon {
+                    (PreEscaped(svg))
+                }
                 (self.label)
+                @if let Some((svg, IconPosition::After)) = self.icon {
+                    (PreEscaped(svg))
+                }
             }
         }
     }
@@ -85,8 +134,7 @@ const fn size_classes(s: ButtonSize) -> &'static str {
 const fn variant_classes(v: ButtonVariant) -> &'static str {
     match v {
         ButtonVariant::Primary => {
-            "bg-primary text-primary-foreground border border-primary-border \
-             shadow-lg shadow-primary/20 hover:bg-primary/90"
+            "bg-primary text-primary-foreground border border-primary-border hover:bg-primary/90"
         }
         ButtonVariant::Outline => {
             "bg-white border border-slate-200 text-slate-900 hover:bg-slate-50"
@@ -98,19 +146,22 @@ const fn variant_classes(v: ButtonVariant) -> &'static str {
     }
 }
 
+const fn decoration_classes(d: Decoration) -> &'static str {
+    match d {
+        Decoration::None => "",
+        Decoration::SoftShadow => "shadow-lg shadow-primary/20 hover:shadow-xl",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn primary_md_renders_with_expected_classes() {
-        let btn = Button {
-            label: "Get a Quote",
-            variant: ButtonVariant::Primary,
-            size: ButtonSize::Md,
-            aria_label: None,
-        };
-        let s = btn.render().into_string();
+        let s = Button::new("Get a Quote", ButtonVariant::Primary, ButtonSize::Md)
+            .render()
+            .into_string();
         assert!(s.contains("bg-primary"));
         assert!(s.contains("h-10"));
         assert!(s.contains(">Get a Quote<"));
@@ -119,13 +170,13 @@ mod tests {
 
     #[test]
     fn outline_success_uses_emerald() {
-        let btn = Button {
-            label: "Encrypted Inquiry",
-            variant: ButtonVariant::OutlineSuccess,
-            size: ButtonSize::Sm,
-            aria_label: None,
-        };
-        let s = btn.render().into_string();
+        let s = Button::new(
+            "Encrypted Inquiry",
+            ButtonVariant::OutlineSuccess,
+            ButtonSize::Sm,
+        )
+        .render()
+        .into_string();
         assert!(s.contains("emerald"));
     }
 
@@ -136,6 +187,8 @@ mod tests {
             variant: ButtonVariant::Primary,
             size: ButtonSize::Md,
             aria_label: Some("Continue"),
+            icon: None,
+            decoration: Decoration::None,
         };
         let s = btn.render().into_string();
         assert!(s.contains(r#"aria-label="Continue""#));
@@ -145,17 +198,75 @@ mod tests {
     #[test]
     fn focus_ring_classes_present_in_every_size() {
         for size in [ButtonSize::Sm, ButtonSize::Md, ButtonSize::Lg] {
-            let btn = Button {
-                label: "x",
-                variant: ButtonVariant::Primary,
-                size,
-                aria_label: None,
-            };
-            let s = btn.render().into_string();
+            let s = Button::new("x", ButtonVariant::Primary, size)
+                .render()
+                .into_string();
             assert!(
                 s.contains("focus-visible:ring-2"),
                 "missing focus ring at {size:?}"
             );
         }
+    }
+
+    #[test]
+    fn icon_before_renders_before_label() {
+        let btn = Button {
+            label: "Send",
+            variant: ButtonVariant::Primary,
+            size: ButtonSize::Md,
+            aria_label: None,
+            icon: Some(("<svg data-test=\"X\"></svg>", IconPosition::Before)),
+            decoration: Decoration::None,
+        };
+        let s = btn.render().into_string();
+        // Anchor on inner-content positions, not the aria-label attribute.
+        let svg_pos = s.find("svg data-test=\"X\"").unwrap();
+        let inner_label_pos = s.find(">Send<").expect("inner label boundary");
+        assert!(
+            svg_pos < inner_label_pos,
+            "svg pos {svg_pos} not before inner label pos {inner_label_pos}"
+        );
+    }
+
+    #[test]
+    fn icon_after_renders_after_label() {
+        let btn = Button {
+            label: "Next",
+            variant: ButtonVariant::Primary,
+            size: ButtonSize::Md,
+            aria_label: None,
+            icon: Some(("<svg data-test=\"Y\"></svg>", IconPosition::After)),
+            decoration: Decoration::None,
+        };
+        let s = btn.render().into_string();
+        let svg_pos = s.find("svg data-test=\"Y\"").unwrap();
+        let inner_label_pos = s.find(">Next<").expect("inner label boundary");
+        assert!(
+            inner_label_pos < svg_pos,
+            "inner label pos {inner_label_pos} not before svg pos {svg_pos}"
+        );
+    }
+
+    #[test]
+    fn soft_shadow_decoration_emits_shadow_classes() {
+        let btn = Button {
+            label: "x",
+            variant: ButtonVariant::Primary,
+            size: ButtonSize::Lg,
+            aria_label: None,
+            icon: None,
+            decoration: Decoration::SoftShadow,
+        };
+        let s = btn.render().into_string();
+        assert!(s.contains("shadow-lg"));
+        assert!(s.contains("shadow-primary/20"));
+    }
+
+    #[test]
+    fn no_decoration_emits_no_shadow() {
+        let s = Button::new("x", ButtonVariant::Primary, ButtonSize::Md)
+            .render()
+            .into_string();
+        assert!(!s.contains("shadow-lg"));
     }
 }
