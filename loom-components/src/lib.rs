@@ -13,6 +13,7 @@
 pub mod badge;
 pub mod button;
 pub mod card;
+pub mod footer;
 pub mod form;
 pub mod hero;
 pub mod section;
@@ -21,6 +22,7 @@ pub mod typography;
 pub use badge::{Badge, BadgeSize, BadgeTone};
 pub use button::{Button, ButtonSize, ButtonVariant, Decoration, IconPosition};
 pub use card::{Card, CardElevation, CardHover, CardPadding, FeatureCard, FeatureCardStyle, LinkCard};
+pub use footer::{Footer, FooterColumn, FooterItem, FooterLegalLink};
 pub use form::{InputType, Select, SelectOption, TextArea, TextInput};
 pub use hero::{Hero, HeroBackground};
 pub use section::{Section, SectionTheme};

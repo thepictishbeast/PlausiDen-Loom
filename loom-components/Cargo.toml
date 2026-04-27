@@ -8,6 +8,7 @@ repository.workspace = true
 description = "PlausiDen-Loom: typed UI primitives. Every prop is a constrained enum; impossible to ship inconsistent UI."
 
 [dependencies]
+loom-icons = { path = "../loom-icons" }
 loom-tokens = { path = "../loom-tokens" }
 maud = { workspace = true }
 serde = { workspace = true }
