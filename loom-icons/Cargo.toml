@@ -1,0 +1,11 @@
+[package]
+name = "loom-icons"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PlausiDen-Loom: typed registry of vetted SVG icons (lucide-derived). One source of truth across every PlausiDen UI."
+
+[lints]
+workspace = true

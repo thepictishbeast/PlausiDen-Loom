@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "loom-tokens",
+    "loom-icons",
     "loom-components",
     "loom-lint",
     "loom-cli",
