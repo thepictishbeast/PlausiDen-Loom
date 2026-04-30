@@ -82,6 +82,14 @@ pub fn run(root: &Path, allowlist_substrings: &[&str]) -> Result<Vec<Violation>>
         let content =
             std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
         for (lineno, line) in content.lines().enumerate() {
+            // Per-line opt-out: `// loom-allow: <reason>`. The reason
+            // is required so the marker can't rot to a blank — empty
+            // reason still triggers the lint. Designed for in-source
+            // exceptions like test-assertion literals that match the
+            // utility-token shape but aren't real styling.
+            if line.contains("// loom-allow:") {
+                continue;
+            }
             for cap in class_re.captures_iter(line) {
                 let s = &cap[1];
                 let utility_count = s
@@ -182,6 +190,32 @@ mod tests {
         );
         let v = run_default(tmp.path()).unwrap();
         assert!(v.is_empty(), "layout.rs should be allowlisted");
+    }
+
+    #[test]
+    fn loom_allow_marker_skips_line() {
+        let tmp = tempdir();
+        write_temp(
+            tmp.path(),
+            "src/views/example.rs",
+            "fn x() { let _ = \"flex items-center gap-2 px-4\"; } // loom-allow: test-assertion literal\n",
+        );
+        let v = run_default(tmp.path()).unwrap();
+        assert!(v.is_empty(), "loom-allow marker should suppress: got {v:?}");
+    }
+
+    #[test]
+    fn loom_allow_marker_only_skips_marked_line() {
+        let tmp = tempdir();
+        write_temp(
+            tmp.path(),
+            "src/views/example.rs",
+            // First line is allowed, second isn't.
+            "fn a() { let _ = \"flex items-center gap-2 px-4\"; } // loom-allow: ok\nfn b() { let _ = \"grid items-center px-4\"; }\n",
+        );
+        let v = run_default(tmp.path()).unwrap();
+        assert_eq!(v.len(), 1, "marker should not blanket-allow file: {v:?}");
+        assert_eq!(v[0].line, 2, "violation should be on the unmarked line");
     }
 
     fn tempdir() -> tempfile::TempDir {
