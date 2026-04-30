@@ -131,6 +131,50 @@ impl BodyText<'_> {
     }
 }
 
+/// Helper text — smaller, lighter prose used under inputs, beside
+/// buttons, and as form notes. Two sizes: Default (`text-sm`) and
+/// Tiny (`text-xs`). Always `text-slate-500` on light, `text-slate-400`
+/// on dark.
+///
+/// Use this in place of raw `class="text-sm text-slate-500"` strings
+/// (16 occurrences in plausiden.com at the time this primitive
+/// landed).
+pub struct HelperText<'a> {
+    /// Text content.
+    pub text: &'a str,
+    /// Size step.
+    pub size: HelperSize,
+    /// Tone — Ink for light bands, OnDark for dark bands.
+    pub tone: HeadingTone,
+}
+
+/// Size step for [`HelperText`]. Closed enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HelperSize {
+    /// `text-sm` — under headings, captions.
+    Default,
+    /// `text-xs` — micro-copy under buttons.
+    Tiny,
+}
+
+impl HelperText<'_> {
+    /// Render as `<p>`.
+    #[must_use]
+    pub fn render(&self) -> Markup {
+        let size = match self.size {
+            HelperSize::Default => "text-sm",
+            HelperSize::Tiny => "text-xs",
+        };
+        let tone = match self.tone {
+            HeadingTone::Ink => "text-slate-500",
+            HeadingTone::OnDark => "text-slate-400",
+        };
+        let class = format!("{size} {tone}");
+        html! { p class=(class) { (self.text) } }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,5 +243,43 @@ mod tests {
         .render()
         .into_string();
         assert!(s.contains("text-slate-700"));
+    }
+
+    #[test]
+    fn helper_default_size_emits_text_sm() {
+        let s = HelperText {
+            text: "x",
+            size: HelperSize::Default,
+            tone: HeadingTone::Ink,
+        }
+        .render()
+        .into_string();
+        assert!(s.contains("text-sm"));
+        assert!(s.contains("text-slate-500"));
+    }
+
+    #[test]
+    fn helper_tiny_size_emits_text_xs() {
+        let s = HelperText {
+            text: "fine print",
+            size: HelperSize::Tiny,
+            tone: HeadingTone::Ink,
+        }
+        .render()
+        .into_string();
+        assert!(s.contains("text-xs"));
+        assert!(s.contains("fine print"));
+    }
+
+    #[test]
+    fn helper_ondark_uses_slate_400() {
+        let s = HelperText {
+            text: "x",
+            size: HelperSize::Default,
+            tone: HeadingTone::OnDark,
+        }
+        .render()
+        .into_string();
+        assert!(s.contains("text-slate-400"));
     }
 }

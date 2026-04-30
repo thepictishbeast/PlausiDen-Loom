@@ -34,4 +34,6 @@ pub use modal::{Modal, ModalSize};
 pub use nav::{Nav, NavCta, NavLink};
 pub use section::{Section, SectionPadding, SectionTheme, SectionWidth};
 pub use toast::{Toast, ToastDuration, ToastTone};
-pub use typography::{BodyText, Heading, HeadingLevel, HeadingTone, HeadingVariant, Lede};
+pub use typography::{
+    BodyText, Heading, HeadingLevel, HeadingTone, HeadingVariant, HelperSize, HelperText, Lede,
+};
