@@ -51,6 +51,38 @@ pub enum Decoration {
     SoftShadow,
 }
 
+/// HTML form-association role for a `<button>` element.
+///
+/// Distinguishes a plain action button (default) from a form submit
+/// or form reset. Form submission needs `type="submit"` to fire the
+/// surrounding form; CTA buttons that don't sit inside a form should
+/// stay `type="button"` so an accidental Enter on a sibling input
+/// doesn't double-fire.
+///
+/// SECURITY: this is a closed enum on purpose. Custom button types
+/// don't exist in HTML; if a caller wants a fourth value, the caller
+/// is wrong.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ButtonType {
+    /// `type="button"` — plain action. Default.
+    Button,
+    /// `type="submit"` — submits the surrounding `<form>`.
+    Submit,
+    /// `type="reset"` — clears the surrounding `<form>`.
+    Reset,
+}
+
+impl ButtonType {
+    const fn as_str(self) -> &'static str {
+        match self {
+            ButtonType::Button => "button",
+            ButtonType::Submit => "submit",
+            ButtonType::Reset => "reset",
+        }
+    }
+}
+
 /// A typed button.
 ///
 /// SECURITY: There is no `extra_classes` field. If you find yourself
@@ -74,6 +106,11 @@ pub struct Button<'a> {
     pub icon: Option<(&'a str, IconPosition)>,
     /// Optional visual decoration (shadows etc.).
     pub decoration: Decoration,
+    /// HTML form role. Defaults to [`ButtonType::Button`] via the
+    /// [`Button::new`] constructor; form submit buttons must set
+    /// this to [`ButtonType::Submit`] so the surrounding `<form>`
+    /// fires on click.
+    pub button_type: ButtonType,
 }
 
 impl<'a> Button<'a> {
@@ -87,10 +124,11 @@ impl<'a> Button<'a> {
             aria_label: None,
             icon: None,
             decoration: Decoration::None,
+            button_type: ButtonType::Button,
         }
     }
 
-    /// Render as `<button type="button">`.
+    /// Render as `<button>` with the configured `type` attribute.
     #[must_use]
     pub fn render(&self) -> Markup {
         let aria = self.aria_label.unwrap_or(self.label);
@@ -101,8 +139,9 @@ impl<'a> Button<'a> {
             variant = variant_classes(self.variant),
             deco = decoration_classes(self.decoration),
         );
+        let btype = self.button_type.as_str();
         html! {
-            button type="button" class=(class.trim()) aria-label=(aria) {
+            button type=(btype) class=(class.trim()) aria-label=(aria) {
                 @if let Some((svg, IconPosition::Before)) = self.icon {
                     (PreEscaped(svg))
                 }
@@ -191,6 +230,7 @@ mod tests {
             aria_label: Some("Continue"),
             icon: None,
             decoration: Decoration::None,
+            button_type: ButtonType::Button,
         };
         let s = btn.render().into_string();
         assert!(s.contains(r#"aria-label="Continue""#));
@@ -219,6 +259,7 @@ mod tests {
             aria_label: None,
             icon: Some(("<svg data-test=\"X\"></svg>", IconPosition::Before)),
             decoration: Decoration::None,
+            button_type: ButtonType::Button,
         };
         let s = btn.render().into_string();
         // Anchor on inner-content positions, not the aria-label attribute.
@@ -239,6 +280,7 @@ mod tests {
             aria_label: None,
             icon: Some(("<svg data-test=\"Y\"></svg>", IconPosition::After)),
             decoration: Decoration::None,
+            button_type: ButtonType::Button,
         };
         let s = btn.render().into_string();
         let svg_pos = s.find("svg data-test=\"Y\"").unwrap();
@@ -258,6 +300,7 @@ mod tests {
             aria_label: None,
             icon: None,
             decoration: Decoration::SoftShadow,
+            button_type: ButtonType::Button,
         };
         let s = btn.render().into_string();
         assert!(s.contains("shadow-lg"));
@@ -270,5 +313,46 @@ mod tests {
             .render()
             .into_string();
         assert!(!s.contains("shadow-lg"));
+    }
+
+    #[test]
+    fn default_button_type_renders_type_button() {
+        let s = Button::new("x", ButtonVariant::Primary, ButtonSize::Md)
+            .render()
+            .into_string();
+        assert!(s.contains(r#"type="button""#));
+    }
+
+    #[test]
+    fn submit_button_renders_type_submit() {
+        let btn = Button {
+            label: "Send",
+            variant: ButtonVariant::Primary,
+            size: ButtonSize::Lg,
+            aria_label: None,
+            icon: None,
+            decoration: Decoration::SoftShadow,
+            button_type: ButtonType::Submit,
+        };
+        let s = btn.render().into_string();
+        assert!(
+            s.contains(r#"type="submit""#),
+            "submit form-action button missing type=submit: {s}"
+        );
+    }
+
+    #[test]
+    fn reset_button_renders_type_reset() {
+        let btn = Button {
+            label: "Clear",
+            variant: ButtonVariant::Outline,
+            size: ButtonSize::Md,
+            aria_label: None,
+            icon: None,
+            decoration: Decoration::None,
+            button_type: ButtonType::Reset,
+        };
+        let s = btn.render().into_string();
+        assert!(s.contains(r#"type="reset""#));
     }
 }
