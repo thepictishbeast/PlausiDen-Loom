@@ -190,8 +190,23 @@ pub fn run_css(
     // Negative-lookbehind to skip values inside `var(--something-12px)`
     // is non-trivial in the regex crate (no lookbehind), so we just
     // skip lines that mention `var(`.
+    //
+    // We capture the numeric portion so the call site can filter out
+    // micro-values: 1px / 2px / 3px borders, 0.5px hairlines etc. are
+    // structural border widths, not design-system layout spacing.
+    // Loom's smallest spacing token is 0.25rem (4px); flagging
+    // sub-token values yields false positives that drown the signal.
     let spacing_literal =
-        Regex::new(r"\b\d+(?:\.\d+)?(?:px|rem|em)\b").context("spacing regex")?;
+        Regex::new(r"\b(\d+(?:\.\d+)?)(px|rem|em)\b").context("spacing regex")?;
+    // Properties whose values are inherently sub-token (border /
+    // outline widths, font-weights, line-heights). When the entire
+    // line's only spacing literals come from one of these properties,
+    // skip — the value belongs to the property's micro-domain, not
+    // the layout scale.
+    let micro_property = Regex::new(
+        r"^\s*(?:border|outline|border-(?:top|right|bottom|left|width|radius)|outline-(?:width|offset)|stroke-width|line-height|letter-spacing)\b",
+    )
+    .context("micro property regex")?;
 
     let mut violations = Vec::new();
     for entry in WalkDir::new(root).into_iter().filter_map(Result::ok).filter(|e| {
@@ -270,13 +285,30 @@ pub fn run_css(
                     matched: display.clone(),
                 });
             }
-            if spacing_literal.is_match(line) {
-                violations.push(CssViolation {
-                    path: path.to_path_buf(),
-                    line: lineno + 1,
-                    kind: CssViolationKind::RawSpacing,
-                    matched: display,
+            // Spacing pass: skip if this line is a micro-property (border
+            // width etc.) OR if every captured spacing literal on the
+            // line is below the loom spacing floor (≥ 0.25rem == 4px).
+            let spacing_caps: Vec<_> = spacing_literal.captures_iter(line).collect();
+            if !spacing_caps.is_empty() {
+                let is_micro_prop = micro_property.is_match(trimmed);
+                let all_sub_token = spacing_caps.iter().all(|cap| {
+                    let val: f32 = cap[1].parse().unwrap_or(0.0);
+                    let unit = &cap[2];
+                    let px_equiv = match unit {
+                        "px" => val,
+                        "rem" | "em" => val * 16.0,
+                        _ => val,
+                    };
+                    px_equiv < 4.0
                 });
+                if !is_micro_prop && !all_sub_token {
+                    violations.push(CssViolation {
+                        path: path.to_path_buf(),
+                        line: lineno + 1,
+                        kind: CssViolationKind::RawSpacing,
+                        matched: display,
+                    });
+                }
             }
         }
     }
