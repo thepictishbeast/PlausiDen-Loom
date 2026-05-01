@@ -18,6 +18,81 @@ pub struct Color {
     pub css: &'static str,
 }
 
+impl Color {
+    /// Parse the CSS string into 8-bit RGB. Supports `#rgb`, `#rrggbb`,
+    /// and `hsl(h s% l%)` shapes — the only colour shapes loom-tokens
+    /// emits today. Returns `None` for any other shape so a future
+    /// unknown form fails the call site visibly rather than silently
+    /// producing the wrong colour.
+    #[must_use]
+    pub fn rgb(&self) -> Option<(u8, u8, u8)> {
+        parse_css_color(self.css)
+    }
+}
+
+fn parse_css_color(s: &str) -> Option<(u8, u8, u8)> {
+    let s = s.trim();
+    if let Some(hex) = s.strip_prefix('#') {
+        return parse_hex(hex);
+    }
+    if let Some(inner) = s.strip_prefix("hsl(").and_then(|x| x.strip_suffix(')')) {
+        return parse_hsl(inner);
+    }
+    None
+}
+
+fn parse_hex(hex: &str) -> Option<(u8, u8, u8)> {
+    match hex.len() {
+        3 => {
+            let r = u8::from_str_radix(&hex[0..1].repeat(2), 16).ok()?;
+            let g = u8::from_str_radix(&hex[1..2].repeat(2), 16).ok()?;
+            let b = u8::from_str_radix(&hex[2..3].repeat(2), 16).ok()?;
+            Some((r, g, b))
+        }
+        6 | 8 => {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            Some((r, g, b))
+        }
+        _ => None,
+    }
+}
+
+fn parse_hsl(inner: &str) -> Option<(u8, u8, u8)> {
+    // Accepts both comma- and space-separated forms, with `%` on s/l.
+    let parts: Vec<&str> = inner
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if parts.len() < 3 {
+        return None;
+    }
+    let h: f32 = parts[0].parse().ok()?;
+    let s_pct: f32 = parts[1].trim_end_matches('%').parse().ok()?;
+    let l_pct: f32 = parts[2].trim_end_matches('%').parse().ok()?;
+    Some(hsl_to_rgb(h, s_pct / 100.0, l_pct / 100.0))
+}
+
+#[allow(clippy::many_single_char_names)]
+fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
+    // Standard CSS HSL → sRGB conversion. h in degrees, s/l in 0..=1.
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let h_prime = (h.rem_euclid(360.0)) / 60.0;
+    let x = c * (1.0 - (h_prime.rem_euclid(2.0) - 1.0).abs());
+    let (r1, g1, b1) = match h_prime as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let m = l - c / 2.0;
+    let to_byte = |v: f32| ((v + m) * 255.0).round().clamp(0.0, 255.0) as u8;
+    (to_byte(r1), to_byte(g1), to_byte(b1))
+}
+
 /// One semantic role + the [`Color`] it resolves to.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ColorRole {
