@@ -179,6 +179,113 @@ impl ColorRole {
                     css: "hsl(160 84% 30%)",
                 },
             },
+            // Warn channel — amber. Used for "degraded but
+            // functional" state (egui status bars, banner alerts).
+            // BUG ASSUMPTION: warn is a state colour, not a tier
+            // colour. The tier_* roles below pin importance
+            // semantics to the same colour value but a future
+            // re-tune of state vs tier could split them.
+            Self {
+                role: "warn",
+                color: Color {
+                    name: "warn",
+                    tailwind: "amber-600",
+                    css: "hsl(28 80% 50%)",
+                },
+            },
+            // Pale-amber surface used as the background for warn
+            // banners. Foreground text on this background should
+            // be `ink` for max contrast.
+            Self {
+                role: "warn-bg",
+                color: Color {
+                    name: "warn-bg",
+                    tailwind: "amber-50",
+                    css: "hsl(40 90% 93%)",
+                },
+            },
+            // Mid-importance tier (between high and low). Distinct
+            // from danger/warn/primary/success so the importance
+            // scale doesn't reuse a state colour for a non-state
+            // signal.
+            Self {
+                role: "tier-medium",
+                color: Color {
+                    name: "tier-medium",
+                    tailwind: "yellow-500",
+                    css: "hsl(50 80% 56%)",
+                },
+            },
+            // Stronger border for elevated panels / focused
+            // sections. Pairs with `border` (the regular hairline).
+            Self {
+                role: "border-strong",
+                color: Color {
+                    name: "border-strong",
+                    tailwind: "slate-300",
+                    css: "hsl(212 16% 82%)",
+                },
+            },
+            // Soft accent for focused glow + selected-row tint.
+            // ~80% lightness of primary.
+            Self {
+                role: "accent-soft",
+                color: Color {
+                    name: "accent-soft",
+                    tailwind: "blue-200",
+                    css: "hsl(220 75% 80%)",
+                },
+            },
+            // Even softer accent — outer halo around focused
+            // controls / shadow-glow on hero CTAs.
+            Self {
+                role: "accent-glow",
+                color: Color {
+                    name: "accent-glow",
+                    tailwind: "blue-100",
+                    css: "hsl(220 75% 90%)",
+                },
+            },
+            // Brand gradient endpoints (blue → purple). Use the
+            // pair as a `linear-gradient(...)` from `gradient-a`
+            // to `gradient-b` for premium hero CTAs.
+            Self {
+                role: "gradient-a",
+                color: Color {
+                    name: "gradient-a",
+                    tailwind: "blue-500",
+                    css: "hsl(218 78% 56%)",
+                },
+            },
+            Self {
+                role: "gradient-b",
+                color: Color {
+                    name: "gradient-b",
+                    tailwind: "purple-500",
+                    css: "hsl(269 65% 57%)",
+                },
+            },
+            // Canvas — sits *behind* `surface`; what shows when a
+            // panel doesn't fill the whole viewport. On web this is
+            // typically the `<body>` background.
+            Self {
+                role: "bg-canvas",
+                color: Color {
+                    name: "bg-canvas",
+                    tailwind: "slate-100",
+                    css: "hsl(225 33% 99%)",
+                },
+            },
+            // Modal / dropdown scrim. Distinct from any surface
+            // because it sits *over* content rather than under it.
+            Self {
+                role: "bg-overlay",
+                color: Color {
+                    name: "bg-overlay",
+                    tailwind: "slate-200",
+                    css: "hsl(220 28% 95%)",
+                },
+            },
         ]
     }
 
@@ -277,6 +384,87 @@ impl ColorRole {
                     name: "success",
                     tailwind: "emerald-400",
                     css: "hsl(160 84% 55%)",
+                },
+            },
+            // -- dark-theme parallels of the new roles --
+            Self {
+                role: "warn",
+                color: Color {
+                    name: "warn",
+                    tailwind: "amber-400",
+                    css: "hsl(33 100% 66%)",
+                },
+            },
+            Self {
+                role: "warn-bg",
+                color: Color {
+                    name: "warn-bg",
+                    tailwind: "amber-950",
+                    css: "hsl(33 50% 16%)",
+                },
+            },
+            Self {
+                role: "tier-medium",
+                color: Color {
+                    name: "tier-medium",
+                    tailwind: "yellow-400",
+                    css: "hsl(50 75% 65%)",
+                },
+            },
+            Self {
+                role: "border-strong",
+                color: Color {
+                    name: "border-strong",
+                    tailwind: "slate-700",
+                    css: "hsl(218 22% 30%)",
+                },
+            },
+            Self {
+                role: "accent-soft",
+                color: Color {
+                    name: "accent-soft",
+                    tailwind: "blue-700",
+                    css: "hsl(222 41% 47%)",
+                },
+            },
+            Self {
+                role: "accent-glow",
+                color: Color {
+                    name: "accent-glow",
+                    tailwind: "blue-200",
+                    css: "hsl(220 100% 85%)",
+                },
+            },
+            Self {
+                role: "gradient-a",
+                color: Color {
+                    name: "gradient-a",
+                    tailwind: "blue-400",
+                    css: "hsl(218 83% 65%)",
+                },
+            },
+            Self {
+                role: "gradient-b",
+                color: Color {
+                    name: "gradient-b",
+                    tailwind: "purple-400",
+                    css: "hsl(272 84% 65%)",
+                },
+            },
+            Self {
+                role: "bg-canvas",
+                color: Color {
+                    name: "bg-canvas",
+                    tailwind: "slate-950",
+                    css: "hsl(220 33% 6%)",
+                },
+            },
+            Self {
+                role: "bg-overlay",
+                color: Color {
+                    name: "bg-overlay",
+                    tailwind: "slate-800",
+                    css: "hsl(220 24% 20%)",
                 },
             },
         ]
