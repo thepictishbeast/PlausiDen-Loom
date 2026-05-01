@@ -34,6 +34,20 @@ impl Radius {
         }
     }
 
+    /// CSS-shaped value used by the cross-platform token emitters
+    /// (custom properties + native theme generators).
+    #[must_use]
+    pub const fn css_size(self) -> &'static str {
+        match self {
+            Self::None => "0",
+            Self::Sm => "0.25rem",
+            Self::Md => "0.5rem",
+            Self::Lg => "0.75rem",
+            Self::Xl => "1rem",
+            Self::Full => "9999px",
+        }
+    }
+
     /// Every defined step.
     #[must_use]
     pub const fn all() -> &'static [Self] {

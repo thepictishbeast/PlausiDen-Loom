@@ -85,6 +85,17 @@ enum Cmd {
         #[arg(long)]
         dark: bool,
     },
+    /// Emit every token as CSS custom properties under `:root` and
+    /// `:root[data-theme="dark"]`. Drop into any web surface as
+    /// `loom-tokens.css` and reference values via `var(--loom-color-*)`.
+    ///
+    ///   `loom css > path/to/static/loom-tokens.css`
+    Css,
+    /// Emit every token as Rust `pub const` blocks for inclusion in
+    /// an egui-driven app (Atrium etc.). Pipe to a source file:
+    ///
+    ///   `loom egui > src/loom_tokens.rs`
+    Egui,
     /// Verify the design-system doctrine document is in sync with
     /// the code it claims to govern. Fails if CLAUDE.md is missing
     /// load-bearing sections, references primitives that don't
@@ -138,6 +149,14 @@ fn main() -> ExitCode {
         },
         Cmd::GtkTheme { dark } => {
             print!("{}", cmd_gtk_theme(dark));
+            ExitCode::SUCCESS
+        }
+        Cmd::Css => {
+            print!("{}", loom_tokens::tokens_css());
+            ExitCode::SUCCESS
+        }
+        Cmd::Egui => {
+            print!("{}", loom_tokens::tokens_egui());
             ExitCode::SUCCESS
         }
         Cmd::Doctor { root } => match cmd_doctor(&root) {

@@ -54,6 +54,34 @@ impl Spacing {
         }
     }
 
+    /// Logical rem value of this step.
+    ///
+    /// Tailwind's spacing scale is `0.25rem * step` for the standard
+    /// steps; this matches that. Used by the cross-platform token
+    /// generators (CSS custom properties, egui px constants).
+    #[must_use]
+    pub const fn rem(self) -> f32 {
+        match self {
+            Self::S0 => 0.0,
+            Self::S1 => 0.25,
+            Self::S2 => 0.5,
+            Self::S3 => 0.75,
+            Self::S4 => 1.0,
+            Self::S6 => 1.5,
+            Self::S8 => 2.0,
+            Self::S12 => 3.0,
+            Self::S16 => 4.0,
+            Self::S24 => 6.0,
+        }
+    }
+
+    /// Logical pixel value at the design root font size (16 px).
+    #[must_use]
+    pub const fn px(self) -> u32 {
+        // Cast through u32: every rem step lands on a whole pixel at 16px root.
+        (self.rem() * 16.0) as u32
+    }
+
     /// Every defined step. Used by tests + JSON export.
     #[must_use]
     pub const fn all() -> &'static [Self] {
@@ -154,6 +182,22 @@ impl FontSize {
             Self::H2 => "3xl",
             Self::H1 => "4xl",
             Self::Hero => "6xl",
+        }
+    }
+
+    /// CSS-shaped value used by the cross-platform token emitters.
+    #[must_use]
+    pub const fn css_size(self) -> &'static str {
+        match self {
+            Self::Xs => "0.75rem",
+            Self::Sm => "0.875rem",
+            Self::Base => "1rem",
+            Self::Lg => "1.125rem",
+            Self::Xl => "1.25rem",
+            Self::H3 => "1.5rem",
+            Self::H2 => "1.875rem",
+            Self::H1 => "2.25rem",
+            Self::Hero => "3rem",
         }
     }
 
