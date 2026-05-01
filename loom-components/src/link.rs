@@ -20,6 +20,9 @@ use serde::{Deserialize, Serialize};
 pub enum TextLinkVariant {
     /// `text-primary` — most inline links inside a paragraph.
     Primary,
+    /// `text-primary font-medium` — mailto / quiet-emphasis links
+    /// (5 sites in plausiden.com use this exact shape).
+    PrimaryMedium,
     /// `text-primary font-semibold` — CTAs ("Read more →",
     /// "Back home").
     PrimaryBold,
@@ -95,6 +98,7 @@ impl<'a> TextLink<'a> {
 const fn variant_classes(v: TextLinkVariant) -> &'static str {
     match v {
         TextLinkVariant::Primary => "text-primary",
+        TextLinkVariant::PrimaryMedium => "text-primary font-medium",
         TextLinkVariant::PrimaryBold => "text-primary font-semibold",
         TextLinkVariant::Underlined => "text-primary font-semibold underline",
         TextLinkVariant::Subtle => "text-slate-600 hover:text-primary transition-colors",
