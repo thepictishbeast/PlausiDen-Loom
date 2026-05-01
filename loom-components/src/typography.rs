@@ -32,6 +32,10 @@ pub enum HeadingVariant {
     Section,
     /// Card / feature heading. `text-xl`.
     Sub,
+    /// Card sub-heading — the smaller heading inside a card body
+    /// (e.g. "What we shipped" inside a case-study card,
+    /// "What's included" inside a pricing tier). `text-lg`.
+    Card,
 }
 
 /// Color tone. Mostly determined by surrounding band.
@@ -78,6 +82,7 @@ const fn variant_classes(v: HeadingVariant) -> &'static str {
         HeadingVariant::Display => "text-4xl md:text-5xl lg:text-6xl",
         HeadingVariant::Section => "text-3xl md:text-4xl",
         HeadingVariant::Sub => "text-xl",
+        HeadingVariant::Card => "text-lg",
     }
 }
 
@@ -206,6 +211,24 @@ mod tests {
         assert!(s.contains("text-3xl"));
         assert!(s.contains("md:text-4xl"));
         assert!(s.contains("text-slate-900"));
+    }
+
+    #[test]
+    fn h3_card_emits_text_lg() {
+        let s = Heading {
+            text: "What we shipped",
+            level: HeadingLevel::H3,
+            variant: HeadingVariant::Card,
+            tone: HeadingTone::Ink,
+        }
+        .render()
+        .into_string();
+        assert!(s.starts_with("<h3"));
+        assert!(s.contains("text-lg"));
+        // Card variant must NOT also emit a larger size — sub vs card divergence
+        assert!(!s.contains("text-xl"));
+        assert!(!s.contains("text-3xl"));
+        assert!(s.contains(">What we shipped</h3>"));
     }
 
     #[test]
