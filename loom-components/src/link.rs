@@ -26,6 +26,9 @@ pub enum TextLinkVariant {
     /// `text-primary font-semibold` — CTAs ("Read more →",
     /// "Back home").
     PrimaryBold,
+    /// `text-primary underline` — table-row links / admin email
+    /// addresses where bold would be visually heavy.
+    PrimaryUnderlined,
     /// `text-primary font-semibold underline` — the underlined
     /// CTAs (export links, in-text "how we work" anchors).
     Underlined,
@@ -100,6 +103,7 @@ const fn variant_classes(v: TextLinkVariant) -> &'static str {
         TextLinkVariant::Primary => "text-primary",
         TextLinkVariant::PrimaryMedium => "text-primary font-medium",
         TextLinkVariant::PrimaryBold => "text-primary font-semibold",
+        TextLinkVariant::PrimaryUnderlined => "text-primary underline",
         TextLinkVariant::Underlined => "text-primary font-semibold underline",
         TextLinkVariant::Subtle => "text-slate-600 hover:text-primary transition-colors",
     }
