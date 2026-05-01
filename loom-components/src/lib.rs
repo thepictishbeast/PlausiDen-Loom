@@ -16,6 +16,7 @@ pub mod card;
 pub mod footer;
 pub mod form;
 pub mod hero;
+pub mod link;
 pub mod modal;
 pub mod nav;
 pub mod section;
@@ -30,6 +31,7 @@ pub use card::{
 pub use footer::{Footer, FooterColumn, FooterItem, FooterLegalLink};
 pub use form::{InputType, Select, SelectOption, TextArea, TextInput};
 pub use hero::{Hero, HeroBackground};
+pub use link::{TextLink, TextLinkSize, TextLinkVariant};
 pub use modal::{Modal, ModalSize};
 pub use nav::{Nav, NavCta, NavLink};
 pub use section::{Section, SectionPadding, SectionTheme, SectionWidth};
