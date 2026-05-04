@@ -13,6 +13,7 @@
 pub mod badge;
 pub mod button;
 pub mod card;
+pub mod composer;
 pub mod footer;
 pub mod form;
 pub mod hero;
@@ -29,6 +30,7 @@ pub use button::{Button, ButtonSize, ButtonType, ButtonVariant, Decoration, Icon
 pub use card::{
     Card, CardElevation, CardHover, CardPadding, FeatureCard, FeatureCardStyle, LinkCard,
 };
+pub use composer::{is_safe_url, Composer, ComposerAvatar, ComposerSize, PromptAction};
 pub use footer::{Footer, FooterColumn, FooterItem, FooterLegalLink};
 pub use form::{InputType, Select, SelectOption, TextArea, TextInput};
 pub use hero::{Hero, HeroBackground};
