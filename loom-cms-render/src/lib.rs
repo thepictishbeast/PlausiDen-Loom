@@ -138,6 +138,18 @@ pub enum CmsSection {
         /// Stack of panels, top to bottom.
         panels: Vec<CmsPanel>,
     },
+    /// Multi-step form. Renders as `<form>` with a step indicator
+    /// at top + each step's fields below + a submit row at bottom.
+    /// Used for post-skill.html upload flow.
+    Form {
+        /// Form heading (rendered as h2 inside the section).
+        legend: String,
+        /// Submit-row config.
+        submit: CmsFormSubmit,
+        /// Ordered steps (multi-page UX rendered single-page in
+        /// the SSG output; client JS can swap visibility later).
+        steps: Vec<CmsFormStep>,
+    },
     /// Feed-top compose box. Maps to [`Composer`].
     Composer {
         /// Visible CTA text.
@@ -196,6 +208,136 @@ pub struct HeroCta {
     /// Backend key (must match a `[backends.X]` in backends.toml).
     /// Forge's phantom_button phase verifies this at build time.
     pub data_backend: String,
+}
+
+/// Submit-row config for [`CmsSection::Form`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CmsFormSubmit {
+    /// Primary button label (e.g. "Continue → upload").
+    pub label: String,
+    /// Optional secondary button label (e.g. "Save draft"). None
+    /// → no secondary button rendered.
+    pub secondary_label: Option<String>,
+    /// `<form action>` URL. Validated via `is_safe_url`.
+    pub action: String,
+    /// Backend key (verified by phantom_button at build time).
+    pub data_backend: String,
+}
+
+/// One step inside a [`CmsSection::Form`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CmsFormStep {
+    /// Step display label.
+    pub label: String,
+    /// Visual state (current / upcoming / done).
+    pub state: CmsFormStepState,
+    /// Fields belonging to this step.
+    pub fields: Vec<CmsFormField>,
+}
+
+/// Step visual state.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CmsFormStepState {
+    /// User is currently on this step.
+    Current,
+    /// Step is ahead of the user.
+    Upcoming,
+    /// Step has been completed.
+    Done,
+}
+
+impl CmsFormStepState {
+    const fn data_attr(self) -> &'static str {
+        match self {
+            CmsFormStepState::Current => "current",
+            CmsFormStepState::Upcoming => "upcoming",
+            CmsFormStepState::Done => "done",
+        }
+    }
+}
+
+/// Typed form field. Closed enum — adding a variant requires a
+/// renderer arm + test.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CmsFormField {
+    /// Single-line text input.
+    Text {
+        /// `name` attribute (form-data key).
+        name: String,
+        /// Visible label.
+        label: String,
+        /// Optional hint paragraph below the input.
+        hint: Option<String>,
+        /// Optional placeholder text.
+        placeholder: Option<String>,
+        /// `maxlength` attribute (None → unbounded).
+        max_length: Option<u32>,
+        /// `required` attribute.
+        #[serde(default)]
+        required: bool,
+    },
+    /// Multi-line text input.
+    Textarea {
+        /// `name` attribute.
+        name: String,
+        /// Visible label.
+        label: String,
+        /// Optional hint.
+        hint: Option<String>,
+        /// Optional placeholder.
+        placeholder: Option<String>,
+        /// `maxlength` attribute.
+        max_length: Option<u32>,
+        /// `rows` attribute (defaults to 4 if omitted).
+        #[serde(default = "default_textarea_rows")]
+        rows: u32,
+        /// `required` attribute.
+        #[serde(default)]
+        required: bool,
+    },
+    /// Dropdown.
+    Select {
+        /// `name` attribute.
+        name: String,
+        /// Visible label.
+        label: String,
+        /// Optional hint.
+        hint: Option<String>,
+        /// Options list.
+        options: Vec<CmsSelectOption>,
+        /// `required` attribute.
+        #[serde(default)]
+        required: bool,
+    },
+    /// Read-only text display (e.g. "Set automatically: 720p · 30s").
+    Readonly {
+        /// `name` attribute.
+        name: String,
+        /// Visible label.
+        label: String,
+        /// Optional hint.
+        hint: Option<String>,
+        /// Display value.
+        value: String,
+    },
+}
+
+fn default_textarea_rows() -> u32 {
+    4
+}
+
+/// One option inside a [`CmsFormField::Select`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CmsSelectOption {
+    /// `value` attribute.
+    pub value: String,
+    /// Display text.
+    pub label: String,
 }
 
 /// One sidebar panel inside a [`CmsSection::Sidebar`].
@@ -487,6 +629,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         }
+        CmsSection::Form { legend, submit, steps } => render_form(legend, submit, steps),
         CmsSection::Composer {
             prompt,
             submit_endpoint,
@@ -616,6 +759,159 @@ fn render_card(card: &CmsCard) -> Markup {
                 }
             }
         }
+    }
+}
+
+/// Render the multi-step form. Helper for `CmsSection::Form`'s arm.
+fn render_form(legend: &str, submit: &CmsFormSubmit, steps: &[CmsFormStep]) -> Markup {
+    let action_safe = is_safe_url(&submit.action);
+    let action_value: &str = if action_safe { &submit.action } else { "#invalid-form-action" };
+    html! {
+        section class="loom-form-section" {
+            h2 class="loom-form-section__legend" { (legend) }
+            @if !steps.is_empty() {
+                ol class="loom-form-section__steps" aria-label="Form progress" {
+                    @for (i, step) in steps.iter().enumerate() {
+                        li class="loom-form-section__step" data-state=(step.state.data_attr()) {
+                            span class="loom-form-section__step-num" aria-hidden="true" { (i + 1) }
+                            span class="loom-form-section__step-label" { (step.label) }
+                        }
+                    }
+                }
+            }
+            form
+                class="loom-form"
+                method="post"
+                action=(action_value)
+                data-backend=(submit.data_backend)
+                data-invalid=[(!action_safe).then_some("true")]
+            {
+                @for step in steps {
+                    fieldset class="loom-form__step" data-state=(step.state.data_attr()) {
+                        legend class="loom-form__step-legend" { (step.label) }
+                        @for field in &step.fields {
+                            (render_form_field(field))
+                        }
+                    }
+                }
+                div class="loom-form__submit-row" {
+                    @if let Some(secondary) = &submit.secondary_label {
+                        button
+                            class="loom-form__btn"
+                            data-variant="ghost"
+                            type="button"
+                            data-backend=(submit.data_backend)
+                        {
+                            (secondary)
+                        }
+                    }
+                    button
+                        class="loom-form__btn"
+                        data-variant="primary"
+                        type="submit"
+                        data-backend=(submit.data_backend)
+                    {
+                        (submit.label)
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn render_form_field(field: &CmsFormField) -> Markup {
+    match field {
+        CmsFormField::Text {
+            name,
+            label,
+            hint,
+            placeholder,
+            max_length,
+            required,
+        } => html! {
+            div class="loom-form-field" {
+                label class="loom-form-field__label" for=(name) { (label) }
+                input
+                    class="loom-form-field__input"
+                    type="text"
+                    id=(name)
+                    name=(name)
+                    placeholder=[placeholder.as_deref()]
+                    maxlength=[max_length.map(|m| m.to_string())]
+                    required=[required.then_some("required")];
+                @if let Some(h) = hint {
+                    p class="loom-form-field__hint" { (h) }
+                }
+            }
+        },
+        CmsFormField::Textarea {
+            name,
+            label,
+            hint,
+            placeholder,
+            max_length,
+            rows,
+            required,
+        } => html! {
+            div class="loom-form-field" {
+                label class="loom-form-field__label" for=(name) { (label) }
+                textarea
+                    class="loom-form-field__textarea"
+                    id=(name)
+                    name=(name)
+                    rows=(rows)
+                    placeholder=[placeholder.as_deref()]
+                    maxlength=[max_length.map(|m| m.to_string())]
+                    required=[required.then_some("required")] {}
+                @if let Some(h) = hint {
+                    p class="loom-form-field__hint" { (h) }
+                }
+            }
+        },
+        CmsFormField::Select {
+            name,
+            label,
+            hint,
+            options,
+            required,
+        } => html! {
+            div class="loom-form-field" {
+                label class="loom-form-field__label" for=(name) { (label) }
+                select
+                    class="loom-form-field__select"
+                    id=(name)
+                    name=(name)
+                    required=[required.then_some("required")]
+                {
+                    @for opt in options {
+                        option value=(opt.value) { (opt.label) }
+                    }
+                }
+                @if let Some(h) = hint {
+                    p class="loom-form-field__hint" { (h) }
+                }
+            }
+        },
+        CmsFormField::Readonly {
+            name,
+            label,
+            hint,
+            value,
+        } => html! {
+            div class="loom-form-field" {
+                label class="loom-form-field__label" for=(name) { (label) }
+                input
+                    class="loom-form-field__input"
+                    type="text"
+                    id=(name)
+                    name=(name)
+                    value=(value)
+                    readonly;
+                @if let Some(h) = hint {
+                    p class="loom-form-field__hint" { (h) }
+                }
+            }
+        },
     }
 }
 
@@ -1334,6 +1630,226 @@ mod tests {
         assert!(!html.contains("<img onerror"));
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("&lt;img"));
+    }
+
+    fn simple_form() -> CmsSection {
+        CmsSection::Form {
+            legend: "Post a skill".to_owned(),
+            submit: CmsFormSubmit {
+                label: "Continue".to_owned(),
+                secondary_label: Some("Save draft".to_owned()),
+                action: "/post-skill".to_owned(),
+                data_backend: "post-skill".to_owned(),
+            },
+            steps: vec![CmsFormStep {
+                label: "Rules & category".to_owned(),
+                state: CmsFormStepState::Current,
+                fields: vec![
+                    CmsFormField::Text {
+                        name: "title".to_owned(),
+                        label: "Challenge title".to_owned(),
+                        hint: Some("State the SHOT, not the difficulty.".to_owned()),
+                        placeholder: Some("e.g. Half-court shot".to_owned()),
+                        max_length: Some(120),
+                        required: true,
+                    },
+                    CmsFormField::Textarea {
+                        name: "rules".to_owned(),
+                        label: "Rules".to_owned(),
+                        hint: None,
+                        placeholder: None,
+                        max_length: None,
+                        rows: 6,
+                        required: false,
+                    },
+                ],
+            }],
+        }
+    }
+
+    fn form_page() -> CmsPage {
+        CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![simple_form()],
+        }
+    }
+
+    #[test]
+    fn form_renders_legend_action_and_submit() {
+        let html = render_to_string(&form_page());
+        assert!(html.contains(">Post a skill<"));
+        assert!(html.contains(r#"action="/post-skill""#));
+        assert!(html.contains(r#"data-backend="post-skill""#));
+        assert!(html.contains(r#"type="submit""#));
+        assert!(html.contains(">Continue<"));
+        // Secondary button.
+        assert!(html.contains(">Save draft<"));
+    }
+
+    #[test]
+    fn form_steps_indicator_emits_state_attribute() {
+        let html = render_to_string(&form_page());
+        assert!(html.contains(r#"data-state="current""#));
+        assert!(html.contains(">Rules &amp; category<"));
+    }
+
+    #[test]
+    fn form_text_field_with_attrs() {
+        let html = render_to_string(&form_page());
+        assert!(html.contains(r#"id="title""#));
+        assert!(html.contains(r#"name="title""#));
+        assert!(html.contains(r#"placeholder="e.g. Half-court shot""#));
+        assert!(html.contains(r#"maxlength="120""#));
+        assert!(html.contains(r#"required="required""#));
+        assert!(html.contains(">Challenge title<"));
+        assert!(html.contains(">State the SHOT"));
+    }
+
+    #[test]
+    fn form_textarea_field_with_default_rows() {
+        let html = render_to_string(&form_page());
+        assert!(html.contains(r#"rows="6""#));
+        assert!(html.contains("loom-form-field__textarea"));
+    }
+
+    #[test]
+    fn form_select_field() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::Form {
+                legend: "x".to_owned(),
+                submit: CmsFormSubmit {
+                    label: "Go".to_owned(),
+                    secondary_label: None,
+                    action: "/x".to_owned(),
+                    data_backend: "x".to_owned(),
+                },
+                steps: vec![CmsFormStep {
+                    label: "Pick".to_owned(),
+                    state: CmsFormStepState::Current,
+                    fields: vec![CmsFormField::Select {
+                        name: "category".to_owned(),
+                        label: "Category".to_owned(),
+                        hint: None,
+                        options: vec![
+                            CmsSelectOption {
+                                value: "basketball".to_owned(),
+                                label: "Basketball".to_owned(),
+                            },
+                            CmsSelectOption {
+                                value: "parkour".to_owned(),
+                                label: "Parkour".to_owned(),
+                            },
+                        ],
+                        required: true,
+                    }],
+                }],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"<select"#));
+        assert!(html.contains(r#"value="basketball""#));
+        assert!(html.contains(">Basketball<"));
+        assert!(html.contains(">Parkour<"));
+    }
+
+    #[test]
+    fn form_readonly_field_is_readonly() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::Form {
+                legend: "x".to_owned(),
+                submit: CmsFormSubmit {
+                    label: "Go".to_owned(),
+                    secondary_label: None,
+                    action: "/x".to_owned(),
+                    data_backend: "x".to_owned(),
+                },
+                steps: vec![CmsFormStep {
+                    label: "Format".to_owned(),
+                    state: CmsFormStepState::Done,
+                    fields: vec![CmsFormField::Readonly {
+                        name: "format".to_owned(),
+                        label: "Required video format".to_owned(),
+                        hint: Some("Set automatically.".to_owned()),
+                        value: "720p · 30s".to_owned(),
+                    }],
+                }],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"value="720p · 30s""#));
+        assert!(html.contains("readonly"));
+    }
+
+    #[test]
+    fn form_invalid_action_substitutes_placeholder() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::Form {
+                legend: "x".to_owned(),
+                submit: CmsFormSubmit {
+                    label: "Go".to_owned(),
+                    secondary_label: None,
+                    action: "javascript:alert(1)".to_owned(),
+                    data_backend: "x".to_owned(),
+                },
+                steps: vec![],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r##"action="#invalid-form-action""##));
+        assert!(html.contains(r#"data-invalid="true""#));
+        assert!(!html.contains("javascript:alert"));
+    }
+
+    #[test]
+    fn form_field_text_is_escaped() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::Form {
+                legend: "<script>".to_owned(),
+                submit: CmsFormSubmit {
+                    label: "<x>".to_owned(),
+                    secondary_label: None,
+                    action: "/x".to_owned(),
+                    data_backend: "x".to_owned(),
+                },
+                steps: vec![CmsFormStep {
+                    label: "<step>".to_owned(),
+                    state: CmsFormStepState::Current,
+                    fields: vec![CmsFormField::Text {
+                        name: "n".to_owned(),
+                        label: "<lbl>".to_owned(),
+                        hint: Some("<hint>".to_owned()),
+                        placeholder: None,
+                        max_length: None,
+                        required: false,
+                    }],
+                }],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("&lt;step&gt;"));
+        assert!(html.contains("&lt;lbl&gt;"));
+        assert!(html.contains("&lt;hint&gt;"));
     }
 
     #[test]
