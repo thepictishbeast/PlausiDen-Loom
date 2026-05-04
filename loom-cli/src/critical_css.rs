@@ -192,8 +192,14 @@ fn body_contains_critical(body: &str) -> bool {
         let next = trimmed.as_bytes().get(after_ix).copied();
         let is_selector_boundary = matches!(
             next,
-            Some(b' ') | Some(b'{') | Some(b',') | Some(b':') | Some(b'>') | Some(b'+')
-                | Some(b'~') | Some(b'[')
+            Some(b' ')
+                | Some(b'{')
+                | Some(b',')
+                | Some(b':')
+                | Some(b'>')
+                | Some(b'+')
+                | Some(b'~')
+                | Some(b'[')
         );
         if !is_selector_boundary {
             continue;
@@ -252,9 +258,7 @@ impl<'a> Walker<'a> {
         let mut in_string: Option<char> = None;
         loop {
             if self.pos >= self.src.len() {
-                return Err(format!(
-                    "unterminated rule starting at byte {sel_start}"
-                ));
+                return Err(format!("unterminated rule starting at byte {sel_start}"));
             }
             let c = self.byte();
             if let Some(q) = in_string {
@@ -284,8 +288,7 @@ impl<'a> Walker<'a> {
                     depth += 1;
                     if depth == 1 {
                         // End of selector.
-                        let selector =
-                            self.src.get(sel_start..self.pos).unwrap_or("");
+                        let selector = self.src.get(sel_start..self.pos).unwrap_or("");
                         let body_start = self.pos + 1;
                         self.pos = body_start;
                         // Walk to matching close brace.
@@ -293,17 +296,13 @@ impl<'a> Walker<'a> {
                         let mut in_str: Option<char> = None;
                         let body_end = loop {
                             if self.pos >= self.src.len() {
-                                return Err(format!(
-                                    "unterminated body at byte {body_start}"
-                                ));
+                                return Err(format!("unterminated body at byte {body_start}"));
                             }
                             let c2 = self.byte();
                             if let Some(q) = in_str {
                                 if c2 == q as u8 {
                                     in_str = None;
-                                } else if c2 == b'\\'
-                                    && self.pos + 1 < self.src.len()
-                                {
+                                } else if c2 == b'\\' && self.pos + 1 < self.src.len() {
                                     self.pos += 1;
                                 }
                                 self.pos += 1;
@@ -313,8 +312,7 @@ impl<'a> Walker<'a> {
                                 b'"' => in_str = Some('"'),
                                 b'\'' => in_str = Some('\''),
                                 b'/' if self.pos + 1 < self.src.len()
-                                    && self.src.as_bytes()[self.pos + 1]
-                                        == b'*' =>
+                                    && self.src.as_bytes()[self.pos + 1] == b'*' =>
                                 {
                                     self.try_skip_comment()?;
                                     continue;
@@ -346,8 +344,7 @@ impl<'a> Walker<'a> {
                 b';' if depth == 0 => {
                     // At-rule with no block (@import, @charset, @namespace).
                     self.pos += 1;
-                    let selector =
-                        self.src.get(sel_start..self.pos).unwrap_or("");
+                    let selector = self.src.get(sel_start..self.pos).unwrap_or("");
                     let text = self.src.get(start..self.pos).unwrap_or("");
                     return Ok(Some(Rule {
                         text,
@@ -365,9 +362,7 @@ impl<'a> Walker<'a> {
     }
 
     fn skip_whitespace(&mut self) {
-        while self.pos < self.src.len()
-            && self.src.as_bytes()[self.pos].is_ascii_whitespace()
-        {
+        while self.pos < self.src.len() && self.src.as_bytes()[self.pos].is_ascii_whitespace() {
             self.pos += 1;
         }
     }
@@ -379,16 +374,12 @@ impl<'a> Walker<'a> {
         if self.pos + 1 >= self.src.len() {
             return Ok(false);
         }
-        if self.src.as_bytes()[self.pos] != b'/'
-            || self.src.as_bytes()[self.pos + 1] != b'*'
-        {
+        if self.src.as_bytes()[self.pos] != b'/' || self.src.as_bytes()[self.pos + 1] != b'*' {
             return Ok(false);
         }
         self.pos += 2;
         while self.pos + 1 < self.src.len() {
-            if self.src.as_bytes()[self.pos] == b'*'
-                && self.src.as_bytes()[self.pos + 1] == b'/'
-            {
+            if self.src.as_bytes()[self.pos] == b'*' && self.src.as_bytes()[self.pos + 1] == b'/' {
                 self.pos += 2;
                 return Ok(true);
             }
@@ -483,7 +474,8 @@ mod tests {
 
     #[test]
     fn drops_component_rules() {
-        let css = ".loom-card-battle { x: 1; }\n.loom-composer { y: 2; }\n.loom-section-hero { z: 3; }\n";
+        let css =
+            ".loom-card-battle { x: 1; }\n.loom-composer { y: 2; }\n.loom-section-hero { z: 3; }\n";
         let out = extract(css).expect("ok");
         assert!(out.is_empty());
     }

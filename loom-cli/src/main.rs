@@ -220,19 +220,17 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
-        Cmd::CriticalCss { input, out } => {
-            match cmd_critical_css(&input, &out) {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(CriticalCssError::Parse(e)) => {
-                    eprintln!("loom critical-css: parse error: {e}");
-                    ExitCode::from(1)
-                }
-                Err(CriticalCssError::Io(e)) => {
-                    eprintln!("loom critical-css: i/o error: {e}");
-                    ExitCode::from(2)
-                }
+        Cmd::CriticalCss { input, out } => match cmd_critical_css(&input, &out) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(CriticalCssError::Parse(e)) => {
+                eprintln!("loom critical-css: parse error: {e}");
+                ExitCode::from(1)
             }
-        }
+            Err(CriticalCssError::Io(e)) => {
+                eprintln!("loom critical-css: i/o error: {e}");
+                ExitCode::from(2)
+            }
+        },
         Cmd::CmsRender {
             input,
             out,
@@ -1015,10 +1013,7 @@ impl From<std::io::Error> for CriticalCssError {
     }
 }
 
-fn cmd_critical_css(
-    input: &std::path::Path,
-    out: &str,
-) -> Result<(), CriticalCssError> {
+fn cmd_critical_css(input: &std::path::Path, out: &str) -> Result<(), CriticalCssError> {
     let css = std::fs::read_to_string(input)?;
     let critical = critical_css::extract(&css).map_err(CriticalCssError::Parse)?;
     if out == "-" {
@@ -1054,11 +1049,8 @@ mod cmd_critical_css_tests {
         let input = tmp.join("loom-critical-css-input.css");
         let output = tmp.join("loom-critical-css-out.css");
         let _ = std::fs::remove_file(&output);
-        std::fs::write(
-            &input,
-            ":root { --x: 1; }\n.loom-card { padding: 1rem; }\n",
-        )
-        .expect("write input");
+        std::fs::write(&input, ":root { --x: 1; }\n.loom-card { padding: 1rem; }\n")
+            .expect("write input");
         cmd_critical_css(&input, output.to_str().unwrap()).expect("ok");
         let got = std::fs::read_to_string(&output).expect("read");
         assert!(got.contains(":root"));
