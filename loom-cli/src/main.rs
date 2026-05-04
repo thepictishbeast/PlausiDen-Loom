@@ -759,10 +759,13 @@ fn cmd_cms_render(
     let raw = std::fs::read_to_string(input)?;
     let page: loom_cms_render::CmsPage = serde_json::from_str(&raw)?;
     let body = loom_cms_render::render_page(&page);
-    let critical_css = critical_css_path
-        .map(std::fs::read_to_string)
-        .transpose()?;
-    let shell = page_shell(&page, css_href, &body.into_string(), critical_css.as_deref());
+    let critical_css = critical_css_path.map(std::fs::read_to_string).transpose()?;
+    let shell = page_shell(
+        &page,
+        css_href,
+        &body.into_string(),
+        critical_css.as_deref(),
+    );
     if out == "-" {
         print!("{shell}");
         return Ok(());

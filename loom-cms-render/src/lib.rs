@@ -524,7 +524,7 @@ mod tests {
                 description: "x".to_owned(),
                 path: "/x".to_owned(),
                 nav_links: vec![],
-            sections: vec![CmsSection::Heading {
+                sections: vec![CmsSection::Heading {
                     text: "x".to_owned(),
                     level,
                 }],
