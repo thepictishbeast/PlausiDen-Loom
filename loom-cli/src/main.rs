@@ -136,7 +136,7 @@ enum Cmd {
     /// Auto-generate a Crawler journey JSON from cms/*.json files.
     /// Walks the cms-dir, deserializes each CmsPage, emits a
     /// goto + wait + screenshot triple per page.path. Solves the
-    /// regression where a new cms/<name>.json silently ships
+    /// regression where a new `cms/<name>.json` silently ships
     /// unaudited because the journey is hand-edited.
     ///
     /// Output is journey-schema-compatible (same shape as
@@ -1781,11 +1781,7 @@ fn cmd_journey_from_cms(
         }
     }
     std::fs::write(out, format!("{pretty}\n"))?;
-    println!(
-        "  ok     {} page(s) → {}",
-        pages.len(),
-        out.display()
-    );
+    println!("  ok     {} page(s) → {}", pages.len(), out.display());
     Ok(())
 }
 
@@ -1809,11 +1805,7 @@ fn walk_cms_json(
 
 /// Build the journey JSON value. Pure function — testable
 /// without filesystem I/O.
-fn build_journey_json(
-    name: &str,
-    base_url: &str,
-    pages: &[(String, String)],
-) -> serde_json::Value {
+fn build_journey_json(name: &str, base_url: &str, pages: &[(String, String)]) -> serde_json::Value {
     let trimmed_base = base_url.trim_end_matches('/');
     let mut steps = Vec::<serde_json::Value>::new();
     for (i, (path, label)) in pages.iter().enumerate() {
@@ -1935,9 +1927,7 @@ mod cmd_journey_from_cms_tests {
         let make = |fname: &str, path: &str| {
             std::fs::write(
                 dir.join(fname),
-                format!(
-                    r#"{{"title":"x","description":"x","path":"{path}","sections":[]}}"#
-                ),
+                format!(r#"{{"title":"x","description":"x","path":"{path}","sections":[]}}"#),
             )
             .expect("w");
         };
