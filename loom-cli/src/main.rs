@@ -1514,7 +1514,9 @@ mod cmd_image_convert_tests {
         let dir = unique_dir("images");
         std::fs::create_dir_all(&dir).expect("mkdir");
         // Plant filenames (not real image bytes — walker only looks at extension)
-        for name in ["a.jpg", "b.JPG", "c.jpeg", "d.png", "e.PNG", "f.gif", "g.txt"] {
+        for name in [
+            "a.jpg", "b.JPG", "c.jpeg", "d.png", "e.PNG", "f.gif", "g.txt",
+        ] {
             std::fs::write(dir.join(name), b"\x00").expect("w");
         }
         let mut out = Vec::new();
