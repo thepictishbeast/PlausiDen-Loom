@@ -111,15 +111,15 @@
     [role="button"]:not([data-tap="compact"]),
     [role="link"]:not([data-tap="compact"]),
     summary:not([data-tap="compact"]) {
-      min-height: 44px;
-      min-width: 44px;
+      min-height: var(--loom-tap-min);
+      min-width: var(--loom-tap-min);
     }
     /* Inputs and selects also need width — typing inside a 0-pad
      * box makes content scroll mid-character. */
     input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([data-tap="compact"]),
     select:not([data-tap="compact"]),
     textarea:not([data-tap="compact"]) {
-      min-width: 44px;
+      min-width: var(--loom-tap-min);
       padding: var(--loom-space-2) var(--loom-space-3);
     }
   }
@@ -253,6 +253,29 @@
     --loom-stroke-thin:         1px;
     --loom-stroke-strong:       2px;
 
+    /* Tap-target / sizing tokens. WCAG 2.5.5 + iOS HIG floor for
+     * any interactive element on coarse pointers. The default
+     * ships at 44 — increase per surface, never decrease. */
+    --loom-tap-min:             44px;
+    /* Right-rail width on desktop layouts. Single source of truth
+     * for the column shape so .loom-page-rail and any future
+     * fixed-width columns track together. */
+    --loom-rail-width:          320px;
+    /* Animation displacement distances — used by entrance keyframes
+     * (slide-in-right, fade-in-up) so they share a vocabulary. */
+    --loom-motion-rise:         12px;
+    --loom-motion-shift:        16px;
+    /* Z-index scale — semantic stacking, not raw integers. Each
+     * step leaves room (10s) for one-off page-local overrides
+     * while keeping global precedence reviewable. */
+    --loom-z-base:              0;
+    --loom-z-raised:            1;
+    --loom-z-overlay:           10;
+    --loom-z-sticky:            50;
+    --loom-z-tooltip:           55;
+    --loom-z-toast:             60;
+    --loom-z-modal:             100;
+
     /* Typography premium tier — display weights for hero copy. */
     --loom-font-display: ui-rounded, "SF Pro Display",
                          "Segoe UI Variable Display", "Inter Display",
@@ -317,7 +340,7 @@
   }
   @media (min-width: 1024px) {
     .loom-grid-app {
-      grid-template-columns: minmax(0, 1fr) 320px;
+      grid-template-columns: minmax(0, 1fr) var(--loom-rail-width);
       gap: var(--loom-space-8);
     }
   }
@@ -334,11 +357,11 @@
     border-radius: var(--loom-radius-md);
     transform: translateY(-150%);
     transition: transform var(--loom-transition-fast);
-    z-index: 100;
+    z-index: var(--loom-z-modal);
     display: inline-flex;
     align-items: center;
-    min-height: 44px;
-    min-width: 44px;
+    min-height: var(--loom-tap-min);
+    min-width: var(--loom-tap-min);
   }
   .loom-skip:focus { transform: translateY(0); }
 
@@ -382,7 +405,7 @@
                              transparent);
     position: sticky;
     top: 0;
-    z-index: 50;
+    z-index: var(--loom-z-sticky);
     background: var(--comp-nav-bg);
     backdrop-filter: blur(var(--loom-blur-glass)) saturate(var(--loom-saturate-glass));
     -webkit-backdrop-filter: blur(var(--loom-blur-glass)) saturate(var(--loom-saturate-glass));
@@ -403,8 +426,8 @@
   .loom-nav-inner > a {
     display: inline-flex;
     align-items: center;
-    min-height: 44px;
-    min-width: 44px;
+    min-height: var(--loom-tap-min);
+    min-width: var(--loom-tap-min);
   }
   @media (min-width: 768px) {
     .loom-nav-inner {
@@ -442,7 +465,7 @@
     /* WCAG 2.5.5 + iOS HIG: 44px minimum hit-box. */
     display: inline-flex;
     align-items: center;
-    min-height: 44px;
+    min-height: var(--loom-tap-min);
   }
   .loom-navlinks a:hover {
     color: var(--loom-color-ink);
@@ -901,11 +924,11 @@
     text-shadow: 0 2px 18px hsl(0 0% 0% / 0.55);
     pointer-events: none;
     user-select: none;
-    z-index: 0;
+    z-index: var(--loom-z-base);
   }
   .loom-thumb-badge {
     position: relative;
-    z-index: 1;
+    z-index: var(--loom-z-raised);
     padding: 2px var(--loom-space-2);
     background: hsl(0 0% 0% / 0.55);
     backdrop-filter: blur(6px);
@@ -1604,7 +1627,7 @@
   pointer-events: none;
   transition: opacity var(--loom-transition-fast),
               transform var(--loom-transition-fast);
-  z-index: 10;
+  z-index: var(--loom-z-overlay);
 }
 .loom-tooltip:hover::after,
 .loom-tooltip:focus-visible::after {
@@ -1623,7 +1646,7 @@
   box-shadow: var(--loom-shadow-elevated);
   transform: translateX(100%);
   transition: transform var(--loom-transition-slow);
-  z-index: 60;
+  z-index: var(--loom-z-toast);
   overflow-y: auto;
   padding: var(--loom-pad-band);
 }
@@ -1633,7 +1656,7 @@ body[data-loom-drawer-open] .loom-drawer { transform: translateX(0); }
   background: hsl(220 33% 0% / 0.5);
   opacity: 0; pointer-events: none;
   transition: opacity var(--loom-transition-base);
-  z-index: 55;
+  z-index: var(--loom-z-tooltip);
 }
 body[data-loom-drawer-open] .loom-drawer-scrim {
   opacity: 1; pointer-events: auto;
