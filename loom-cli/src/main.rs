@@ -761,10 +761,18 @@ fn page_shell(page: &loom_cms_render::CmsPage, css_href: &str, body: &str) -> St
 </head>\n\
 <body>\n\
   <a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n\
-  <h1 class=\"loom-page-title\">{title}</h1>\n\
+  <header class=\"loom-page-header\" role=\"banner\">\n\
+    <nav class=\"loom-page-nav\" aria-label=\"Primary\">\n\
+      <a class=\"loom-page-brand\" href=\"/\">SkillShots</a>\n\
+    </nav>\n\
+    <h1 class=\"loom-page-title\">{title}</h1>\n\
+  </header>\n\
   <div id=\"content\">\n\
 {body}\n\
   </div>\n\
+  <footer class=\"loom-page-footer\" role=\"contentinfo\">\n\
+    <small>SkillShots — voted skill battles.</small>\n\
+  </footer>\n\
 </body>\n\
 </html>\n"
     )
@@ -876,6 +884,27 @@ mod cms_render_tests {
         let s = page_shell(&empty_page(), "/loom-skin.css", "");
         assert!(s.contains(r##"href="#content""##));
         assert!(s.contains(r##"id="content""##));
+    }
+
+    #[test]
+    fn shell_emits_header_landmark() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "");
+        assert!(s.contains("<header "), "missing <header>: {s}");
+        assert!(s.contains(r#"role="banner""#));
+    }
+
+    #[test]
+    fn shell_emits_footer_landmark() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "");
+        assert!(s.contains("<footer "), "missing <footer>: {s}");
+        assert!(s.contains(r#"role="contentinfo""#));
+    }
+
+    #[test]
+    fn shell_emits_nav_landmark_with_aria_label() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "");
+        assert!(s.contains("<nav "), "missing <nav>: {s}");
+        assert!(s.contains(r#"aria-label="Primary""#));
     }
 
     #[test]
