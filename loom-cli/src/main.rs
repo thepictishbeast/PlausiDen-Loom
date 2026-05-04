@@ -7,6 +7,8 @@
 
 #![doc(html_no_source)]
 
+mod critical_css;
+
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -105,6 +107,32 @@ enum Cmd {
         #[arg(default_value = ".")]
         root: PathBuf,
     },
+    /// Extract the critical-CSS subset from a stylesheet. Reads
+    /// the input from `--input`, walks every top-level rule, and
+    /// emits ONLY those needed for first paint of every page:
+    /// `:root` token blocks, universal/element baseline rules
+    /// (`*`, `html`, `body`, `:focus-visible`, `[hidden]`,
+    /// `img`/`video`/`picture`, `pre`/`code`, `a`, `button`,
+    /// `p`/`h1..h6`), the cms-render page-shell chrome
+    /// (`.loom-skip`, `.loom-page-*`), `@media (prefers-*)`,
+    /// `@font-face`. Component-specific rules
+    /// (`.loom-card-*`, `.loom-section-*`, `.loom-composer*`)
+    /// are dropped — they belong in the deferred sheet.
+    ///
+    /// Output goes to `--out` or stdout if `--out -`.
+    ///
+    /// Exit codes:
+    ///   0 — extraction succeeded
+    ///   1 — CSS parse error (unterminated comment / brace / etc.)
+    ///   2 — I/O error reading or writing
+    CriticalCss {
+        /// Source stylesheet path.
+        #[arg(long)]
+        input: PathBuf,
+        /// Output path. `-` for stdout.
+        #[arg(long, default_value = "-")]
+        out: String,
+    },
     /// Render a CMS page document (JSON) to a static HTML file.
     /// Reads the document from `--input`, runs it through the
     /// `loom-cms-render` bridge, wraps the resulting body markup
@@ -192,6 +220,19 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
+        Cmd::CriticalCss { input, out } => {
+            match cmd_critical_css(&input, &out) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(CriticalCssError::Parse(e)) => {
+                    eprintln!("loom critical-css: parse error: {e}");
+                    ExitCode::from(1)
+                }
+                Err(CriticalCssError::Io(e)) => {
+                    eprintln!("loom critical-css: i/o error: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
         Cmd::CmsRender {
             input,
             out,
@@ -956,5 +997,73 @@ mod cms_render_tests {
         let r = cmd_cms_render(&input, "-", "/loom-skin.css");
         assert!(matches!(r, Err(CmsRenderError::Schema(_))));
         let _ = std::fs::remove_file(&input);
+    }
+}
+
+/// `loom critical-css` error type. Same split as cms-render: a
+/// parse error (CSS structurally invalid) gets exit code 1; an
+/// I/O error gets exit code 2 so CI can route appropriately.
+#[derive(Debug)]
+enum CriticalCssError {
+    Parse(String),
+    Io(std::io::Error),
+}
+
+impl From<std::io::Error> for CriticalCssError {
+    fn from(e: std::io::Error) -> Self {
+        CriticalCssError::Io(e)
+    }
+}
+
+fn cmd_critical_css(
+    input: &std::path::Path,
+    out: &str,
+) -> Result<(), CriticalCssError> {
+    let css = std::fs::read_to_string(input)?;
+    let critical = critical_css::extract(&css).map_err(CriticalCssError::Parse)?;
+    if out == "-" {
+        print!("{critical}");
+        return Ok(());
+    }
+    if let Some(parent) = std::path::Path::new(out).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    std::fs::write(out, &critical)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod cmd_critical_css_tests {
+    use super::*;
+
+    #[test]
+    fn rejects_invalid_css() {
+        let tmp = std::env::temp_dir();
+        let bad = tmp.join("loom-critical-css-bad.css");
+        std::fs::write(&bad, ".loom-page { color: red;\n").expect("write");
+        let r = cmd_critical_css(&bad, "-");
+        assert!(matches!(r, Err(CriticalCssError::Parse(_))));
+        let _ = std::fs::remove_file(&bad);
+    }
+
+    #[test]
+    fn writes_critical_subset_to_file() {
+        let tmp = std::env::temp_dir();
+        let input = tmp.join("loom-critical-css-input.css");
+        let output = tmp.join("loom-critical-css-out.css");
+        let _ = std::fs::remove_file(&output);
+        std::fs::write(
+            &input,
+            ":root { --x: 1; }\n.loom-card { padding: 1rem; }\n",
+        )
+        .expect("write input");
+        cmd_critical_css(&input, output.to_str().unwrap()).expect("ok");
+        let got = std::fs::read_to_string(&output).expect("read");
+        assert!(got.contains(":root"));
+        assert!(!got.contains(".loom-card"));
+        let _ = std::fs::remove_file(&input);
+        let _ = std::fs::remove_file(&output);
     }
 }
