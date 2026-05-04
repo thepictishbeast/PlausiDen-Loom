@@ -65,6 +65,28 @@ pub struct CmsPage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CmsSection {
+    /// Top-of-page hero. Optional eyebrow pill, required title,
+    /// optional lede, optional primary CTA. Loom-namespaced
+    /// (no Tailwind dependency) so it composes cleanly with the
+    /// SkillShots PoC skin.
+    Hero {
+        /// Optional small pill above the title.
+        eyebrow: Option<String>,
+        /// Headline text.
+        title: String,
+        /// Optional subhead paragraph.
+        lede: Option<String>,
+        /// Optional primary CTA.
+        cta: Option<HeroCta>,
+    },
+    /// Group: a heading + a body paragraph, framed as a `<section>`.
+    /// Useful for "How it works" / "Rules" type explainer blocks.
+    Group {
+        /// Heading text (rendered as h2 inside the section).
+        title: String,
+        /// Body paragraph(s). Each entry becomes a `<p>`.
+        body: Vec<String>,
+    },
     /// Feed-top compose box. Maps to [`Composer`].
     Composer {
         /// Visible CTA text.
@@ -108,6 +130,21 @@ pub enum CmsSection {
         /// `2` → `<h2>`, etc. Validation in [`render_section`].
         level: u8,
     },
+}
+
+/// Hero CTA — the single typed primary action attached to a Hero
+/// section. URL is validated by `composer::is_safe_url` at render
+/// time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HeroCta {
+    /// Visible label text.
+    pub label: String,
+    /// Where the CTA navigates. Same-origin path or https://.
+    pub href: String,
+    /// Backend key (must match a `[backends.X]` in backends.toml).
+    /// Forge's phantom_button phase verifies this at build time.
+    pub data_backend: String,
 }
 
 /// Closed enum mirror of [`PromptAction`] — separated so the wire
@@ -259,6 +296,49 @@ pub fn render_page(page: &CmsPage) -> Markup {
 #[must_use]
 pub fn render_section(section: &CmsSection) -> Markup {
     match section {
+        CmsSection::Hero {
+            eyebrow,
+            title,
+            lede,
+            cta,
+        } => {
+            // CTA href validation: same rule as Composer.
+            // Invalid → fallback href + data-invalid (skin.css
+            // styles a warning outline, forge audit can detect).
+            let cta_href_safe = cta
+                .as_ref()
+                .map(|c| loom_components::composer::is_safe_url(&c.href))
+                .unwrap_or(true);
+            html! {
+                section class="loom-section-hero" data-loom-hero {
+                    @if let Some(e) = eyebrow {
+                        span class="loom-section-hero__eyebrow" { (e) }
+                    }
+                    h2 class="loom-section-hero__title" { (title) }
+                    @if let Some(l) = lede {
+                        p class="loom-section-hero__lede" { (l) }
+                    }
+                    @if let Some(c) = cta {
+                        a
+                            class="loom-section-hero__cta"
+                            href=(if cta_href_safe { c.href.as_str() } else { "#invalid-cta" })
+                            data-backend=(c.data_backend)
+                            data-invalid=[(!cta_href_safe).then_some("true")]
+                        {
+                            (c.label)
+                        }
+                    }
+                }
+            }
+        }
+        CmsSection::Group { title, body } => html! {
+            section class="loom-section-group" {
+                h2 class="loom-section-group__title" { (title) }
+                @for paragraph in body {
+                    p class="loom-section-group__body" { (paragraph) }
+                }
+            }
+        },
         CmsSection::Composer {
             prompt,
             submit_endpoint,
@@ -528,6 +608,134 @@ mod tests {
         }"#;
         let r = render_json(json);
         assert!(r.is_err(), "unknown section kind silently accepted");
+    }
+
+    #[test]
+    fn hero_renders_required_title_only() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            sections: vec![CmsSection::Hero {
+                eyebrow: None,
+                title: "Welcome".to_owned(),
+                lede: None,
+                cta: None,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"class="loom-section-hero""#));
+        assert!(html.contains("<h2 class=\"loom-section-hero__title\">Welcome</h2>"));
+        assert!(!html.contains("loom-section-hero__eyebrow"));
+        assert!(!html.contains("loom-section-hero__lede"));
+        assert!(!html.contains("loom-section-hero__cta"));
+    }
+
+    #[test]
+    fn hero_renders_all_optional_slots() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            sections: vec![CmsSection::Hero {
+                eyebrow: Some("New".to_owned()),
+                title: "Welcome".to_owned(),
+                lede: Some("Skill battles, decided by your crew.".to_owned()),
+                cta: Some(HeroCta {
+                    label: "Sign up".to_owned(),
+                    href: "/sign-up".to_owned(),
+                    data_backend: "sign-up".to_owned(),
+                }),
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(">New<"));
+        assert!(html.contains(">Welcome<"));
+        assert!(html.contains(">Skill battles"));
+        assert!(html.contains(r#"href="/sign-up""#));
+        assert!(html.contains(r#"data-backend="sign-up""#));
+        assert!(html.contains(">Sign up<"));
+    }
+
+    #[test]
+    fn hero_invalid_cta_href_substitutes_placeholder() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            sections: vec![CmsSection::Hero {
+                eyebrow: None,
+                title: "x".to_owned(),
+                lede: None,
+                cta: Some(HeroCta {
+                    label: "x".to_owned(),
+                    href: "javascript:alert(1)".to_owned(),
+                    data_backend: "x".to_owned(),
+                }),
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r##"href="#invalid-cta""##));
+        assert!(html.contains(r##"data-invalid="true""##));
+        assert!(!html.contains("javascript:alert"));
+    }
+
+    #[test]
+    fn hero_text_is_escaped() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            sections: vec![CmsSection::Hero {
+                eyebrow: Some("<x>".to_owned()),
+                title: "<script>".to_owned(),
+                lede: None,
+                cta: None,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("&lt;x&gt;"));
+    }
+
+    #[test]
+    fn group_renders_title_and_multiple_body_paragraphs() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            sections: vec![CmsSection::Group {
+                title: "Rules".to_owned(),
+                body: vec![
+                    "First rule.".to_owned(),
+                    "Second rule.".to_owned(),
+                ],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"class="loom-section-group""#));
+        assert!(html.contains(">Rules<"));
+        // Body paragraphs in order.
+        let p1 = html.find("First rule.").expect("first");
+        let p2 = html.find("Second rule.").expect("second");
+        assert!(p1 < p2);
+    }
+
+    #[test]
+    fn group_with_empty_body_renders_just_title() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            sections: vec![CmsSection::Group {
+                title: "Empty".to_owned(),
+                body: vec![],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(">Empty<"));
+        assert!(!html.contains("loom-section-group__body"));
     }
 
     #[test]
