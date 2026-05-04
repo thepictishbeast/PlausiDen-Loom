@@ -141,6 +141,13 @@ enum Cmd {
     /// from CmsPage.title), and writes to `--out` (or stdout if
     /// `--out -`).
     ///
+    /// `--critical-css <path>` enables the LCP-friendly two-stage
+    /// stylesheet load: the contents of the file are inlined as
+    /// `<style>...</style>` (sha256-pinned in CSP), and the full
+    /// `--css-href` link is loaded async via the `media=\"print\"`
+    /// trick (also CSP-pinned). The result blocks render only on
+    /// the small critical block.
+    ///
     /// Exit codes:
     ///   0 — page rendered + written
     ///   1 — JSON malformed or schema violation (deny_unknown_fields)
@@ -158,6 +165,12 @@ enum Cmd {
         /// `/loom-skin.css`.
         #[arg(long, default_value = "/loom-skin.css")]
         css_href: String,
+        /// Path to a pre-extracted critical-CSS file (produced by
+        /// `loom critical-css`). Inlined as `<style>` and pinned
+        /// in CSP via sha256 hash. If absent, the page-shell
+        /// emits a normal blocking link to `--css-href`.
+        #[arg(long)]
+        critical_css: Option<PathBuf>,
     },
 }
 
@@ -235,7 +248,8 @@ fn main() -> ExitCode {
             input,
             out,
             css_href,
-        } => match cmd_cms_render(&input, &out, &css_href) {
+            critical_css,
+        } => match cmd_cms_render(&input, &out, &css_href, critical_css.as_deref()) {
             Ok(()) => ExitCode::SUCCESS,
             Err(CmsRenderError::Schema(e)) => {
                 eprintln!("loom cms-render: schema error: {e}");
@@ -740,11 +754,15 @@ fn cmd_cms_render(
     input: &std::path::Path,
     out: &str,
     css_href: &str,
+    critical_css_path: Option<&std::path::Path>,
 ) -> Result<(), CmsRenderError> {
     let raw = std::fs::read_to_string(input)?;
     let page: loom_cms_render::CmsPage = serde_json::from_str(&raw)?;
     let body = loom_cms_render::render_page(&page);
-    let shell = page_shell(&page, css_href, &body.into_string());
+    let critical_css = critical_css_path
+        .map(std::fs::read_to_string)
+        .transpose()?;
+    let shell = page_shell(&page, css_href, &body.into_string(), critical_css.as_deref());
     if out == "-" {
         print!("{shell}");
         return Ok(());
@@ -757,6 +775,22 @@ fn cmd_cms_render(
     std::fs::write(out, &shell)?;
     Ok(())
 }
+
+/// Compute SHA-256 over `bytes` and return `sha256-{base64}`
+/// formatted for inclusion in a CSP source-list.
+fn csp_sha256(bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    use sha2::Digest as _;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    let b64 = base64::engine::general_purpose::STANDARD.encode(digest);
+    format!("sha256-{b64}")
+}
+
+/// Fixed onload event handler for the deferred stylesheet link.
+/// Hashed at build time + pinned in CSP `script-src`.
+const DEFER_ONLOAD_JS: &str = "this.media='all';this.removeAttribute('onload')";
 
 /// Wrap rendered body markup in the smallest valid HTML5 page
 /// that passes every Loom + forge.sh audit:
@@ -776,27 +810,54 @@ fn cmd_cms_render(
 /// The output is HTML-escaped via plain string concatenation only
 /// for fields the schema marks as text (title, description, path).
 /// The body markup is already escaped by Maud.
-fn page_shell(page: &loom_cms_render::CmsPage, css_href: &str, body: &str) -> String {
-    // SECURITY: the only fields we interpolate as attribute or text
-    // values are page.title, page.description, page.path, css_href.
-    // All four pass through escape_html_text(); none is allowed to
-    // break out of its slot.
+fn page_shell(
+    page: &loom_cms_render::CmsPage,
+    css_href: &str,
+    body: &str,
+    critical_css: Option<&str>,
+) -> String {
+    // SECURITY: page.title / page.description / page.path / css_href
+    // pass through escape_html_*() before interpolation; critical_css
+    // bytes go into a <style> block and are CSP-pinned via sha256.
     let title = escape_html_text(&page.title);
     let description = escape_html_text(&page.description);
     let path = escape_html_attr(&page.path);
     let css = escape_html_attr(css_href);
+    let (style_block, css_link, csp) = match critical_css {
+        Some(crit) => {
+            let style_hash = csp_sha256(crit.as_bytes());
+            let onload_hash = csp_sha256(DEFER_ONLOAD_JS.as_bytes());
+            let style_block = format!("<style>{crit}</style>\n  ");
+            let css_link = format!(
+                "<link rel=\"stylesheet\" href=\"{css}\" media=\"print\" onload=\"{DEFER_ONLOAD_JS}\">\n  <noscript><link rel=\"stylesheet\" href=\"{css}\"></noscript>"
+            );
+            // CSP: 'self' for default + img/style/script + the
+            // critical-style hash + the deferred-onload script
+            // hash. 'unsafe-hashes' is required (CSP3) to allow
+            // an inline event handler whose hash is in script-src.
+            let csp = format!(
+                "default-src 'self'; img-src 'self' data:; style-src 'self' '{style_hash}'; script-src 'self' 'unsafe-hashes' '{onload_hash}'; frame-ancestors 'none'"
+            );
+            (style_block, css_link, csp)
+        }
+        None => {
+            let css_link = format!("<link rel=\"stylesheet\" href=\"{css}\">");
+            let csp = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'".to_owned();
+            (String::new(), css_link, csp)
+        }
+    };
     format!(
         "<!doctype html>\n\
 <html lang=\"en\">\n\
 <head>\n\
   <meta charset=\"utf-8\">\n\
-  <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'\">\n\
+  <meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">\n\
   <meta http-equiv=\"X-Content-Type-Options\" content=\"nosniff\">\n\
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
   <title>{title}</title>\n\
   <meta name=\"description\" content=\"{description}\">\n\
   <link rel=\"canonical\" href=\"{path}\">\n\
-  <link rel=\"stylesheet\" href=\"{css}\">\n\
+  {style_block}{css_link}\n\
 </head>\n\
 <body>\n\
   <a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n\
@@ -859,14 +920,14 @@ mod cms_render_tests {
 
     #[test]
     fn shell_emits_doctype_and_lang() {
-        let s = page_shell(&empty_page(), "/loom-skin.css", "");
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
         assert!(s.starts_with("<!doctype html>"));
         assert!(s.contains(r#"<html lang="en">"#));
     }
 
     #[test]
     fn shell_emits_strict_csp() {
-        let s = page_shell(&empty_page(), "/loom-skin.css", "");
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
         assert!(s.contains("Content-Security-Policy"));
         assert!(s.contains("default-src 'self'"));
         assert!(s.contains("frame-ancestors 'none'"));
@@ -874,7 +935,7 @@ mod cms_render_tests {
 
     #[test]
     fn shell_emits_nosniff() {
-        let s = page_shell(&empty_page(), "/loom-skin.css", "");
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
         assert!(s.contains("X-Content-Type-Options"));
         assert!(s.contains("nosniff"));
     }
@@ -883,13 +944,13 @@ mod cms_render_tests {
     fn shell_emits_canonical_from_path() {
         let mut p = empty_page();
         p.path = "/leaderboard".to_owned();
-        let s = page_shell(&p, "/loom-skin.css", "");
+        let s = page_shell(&p, "/loom-skin.css", "", None);
         assert!(s.contains(r#"<link rel="canonical" href="/leaderboard">"#));
     }
 
     #[test]
     fn shell_emits_single_h1() {
-        let s = page_shell(&empty_page(), "/loom-skin.css", "");
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
         let count = s.matches("<h1 ").count();
         assert_eq!(count, 1, "expected exactly one h1, got {count}");
     }
@@ -898,7 +959,7 @@ mod cms_render_tests {
     fn shell_escapes_title_attribute() {
         let mut p = empty_page();
         p.title = "Foo & <Bar>".to_owned();
-        let s = page_shell(&p, "/loom-skin.css", "");
+        let s = page_shell(&p, "/loom-skin.css", "", None);
         assert!(!s.contains("<Bar>"));
         assert!(s.contains("Foo &amp; &lt;Bar&gt;"));
     }
@@ -907,41 +968,41 @@ mod cms_render_tests {
     fn shell_escapes_quote_in_path_attribute() {
         let mut p = empty_page();
         p.path = "/x\"onerror=alert(1)".to_owned();
-        let s = page_shell(&p, "/loom-skin.css", "");
+        let s = page_shell(&p, "/loom-skin.css", "", None);
         assert!(!s.contains(r#"x"onerror"#));
         assert!(s.contains("&quot;"));
     }
 
     #[test]
     fn shell_inlines_body_markup() {
-        let s = page_shell(&empty_page(), "/loom-skin.css", "<main>X</main>");
+        let s = page_shell(&empty_page(), "/loom-skin.css", "<main>X</main>", None);
         assert!(s.contains("<main>X</main>"));
     }
 
     #[test]
     fn shell_skip_link_target_matches_div() {
-        let s = page_shell(&empty_page(), "/loom-skin.css", "");
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
         assert!(s.contains(r##"href="#content""##));
         assert!(s.contains(r##"id="content""##));
     }
 
     #[test]
     fn shell_emits_header_landmark() {
-        let s = page_shell(&empty_page(), "/loom-skin.css", "");
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
         assert!(s.contains("<header "), "missing <header>: {s}");
         assert!(s.contains(r#"role="banner""#));
     }
 
     #[test]
     fn shell_emits_footer_landmark() {
-        let s = page_shell(&empty_page(), "/loom-skin.css", "");
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
         assert!(s.contains("<footer "), "missing <footer>: {s}");
         assert!(s.contains(r#"role="contentinfo""#));
     }
 
     #[test]
     fn shell_emits_nav_landmark_with_aria_label() {
-        let s = page_shell(&empty_page(), "/loom-skin.css", "");
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
         assert!(s.contains("<nav "), "missing <nav>: {s}");
         assert!(s.contains(r#"aria-label="Primary""#));
     }
@@ -967,7 +1028,7 @@ mod cms_render_tests {
             }"#,
         )
         .expect("write input");
-        cmd_cms_render(&input, output.to_str().unwrap(), "/loom-skin.css").expect("renders");
+        cmd_cms_render(&input, output.to_str().unwrap(), "/loom-skin.css", None).expect("renders");
         let html = std::fs::read_to_string(&output).expect("read output");
         assert!(html.contains("<title>Demo</title>"));
         assert!(html.contains("Welcome"));
@@ -975,6 +1036,71 @@ mod cms_render_tests {
         // Cleanup.
         let _ = std::fs::remove_file(&input);
         let _ = std::fs::remove_file(&output);
+    }
+
+    #[test]
+    fn shell_with_critical_css_inlines_style_block() {
+        let s = page_shell(
+            &empty_page(),
+            "/loom-skin.css",
+            "",
+            Some(":root { --x: 1; }"),
+        );
+        assert!(s.contains("<style>:root { --x: 1; }</style>"));
+    }
+
+    #[test]
+    fn shell_with_critical_css_uses_print_media_swap_for_deferred() {
+        let s = page_shell(
+            &empty_page(),
+            "/loom-skin.css",
+            "",
+            Some(":root { --x: 1; }"),
+        );
+        assert!(s.contains(r#"media="print""#));
+        assert!(s.contains("this.media='all';this.removeAttribute('onload')"));
+        assert!(s.contains("<noscript>"));
+    }
+
+    #[test]
+    fn shell_with_critical_css_csp_pins_style_hash() {
+        let s = page_shell(
+            &empty_page(),
+            "/loom-skin.css",
+            "",
+            Some(":root { --x: 1; }"),
+        );
+        // CSP must include 'sha256-' twice (one for style, one for script
+        // 'unsafe-hashes' onload handler).
+        let count = s.matches("sha256-").count();
+        assert!(count >= 2, "expected ≥2 sha256-, got {count}: {s}");
+        assert!(s.contains("'unsafe-hashes'"));
+    }
+
+    #[test]
+    fn shell_without_critical_css_keeps_simple_csp() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
+        assert!(!s.contains("sha256-"));
+        assert!(!s.contains("'unsafe-hashes'"));
+        assert!(!s.contains("<style>"));
+        assert!(s.contains(r#"<link rel="stylesheet" href="/loom-skin.css">"#));
+    }
+
+    #[test]
+    fn csp_sha256_known_value() {
+        // Empty input has a known SHA-256.
+        // Hash of empty string is e3b0c44298fc1c149afbf4c8996fb924...
+        let h = csp_sha256(b"");
+        assert_eq!(h, "sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=");
+    }
+
+    #[test]
+    fn csp_sha256_stable_across_runs() {
+        let a = csp_sha256(b"abc");
+        let b = csp_sha256(b"abc");
+        assert_eq!(a, b);
+        let c = csp_sha256(b"abd");
+        assert_ne!(a, c);
     }
 
     #[test]
@@ -992,7 +1118,7 @@ mod cms_render_tests {
             }"#,
         )
         .expect("write");
-        let r = cmd_cms_render(&input, "-", "/loom-skin.css");
+        let r = cmd_cms_render(&input, "-", "/loom-skin.css", None);
         assert!(matches!(r, Err(CmsRenderError::Schema(_))));
         let _ = std::fs::remove_file(&input);
     }
