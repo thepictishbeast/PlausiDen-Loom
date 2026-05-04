@@ -128,6 +128,16 @@ pub enum CmsSection {
         /// List items, top to bottom.
         items: Vec<CmsCard>,
     },
+    /// Sidebar: a stack of typed `Panel`s rendered inside an
+    /// `<aside>` landmark. Used for index.html's right-rail
+    /// (top earners / open votes / house rules / etc.).
+    Sidebar {
+        /// Optional aria-label for the `<aside>` landmark.
+        /// Defaults to "Side panels" if omitted.
+        label: Option<String>,
+        /// Stack of panels, top to bottom.
+        panels: Vec<CmsPanel>,
+    },
     /// Feed-top compose box. Maps to [`Composer`].
     Composer {
         /// Visible CTA text.
@@ -186,6 +196,49 @@ pub struct HeroCta {
     /// Backend key (must match a `[backends.X]` in backends.toml).
     /// Forge's phantom_button phase verifies this at build time.
     pub data_backend: String,
+}
+
+/// One sidebar panel inside a [`CmsSection::Sidebar`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CmsPanel {
+    /// Panel heading (rendered as h2).
+    pub title: String,
+    /// Body content. Discriminated by `kind`.
+    pub body: CmsPanelBody,
+}
+
+/// Typed panel body. Closed enum — adding a variant requires a
+/// renderer arm + test.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CmsPanelBody {
+    /// Ordered list of `{label, value, href?}` rows. Each row
+    /// renders as a `<li>`; if `href` is set + valid, the row
+    /// is wrapped in an `<a>`.
+    List {
+        /// Row entries, top to bottom.
+        items: Vec<CmsPanelListItem>,
+    },
+    /// Plain prose paragraph(s), each entry → one `<p>`.
+    Text {
+        /// Paragraphs.
+        paragraphs: Vec<String>,
+    },
+}
+
+/// One row inside a [`CmsPanelBody::List`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CmsPanelListItem {
+    /// Left-side label.
+    pub label: String,
+    /// Right-side value.
+    pub value: String,
+    /// Optional click target. Validated via `is_safe_url`.
+    pub href: Option<String>,
+    /// Optional backend key (verified by phantom_button at build).
+    pub data_backend: Option<String>,
 }
 
 /// One feed card inside a [`CmsSection::CardFeed`]. Self-contained;
@@ -424,6 +477,16 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::Sidebar { label, panels } => {
+            let aria = label.as_deref().unwrap_or("Side panels");
+            html! {
+                aside class="loom-sidebar" aria-label=(aria) {
+                    @for panel in panels {
+                        (render_panel(panel))
+                    }
+                }
+            }
+        }
         CmsSection::Composer {
             prompt,
             submit_endpoint,
@@ -553,6 +616,52 @@ fn render_card(card: &CmsCard) -> Markup {
                 }
             }
         }
+    }
+}
+
+/// Render one sidebar panel. Helper for `CmsSection::Sidebar`'s arm.
+fn render_panel(panel: &CmsPanel) -> Markup {
+    html! {
+        section class="loom-panel" {
+            h2 class="loom-panel__title" { (panel.title) }
+            (render_panel_body(&panel.body))
+        }
+    }
+}
+
+fn render_panel_body(body: &CmsPanelBody) -> Markup {
+    match body {
+        CmsPanelBody::List { items } => html! {
+            ul class="loom-panel__list" {
+                @for item in items {
+                    @let href_safe = item.href.as_deref().map(is_safe_url).unwrap_or(false);
+                    li class="loom-panel__list-item" {
+                        @if let (Some(href), true) = (item.href.as_deref(), href_safe) {
+                            a class="loom-panel__list-link" href=(href) data-backend=[item.data_backend.as_deref()] {
+                                span class="loom-panel__list-label" { (item.label) }
+                                span class="loom-panel__list-value" { (item.value) }
+                            }
+                        } @else if item.href.is_some() {
+                            // href present but failed validation
+                            span class="loom-panel__list-link" data-invalid="true" {
+                                span class="loom-panel__list-label" { (item.label) }
+                                span class="loom-panel__list-value" { (item.value) }
+                            }
+                        } @else {
+                            span class="loom-panel__list-label" { (item.label) }
+                            span class="loom-panel__list-value" { (item.value) }
+                        }
+                    }
+                }
+            }
+        },
+        CmsPanelBody::Text { paragraphs } => html! {
+            div class="loom-panel__body" {
+                @for paragraph in paragraphs {
+                    p class="loom-panel__paragraph" { (paragraph) }
+                }
+            }
+        },
     }
 }
 
@@ -1080,6 +1189,154 @@ mod tests {
         assert!(html.contains(r#"class="loom-card-feed""#));
         assert!(html.contains(">Empty list<"));
         assert!(!html.contains("<article "));
+    }
+
+    #[test]
+    fn sidebar_renders_aside_with_aria_label() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::Sidebar {
+                label: Some("Right rail".to_owned()),
+                panels: vec![],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"<aside class="loom-sidebar" aria-label="Right rail">"#));
+    }
+
+    #[test]
+    fn sidebar_default_label_is_side_panels() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::Sidebar {
+                label: None,
+                panels: vec![],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"aria-label="Side panels""#));
+    }
+
+    #[test]
+    fn panel_with_list_body_renders_each_row() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::Sidebar {
+                label: None,
+                panels: vec![CmsPanel {
+                    title: "Top earners".to_owned(),
+                    body: CmsPanelBody::List {
+                        items: vec![
+                            CmsPanelListItem {
+                                label: "@court_dax".to_owned(),
+                                value: "$1,840".to_owned(),
+                                href: Some("/u/court_dax".to_owned()),
+                                data_backend: Some("view-profile".to_owned()),
+                            },
+                            CmsPanelListItem {
+                                label: "@vault_kit".to_owned(),
+                                value: "$1,420".to_owned(),
+                                href: None,
+                                data_backend: None,
+                            },
+                        ],
+                    },
+                }],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(">Top earners<"));
+        assert!(html.contains(">@court_dax<"));
+        assert!(html.contains(">$1,840<"));
+        assert!(html.contains(r#"href="/u/court_dax""#));
+        assert!(html.contains(r#"data-backend="view-profile""#));
+        assert!(html.contains(">@vault_kit<"));
+    }
+
+    #[test]
+    fn panel_with_text_body_renders_each_paragraph() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::Sidebar {
+                label: None,
+                panels: vec![CmsPanel {
+                    title: "House rules".to_owned(),
+                    body: CmsPanelBody::Text {
+                        paragraphs: vec![
+                            "Rule one.".to_owned(),
+                            "Rule two.".to_owned(),
+                        ],
+                    },
+                }],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(">House rules<"));
+        assert!(html.contains(">Rule one.<"));
+        assert!(html.contains(">Rule two.<"));
+    }
+
+    #[test]
+    fn panel_list_invalid_href_falls_back_to_span() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::Sidebar {
+                label: None,
+                panels: vec![CmsPanel {
+                    title: "x".to_owned(),
+                    body: CmsPanelBody::List {
+                        items: vec![CmsPanelListItem {
+                            label: "evil".to_owned(),
+                            value: "x".to_owned(),
+                            href: Some("javascript:alert(1)".to_owned()),
+                            data_backend: None,
+                        }],
+                    },
+                }],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"data-invalid="true""#));
+        assert!(!html.contains("javascript:alert"));
+    }
+
+    #[test]
+    fn panel_text_body_is_escaped() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::Sidebar {
+                label: None,
+                panels: vec![CmsPanel {
+                    title: "<script>".to_owned(),
+                    body: CmsPanelBody::Text {
+                        paragraphs: vec!["<img onerror=x>".to_owned()],
+                    },
+                }],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<img onerror"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("&lt;img"));
     }
 
     #[test]
