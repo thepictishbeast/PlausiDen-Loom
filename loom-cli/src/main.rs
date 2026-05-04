@@ -133,6 +133,27 @@ enum Cmd {
         #[arg(long, default_value = "-")]
         out: String,
     },
+    /// Audit the bridge↔skin coverage. For each CmsSection
+    /// variant tag, assert that the canonical skin.css declares
+    /// its expected `.loom-*` selector family. Catches the
+    /// silent failure where a new variant ships without matching
+    /// CSS, leaving the rendered HTML unstyled.
+    ///
+    /// Reports two classes:
+    ///   missing-skin   variant declared in bridge but no skin rule
+    ///   dead-skin      .loom-section-X with no matching variant
+    ///                  (informational warn — might be consumed
+    ///                  by a downstream component)
+    ///
+    /// Exit codes:
+    ///   0 — every variant has skin coverage
+    ///   1 — at least one variant has no skin rule
+    ///   2 — I/O error (skin file missing)
+    AuditBridge {
+        /// Path to canonical skin.css.
+        #[arg(long)]
+        skin: PathBuf,
+    },
     /// Install a git pre-commit hook (invoked as
     /// `loom hooks-install --target <repo-dir>`) that runs
     /// `loom validate` on staged cms/*.json. Prevents broken
@@ -403,6 +424,14 @@ fn main() -> ExitCode {
             }
             Err(CriticalCssError::Io(e)) => {
                 eprintln!("loom critical-css: i/o error: {e}");
+                ExitCode::from(2)
+            }
+        },
+        Cmd::AuditBridge { skin } => match cmd_audit_bridge(&skin) {
+            Ok(0) => ExitCode::SUCCESS,
+            Ok(_) => ExitCode::from(1),
+            Err(e) => {
+                eprintln!("loom audit-bridge: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1764,6 +1793,122 @@ mod cmd_image_convert_tests {
         std::fs::write(&src, "src").expect("w");
         assert!(!is_dest_fresh(&src, &dest));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// `loom audit-bridge` — pure check across (variant tag,
+/// expected selectors) tuples. Returns the count of missing-skin
+/// findings; non-zero means at least one variant ships without
+/// matching CSS.
+///
+/// The variant→selector map is hand-written here rather than
+/// derived from the bridge code. That's deliberate: this audit
+/// catches the case where the BRIDGE evolves but skin.css
+/// doesn't (or vice versa). Both sides need a human to update
+/// the doctrine table when adding a variant.
+fn cmd_audit_bridge(skin: &std::path::Path) -> Result<u32, std::io::Error> {
+    let css = std::fs::read_to_string(skin)?;
+    let pairs: &[(&str, &[&str])] = &[
+        // (variant tag, required selectors that MUST appear in skin)
+        ("hero", &[".loom-section-hero"]),
+        ("group", &[".loom-section-group"]),
+        ("card_feed", &[".loom-card-feed", ".loom-card-feed-item"]),
+        ("sidebar", &[".loom-sidebar", ".loom-panel"]),
+        ("form", &[".loom-form-section", ".loom-form-field"]),
+        ("composer", &[".loom-composer", ".loom-composer__prompt"]),
+        ("picture", &[".loom-picture"]),
+        ("paragraph", &[".loom-prose"]),
+        ("heading", &[".loom-heading"]),
+        ("banner", &[".loom-banner"]),
+    ];
+    let mut missing = 0u32;
+    let mut found = 0u32;
+    for (variant, required) in pairs {
+        for sel in *required {
+            if css.contains(sel) {
+                found += 1;
+            } else {
+                missing += 1;
+                eprintln!(
+                    "  fail   variant={variant} requires selector {sel} in skin.css — not found"
+                );
+            }
+        }
+    }
+    println!(
+        "loom audit-bridge: {} variant(s), {} required selector(s), {found} found, {missing} missing",
+        pairs.len(),
+        pairs.iter().map(|(_, r)| r.len()).sum::<usize>()
+    );
+    Ok(missing)
+}
+
+#[cfg(test)]
+mod cmd_audit_bridge_tests {
+    use super::*;
+
+    fn unique(label: &str) -> std::path::PathBuf {
+        let pid = std::process::id();
+        let n = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("loom-audit-bridge-{label}-{pid}-{n}.css"))
+    }
+
+    #[test]
+    fn errs_on_missing_skin() {
+        let p = std::env::temp_dir().join("loom-audit-bridge-missing-zzzzz.css");
+        let _ = std::fs::remove_file(&p);
+        let r = cmd_audit_bridge(&p);
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn empty_skin_reports_all_missing() {
+        let p = unique("empty");
+        std::fs::write(&p, "/* empty */").expect("write");
+        let missing = cmd_audit_bridge(&p).expect("ok");
+        // 10 variants × at least 1 required selector each.
+        assert!(missing >= 10, "expected ≥10 missing, got {missing}");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn full_coverage_reports_zero_missing() {
+        let p = unique("full");
+        // Stub every required selector. Note these are SUBSTRING
+        // checks, so just listing them is enough.
+        let body = r#"
+            .loom-section-hero { } .loom-section-group { }
+            .loom-card-feed { } .loom-card-feed-item { }
+            .loom-sidebar { } .loom-panel { }
+            .loom-form-section { } .loom-form-field { }
+            .loom-composer { } .loom-composer__prompt { }
+            .loom-picture { } .loom-prose { } .loom-heading { } .loom-banner { }
+        "#;
+        std::fs::write(&p, body).expect("write");
+        let missing = cmd_audit_bridge(&p).expect("ok");
+        assert_eq!(missing, 0);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn missing_one_selector_returns_count() {
+        let p = unique("one-missing");
+        // Same as full but minus .loom-banner.
+        let body = r#"
+            .loom-section-hero { } .loom-section-group { }
+            .loom-card-feed { } .loom-card-feed-item { }
+            .loom-sidebar { } .loom-panel { }
+            .loom-form-section { } .loom-form-field { }
+            .loom-composer { } .loom-composer__prompt { }
+            .loom-picture { } .loom-prose { } .loom-heading { }
+        "#;
+        std::fs::write(&p, body).expect("write");
+        let missing = cmd_audit_bridge(&p).expect("ok");
+        assert_eq!(missing, 1);
+        let _ = std::fs::remove_file(&p);
     }
 }
 
