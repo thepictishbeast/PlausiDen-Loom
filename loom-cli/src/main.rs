@@ -928,8 +928,7 @@ mod cms_render_tests {
             }"#,
         )
         .expect("write input");
-        cmd_cms_render(&input, output.to_str().unwrap(), "/loom-skin.css")
-            .expect("renders");
+        cmd_cms_render(&input, output.to_str().unwrap(), "/loom-skin.css").expect("renders");
         let html = std::fs::read_to_string(&output).expect("read output");
         assert!(html.contains("<title>Demo</title>"));
         assert!(html.contains("Welcome"));
