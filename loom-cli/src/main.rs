@@ -133,6 +133,33 @@ enum Cmd {
         #[arg(long, default_value = "-")]
         out: String,
     },
+    /// Walk a directory of source images (*.jpg, *.jpeg, *.png)
+    /// and generate the AVIF + WebP siblings the Loom Picture
+    /// component expects (`/assets/{stem}.avif` + `.webp` + `.jpg`).
+    ///
+    /// Skips files whose sibling already exists AND is newer than
+    /// the source — make-style incremental. Backed by ImageMagick
+    /// (`magick` on PATH).
+    ///
+    /// Exit codes:
+    ///   0 — all images converted (or already up to date)
+    ///   1 — at least one conversion failed
+    ///   2 — I/O error (input dir missing, etc.)
+    ImageConvert {
+        /// Directory to scan recursively.
+        #[arg(long)]
+        input_dir: PathBuf,
+        /// Quality for AVIF (0-100; default 50 — perceptually
+        /// lossless for photos at low file size).
+        #[arg(long, default_value_t = 50)]
+        avif_quality: u8,
+        /// Quality for WebP (0-100; default 80).
+        #[arg(long, default_value_t = 80)]
+        webp_quality: u8,
+        /// Force re-encode even if siblings are already newer.
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
     /// Render a CMS page document (JSON) to a static HTML file.
     /// Reads the document from `--input`, runs it through the
     /// `loom-cms-render` bridge, wraps the resulting body markup
@@ -241,6 +268,22 @@ fn main() -> ExitCode {
             }
             Err(CriticalCssError::Io(e)) => {
                 eprintln!("loom critical-css: i/o error: {e}");
+                ExitCode::from(2)
+            }
+        },
+        Cmd::ImageConvert {
+            input_dir,
+            avif_quality,
+            webp_quality,
+            force,
+        } => match cmd_image_convert(&input_dir, avif_quality, webp_quality, force) {
+            Ok(false) => ExitCode::SUCCESS,
+            Ok(true) => {
+                eprintln!("loom image-convert: at least one conversion failed");
+                ExitCode::from(1)
+            }
+            Err(e) => {
+                eprintln!("loom image-convert: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1297,5 +1340,215 @@ mod cmd_critical_css_tests {
         assert!(!got.contains(".loom-card"));
         let _ = std::fs::remove_file(&input);
         let _ = std::fs::remove_file(&output);
+    }
+}
+
+/// `loom image-convert` — walks `input_dir` recursively, finds
+/// every JPG/PNG, and shells out to ImageMagick (`magick`) to
+/// produce the matching `.avif` and `.webp` siblings the Loom
+/// Picture component expects.
+///
+/// Skip-if-newer: if the sibling already exists AND its mtime is
+/// >= the source's mtime, skip it. `--force` overrides.
+///
+/// Returns `Ok(true)` if at least one conversion failed (caller
+/// maps to exit 1); `Ok(false)` if every conversion succeeded
+/// or was skipped; `Err` on I/O error reading the input dir.
+fn cmd_image_convert(
+    input_dir: &std::path::Path,
+    avif_quality: u8,
+    webp_quality: u8,
+    force: bool,
+) -> Result<bool, std::io::Error> {
+    if !input_dir.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("input dir not found: {}", input_dir.display()),
+        ));
+    }
+    let mut sources = Vec::<std::path::PathBuf>::new();
+    walk_images(input_dir, &mut sources)?;
+    let mut converted = 0u32;
+    let mut skipped = 0u32;
+    let mut failed = 0u32;
+    for src in &sources {
+        for (ext, quality) in [("avif", avif_quality), ("webp", webp_quality)] {
+            let dest = src.with_extension(ext);
+            if !force && is_dest_fresh(src, &dest) {
+                skipped += 1;
+                continue;
+            }
+            match magick_convert(src, &dest, ext, quality) {
+                Ok(()) => {
+                    converted += 1;
+                    println!(
+                        "  ok     {src}{arrow}{dest}",
+                        src = src.display(),
+                        arrow = " -> ",
+                        dest = dest.display()
+                    );
+                }
+                Err(e) => {
+                    failed += 1;
+                    eprintln!(
+                        "  fail   {src} -> {dest}: {e}",
+                        src = src.display(),
+                        dest = dest.display()
+                    );
+                }
+            }
+        }
+    }
+    println!(
+        "image-convert: {} source(s), {converted} created, {skipped} skipped (already current), {failed} failed",
+        sources.len()
+    );
+    Ok(failed > 0)
+}
+
+fn walk_images(
+    dir: &std::path::Path,
+    out: &mut Vec<std::path::PathBuf>,
+) -> Result<(), std::io::Error> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            walk_images(&path, out)?;
+            continue;
+        }
+        let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+            continue;
+        };
+        let lower = ext.to_ascii_lowercase();
+        if matches!(lower.as_str(), "jpg" | "jpeg" | "png") {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn is_dest_fresh(src: &std::path::Path, dest: &std::path::Path) -> bool {
+    let (Ok(src_meta), Ok(dest_meta)) = (std::fs::metadata(src), std::fs::metadata(dest)) else {
+        return false;
+    };
+    let (Ok(src_m), Ok(dest_m)) = (src_meta.modified(), dest_meta.modified()) else {
+        return false;
+    };
+    dest_m >= src_m
+}
+
+fn magick_convert(
+    src: &std::path::Path,
+    dest: &std::path::Path,
+    ext: &str,
+    quality: u8,
+) -> Result<(), String> {
+    // SECURITY: src + dest paths come from filesystem walk; `ext`
+    // and `quality` are typed/bounded by clap. None of these can
+    // inject shell args because we use std::process::Command's
+    // arg-vec form (no shell interpretation).
+    let output = std::process::Command::new("magick")
+        .arg(src)
+        .arg("-quality")
+        .arg(quality.to_string())
+        .arg(format!("{}:{}", ext.to_uppercase(), dest.display()))
+        .output()
+        .map_err(|e| format!("spawning magick failed: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "magick exit {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod cmd_image_convert_tests {
+    use super::*;
+
+    fn unique_dir(label: &str) -> std::path::PathBuf {
+        let pid = std::process::id();
+        let n = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("loom-image-convert-{label}-{pid}-{n}"))
+    }
+
+    #[test]
+    fn errs_on_missing_input_dir() {
+        let dir = std::env::temp_dir().join("loom-image-convert-missing-zzzz");
+        let _ = std::fs::remove_dir_all(&dir);
+        let r = cmd_image_convert(&dir, 50, 80, false);
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn empty_dir_succeeds_with_no_failures() {
+        let dir = unique_dir("empty");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let r = cmd_image_convert(&dir, 50, 80, false);
+        assert_eq!(r.expect("ok"), false);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn walks_recursively() {
+        let dir = unique_dir("recursive");
+        let nested = dir.join("a/b/c");
+        std::fs::create_dir_all(&nested).expect("mkdir");
+        // Plant non-image files; walker should ignore.
+        std::fs::write(dir.join("readme.txt"), "x").expect("w");
+        std::fs::write(nested.join("notes.md"), "x").expect("w");
+        let mut out = Vec::new();
+        walk_images(&dir, &mut out).expect("walk");
+        assert!(out.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn walks_picks_up_images_only() {
+        let dir = unique_dir("images");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        // Plant filenames (not real image bytes — walker only looks at extension)
+        for name in ["a.jpg", "b.JPG", "c.jpeg", "d.png", "e.PNG", "f.gif", "g.txt"] {
+            std::fs::write(dir.join(name), b"\x00").expect("w");
+        }
+        let mut out = Vec::new();
+        walk_images(&dir, &mut out).expect("walk");
+        assert_eq!(out.len(), 5, "got {:?}", out);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dest_fresh_check_compares_mtimes() {
+        let dir = unique_dir("freshness");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let src = dir.join("a.jpg");
+        let dest = dir.join("a.avif");
+        std::fs::write(&src, "src").expect("w src");
+        // Sleep to ensure dest mtime > src mtime.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::write(&dest, "dest").expect("w dest");
+        assert!(is_dest_fresh(&src, &dest));
+        // Touch src to make it newer.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::write(&src, "src2").expect("w src2");
+        assert!(!is_dest_fresh(&src, &dest));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dest_fresh_false_when_dest_missing() {
+        let dir = unique_dir("missing-dest");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let src = dir.join("a.jpg");
+        let dest = dir.join("a.avif");
+        std::fs::write(&src, "src").expect("w");
+        assert!(!is_dest_fresh(&src, &dest));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
