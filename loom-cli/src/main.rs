@@ -140,7 +140,7 @@ enum Cmd {
     /// in their cms/*.json.
     ///
     /// Pipe to a file under your project root + reference it from
-    /// every cms/<name>.json:
+    /// every `cms/<name>.json`:
     ///
     ///   loom cms-schema --out cms-schema.json
     ///   # in cms/index.json:
