@@ -707,10 +707,7 @@ mod tests {
             path: "/x".to_owned(),
             sections: vec![CmsSection::Group {
                 title: "Rules".to_owned(),
-                body: vec![
-                    "First rule.".to_owned(),
-                    "Second rule.".to_owned(),
-                ],
+                body: vec!["First rule.".to_owned(), "Second rule.".to_owned()],
             }],
         };
         let html = render_to_string(&p);
