@@ -39,12 +39,8 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-use loom_components::composer::{
-    Composer, ComposerAvatar, ComposerSize, PromptAction,
-};
-use loom_components::picture::{
-    Picture, PictureFit, PictureLoading, PicturePriority,
-};
+use loom_components::composer::{Composer, ComposerAvatar, ComposerSize, PromptAction};
+use loom_components::picture::{Picture, PictureFit, PictureLoading, PicturePriority};
 use maud::{Markup, html};
 use serde::{Deserialize, Serialize};
 
