@@ -80,25 +80,47 @@ pub fn tokens_css() -> String {
     out.push_str(" * Re-emit via `loom css > path/to/loom-tokens.css`.\n */\n\n");
     out.push_str(":root {\n");
     for role in ColorRole::all() {
-        out.push_str(&format!("  --loom-color-{}: {};\n", role.role, role.color.css));
+        out.push_str(&format!(
+            "  --loom-color-{}: {};\n",
+            role.role, role.color.css
+        ));
     }
     for sp in Spacing::all() {
-        out.push_str(&format!("  --loom-space-{}: {}rem;\n", sp.tailwind(), sp.rem()));
+        out.push_str(&format!(
+            "  --loom-space-{}: {}rem;\n",
+            sp.tailwind(),
+            sp.rem()
+        ));
     }
     for bp in Breakpoint::all() {
-        out.push_str(&format!("  --loom-break-{}: {}px;\n", bp.tailwind(), bp.px()));
+        out.push_str(&format!(
+            "  --loom-break-{}: {}px;\n",
+            bp.tailwind(),
+            bp.px()
+        ));
     }
     for fs in FontSize::all() {
-        out.push_str(&format!("  --loom-font-{}: {};\n", fs.tailwind(), fs.css_size()));
+        out.push_str(&format!(
+            "  --loom-font-{}: {};\n",
+            fs.tailwind(),
+            fs.css_size()
+        ));
     }
     for r in Radius::all() {
-        out.push_str(&format!("  --loom-radius-{}: {};\n", r.tailwind(), r.css_size()));
+        out.push_str(&format!(
+            "  --loom-radius-{}: {};\n",
+            r.tailwind(),
+            r.css_size()
+        ));
     }
     out.push_str("}\n\n");
 
     out.push_str(":root[data-theme=\"dark\"] {\n");
     for role in ColorRole::dark_all() {
-        out.push_str(&format!("  --loom-color-{}: {};\n", role.role, role.color.css));
+        out.push_str(&format!(
+            "  --loom-color-{}: {};\n",
+            role.role, role.color.css
+        ));
     }
     out.push_str("}\n");
     out
@@ -165,11 +187,7 @@ pub fn tokens_egui() -> String {
     out.push_str("pub mod breakpoint {\n");
     for bp in Breakpoint::all() {
         let upper = bp.tailwind().to_uppercase();
-        out.push_str(&format!(
-            "    pub const {}: u32 = {};\n",
-            upper,
-            bp.px(),
-        ));
+        out.push_str(&format!("    pub const {}: u32 = {};\n", upper, bp.px(),));
     }
     out.push_str("}\n\n");
 
@@ -179,10 +197,10 @@ pub fn tokens_egui() -> String {
         let upper = r.tailwind().to_uppercase();
         let px = match r {
             Radius::None => 0,
-            Radius::Sm => 4,   // 0.25rem
-            Radius::Md => 8,   // 0.5rem
-            Radius::Lg => 12,  // 0.75rem
-            Radius::Xl => 16,  // 1rem
+            Radius::Sm => 4,  // 0.25rem
+            Radius::Md => 8,  // 0.5rem
+            Radius::Lg => 12, // 0.75rem
+            Radius::Xl => 16, // 1rem
             Radius::Full => 9999,
         };
         out.push_str(&format!(
@@ -265,7 +283,9 @@ mod tests {
             // Colours are emitted as Color32::from_rgb literals after
             // the parse-at-emit-time refactor.
             assert!(
-                rs.contains(&format!("pub const {const_name}: Color32 = Color32::from_rgb")),
+                rs.contains(&format!(
+                    "pub const {const_name}: Color32 = Color32::from_rgb"
+                )),
                 "missing Color32 const {const_name}",
             );
         }

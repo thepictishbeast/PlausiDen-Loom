@@ -178,13 +178,9 @@ const CSS_TOKEN_SOURCE_HINTS: &[&str] = &[
 ///
 /// # Errors
 /// Returns an error on regex compile failure or I/O failure.
-pub fn run_css(
-    root: &Path,
-    extra_allowlist_substrings: &[&str],
-) -> Result<Vec<CssViolation>> {
-    let hex_colour =
-        Regex::new(r"#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b")
-            .context("hex colour regex")?;
+pub fn run_css(root: &Path, extra_allowlist_substrings: &[&str]) -> Result<Vec<CssViolation>> {
+    let hex_colour = Regex::new(r"#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b")
+        .context("hex colour regex")?;
     let rgb_colour = Regex::new(r"\brgba?\s*\(").context("rgb colour regex")?;
     // Spacing literal: a positive number followed by px / rem / em.
     // Negative-lookbehind to skip values inside `var(--something-12px)`
@@ -196,8 +192,7 @@ pub fn run_css(
     // structural border widths, not design-system layout spacing.
     // Loom's smallest spacing token is 0.25rem (4px); flagging
     // sub-token values yields false positives that drown the signal.
-    let spacing_literal =
-        Regex::new(r"\b(\d+(?:\.\d+)?)(px|rem|em)\b").context("spacing regex")?;
+    let spacing_literal = Regex::new(r"\b(\d+(?:\.\d+)?)(px|rem|em)\b").context("spacing regex")?;
     // Properties whose values are inherently sub-token (border /
     // outline widths, font-weights, line-heights). When the entire
     // line's only spacing literals come from one of these properties,
@@ -209,12 +204,16 @@ pub fn run_css(
     .context("micro property regex")?;
 
     let mut violations = Vec::new();
-    for entry in WalkDir::new(root).into_iter().filter_map(Result::ok).filter(|e| {
-        e.file_type().is_file()
-            && e.path()
-                .extension()
-                .is_some_and(|x| x == "css" || x == "scss")
-    }) {
+    for entry in WalkDir::new(root)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| {
+            e.file_type().is_file()
+                && e.path()
+                    .extension()
+                    .is_some_and(|x| x == "css" || x == "scss")
+        })
+    {
         let path = entry.path();
         let path_str = path.to_string_lossy();
 
@@ -426,7 +425,8 @@ mod tests {
         write_temp(tmp.path(), "src/style.css", ".btn { color: #ff0000; }\n");
         let v = run_css_default(tmp.path()).unwrap();
         assert!(
-            v.iter().any(|cv| matches!(cv.kind, CssViolationKind::RawColour)),
+            v.iter()
+                .any(|cv| matches!(cv.kind, CssViolationKind::RawColour)),
             "missing RawColour: {v:?}",
         );
     }
@@ -437,7 +437,8 @@ mod tests {
         write_temp(tmp.path(), "src/style.css", ".btn { padding: 12px; }\n");
         let v = run_css_default(tmp.path()).unwrap();
         assert!(
-            v.iter().any(|cv| matches!(cv.kind, CssViolationKind::RawSpacing)),
+            v.iter()
+                .any(|cv| matches!(cv.kind, CssViolationKind::RawSpacing)),
             "missing RawSpacing: {v:?}",
         );
     }

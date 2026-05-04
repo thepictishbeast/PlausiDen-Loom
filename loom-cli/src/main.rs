@@ -223,7 +223,9 @@ fn cmd_lint(root: &std::path::Path, json: bool) -> Result<usize> {
             println!("    {}", cv.matched);
         }
         println!();
-        println!("Each CSS violation = a raw colour / spacing literal outside a token-source file.");
+        println!(
+            "Each CSS violation = a raw colour / spacing literal outside a token-source file."
+        );
         println!(
             "Replace with a `var(--loom-color-*)` / `var(--loom-space-*)` from loom-tokens.css,",
         );
