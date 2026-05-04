@@ -1274,10 +1274,7 @@ mod tests {
                 panels: vec![CmsPanel {
                     title: "House rules".to_owned(),
                     body: CmsPanelBody::Text {
-                        paragraphs: vec![
-                            "Rule one.".to_owned(),
-                            "Rule two.".to_owned(),
-                        ],
+                        paragraphs: vec!["Rule one.".to_owned(), "Rule two.".to_owned()],
                     },
                 }],
             }],
