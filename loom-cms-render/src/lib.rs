@@ -51,9 +51,18 @@ use serde::{Deserialize, Serialize};
 
 /// A single CMS-managed page. The smallest unit the bridge knows
 /// how to render in isolation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CmsPage {
+    /// JSON Schema reference. Editors with jsonls (VS Code,
+    /// Helix, Zed) read this to provide inline autocomplete +
+    /// validation. The bridge ignores the value — it's the
+    /// editor's contract, not the renderer's. Authors should
+    /// generate the schema via `loom cms-schema --out ...` and
+    /// reference it here as `"$schema": "../cms-schema.json"`.
+    #[serde(rename = "$schema", skip_serializing_if = "Option::is_none", default)]
+    #[schemars(rename = "$schema")]
+    pub schema: Option<String>,
     /// `<title>` text. Required.
     pub title: String,
     /// `<meta name="description">` text. Required for SEO.
@@ -73,7 +82,7 @@ pub struct CmsPage {
 }
 
 /// One primary-nav link.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CmsNavLink {
     /// Visible label.
@@ -91,7 +100,7 @@ pub struct CmsNavLink {
 
 /// One section of a page. Adding a variant requires a paired
 /// renderer arm in [`render_section`] and a unit test.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CmsSection {
     /// Top-of-page hero. Optional eyebrow pill, required title,
@@ -215,7 +224,7 @@ pub enum CmsSection {
 /// Hero CTA — the single typed primary action attached to a Hero
 /// section. URL is validated by `composer::is_safe_url` at render
 /// time.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct HeroCta {
     /// Visible label text.
@@ -229,7 +238,7 @@ pub struct HeroCta {
 
 /// Banner tone — closed enum mirroring the standard color
 /// roles. Each maps to a `data-tone` attribute the skin styles.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CmsBannerTone {
     /// Neutral, primary-tinted (default).
@@ -254,7 +263,7 @@ impl CmsBannerTone {
 }
 
 /// Submit-row config for [`CmsSection::Form`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CmsFormSubmit {
     /// Primary button label (e.g. "Continue → upload").
@@ -269,7 +278,7 @@ pub struct CmsFormSubmit {
 }
 
 /// One step inside a [`CmsSection::Form`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CmsFormStep {
     /// Step display label.
@@ -281,7 +290,7 @@ pub struct CmsFormStep {
 }
 
 /// Step visual state.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CmsFormStepState {
     /// User is currently on this step.
@@ -304,7 +313,7 @@ impl CmsFormStepState {
 
 /// Typed form field. Closed enum — adding a variant requires a
 /// renderer arm + test.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CmsFormField {
     /// Single-line text input.
@@ -374,7 +383,7 @@ fn default_textarea_rows() -> u32 {
 }
 
 /// One option inside a [`CmsFormField::Select`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CmsSelectOption {
     /// `value` attribute.
@@ -384,7 +393,7 @@ pub struct CmsSelectOption {
 }
 
 /// One sidebar panel inside a [`CmsSection::Sidebar`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CmsPanel {
     /// Panel heading (rendered as h2).
@@ -395,7 +404,7 @@ pub struct CmsPanel {
 
 /// Typed panel body. Closed enum — adding a variant requires a
 /// renderer arm + test.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CmsPanelBody {
     /// Ordered list of `{label, value, href?}` rows. Each row
@@ -413,7 +422,7 @@ pub enum CmsPanelBody {
 }
 
 /// One row inside a [`CmsPanelBody::List`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CmsPanelListItem {
     /// Left-side label.
@@ -428,7 +437,7 @@ pub struct CmsPanelListItem {
 
 /// One feed card inside a [`CmsSection::CardFeed`]. Self-contained;
 /// no further nesting allowed in v1.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CmsCard {
     /// Avatar slot. Uses the same shape as the Composer avatar so
@@ -451,7 +460,7 @@ pub struct CmsCard {
 }
 
 /// One {label, value} pair inside a [`CmsCard`]'s stats grid.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CmsCardStat {
     /// Caption text (e.g. "Votes").
@@ -462,7 +471,7 @@ pub struct CmsCardStat {
 
 /// Closed enum mirror of [`PromptAction`] — separated so the wire
 /// format is independent of the Loom enum's internals.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CmsPromptAction {
     /// Map → [`PromptAction::UploadClip`].
@@ -487,7 +496,7 @@ impl From<CmsPromptAction> for PromptAction {
 }
 
 /// Mirror of [`ComposerSize`].
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CmsComposerSize {
     /// Compact density.
@@ -506,7 +515,7 @@ impl From<CmsComposerSize> for ComposerSize {
 }
 
 /// Wire form of [`ComposerAvatar`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CmsAvatar {
     /// No avatar slot.
@@ -526,7 +535,7 @@ pub enum CmsAvatar {
 }
 
 /// Mirror of [`PictureLoading`].
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CmsLoading {
     /// Lazy load.
@@ -545,7 +554,7 @@ impl From<CmsLoading> for PictureLoading {
 }
 
 /// Mirror of [`PicturePriority`].
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CmsPriority {
     /// Browser default.
@@ -567,7 +576,7 @@ impl From<CmsPriority> for PicturePriority {
 }
 
 /// Mirror of [`PictureFit`].
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CmsFit {
     /// Default.
@@ -1083,6 +1092,7 @@ mod tests {
     #[test]
     fn empty_page_renders_main_shell() {
         let p = CmsPage {
+            schema: None,
             title: "Home".to_owned(),
             description: "x".to_owned(),
             path: "/".to_owned(),
@@ -1097,6 +1107,7 @@ mod tests {
     #[test]
     fn paragraph_renders_loom_prose() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1112,6 +1123,7 @@ mod tests {
     #[test]
     fn paragraph_html_is_escaped() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1128,6 +1140,7 @@ mod tests {
     #[test]
     fn heading_level_2_renders_h2() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1146,6 +1159,7 @@ mod tests {
     fn heading_level_3_and_4_render_correctly() {
         for (level, expected_tag) in [(3, "h3"), (4, "h4")] {
             let p = CmsPage {
+                schema: None,
                 title: "x".to_owned(),
                 description: "x".to_owned(),
                 path: "/x".to_owned(),
@@ -1166,6 +1180,7 @@ mod tests {
     #[test]
     fn heading_level_out_of_range_clamps_with_warn() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1183,6 +1198,7 @@ mod tests {
     #[test]
     fn composer_section_renders_loom_composer() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1206,6 +1222,7 @@ mod tests {
     #[test]
     fn picture_section_renders_loom_picture() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1276,6 +1293,7 @@ mod tests {
     #[test]
     fn hero_renders_required_title_only() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1298,6 +1316,7 @@ mod tests {
     #[test]
     fn hero_renders_all_optional_slots() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1325,6 +1344,7 @@ mod tests {
     #[test]
     fn hero_invalid_cta_href_substitutes_placeholder() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1349,6 +1369,7 @@ mod tests {
     #[test]
     fn hero_text_is_escaped() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1369,6 +1390,7 @@ mod tests {
     #[test]
     fn group_renders_title_and_multiple_body_paragraphs() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1390,6 +1412,7 @@ mod tests {
     #[test]
     fn group_with_empty_body_renders_just_title() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1430,6 +1453,7 @@ mod tests {
     #[test]
     fn card_feed_renders_each_item() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1451,6 +1475,7 @@ mod tests {
     #[test]
     fn card_feed_no_heading_omits_h2() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1468,6 +1493,7 @@ mod tests {
     #[test]
     fn card_emits_stats_grid_when_present() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1490,6 +1516,7 @@ mod tests {
         let mut c = card("X", "/x");
         c.stats.clear();
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1508,6 +1535,7 @@ mod tests {
         let mut c = card("X", "javascript:alert(1)");
         c.tag = None;
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1529,6 +1557,7 @@ mod tests {
         c.host = Some("<img onerror=x>".to_owned());
         c.tag = Some("<x>".to_owned());
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1553,6 +1582,7 @@ mod tests {
             alt: "evil".to_owned(),
         };
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1570,6 +1600,7 @@ mod tests {
     #[test]
     fn card_feed_empty_items_emits_only_section_wrapper() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1588,6 +1619,7 @@ mod tests {
     #[test]
     fn sidebar_renders_aside_with_aria_label() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1604,6 +1636,7 @@ mod tests {
     #[test]
     fn sidebar_default_label_is_side_panels() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1620,6 +1653,7 @@ mod tests {
     #[test]
     fn panel_with_list_body_renders_each_row() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1659,6 +1693,7 @@ mod tests {
     #[test]
     fn panel_with_text_body_renders_each_paragraph() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1682,6 +1717,7 @@ mod tests {
     #[test]
     fn panel_list_invalid_href_falls_back_to_span() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1709,6 +1745,7 @@ mod tests {
     #[test]
     fn panel_text_body_is_escaped() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1767,6 +1804,7 @@ mod tests {
 
     fn form_page() -> CmsPage {
         CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1816,6 +1854,7 @@ mod tests {
     #[test]
     fn form_select_field() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1860,6 +1899,7 @@ mod tests {
     #[test]
     fn form_readonly_field_is_readonly() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1892,6 +1932,7 @@ mod tests {
     #[test]
     fn form_invalid_action_substitutes_placeholder() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1916,6 +1957,7 @@ mod tests {
     #[test]
     fn form_field_text_is_escaped() {
         let p = CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -1957,6 +1999,7 @@ mod tests {
         id: Option<&str>,
     ) -> CmsPage {
         CmsPage {
+            schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -2065,5 +2108,72 @@ mod tests {
         let para_pos = html.find("Vote on entries").expect("paragraph");
         assert!(composer_pos < h2_pos, "composer before heading");
         assert!(h2_pos < para_pos, "heading before paragraph");
+    }
+}
+
+/// Generate the JSON Schema for the `CmsPage` document type via
+/// schemars 0.8 (Draft 07; supported by every modern editor LSP).
+/// Editors that read a `$schema` reference (VS Code, Helix, Zed,
+/// Sublime, Neovim with jsonls) provide inline autocomplete +
+/// validation when authors put `"$schema": "..."` in their
+/// `cms/*.json`. The output is fully self-contained: every nested
+/// type expanded inline via `definitions`.
+#[must_use]
+pub fn cms_page_schema() -> serde_json::Value {
+    let schema = schemars::schema_for!(CmsPage);
+    serde_json::to_value(&schema).expect("CmsPage schema serializes")
+}
+
+#[cfg(test)]
+mod schema_tests {
+    use super::*;
+
+    #[test]
+    fn cms_page_schema_serializes() {
+        let v = cms_page_schema();
+        assert!(v.is_object());
+    }
+
+    #[test]
+    fn schema_documents_section_variants() {
+        let v = cms_page_schema();
+        let s = serde_json::to_string(&v).expect("ser");
+        for tag in [
+            "hero",
+            "group",
+            "card_feed",
+            "sidebar",
+            "form",
+            "composer",
+            "picture",
+            "paragraph",
+            "heading",
+            "banner",
+        ] {
+            assert!(s.contains(&format!("\"{tag}\"")), "missing tag: {tag}");
+        }
+    }
+
+    #[test]
+    fn schema_documents_named_types() {
+        let v = cms_page_schema();
+        let s = serde_json::to_string(&v).expect("ser");
+        for type_name in [
+            "CmsSection",
+            "CmsCard",
+            "CmsCardStat",
+            "CmsPanel",
+            "CmsPanelBody",
+            "CmsPanelListItem",
+            "CmsFormField",
+            "CmsFormStep",
+            "CmsFormSubmit",
+            "CmsBannerTone",
+            "CmsAvatar",
+            "HeroCta",
+            "CmsNavLink",
+        ] {
+            assert!(s.contains(type_name), "missing type: {type_name}");
+        }
     }
 }

@@ -12,6 +12,7 @@ loom-components = { path = "../loom-components", version = "0.1" }
 maud = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+schemars = "0.8"
 
 [dev-dependencies]
 serde_json = { workspace = true }

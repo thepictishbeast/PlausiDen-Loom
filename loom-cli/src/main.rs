@@ -133,6 +133,27 @@ enum Cmd {
         #[arg(long, default_value = "-")]
         out: String,
     },
+    /// Emit the JSON Schema for the CmsPage document type.
+    /// Editors that read a `$schema` reference (VS Code, Helix,
+    /// Zed, Sublime, Neovim with jsonls) provide inline
+    /// autocomplete + validation when authors put `"$schema": "..."`
+    /// in their cms/*.json.
+    ///
+    /// Pipe to a file under your project root + reference it from
+    /// every cms/<name>.json:
+    ///
+    ///   loom cms-schema --out cms-schema.json
+    ///   # in cms/index.json:
+    ///   { "$schema": "../cms-schema.json", "title": ... }
+    ///
+    /// Exit codes:
+    ///   0 — schema written
+    ///   2 — I/O error
+    CmsSchema {
+        /// Output path. `-` for stdout.
+        #[arg(long, default_value = "-")]
+        out: String,
+    },
     /// Fast schema validation for cms/*.json documents. Runs the
     /// loom-cms-render bridge's deserialize + URL-validity checks
     /// WITHOUT calling render_page. Useful as a pre-commit hook
@@ -288,6 +309,13 @@ fn main() -> ExitCode {
             }
             Err(CriticalCssError::Io(e)) => {
                 eprintln!("loom critical-css: i/o error: {e}");
+                ExitCode::from(2)
+            }
+        },
+        Cmd::CmsSchema { out } => match cmd_cms_schema(&out) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("loom cms-schema: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1026,6 +1054,7 @@ mod cms_render_tests {
 
     fn empty_page() -> CmsPage {
         CmsPage {
+            schema: None,
             title: "Test".to_owned(),
             description: "x".to_owned(),
             path: "/test".to_owned(),
@@ -1584,6 +1613,27 @@ mod cmd_image_convert_tests {
         assert!(!is_dest_fresh(&src, &dest));
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+/// `loom cms-schema` — emits the JSON Schema for CmsPage to a
+/// file or stdout. Pretty-printed (2-space indent) so authors
+/// reading the schema directly can navigate it; `--out -` is fine
+/// for piping into `jq` or similar.
+fn cmd_cms_schema(out: &str) -> Result<(), std::io::Error> {
+    let schema = loom_cms_render::cms_page_schema();
+    let pretty = serde_json::to_string_pretty(&schema)
+        .map_err(|e| std::io::Error::other(format!("schema serialize: {e}")))?;
+    if out == "-" {
+        print!("{pretty}\n");
+        return Ok(());
+    }
+    if let Some(parent) = std::path::Path::new(out).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    std::fs::write(out, format!("{pretty}\n"))?;
+    Ok(())
 }
 
 /// `loom validate` — schema + URL validation for CmsPage JSON.
