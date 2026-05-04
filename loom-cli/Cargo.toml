@@ -12,6 +12,7 @@ name = "loom"
 path = "src/main.rs"
 
 [dependencies]
+loom-cms-render = { path = "../loom-cms-render", version = "0.1" }
 loom-lint = { path = "../loom-lint", version = "0.1" }
 loom-tokens = { path = "../loom-tokens", version = "0.1" }
 clap = { workspace = true }

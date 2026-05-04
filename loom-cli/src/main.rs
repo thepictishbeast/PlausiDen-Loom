@@ -105,6 +105,32 @@ enum Cmd {
         #[arg(default_value = ".")]
         root: PathBuf,
     },
+    /// Render a CMS page document (JSON) to a static HTML file.
+    /// Reads the document from `--input`, runs it through the
+    /// `loom-cms-render` bridge, wraps the resulting body markup
+    /// in a minimal page-shell template (`<html lang>`, strict
+    /// CSP meta, viewport, charset, canonical link, single `<h1>`
+    /// from CmsPage.title), and writes to `--out` (or stdout if
+    /// `--out -`).
+    ///
+    /// Exit codes:
+    ///   0 — page rendered + written
+    ///   1 — JSON malformed or schema violation (deny_unknown_fields)
+    ///   2 — I/O error reading input or writing output
+    CmsRender {
+        /// Path to the CmsPage JSON document.
+        #[arg(long)]
+        input: PathBuf,
+        /// Output path. `-` for stdout.
+        #[arg(long, default_value = "-")]
+        out: String,
+        /// Override the CSS href emitted by the page-shell. Useful
+        /// when the consumer wants to link a different stylesheet
+        /// (e.g. critical-CSS-extracted variant) than the default
+        /// `/loom-skin.css`.
+        #[arg(long, default_value = "/loom-skin.css")]
+        css_href: String,
+    },
 }
 
 fn main() -> ExitCode {
@@ -164,6 +190,21 @@ fn main() -> ExitCode {
             Err(e) => {
                 eprintln!("loom doctor: {e:#}");
                 ExitCode::from(1)
+            }
+        },
+        Cmd::CmsRender {
+            input,
+            out,
+            css_href,
+        } => match cmd_cms_render(&input, &out, &css_href) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(CmsRenderError::Schema(e)) => {
+                eprintln!("loom cms-render: schema error: {e}");
+                ExitCode::from(1)
+            }
+            Err(CmsRenderError::Io(e)) => {
+                eprintln!("loom cms-render: i/o error: {e}");
+                ExitCode::from(2)
             }
         },
     }
@@ -626,4 +667,266 @@ fn cmd_gtk_theme(dark: bool) -> String {
     out.push_str("@define-color error_color var(--loom-danger);\n");
     out.push_str("@define-color success_color var(--loom-success);\n");
     out
+}
+
+/// `loom cms-render` error type. We split schema errors (from
+/// serde_json) from I/O errors (from std::fs / std::io) so the
+/// dispatch in `main` can map them to distinct exit codes (1 vs 2).
+#[derive(Debug)]
+enum CmsRenderError {
+    Schema(serde_json::Error),
+    Io(std::io::Error),
+}
+
+impl From<serde_json::Error> for CmsRenderError {
+    fn from(e: serde_json::Error) -> Self {
+        CmsRenderError::Schema(e)
+    }
+}
+
+impl From<std::io::Error> for CmsRenderError {
+    fn from(e: std::io::Error) -> Self {
+        CmsRenderError::Io(e)
+    }
+}
+
+/// Render a CmsPage JSON document to a complete HTML file.
+///
+/// The page-shell template emitted is intentionally minimal —
+/// just enough to pass forge.sh's strict CSP / canonical / lang
+/// / single-h1 audits without depending on a particular consumer
+/// app's chrome. Apps wanting custom shells can read the body
+/// markup directly via `loom_cms_render::render_page` instead.
+fn cmd_cms_render(
+    input: &std::path::Path,
+    out: &str,
+    css_href: &str,
+) -> Result<(), CmsRenderError> {
+    let raw = std::fs::read_to_string(input)?;
+    let page: loom_cms_render::CmsPage = serde_json::from_str(&raw)?;
+    let body = loom_cms_render::render_page(&page);
+    let shell = page_shell(&page, css_href, &body.into_string());
+    if out == "-" {
+        print!("{shell}");
+        return Ok(());
+    }
+    if let Some(parent) = std::path::Path::new(out).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    std::fs::write(out, &shell)?;
+    Ok(())
+}
+
+/// Wrap rendered body markup in the smallest valid HTML5 page
+/// that passes every Loom + forge.sh audit:
+///
+///   * `<html lang="en">` — phase_a11y_landmarks + phase_seo
+///   * `<meta charset="utf-8">` — required first
+///   * `<meta http-equiv="Content-Security-Policy" ...>` — strict
+///   * `<meta http-equiv="X-Content-Type-Options" ...>` — nosniff
+///   * `<meta name="viewport" ...>` — mobile-first
+///   * `<title>` from page.title
+///   * `<meta name="description">` from page.description
+///   * `<link rel="canonical">` from page.path
+///   * `<link rel="stylesheet" href="{css_href}">` — design system
+///   * `<h1>` from page.title — exactly one
+///   * The bridge-rendered body
+///
+/// The output is HTML-escaped via plain string concatenation only
+/// for fields the schema marks as text (title, description, path).
+/// The body markup is already escaped by Maud.
+fn page_shell(page: &loom_cms_render::CmsPage, css_href: &str, body: &str) -> String {
+    // SECURITY: the only fields we interpolate as attribute or text
+    // values are page.title, page.description, page.path, css_href.
+    // All four pass through escape_html_text(); none is allowed to
+    // break out of its slot.
+    let title = escape_html_text(&page.title);
+    let description = escape_html_text(&page.description);
+    let path = escape_html_attr(&page.path);
+    let css = escape_html_attr(css_href);
+    format!(
+        "<!doctype html>\n\
+<html lang=\"en\">\n\
+<head>\n\
+  <meta charset=\"utf-8\">\n\
+  <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'\">\n\
+  <meta http-equiv=\"X-Content-Type-Options\" content=\"nosniff\">\n\
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
+  <title>{title}</title>\n\
+  <meta name=\"description\" content=\"{description}\">\n\
+  <link rel=\"canonical\" href=\"{path}\">\n\
+  <link rel=\"stylesheet\" href=\"{css}\">\n\
+</head>\n\
+<body>\n\
+  <a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n\
+  <h1 class=\"loom-page-title\">{title}</h1>\n\
+  <div id=\"content\">\n\
+{body}\n\
+  </div>\n\
+</body>\n\
+</html>\n"
+    )
+}
+
+/// Escape a text node (HTML body text or `<title>`).
+fn escape_html_text(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            '&' => "&amp;".to_owned(),
+            '<' => "&lt;".to_owned(),
+            '>' => "&gt;".to_owned(),
+            other => other.to_string(),
+        })
+        .collect()
+}
+
+/// Escape a value going inside a double-quoted attribute.
+fn escape_html_attr(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            '&' => "&amp;".to_owned(),
+            '<' => "&lt;".to_owned(),
+            '>' => "&gt;".to_owned(),
+            '"' => "&quot;".to_owned(),
+            '\'' => "&#39;".to_owned(),
+            other => other.to_string(),
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod cms_render_tests {
+    use super::*;
+    use loom_cms_render::CmsPage;
+
+    fn empty_page() -> CmsPage {
+        CmsPage {
+            title: "Test".to_owned(),
+            description: "x".to_owned(),
+            path: "/test".to_owned(),
+            sections: vec![],
+        }
+    }
+
+    #[test]
+    fn shell_emits_doctype_and_lang() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "");
+        assert!(s.starts_with("<!doctype html>"));
+        assert!(s.contains(r#"<html lang="en">"#));
+    }
+
+    #[test]
+    fn shell_emits_strict_csp() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "");
+        assert!(s.contains("Content-Security-Policy"));
+        assert!(s.contains("default-src 'self'"));
+        assert!(s.contains("frame-ancestors 'none'"));
+    }
+
+    #[test]
+    fn shell_emits_nosniff() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "");
+        assert!(s.contains("X-Content-Type-Options"));
+        assert!(s.contains("nosniff"));
+    }
+
+    #[test]
+    fn shell_emits_canonical_from_path() {
+        let mut p = empty_page();
+        p.path = "/leaderboard".to_owned();
+        let s = page_shell(&p, "/loom-skin.css", "");
+        assert!(s.contains(r#"<link rel="canonical" href="/leaderboard">"#));
+    }
+
+    #[test]
+    fn shell_emits_single_h1() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "");
+        let count = s.matches("<h1 ").count();
+        assert_eq!(count, 1, "expected exactly one h1, got {count}");
+    }
+
+    #[test]
+    fn shell_escapes_title_attribute() {
+        let mut p = empty_page();
+        p.title = "Foo & <Bar>".to_owned();
+        let s = page_shell(&p, "/loom-skin.css", "");
+        assert!(!s.contains("<Bar>"));
+        assert!(s.contains("Foo &amp; &lt;Bar&gt;"));
+    }
+
+    #[test]
+    fn shell_escapes_quote_in_path_attribute() {
+        let mut p = empty_page();
+        p.path = "/x\"onerror=alert(1)".to_owned();
+        let s = page_shell(&p, "/loom-skin.css", "");
+        assert!(!s.contains(r#"x"onerror"#));
+        assert!(s.contains("&quot;"));
+    }
+
+    #[test]
+    fn shell_inlines_body_markup() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "<main>X</main>");
+        assert!(s.contains("<main>X</main>"));
+    }
+
+    #[test]
+    fn shell_skip_link_target_matches_div() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "");
+        assert!(s.contains(r##"href="#content""##));
+        assert!(s.contains(r##"id="content""##));
+    }
+
+    #[test]
+    fn cms_render_writes_to_file_and_round_trips() {
+        let tmp = std::env::temp_dir();
+        let input = tmp.join("loom-cms-render-test-input.json");
+        let output = tmp.join("loom-cms-render-test-out.html");
+        // Clean from a prior failed run.
+        let _ = std::fs::remove_file(&input);
+        let _ = std::fs::remove_file(&output);
+        std::fs::write(
+            &input,
+            r#"{
+                "title": "Demo",
+                "description": "x",
+                "path": "/demo",
+                "sections": [
+                    { "kind": "heading", "text": "Welcome", "level": 2 },
+                    { "kind": "paragraph", "text": "Body text." }
+                ]
+            }"#,
+        )
+        .expect("write input");
+        cmd_cms_render(&input, output.to_str().unwrap(), "/loom-skin.css")
+            .expect("renders");
+        let html = std::fs::read_to_string(&output).expect("read output");
+        assert!(html.contains("<title>Demo</title>"));
+        assert!(html.contains("Welcome"));
+        assert!(html.contains("Body text."));
+        // Cleanup.
+        let _ = std::fs::remove_file(&input);
+        let _ = std::fs::remove_file(&output);
+    }
+
+    #[test]
+    fn cms_render_rejects_unknown_field() {
+        let tmp = std::env::temp_dir();
+        let input = tmp.join("loom-cms-render-bad-input.json");
+        std::fs::write(
+            &input,
+            r#"{
+                "title": "x",
+                "description": "x",
+                "path": "/",
+                "sections": [],
+                "smuggled_field": "evil"
+            }"#,
+        )
+        .expect("write");
+        let r = cmd_cms_render(&input, "-", "/loom-skin.css");
+        assert!(matches!(r, Err(CmsRenderError::Schema(_))));
+        let _ = std::fs::remove_file(&input);
+    }
 }
