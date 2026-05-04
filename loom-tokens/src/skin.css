@@ -798,6 +798,87 @@
     text-shadow: 0 2px 12px hsl(0 0% 0% / 0.6);
     pointer-events: none;
   }
+  /* Category-tinted thumb gradient + decorative SVG pattern. CSP-safe
+   * (SVG inlined as data URL, no external assets). The SVG patterns
+   * stack ABOVE the gradient at low opacity so the centered emoji
+   * icon stays the focal point. Each category has a motif:
+   *   basketball  basketball seams
+   *   parkour     zigzag jump trail
+   *   billiards   scattered balls
+   *   mind        neural network
+   *   skate       ramp + wheels
+   *   darts       bullseye rings
+   *   cafe        coffee beans
+   * Adding a new category: add a data-category="X" rule with the
+   * category's SVG pattern above the radial-gradient layer. Pattern
+   * SHOULD use ~%23ffffff15 stroke/fill values so it sits subtly
+   * over the gradient regardless of which tint is active.
+   */
+  .loom-card-battle .thumb[data-category="basketball"] {
+    background:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'><circle cx='40' cy='40' r='28' fill='none' stroke='%23ffffff22' stroke-width='1.5'/><path d='M12 40 Q40 20 68 40 M12 40 Q40 60 68 40 M40 12 Q60 40 40 68 M40 12 Q20 40 40 68' stroke='%23ffffff18' stroke-width='1.2' fill='none'/></svg>"),
+      radial-gradient(80% 60% at 50% 0%,
+      hsl(28 95% 55% / 0.4) 0%, hsl(15 85% 25% / 0.95) 70%),
+      hsl(220 33% 8%);
+  }
+  .loom-card-battle .thumb[data-category="parkour"] {
+    background:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'><path d='M0 80 L20 30 L40 70 L60 20 L80 60 L100 25' stroke='%23ffffff20' stroke-width='2' fill='none' stroke-linejoin='round'/><circle cx='20' cy='30' r='2.5' fill='%23ffffff35'/><circle cx='60' cy='20' r='2.5' fill='%23ffffff35'/><circle cx='100' cy='25' r='2.5' fill='%23ffffff35'/></svg>"),
+      radial-gradient(80% 60% at 50% 0%,
+      hsl(86 70% 45% / 0.4) 0%, hsl(140 70% 20% / 0.95) 70%),
+      hsl(220 33% 8%);
+  }
+  .loom-card-battle .thumb[data-category="billiards"] {
+    background:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='90' height='90' viewBox='0 0 90 90'><circle cx='20' cy='25' r='8' fill='%23ffd70030'/><circle cx='60' cy='30' r='8' fill='%23dc143c30'/><circle cx='35' cy='55' r='8' fill='%2300008030'/><circle cx='75' cy='65' r='8' fill='%2300800030'/><circle cx='15' cy='70' r='8' fill='%23ffffff20'/></svg>"),
+      radial-gradient(80% 60% at 50% 0%,
+      hsl(212 60% 30% / 0.5) 0%, hsl(150 50% 20% / 0.95) 70%),
+      hsl(220 33% 8%);
+  }
+  .loom-card-battle .thumb[data-category="mind"] {
+    background:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'><circle cx='20' cy='20' r='2.5' fill='%23ffffff40'/><circle cx='50' cy='15' r='2.5' fill='%23ffffff40'/><circle cx='80' cy='25' r='2.5' fill='%23ffffff40'/><circle cx='30' cy='50' r='2.5' fill='%23ffffff40'/><circle cx='70' cy='55' r='2.5' fill='%23ffffff40'/><circle cx='20' cy='80' r='2.5' fill='%23ffffff40'/><circle cx='55' cy='85' r='2.5' fill='%23ffffff40'/><circle cx='85' cy='75' r='2.5' fill='%23ffffff40'/><path d='M20 20 L50 15 L80 25 M50 15 L30 50 L70 55 M30 50 L20 80 L55 85 L85 75' stroke='%23ffffff15' stroke-width='1' fill='none'/></svg>"),
+      radial-gradient(80% 60% at 50% 0%,
+      hsl(280 50% 50% / 0.4) 0%, hsl(230 50% 25% / 0.95) 70%),
+      hsl(220 33% 8%);
+  }
+  .loom-card-battle .thumb[data-category="skate"] {
+    background:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'><path d='M0 80 Q25 30 50 80 Q75 30 100 80' stroke='%23ffffff25' stroke-width='2' fill='none'/><circle cx='25' cy='80' r='4' fill='%23ffffff20'/><circle cx='50' cy='80' r='4' fill='%23ffffff20'/><circle cx='75' cy='80' r='4' fill='%23ffffff20'/></svg>"),
+      radial-gradient(80% 60% at 50% 0%,
+      hsl(28 80% 50% / 0.4) 0%, hsl(0 70% 25% / 0.95) 70%),
+      hsl(220 33% 8%);
+  }
+  .loom-card-battle .thumb[data-category="darts"] {
+    background:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'><circle cx='40' cy='40' r='30' fill='none' stroke='%23ffffff20' stroke-width='1'/><circle cx='40' cy='40' r='22' fill='none' stroke='%23ffffff25' stroke-width='1'/><circle cx='40' cy='40' r='14' fill='none' stroke='%23ffffff30' stroke-width='1'/><circle cx='40' cy='40' r='6' fill='%23dc143c40'/><circle cx='40' cy='40' r='2' fill='%23ffd70060'/></svg>"),
+      radial-gradient(80% 60% at 50% 0%,
+      hsl(0 70% 45% / 0.4) 0%, hsl(35 70% 25% / 0.95) 70%),
+      hsl(220 33% 8%);
+  }
+  .loom-card-battle .thumb[data-category="cafe"] {
+    background:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='90' height='90' viewBox='0 0 90 90'><ellipse cx='25' cy='30' rx='6' ry='9' fill='%238b451325' transform='rotate(-25 25 30)'/><ellipse cx='60' cy='40' rx='6' ry='9' fill='%238b451330' transform='rotate(20 60 40)'/><ellipse cx='35' cy='65' rx='6' ry='9' fill='%238b451325' transform='rotate(-15 35 65)'/><ellipse cx='70' cy='70' rx='6' ry='9' fill='%238b451330' transform='rotate(35 70 70)'/></svg>"),
+      radial-gradient(80% 60% at 50% 0%,
+      hsl(35 60% 50% / 0.4) 0%, hsl(25 50% 20% / 0.95) 70%),
+      hsl(220 33% 8%);
+  }
+  /* Centered category emoji at large display size. Replaces the
+   * generic ▶ glyph from `.loom-card-battle .thumb::after` when
+   * the markup includes <span class="loom-thumb-icon">EMOJI</span>. */
+  .loom-thumb-icon {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--loom-font-4xl, 4rem);
+    line-height: 1;
+    text-shadow: 0 2px 18px hsl(0 0% 0% / 0.55);
+    pointer-events: none;
+    user-select: none;
+    z-index: 0;
+  }
   .loom-thumb-badge {
     position: relative;
     z-index: 1;
