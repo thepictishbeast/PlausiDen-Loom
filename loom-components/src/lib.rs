@@ -30,7 +30,7 @@ pub use button::{Button, ButtonSize, ButtonType, ButtonVariant, Decoration, Icon
 pub use card::{
     Card, CardElevation, CardHover, CardPadding, FeatureCard, FeatureCardStyle, LinkCard,
 };
-pub use composer::{is_safe_url, Composer, ComposerAvatar, ComposerSize, PromptAction};
+pub use composer::{Composer, ComposerAvatar, ComposerSize, PromptAction, is_safe_url};
 pub use footer::{Footer, FooterColumn, FooterItem, FooterLegalLink};
 pub use form::{InputType, Select, SelectOption, TextArea, TextInput};
 pub use hero::{Hero, HeroBackground};
