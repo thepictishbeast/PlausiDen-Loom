@@ -629,7 +629,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         }
-        CmsSection::Form { legend, submit, steps } => render_form(legend, submit, steps),
+        CmsSection::Form {
+            legend,
+            submit,
+            steps,
+        } => render_form(legend, submit, steps),
         CmsSection::Composer {
             prompt,
             submit_endpoint,
@@ -765,7 +769,11 @@ fn render_card(card: &CmsCard) -> Markup {
 /// Render the multi-step form. Helper for `CmsSection::Form`'s arm.
 fn render_form(legend: &str, submit: &CmsFormSubmit, steps: &[CmsFormStep]) -> Markup {
     let action_safe = is_safe_url(&submit.action);
-    let action_value: &str = if action_safe { &submit.action } else { "#invalid-form-action" };
+    let action_value: &str = if action_safe {
+        &submit.action
+    } else {
+        "#invalid-form-action"
+    };
     html! {
         section class="loom-form-section" {
             h2 class="loom-form-section__legend" { (legend) }
