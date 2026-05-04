@@ -1829,8 +1829,8 @@ mod cmd_image_convert_tests {
 /// the data is the value, not the gate.
 fn cmd_backend_list(backends_path: &std::path::Path) -> Result<(), std::io::Error> {
     let raw = std::fs::read_to_string(backends_path)?;
-    let value: toml::Value = toml::from_str(&raw)
-        .map_err(|e| std::io::Error::other(format!("toml parse: {e}")))?;
+    let value: toml::Value =
+        toml::from_str(&raw).map_err(|e| std::io::Error::other(format!("toml parse: {e}")))?;
     let backends = value
         .get("backends")
         .and_then(|v| v.as_table())
@@ -1872,7 +1872,9 @@ fn cmd_backend_list(backends_path: &std::path::Path) -> Result<(), std::io::Erro
     let impls = total - stubs;
 
     println!("  key                          method  status  purpose");
-    println!("  ---------------------------  ------  ------  ----------------------------------------");
+    println!(
+        "  ---------------------------  ------  ------  ----------------------------------------"
+    );
     for r in &rows {
         let purpose = if r.purpose.len() > 40 {
             format!("{}…", &r.purpose[..39])
