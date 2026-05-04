@@ -904,7 +904,7 @@ fn page_shell(
   <a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n\
   <header class=\"loom-page-header\" role=\"banner\">\n\
     <nav class=\"loom-page-nav\" aria-label=\"Primary\">\n\
-      <a class=\"loom-page-brand\" href=\"/\">SkillShots</a>{nav_links}\n\
+      <a class=\"loom-page-brand\" href=\"/\" data-loom-rich-link=\"true\">SkillShots</a>{nav_links}\n\
     </nav>\n\
     <h1 class=\"loom-page-title\">{title}</h1>\n\
   </header>\n\
@@ -1084,7 +1084,7 @@ mod cms_render_tests {
     fn shell_with_no_nav_links_emits_brand_only() {
         let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
         // brand link present
-        assert!(s.contains(r#"<a class="loom-page-brand" href="/">SkillShots</a>"#));
+        assert!(s.contains(r#"<a class="loom-page-brand" href="/" data-loom-rich-link="true">SkillShots</a>"#));
         // no extra nav-link anchors
         assert!(!s.contains("loom-page-nav-link"));
     }

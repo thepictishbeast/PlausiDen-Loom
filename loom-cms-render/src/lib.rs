@@ -715,6 +715,7 @@ fn render_card(card: &CmsCard) -> Markup {
                 class="loom-card-feed-item__link"
                 href=(href_value)
                 data-backend=(card.data_backend)
+                data-loom-rich-link="true"
                 data-invalid=[(!href_safe).then_some("true")]
             {
                 @match &card.avatar {
@@ -809,6 +810,7 @@ fn render_form(legend: &str, submit: &CmsFormSubmit, steps: &[CmsFormStep]) -> M
                             data-variant="ghost"
                             type="button"
                             data-backend=(submit.data_backend)
+                            data-loom-rich-link="true"
                         {
                             (secondary)
                         }
@@ -818,6 +820,7 @@ fn render_form(legend: &str, submit: &CmsFormSubmit, steps: &[CmsFormStep]) -> M
                         data-variant="primary"
                         type="submit"
                         data-backend=(submit.data_backend)
+                        data-loom-rich-link="true"
                     {
                         (submit.label)
                     }
@@ -941,7 +944,7 @@ fn render_panel_body(body: &CmsPanelBody) -> Markup {
                     @let href_safe = item.href.as_deref().map(is_safe_url).unwrap_or(false);
                     li class="loom-panel__list-item" {
                         @if let (Some(href), true) = (item.href.as_deref(), href_safe) {
-                            a class="loom-panel__list-link" href=(href) data-backend=[item.data_backend.as_deref()] {
+                            a class="loom-panel__list-link" href=(href) data-backend=[item.data_backend.as_deref()] data-loom-rich-link="true" {
                                 span class="loom-panel__list-label" { (item.label) }
                                 span class="loom-panel__list-value" { (item.value) }
                             }

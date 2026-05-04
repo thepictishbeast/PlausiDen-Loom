@@ -246,6 +246,7 @@ impl Composer<'_> {
                         class="loom-composer__prompt"
                         href=(endpoint)
                         data-backend="post-skill"
+                        data-loom-rich-link="true"
                     {
                         (self.prompt)
                     }
@@ -257,6 +258,7 @@ impl Composer<'_> {
                                 class="loom-composer__action"
                                 href=(endpoint)
                                 data-backend=(action.backend())
+                                data-loom-rich-link="true"
                                 aria-label=(action.label())
                             {
                                 span class="loom-composer__action-icon" {
