@@ -1794,10 +1794,7 @@ fi
 exec loom validate --input "$REPO_ROOT/cms"
 "#;
 
-fn cmd_hooks_install(
-    target: &std::path::Path,
-    force: bool,
-) -> Result<bool, std::io::Error> {
+fn cmd_hooks_install(target: &std::path::Path, force: bool) -> Result<bool, std::io::Error> {
     let git_dir = target.join(".git");
     if !git_dir.is_dir() {
         return Err(std::io::Error::new(
@@ -1826,7 +1823,10 @@ fn cmd_hooks_install(
     }
     std::fs::write(&hook_path, PRE_COMMIT_HOOK_BODY)?;
     set_executable(&hook_path)?;
-    println!("  ok     pre-commit hook installed at {}", hook_path.display());
+    println!(
+        "  ok     pre-commit hook installed at {}",
+        hook_path.display()
+    );
     Ok(false)
 }
 
