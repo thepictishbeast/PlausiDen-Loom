@@ -116,6 +116,18 @@ pub enum CmsSection {
         /// Body paragraph(s). Each entry becomes a `<p>`.
         body: Vec<String>,
     },
+    /// Card-feed: an ordered list of feed cards (battle list,
+    /// leaderboard rows, vote queue, etc.). Each card carries an
+    /// avatar, title, optional host subline, optional stats grid,
+    /// and primary link. Maps to a series of
+    /// `<article class="loom-card-feed-item">` inside a
+    /// `<section class="loom-card-feed">`.
+    CardFeed {
+        /// Optional heading rendered above the list.
+        heading: Option<String>,
+        /// List items, top to bottom.
+        items: Vec<CmsCard>,
+    },
     /// Feed-top compose box. Maps to [`Composer`].
     Composer {
         /// Visible CTA text.
@@ -174,6 +186,40 @@ pub struct HeroCta {
     /// Backend key (must match a `[backends.X]` in backends.toml).
     /// Forge's phantom_button phase verifies this at build time.
     pub data_backend: String,
+}
+
+/// One feed card inside a [`CmsSection::CardFeed`]. Self-contained;
+/// no further nesting allowed in v1.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CmsCard {
+    /// Avatar slot. Uses the same shape as the Composer avatar so
+    /// downstream Loom CSS can share the circle treatment.
+    pub avatar: CmsAvatar,
+    /// Card title (rendered as h3).
+    pub title: String,
+    /// Optional sub-line (e.g. "@court_dax · 4d left"). Rendered
+    /// as `<p>` below the title.
+    pub host: Option<String>,
+    /// Stats grid below the body. Empty → no grid emitted.
+    #[serde(default)]
+    pub stats: Vec<CmsCardStat>,
+    /// Primary card link target. Validated by `is_safe_url`.
+    pub href: String,
+    /// Backend key (verified by phase_phantom_button at build time).
+    pub data_backend: String,
+    /// Optional category tag (small badge above the title).
+    pub tag: Option<String>,
+}
+
+/// One {label, value} pair inside a [`CmsCard`]'s stats grid.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CmsCardStat {
+    /// Caption text (e.g. "Votes").
+    pub label: String,
+    /// Value text (e.g. "78%").
+    pub value: String,
 }
 
 /// Closed enum mirror of [`PromptAction`] — separated so the wire
@@ -368,6 +414,16 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::CardFeed { heading, items } => html! {
+            section class="loom-card-feed" data-loom-card-feed {
+                @if let Some(h) = heading {
+                    h2 class="loom-card-feed__heading" { (h) }
+                }
+                @for card in items {
+                    (render_card(card))
+                }
+            }
+        },
         CmsSection::Composer {
             prompt,
             submit_endpoint,
@@ -428,6 +484,69 @@ pub fn render_section(section: &CmsSection) -> Markup {
                         (*level != 2).then_some("level-clamped")
                     ] { (text) }
                 },
+            }
+        }
+    }
+}
+
+/// Render one feed card. Helper for `CmsSection::CardFeed`'s arm.
+/// Validates the primary `href`; invalid href → `#invalid-card`
+/// placeholder + `data-invalid="true"` so forge audits surface it.
+fn render_card(card: &CmsCard) -> Markup {
+    let href_safe = is_safe_url(&card.href);
+    let href_value: &str = if href_safe { &card.href } else { "#invalid-card" };
+    html! {
+        article class="loom-card-feed-item" data-loom-card {
+            a
+                class="loom-card-feed-item__link"
+                href=(href_value)
+                data-backend=(card.data_backend)
+                data-invalid=[(!href_safe).then_some("true")]
+            {
+                @match &card.avatar {
+                    CmsAvatar::None => {}
+                    CmsAvatar::Initials { letters } => {
+                        div class="loom-card-feed-item__avatar" data-avatar="initials" aria-hidden="true" {
+                            (letters)
+                        }
+                    }
+                    CmsAvatar::Image { src, alt } => {
+                        @if is_safe_url(src) {
+                            img
+                                class="loom-card-feed-item__avatar"
+                                data-avatar="image"
+                                src=(src)
+                                alt=(alt)
+                                width="48"
+                                height="48"
+                                loading="lazy"
+                                decoding="async";
+                        } @else {
+                            div class="loom-card-feed-item__avatar" data-avatar="invalid-image" aria-hidden="true" {
+                                "?"
+                            }
+                        }
+                    }
+                }
+                div class="loom-card-feed-item__body" {
+                    @if let Some(tag) = &card.tag {
+                        span class="loom-card-feed-item__tag" { (tag) }
+                    }
+                    h3 class="loom-card-feed-item__title" { (card.title) }
+                    @if let Some(host) = &card.host {
+                        p class="loom-card-feed-item__host" { (host) }
+                    }
+                    @if !card.stats.is_empty() {
+                        ul class="loom-card-feed-item__stats" aria-label="Stats" {
+                            @for stat in &card.stats {
+                                li class="loom-card-feed-item__stat" {
+                                    span class="loom-card-feed-item__stat-label" { (stat.label) }
+                                    span class="loom-card-feed-item__stat-value" { (stat.value) }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -776,6 +895,187 @@ mod tests {
         let html = render_to_string(&p);
         assert!(html.contains(">Empty<"));
         assert!(!html.contains("loom-section-group__body"));
+    }
+
+    fn card(title: &str, href: &str) -> CmsCard {
+        CmsCard {
+            avatar: CmsAvatar::Initials {
+                letters: "DA".to_owned(),
+            },
+            title: title.to_owned(),
+            host: Some("@court_dax · 4d left".to_owned()),
+            stats: vec![
+                CmsCardStat {
+                    label: "Votes".to_owned(),
+                    value: "78%".to_owned(),
+                },
+                CmsCardStat {
+                    label: "Pot".to_owned(),
+                    value: "$240".to_owned(),
+                },
+            ],
+            href: href.to_owned(),
+            data_backend: "view-challenge".to_owned(),
+            tag: Some("Parkour".to_owned()),
+        }
+    }
+
+    #[test]
+    fn card_feed_renders_each_item() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::CardFeed {
+                heading: Some("Top battles".to_owned()),
+                items: vec![card("Battle A", "/c/a"), card("Battle B", "/c/b")],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"class="loom-card-feed""#));
+        assert!(html.contains(">Top battles<"));
+        assert!(html.contains(">Battle A<"));
+        assert!(html.contains(">Battle B<"));
+        // Two items → two article tags.
+        assert_eq!(html.matches("<article ").count(), 2);
+    }
+
+    #[test]
+    fn card_feed_no_heading_omits_h2() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::CardFeed {
+                heading: None,
+                items: vec![card("Only", "/c/only")],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(!html.contains("loom-card-feed__heading"));
+        assert!(html.contains(">Only<"));
+    }
+
+    #[test]
+    fn card_emits_stats_grid_when_present() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::CardFeed {
+                heading: None,
+                items: vec![card("X", "/x")],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"aria-label="Stats""#));
+        assert!(html.contains(">Votes<"));
+        assert!(html.contains(">78%<"));
+        assert!(html.contains(">Pot<"));
+        assert!(html.contains(">$240<"));
+    }
+
+    #[test]
+    fn card_omits_stats_grid_when_empty() {
+        let mut c = card("X", "/x");
+        c.stats.clear();
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::CardFeed {
+                heading: None,
+                items: vec![c],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(!html.contains("loom-card-feed-item__stats"));
+    }
+
+    #[test]
+    fn card_invalid_href_substitutes_placeholder() {
+        let mut c = card("X", "javascript:alert(1)");
+        c.tag = None;
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::CardFeed {
+                heading: None,
+                items: vec![c],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r##"href="#invalid-card""##));
+        assert!(html.contains(r#"data-invalid="true""#));
+        assert!(!html.contains("javascript:alert"));
+    }
+
+    #[test]
+    fn card_text_fields_are_escaped() {
+        let mut c = card("<script>alert</script>", "/x");
+        c.host = Some("<img onerror=x>".to_owned());
+        c.tag = Some("<x>".to_owned());
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::CardFeed {
+                heading: None,
+                items: vec![c],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(!html.contains("<script>alert"));
+        assert!(!html.contains("<img onerror"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("&lt;img"));
+    }
+
+    #[test]
+    fn card_image_avatar_with_invalid_src_falls_back() {
+        let mut c = card("X", "/x");
+        c.avatar = CmsAvatar::Image {
+            src: "javascript:alert(1)".to_owned(),
+            alt: "evil".to_owned(),
+        };
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::CardFeed {
+                heading: None,
+                items: vec![c],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"data-avatar="invalid-image""#));
+        assert!(!html.contains("javascript:alert"));
+    }
+
+    #[test]
+    fn card_feed_empty_items_emits_only_section_wrapper() {
+        let p = CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::CardFeed {
+                heading: Some("Empty list".to_owned()),
+                items: vec![],
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"class="loom-card-feed""#));
+        assert!(html.contains(">Empty list<"));
+        assert!(!html.contains("<article "));
     }
 
     #[test]
