@@ -1694,14 +1694,11 @@ fn validate_section_urls(
     idx: usize,
     errs: &mut Vec<String>,
 ) {
-    use loom_cms_render::{is_safe_url, CmsAvatar, CmsPanelBody, CmsSection};
+    use loom_cms_render::{CmsAvatar, CmsPanelBody, CmsSection, is_safe_url};
     match section {
         CmsSection::Hero { cta: Some(cta), .. } => {
             if !is_safe_url(&cta.href) {
-                errs.push(format!(
-                    "/sections/{idx}/cta/href={:?}",
-                    cta.href
-                ));
+                errs.push(format!("/sections/{idx}/cta/href={:?}", cta.href));
             }
         }
         CmsSection::Composer {
@@ -1723,16 +1720,11 @@ fn validate_section_urls(
         CmsSection::CardFeed { items, .. } => {
             for (j, card) in items.iter().enumerate() {
                 if !is_safe_url(&card.href) {
-                    errs.push(format!(
-                        "/sections/{idx}/items/{j}/href={:?}",
-                        card.href
-                    ));
+                    errs.push(format!("/sections/{idx}/items/{j}/href={:?}", card.href));
                 }
                 if let CmsAvatar::Image { src, .. } = &card.avatar {
                     if !is_safe_url(src) {
-                        errs.push(format!(
-                            "/sections/{idx}/items/{j}/avatar/src={src:?}"
-                        ));
+                        errs.push(format!("/sections/{idx}/items/{j}/avatar/src={src:?}"));
                     }
                 }
             }
@@ -1754,10 +1746,7 @@ fn validate_section_urls(
         }
         CmsSection::Form { submit, .. } => {
             if !is_safe_url(&submit.action) {
-                errs.push(format!(
-                    "/sections/{idx}/submit/action={:?}",
-                    submit.action
-                ));
+                errs.push(format!("/sections/{idx}/submit/action={:?}", submit.action));
             }
         }
         // Banner / Picture / Paragraph / Heading / Group / Hero (no cta) —
