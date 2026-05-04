@@ -41,6 +41,11 @@
 
 use loom_components::composer::{Composer, ComposerAvatar, ComposerSize, PromptAction};
 use loom_components::picture::{Picture, PictureFit, PictureLoading, PicturePriority};
+
+/// Re-export of `loom_components::composer::is_safe_url` so
+/// downstream consumers (loom-cli's page-shell) can validate
+/// URLs without taking a direct dependency on loom-components.
+pub use loom_components::composer::is_safe_url;
 use maud::{Markup, html};
 use serde::{Deserialize, Serialize};
 
@@ -56,8 +61,32 @@ pub struct CmsPage {
     /// Canonical URL path (e.g. `"/leaderboard"`). Required.
     /// Used by the layout shell to emit `<link rel="canonical">`.
     pub path: String,
+    /// Optional primary navigation links. The page-shell renders
+    /// these inside `<nav aria-label="Primary">`. Empty/omitted →
+    /// shell emits brand-only nav. Each link's `href` is validated
+    /// (same-origin path or `https://`); invalid hrefs render as
+    /// `#invalid-nav-link` placeholders.
+    #[serde(default)]
+    pub nav_links: Vec<CmsNavLink>,
     /// Sequence of body sections, top to bottom.
     pub sections: Vec<CmsSection>,
+}
+
+/// One primary-nav link.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CmsNavLink {
+    /// Visible label.
+    pub label: String,
+    /// Same-origin path or `https://` URL.
+    pub href: String,
+    /// Backend key (verified against `backends.toml` by forge's
+    /// phase_phantom_button).
+    pub data_backend: String,
+    /// Mark this link as the current page (renders
+    /// `aria-current="page"`).
+    #[serde(default)]
+    pub current: bool,
 }
 
 /// One section of a page. Adding a variant requires a paired
@@ -431,6 +460,7 @@ mod tests {
             title: "Home".to_owned(),
             description: "x".to_owned(),
             path: "/".to_owned(),
+            nav_links: vec![],
             sections: vec![],
         };
         let html = render_to_string(&p);
@@ -444,6 +474,7 @@ mod tests {
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
+            nav_links: vec![],
             sections: vec![CmsSection::Paragraph {
                 text: "Hello world.".to_owned(),
             }],
@@ -458,6 +489,7 @@ mod tests {
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
+            nav_links: vec![],
             sections: vec![CmsSection::Paragraph {
                 text: "<script>alert(1)</script>".to_owned(),
             }],
@@ -473,6 +505,7 @@ mod tests {
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
+            nav_links: vec![],
             sections: vec![CmsSection::Heading {
                 text: "Section".to_owned(),
                 level: 2,
@@ -490,7 +523,8 @@ mod tests {
                 title: "x".to_owned(),
                 description: "x".to_owned(),
                 path: "/x".to_owned(),
-                sections: vec![CmsSection::Heading {
+                nav_links: vec![],
+            sections: vec![CmsSection::Heading {
                     text: "x".to_owned(),
                     level,
                 }],
@@ -509,6 +543,7 @@ mod tests {
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
+            nav_links: vec![],
             sections: vec![CmsSection::Heading {
                 text: "x".to_owned(),
                 level: 7,
@@ -525,6 +560,7 @@ mod tests {
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
+            nav_links: vec![],
             sections: vec![CmsSection::Composer {
                 prompt: "What did you nail?".to_owned(),
                 submit_endpoint: "/post-skill".to_owned(),
@@ -547,6 +583,7 @@ mod tests {
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
+            nav_links: vec![],
             sections: vec![CmsSection::Picture {
                 src_stem: "hero/dragon".to_owned(),
                 alt: "A dragon".to_owned(),
@@ -616,6 +653,7 @@ mod tests {
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
+            nav_links: vec![],
             sections: vec![CmsSection::Hero {
                 eyebrow: None,
                 title: "Welcome".to_owned(),
@@ -637,6 +675,7 @@ mod tests {
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
+            nav_links: vec![],
             sections: vec![CmsSection::Hero {
                 eyebrow: Some("New".to_owned()),
                 title: "Welcome".to_owned(),
@@ -663,6 +702,7 @@ mod tests {
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
+            nav_links: vec![],
             sections: vec![CmsSection::Hero {
                 eyebrow: None,
                 title: "x".to_owned(),
@@ -686,6 +726,7 @@ mod tests {
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
+            nav_links: vec![],
             sections: vec![CmsSection::Hero {
                 eyebrow: Some("<x>".to_owned()),
                 title: "<script>".to_owned(),
@@ -705,6 +746,7 @@ mod tests {
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
+            nav_links: vec![],
             sections: vec![CmsSection::Group {
                 title: "Rules".to_owned(),
                 body: vec!["First rule.".to_owned(), "Second rule.".to_owned()],
@@ -725,6 +767,7 @@ mod tests {
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
+            nav_links: vec![],
             sections: vec![CmsSection::Group {
                 title: "Empty".to_owned(),
                 body: vec![],

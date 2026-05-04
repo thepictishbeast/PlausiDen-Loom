@@ -776,6 +776,43 @@ fn cmd_cms_render(
     Ok(())
 }
 
+/// Render the primary nav-link list emitted inside the page-shell's
+/// `<nav class="loom-page-nav">` block. Empty list → no extra
+/// markup; the brand link from the shell stands alone. Each link's
+/// href is validated via `is_safe_url`; invalid hrefs render as
+/// `#invalid-nav-link` placeholders so the build flags them at
+/// audit time without leaking the bad URL into a real anchor.
+fn render_nav_links(links: &[loom_cms_render::CmsNavLink]) -> String {
+    if links.is_empty() {
+        return String::new();
+    }
+    let mut out = String::new();
+    for link in links {
+        let href_safe = loom_cms_render::is_safe_url(&link.href);
+        let href_attr = escape_html_attr(if href_safe {
+            &link.href
+        } else {
+            "#invalid-nav-link"
+        });
+        let backend_attr = escape_html_attr(&link.data_backend);
+        let label_text = escape_html_text(&link.label);
+        let current_attr = if link.current {
+            " aria-current=\"page\""
+        } else {
+            ""
+        };
+        let invalid_attr = if href_safe {
+            ""
+        } else {
+            " data-invalid=\"true\""
+        };
+        out.push_str(&format!(
+            "\n      <a class=\"loom-page-nav-link\" href=\"{href_attr}\" data-backend=\"{backend_attr}\"{current_attr}{invalid_attr}>{label_text}</a>"
+        ));
+    }
+    out
+}
+
 /// Compute SHA-256 over `bytes` and return `sha256-{base64}`
 /// formatted for inclusion in a CSP source-list.
 fn csp_sha256(bytes: &[u8]) -> String {
@@ -823,6 +860,7 @@ fn page_shell(
     let description = escape_html_text(&page.description);
     let path = escape_html_attr(&page.path);
     let css = escape_html_attr(css_href);
+    let nav_links = render_nav_links(&page.nav_links);
     let (style_block, css_link, csp) = match critical_css {
         Some(crit) => {
             let style_hash = csp_sha256(crit.as_bytes());
@@ -863,7 +901,7 @@ fn page_shell(
   <a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n\
   <header class=\"loom-page-header\" role=\"banner\">\n\
     <nav class=\"loom-page-nav\" aria-label=\"Primary\">\n\
-      <a class=\"loom-page-brand\" href=\"/\">SkillShots</a>\n\
+      <a class=\"loom-page-brand\" href=\"/\">SkillShots</a>{nav_links}\n\
     </nav>\n\
     <h1 class=\"loom-page-title\">{title}</h1>\n\
   </header>\n\
@@ -914,6 +952,7 @@ mod cms_render_tests {
             title: "Test".to_owned(),
             description: "x".to_owned(),
             path: "/test".to_owned(),
+            nav_links: vec![],
             sections: vec![],
         }
     }
@@ -1036,6 +1075,76 @@ mod cms_render_tests {
         // Cleanup.
         let _ = std::fs::remove_file(&input);
         let _ = std::fs::remove_file(&output);
+    }
+
+    #[test]
+    fn shell_with_no_nav_links_emits_brand_only() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
+        // brand link present
+        assert!(s.contains(r#"<a class="loom-page-brand" href="/">SkillShots</a>"#));
+        // no extra nav-link anchors
+        assert!(!s.contains("loom-page-nav-link"));
+    }
+
+    #[test]
+    fn shell_with_nav_links_renders_each() {
+        use loom_cms_render::CmsNavLink;
+        let mut p = empty_page();
+        p.nav_links = vec![
+            CmsNavLink {
+                label: "Battle Feed".to_owned(),
+                href: "/".to_owned(),
+                data_backend: "list-challenges".to_owned(),
+                current: true,
+            },
+            CmsNavLink {
+                label: "Leaderboard".to_owned(),
+                href: "/leaderboard.html".to_owned(),
+                data_backend: "list-leaderboard".to_owned(),
+                current: false,
+            },
+        ];
+        let s = page_shell(&p, "/loom-skin.css", "", None);
+        assert!(s.contains(">Battle Feed<"));
+        assert!(s.contains(">Leaderboard<"));
+        assert!(s.contains(r#"data-backend="list-challenges""#));
+        assert!(s.contains(r#"data-backend="list-leaderboard""#));
+        // The current link gets aria-current.
+        assert!(s.contains(r#"aria-current="page""#));
+        // Non-current does NOT get aria-current — count the
+        // attribute occurrences and confirm exactly one.
+        assert_eq!(s.matches(r#"aria-current="page""#).count(), 1);
+    }
+
+    #[test]
+    fn shell_nav_link_invalid_href_substitutes_placeholder() {
+        use loom_cms_render::CmsNavLink;
+        let mut p = empty_page();
+        p.nav_links = vec![CmsNavLink {
+            label: "Evil".to_owned(),
+            href: "javascript:alert(1)".to_owned(),
+            data_backend: "x".to_owned(),
+            current: false,
+        }];
+        let s = page_shell(&p, "/loom-skin.css", "", None);
+        assert!(s.contains(r##"href="#invalid-nav-link""##));
+        assert!(s.contains(r#"data-invalid="true""#));
+        assert!(!s.contains("javascript:alert"));
+    }
+
+    #[test]
+    fn shell_nav_link_label_escaped() {
+        use loom_cms_render::CmsNavLink;
+        let mut p = empty_page();
+        p.nav_links = vec![CmsNavLink {
+            label: "<script>".to_owned(),
+            href: "/x".to_owned(),
+            data_backend: "x".to_owned(),
+            current: false,
+        }];
+        let s = page_shell(&p, "/loom-skin.css", "", None);
+        assert!(!s.contains(">/<script>/<"));
+        assert!(s.contains("&lt;script&gt;"));
     }
 
     #[test]
