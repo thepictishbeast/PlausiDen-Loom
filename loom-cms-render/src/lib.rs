@@ -494,7 +494,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
 /// placeholder + `data-invalid="true"` so forge audits surface it.
 fn render_card(card: &CmsCard) -> Markup {
     let href_safe = is_safe_url(&card.href);
-    let href_value: &str = if href_safe { &card.href } else { "#invalid-card" };
+    let href_value: &str = if href_safe {
+        &card.href
+    } else {
+        "#invalid-card"
+    };
     html! {
         article class="loom-card-feed-item" data-loom-card {
             a
