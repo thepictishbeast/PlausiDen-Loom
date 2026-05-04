@@ -133,6 +133,37 @@ enum Cmd {
         #[arg(long, default_value = "-")]
         out: String,
     },
+    /// Install a git pre-commit hook (invoked as
+    /// `loom hooks-install --target <repo-dir>`) that runs
+    /// `loom validate` on staged cms/*.json. Prevents broken
+    /// schemas / URL validity from ever reaching main.
+    ///
+    /// The installed hook is a tiny shell wrapper:
+    ///   1. Checks if a cms/ directory exists in the repo.
+    ///   2. If yes, runs `loom validate --input cms/`.
+    ///   3. Hook exits non-zero on validate failure → git aborts
+    ///      the commit + prints validate's error report.
+    ///   4. If `loom` not on PATH, the hook prints an install
+    ///      hint and lets the commit through (better UX than
+    ///      blocking commits because the dev forgot to update
+    ///      PATH).
+    ///
+    /// Refuses to overwrite an existing pre-commit hook unless
+    /// `--force`. Idempotent: re-running with the same body is
+    /// a no-op.
+    ///
+    /// Exit codes:
+    ///   0 — hook installed (or already current)
+    ///   1 — hook exists + --force not set
+    ///   2 — I/O error (target not a git repo, no .git dir, etc.)
+    HooksInstall {
+        /// Repo root containing .git/.
+        #[arg(long)]
+        target: PathBuf,
+        /// Overwrite an existing pre-commit hook.
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
     /// Auto-generate a Crawler journey JSON from cms/*.json files.
     /// Walks the cms-dir, deserializes each CmsPage, emits a
     /// goto + wait + screenshot triple per page.path. Solves the
@@ -372,6 +403,19 @@ fn main() -> ExitCode {
             }
             Err(CriticalCssError::Io(e)) => {
                 eprintln!("loom critical-css: i/o error: {e}");
+                ExitCode::from(2)
+            }
+        },
+        Cmd::HooksInstall { target, force } => match cmd_hooks_install(&target, force) {
+            Ok(false) => ExitCode::SUCCESS,
+            Ok(true) => {
+                eprintln!(
+                    "loom hooks install: pre-commit hook already exists; pass --force to overwrite"
+                );
+                ExitCode::from(1)
+            }
+            Err(e) => {
+                eprintln!("loom hooks install: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1720,6 +1764,187 @@ mod cmd_image_convert_tests {
         std::fs::write(&src, "src").expect("w");
         assert!(!is_dest_fresh(&src, &dest));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// `loom hooks install` writes this script as
+/// `<target>/.git/hooks/pre-commit`. The script is intentionally
+/// shell-portable (POSIX sh, no bash-isms) so it runs anywhere
+/// git is installed. It looks up the loom binary via PATH so
+/// authors can rebuild loom independently of the hook script
+/// itself; if loom isn't on PATH, it warns + lets the commit
+/// through (better than blocking commits because the dev forgot
+/// to update PATH).
+const PRE_COMMIT_HOOK_BODY: &str = r#"#!/bin/sh
+# Installed by `loom hooks install`. Validates cms/*.json before
+# every commit so broken schemas / URL validity never reach main.
+#
+# To skip (one commit only): git commit --no-verify
+# To uninstall: rm .git/hooks/pre-commit
+set -e
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+if [ ! -d "$REPO_ROOT/cms" ]; then
+  exit 0
+fi
+if ! command -v loom >/dev/null 2>&1; then
+  echo "loom hooks: loom binary not on PATH; skipping cms/ validation"
+  echo "  install: cargo install --path /path/to/PlausiDen-Loom/loom-cli"
+  exit 0
+fi
+exec loom validate --input "$REPO_ROOT/cms"
+"#;
+
+fn cmd_hooks_install(
+    target: &std::path::Path,
+    force: bool,
+) -> Result<bool, std::io::Error> {
+    let git_dir = target.join(".git");
+    if !git_dir.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!(".git not found at {} — not a git repo?", git_dir.display()),
+        ));
+    }
+    let hooks_dir = git_dir.join("hooks");
+    std::fs::create_dir_all(&hooks_dir)?;
+    let hook_path = hooks_dir.join("pre-commit");
+    if hook_path.exists() {
+        // Two cases: it's our own hook (already current — idempotent
+        // success) OR someone else's. Compare contents to decide.
+        let existing = std::fs::read_to_string(&hook_path).unwrap_or_default();
+        if existing == PRE_COMMIT_HOOK_BODY {
+            // Already current. Nothing to do.
+            println!(
+                "  ok     pre-commit hook already current at {}",
+                hook_path.display()
+            );
+            return Ok(false);
+        }
+        if !force {
+            return Ok(true); // signal Conflict to caller
+        }
+    }
+    std::fs::write(&hook_path, PRE_COMMIT_HOOK_BODY)?;
+    set_executable(&hook_path)?;
+    println!("  ok     pre-commit hook installed at {}", hook_path.display());
+    Ok(false)
+}
+
+#[cfg(unix)]
+fn set_executable(path: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mut perms = std::fs::metadata(path)?.permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(path, perms)
+}
+
+#[cfg(not(unix))]
+fn set_executable(_path: &std::path::Path) -> std::io::Result<()> {
+    // Non-Unix: git on Windows runs hooks via msys/git-bash which
+    // honors execute via shebang; no chmod needed.
+    Ok(())
+}
+
+#[cfg(test)]
+mod cmd_hooks_install_tests {
+    use super::*;
+
+    fn unique(label: &str) -> std::path::PathBuf {
+        let pid = std::process::id();
+        let n = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("loom-hooks-{label}-{pid}-{n}"))
+    }
+
+    fn fake_repo(label: &str) -> std::path::PathBuf {
+        let dir = unique(label);
+        std::fs::create_dir_all(dir.join(".git/hooks")).expect("mkdir");
+        dir
+    }
+
+    #[test]
+    fn errs_on_non_git_dir() {
+        let dir = unique("not-git");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let r = cmd_hooks_install(&dir, false);
+        assert!(r.is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn writes_hook_when_absent() {
+        let repo = fake_repo("fresh");
+        let conflict = cmd_hooks_install(&repo, false).expect("ok");
+        assert_eq!(conflict, false);
+        let hook = repo.join(".git/hooks/pre-commit");
+        assert!(hook.exists());
+        let body = std::fs::read_to_string(&hook).expect("read");
+        assert!(body.contains("loom validate --input"));
+        assert!(body.starts_with("#!/bin/sh"));
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn hook_is_executable() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let repo = fake_repo("perms");
+        cmd_hooks_install(&repo, false).expect("ok");
+        let mode = std::fs::metadata(repo.join(".git/hooks/pre-commit"))
+            .expect("stat")
+            .permissions()
+            .mode();
+        // Owner exec bit set.
+        assert!(mode & 0o100 != 0, "hook not user-executable: {mode:o}");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn refuses_overwrite_without_force() {
+        let repo = fake_repo("conflict");
+        let hook_path = repo.join(".git/hooks/pre-commit");
+        std::fs::write(&hook_path, "# someone else's hook\n").expect("write");
+        let conflict = cmd_hooks_install(&repo, false).expect("ok");
+        assert_eq!(conflict, true);
+        // Body unchanged.
+        let body = std::fs::read_to_string(&hook_path).expect("read");
+        assert!(body.contains("someone else's hook"));
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn force_overwrites() {
+        let repo = fake_repo("force");
+        let hook_path = repo.join(".git/hooks/pre-commit");
+        std::fs::write(&hook_path, "# old\n").expect("write");
+        cmd_hooks_install(&repo, true).expect("ok");
+        let body = std::fs::read_to_string(&hook_path).expect("read");
+        assert!(body.contains("loom validate"));
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn rerun_with_current_body_is_idempotent() {
+        let repo = fake_repo("idempotent");
+        // First install.
+        cmd_hooks_install(&repo, false).expect("first ok");
+        // Second invocation: body is already current → Ok(false), no error.
+        let conflict = cmd_hooks_install(&repo, false).expect("second ok");
+        assert_eq!(conflict, false);
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn hook_skips_when_no_cms_dir() {
+        let repo = fake_repo("no-cms");
+        cmd_hooks_install(&repo, false).expect("ok");
+        let body = std::fs::read_to_string(repo.join(".git/hooks/pre-commit")).expect("read");
+        // The hook checks for cms/ existence and exits 0 if absent.
+        assert!(body.contains("if [ ! -d \"$REPO_ROOT/cms\" ]"));
+        assert!(body.contains("exit 0"));
+        let _ = std::fs::remove_dir_all(&repo);
     }
 }
 
