@@ -358,8 +358,13 @@ impl ColorRole {
                 role: "ink-muted",
                 color: Color {
                     name: "ink-muted",
-                    tailwind: "slate-400",
-                    css: "hsl(215 20% 65%)",
+                    tailwind: "slate-300",
+                    // 78% L bumped from 65% — axe-core flagged 45
+                    // color-contrast violations against
+                    // surface-muted (hsl(222 47% 11%)) at the old
+                    // value; 78% gives ~6.8:1 (AA passes for normal
+                    // text + AAA for 18pt+).
+                    css: "hsl(215 20% 78%)",
                 },
             },
             Self {
