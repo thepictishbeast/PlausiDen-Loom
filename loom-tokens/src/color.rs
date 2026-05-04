@@ -135,8 +135,11 @@ impl ColorRole {
                 role: "surface-muted",
                 color: Color {
                     name: "surface-muted",
-                    tailwind: "slate-50",
-                    css: "hsl(210 40% 98%)",
+                    // Was 98% L (basically white). Bumped to 95% L
+                    // so cards visibly stand out from canvas at
+                    // a glance.
+                    tailwind: "slate-100",
+                    css: "hsl(214 32% 95%)",
                 },
             },
             Self {
@@ -151,16 +154,21 @@ impl ColorRole {
                 role: "ink-muted",
                 color: Color {
                     name: "ink-muted",
-                    tailwind: "slate-600",
-                    css: "hsl(215 16% 47%)",
+                    // Was 47% L → 4.0:1 on the new 95% L surface
+                    // (fails AA). 38% L gives 6.4:1 — AA pass + AAA
+                    // for 18pt+.
+                    tailwind: "slate-700",
+                    css: "hsl(215 25% 38%)",
                 },
             },
             Self {
                 role: "border",
                 color: Color {
                     name: "border",
-                    tailwind: "slate-200",
-                    css: "hsl(214 32% 91%)",
+                    // Was 91% L (barely visible against white). 80%
+                    // L is a clearly-readable hairline.
+                    tailwind: "slate-300",
+                    css: "hsl(214 32% 80%)",
                 },
             },
             Self {
@@ -359,11 +367,6 @@ impl ColorRole {
                 color: Color {
                     name: "ink-muted",
                     tailwind: "slate-300",
-                    // 78% L bumped from 65% — axe-core flagged 45
-                    // color-contrast violations against
-                    // surface-muted (hsl(222 47% 11%)) at the old
-                    // value; 78% gives ~6.8:1 (AA passes for normal
-                    // text + AAA for 18pt+).
                     css: "hsl(215 20% 78%)",
                 },
             },
