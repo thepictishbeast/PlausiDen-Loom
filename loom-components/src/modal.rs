@@ -49,7 +49,7 @@ pub struct Modal<'a> {
     /// Physical size.
     pub size: ModalSize,
     /// Aria label on the dismiss button. Required so screen readers
-    /// announce "Close <X>" instead of just "Close".
+    /// announce `Close <X>` instead of just "Close".
     pub close_label: &'a str,
 }
 

@@ -2,10 +2,10 @@
 //! border / radius / padding / hover treatment.
 //!
 //! Three composition shapes:
-//! - [`Card::content`] — generic content wrapper. Body Markup is yours.
-//! - [`Card::feature`] — feature card with icon + title + description
+//! - [`Card`] — generic content wrapper. Body Markup is yours.
+//! - [`FeatureCard`] — feature card with icon + title + description
 //!   (the shape used on `/solutions/legal` capability grid).
-//! - [`Card::link_card`] — clickable card that wraps an `<a>`. Used on
+//! - [`LinkCard`] — clickable card that wraps an `<a>`. Used on
 //!   the blog index for post previews.
 
 use maud::{Markup, PreEscaped, html};

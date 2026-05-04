@@ -20,7 +20,7 @@
 /// `body` is the inline SVG markup *including* the outer `<svg>`
 /// element. `default_class` is the Tailwind class string the icon
 /// ships with (size + color). Callers usually use the icon as-is;
-/// alternative sizes are exposed via [`Icon::with_class`].
+/// alternative sizes are exposed via [`Icon::render_with_class`].
 #[derive(Debug, Clone, Copy)]
 pub struct Icon {
     /// `snake_case` identifier for audits + tests.

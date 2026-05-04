@@ -315,9 +315,9 @@ pub fn run_css(
     Ok(violations)
 }
 
-/// Default allowlist for CSS lint. Token sources are baked into
-/// [`CSS_TOKEN_SOURCE_HINTS`]; this layer adds the per-repo overrides
-/// that don't fit a one-size-fits-all rule.
+/// Default allowlist for CSS lint. The internal token-source hints
+/// are baked into the lint at compile time; this layer adds the
+/// per-repo overrides that don't fit a one-size-fits-all rule.
 ///
 /// # Errors
 /// Same as [`run_css`].
