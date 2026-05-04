@@ -1950,7 +1950,12 @@ mod tests {
         assert!(html.contains("&lt;hint&gt;"));
     }
 
-    fn banner_page(tone: CmsBannerTone, text: &str, dismissible: bool, id: Option<&str>) -> CmsPage {
+    fn banner_page(
+        tone: CmsBannerTone,
+        text: &str,
+        dismissible: bool,
+        id: Option<&str>,
+    ) -> CmsPage {
         CmsPage {
             title: "x".to_owned(),
             description: "x".to_owned(),
