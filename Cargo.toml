@@ -4,6 +4,7 @@ members = [
     "loom-tokens",
     "loom-icons",
     "loom-components",
+    "loom-cms-render",
     "loom-lint",
     "loom-cli",
 ]

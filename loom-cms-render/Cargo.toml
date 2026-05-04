@@ -1,0 +1,20 @@
+[package]
+name = "loom-cms-render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Bridge from CMS page schema to Loom typed components. The single rendering pipeline for PlausiDen-CMS-driven pages."
+
+[dependencies]
+loom-components = { path = "../loom-components", version = "0.1" }
+maud = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
