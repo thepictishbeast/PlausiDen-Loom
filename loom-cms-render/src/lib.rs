@@ -832,6 +832,14 @@ fn render_form(legend: &str, submit: &CmsFormSubmit, steps: &[CmsFormStep]) -> M
 
 fn render_form_field(field: &CmsFormField) -> Markup {
     match field {
+        // SECURITY/A11Y: every form field carries BOTH `<label for>`
+        // (programmatic association) AND `aria-label` (explicit
+        // accessible name). The redundancy is intentional — Chromium
+        // accessibility tree sometimes fails to associate a label
+        // sibling inside a <fieldset> with its <legend>, leaving the
+        // textbox unnamed in the AT (caught by the crawler's
+        // axe-static-a11y axis). aria-label guarantees the name
+        // regardless of the for/id binding state.
         CmsFormField::Text {
             name,
             label,
@@ -847,6 +855,7 @@ fn render_form_field(field: &CmsFormField) -> Markup {
                     type="text"
                     id=(name)
                     name=(name)
+                    aria-label=(label)
                     placeholder=[placeholder.as_deref()]
                     maxlength=[max_length.map(|m| m.to_string())]
                     required=[required.then_some("required")];
@@ -870,6 +879,7 @@ fn render_form_field(field: &CmsFormField) -> Markup {
                     class="loom-form-field__textarea"
                     id=(name)
                     name=(name)
+                    aria-label=(label)
                     rows=(rows)
                     placeholder=[placeholder.as_deref()]
                     maxlength=[max_length.map(|m| m.to_string())]
@@ -892,6 +902,7 @@ fn render_form_field(field: &CmsFormField) -> Markup {
                     class="loom-form-field__select"
                     id=(name)
                     name=(name)
+                    aria-label=(label)
                     required=[required.then_some("required")]
                 {
                     @for opt in options {
@@ -916,6 +927,7 @@ fn render_form_field(field: &CmsFormField) -> Markup {
                     type="text"
                     id=(name)
                     name=(name)
+                    aria-label=(label)
                     value=(value)
                     readonly;
                 @if let Some(h) = hint {
