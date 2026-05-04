@@ -133,6 +133,23 @@ enum Cmd {
         #[arg(long, default_value = "-")]
         out: String,
     },
+    /// List every backend declared in backends.toml with its
+    /// implementation status. Each `[backends.X]` entry is one
+    /// row; impl status derived from `impl_files` field (empty →
+    /// STUB; populated → IMPL).
+    ///
+    /// Use to track the gap between declared backend surface and
+    /// shipped handlers. For SkillShots PoC, every key is
+    /// currently STUB — closing that gap is the ship-blocker.
+    ///
+    /// Exit codes:
+    ///   0 — table printed (some/all STUB is data, not error)
+    ///   2 — I/O error (backends.toml missing or malformed)
+    BackendList {
+        /// Path to backends.toml.
+        #[arg(long, default_value = "backends.toml")]
+        backends: PathBuf,
+    },
     /// Audit the bridge↔skin coverage. For each CmsSection
     /// variant tag, assert that the canonical skin.css declares
     /// its expected `.loom-*` selector family. Catches the
@@ -424,6 +441,13 @@ fn main() -> ExitCode {
             }
             Err(CriticalCssError::Io(e)) => {
                 eprintln!("loom critical-css: i/o error: {e}");
+                ExitCode::from(2)
+            }
+        },
+        Cmd::BackendList { backends } => match cmd_backend_list(&backends) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("loom backend list: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1793,6 +1817,178 @@ mod cmd_image_convert_tests {
         std::fs::write(&src, "src").expect("w");
         assert!(!is_dest_fresh(&src, &dest));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// `loom backend list` — read backends.toml + print impl status
+/// table for every declared key.
+///
+/// Pure read-only: no file mutation, no remote I/O. Stable text
+/// output suitable for piping to grep / awk / jq (after
+/// post-processing). Exit code 0 even when every key is STUB —
+/// the data is the value, not the gate.
+fn cmd_backend_list(backends_path: &std::path::Path) -> Result<(), std::io::Error> {
+    let raw = std::fs::read_to_string(backends_path)?;
+    let value: toml::Value = toml::from_str(&raw)
+        .map_err(|e| std::io::Error::other(format!("toml parse: {e}")))?;
+    let backends = value
+        .get("backends")
+        .and_then(|v| v.as_table())
+        .ok_or_else(|| std::io::Error::other("missing [backends] section"))?;
+
+    let mut rows = Vec::<BackendRow>::new();
+    for (key, entry) in backends {
+        let table = match entry.as_table() {
+            Some(t) => t,
+            None => continue,
+        };
+        let method = table
+            .get("method")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?")
+            .to_owned();
+        let purpose = table
+            .get("purpose")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_owned();
+        let impl_files = table
+            .get("impl_files")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        let status = if impl_files == 0 { "STUB" } else { "IMPL" };
+        rows.push(BackendRow {
+            key: key.to_owned(),
+            method,
+            status: status.to_owned(),
+            purpose,
+        });
+    }
+    rows.sort_by(|a, b| a.key.cmp(&b.key));
+
+    let total = rows.len();
+    let stubs = rows.iter().filter(|r| r.status == "STUB").count();
+    let impls = total - stubs;
+
+    println!("  key                          method  status  purpose");
+    println!("  ---------------------------  ------  ------  ----------------------------------------");
+    for r in &rows {
+        let purpose = if r.purpose.len() > 40 {
+            format!("{}…", &r.purpose[..39])
+        } else {
+            r.purpose.clone()
+        };
+        println!(
+            "  {key:<27}  {method:<6}  {status:<6}  {purpose}",
+            key = r.key,
+            method = r.method,
+            status = r.status,
+        );
+    }
+    println!();
+    println!(
+        "loom backend list: {total} declared, {impls} implemented ({pct}%), {stubs} stub",
+        pct = if total > 0 { impls * 100 / total } else { 0 }
+    );
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct BackendRow {
+    key: String,
+    method: String,
+    status: String,
+    purpose: String,
+}
+
+#[cfg(test)]
+mod cmd_backend_list_tests {
+    use super::*;
+
+    fn unique(label: &str) -> std::path::PathBuf {
+        let pid = std::process::id();
+        let n = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("loom-backend-list-{label}-{pid}-{n}.toml"))
+    }
+
+    #[test]
+    fn errs_on_missing_file() {
+        let p = std::env::temp_dir().join("loom-backend-list-missing-zzzz.toml");
+        let _ = std::fs::remove_file(&p);
+        assert!(cmd_backend_list(&p).is_err());
+    }
+
+    #[test]
+    fn errs_on_malformed_toml() {
+        let p = unique("malformed");
+        std::fs::write(&p, "not = valid = toml\n").expect("write");
+        assert!(cmd_backend_list(&p).is_err());
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn errs_on_missing_backends_section() {
+        let p = unique("no-section");
+        std::fs::write(&p, "[meta]\nname = \"x\"\n").expect("write");
+        assert!(cmd_backend_list(&p).is_err());
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn empty_backends_section_succeeds() {
+        let p = unique("empty");
+        std::fs::write(&p, "[backends]\n").expect("write");
+        cmd_backend_list(&p).expect("ok");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn classifies_stub_vs_impl() {
+        let p = unique("classify");
+        std::fs::write(
+            &p,
+            r#"
+[backends.alpha]
+method = "GET"
+path = "/a"
+purpose = "fetch alpha"
+impl_files = []
+
+[backends.beta]
+method = "POST"
+path = "/b"
+purpose = "submit beta"
+impl_files = ["src/handlers/beta.rs"]
+
+[backends.gamma]
+method = "GET"
+path = "/g"
+purpose = "fetch gamma"
+impl_files = []
+"#,
+        )
+        .expect("write");
+        // Function prints to stdout; just verify it doesn't error.
+        // Logic-level: rebuild the rows manually + assert classification.
+        let raw = std::fs::read_to_string(&p).expect("read");
+        let v: toml::Value = toml::from_str(&raw).expect("parse");
+        let backends = v["backends"].as_table().expect("table");
+        let stub_count = backends
+            .values()
+            .filter(|e| {
+                e.as_table()
+                    .and_then(|t| t.get("impl_files"))
+                    .and_then(|v| v.as_array())
+                    .is_some_and(|a| a.is_empty())
+            })
+            .count();
+        assert_eq!(stub_count, 2);
+        cmd_backend_list(&p).expect("ok");
+        let _ = std::fs::remove_file(&p);
     }
 }
 
