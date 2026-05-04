@@ -1084,7 +1084,9 @@ mod cms_render_tests {
     fn shell_with_no_nav_links_emits_brand_only() {
         let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
         // brand link present
-        assert!(s.contains(r#"<a class="loom-page-brand" href="/" data-loom-rich-link="true">SkillShots</a>"#));
+        assert!(s.contains(
+            r#"<a class="loom-page-brand" href="/" data-loom-rich-link="true">SkillShots</a>"#
+        ));
         // no extra nav-link anchors
         assert!(!s.contains("loom-page-nav-link"));
     }
