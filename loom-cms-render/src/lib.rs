@@ -138,6 +138,23 @@ pub enum CmsSection {
         /// Stack of panels, top to bottom.
         panels: Vec<CmsPanel>,
     },
+    /// Top-of-page persistent banner. Used for "voting closes in
+    /// 1h", "maintenance Saturday 2-4am", "PoC build" type notices.
+    /// Renders as an `<aside>` with a tone-tinted background and an
+    /// optional close button.
+    Banner {
+        /// Visual tone — info / warn / success / danger.
+        tone: CmsBannerTone,
+        /// Notice text. Maud auto-escapes.
+        text: String,
+        /// If true, render a close button with
+        /// `data-loom-banner-dismiss` (client JS handles).
+        #[serde(default)]
+        dismissible: bool,
+        /// Optional stable id used by client JS to remember a
+        /// dismissal across page loads.
+        id: Option<String>,
+    },
     /// Multi-step form. Renders as `<form>` with a step indicator
     /// at top + each step's fields below + a submit row at bottom.
     /// Used for post-skill.html upload flow.
@@ -208,6 +225,32 @@ pub struct HeroCta {
     /// Backend key (must match a `[backends.X]` in backends.toml).
     /// Forge's phantom_button phase verifies this at build time.
     pub data_backend: String,
+}
+
+/// Banner tone — closed enum mirroring the standard color
+/// roles. Each maps to a `data-tone` attribute the skin styles.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CmsBannerTone {
+    /// Neutral, primary-tinted (default).
+    Info,
+    /// Yellow-tinted; use for time-sensitive / actionable notices.
+    Warn,
+    /// Green-tinted; use for confirmations.
+    Success,
+    /// Red-tinted; use for errors / critical alerts.
+    Danger,
+}
+
+impl CmsBannerTone {
+    const fn data_attr(self) -> &'static str {
+        match self {
+            CmsBannerTone::Info => "info",
+            CmsBannerTone::Warn => "warn",
+            CmsBannerTone::Success => "success",
+            CmsBannerTone::Danger => "danger",
+        }
+    }
 }
 
 /// Submit-row config for [`CmsSection::Form`].
@@ -634,6 +677,38 @@ pub fn render_section(section: &CmsSection) -> Markup {
             submit,
             steps,
         } => render_form(legend, submit, steps),
+        CmsSection::Banner {
+            tone,
+            text,
+            dismissible,
+            id,
+        } => html! {
+            // SECURITY/A11Y: <aside> already has implicit landmark
+            // role 'complementary' — explicit role='status' would
+            // be redundant AND axe-rejected (aria-allowed-role).
+            // For static-rendered banners, the natural reading
+            // order announces the text on first paint; aria-live
+            // is unnecessary. If a future variant needs to inject
+            // banners post-load, add CmsSection::Toast with
+            // role='status' on a <div> wrapper.
+            aside
+                class="loom-banner"
+                data-tone=(tone.data_attr())
+                data-loom-banner-id=[id.as_deref()]
+            {
+                p class="loom-banner__text" { (text) }
+                @if *dismissible {
+                    button
+                        class="loom-banner__dismiss"
+                        type="button"
+                        data-loom-banner-dismiss
+                        aria-label="Dismiss notice"
+                    {
+                        "×"
+                    }
+                }
+            }
+        },
         CmsSection::Composer {
             prompt,
             submit_endpoint,
@@ -1873,6 +1948,89 @@ mod tests {
         assert!(html.contains("&lt;step&gt;"));
         assert!(html.contains("&lt;lbl&gt;"));
         assert!(html.contains("&lt;hint&gt;"));
+    }
+
+    fn banner_page(tone: CmsBannerTone, text: &str, dismissible: bool, id: Option<&str>) -> CmsPage {
+        CmsPage {
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::Banner {
+                tone,
+                text: text.to_owned(),
+                dismissible,
+                id: id.map(ToOwned::to_owned),
+            }],
+        }
+    }
+
+    #[test]
+    fn banner_renders_aside_with_tone_attribute() {
+        let html = render_to_string(&banner_page(CmsBannerTone::Info, "Heads up!", false, None));
+        assert!(html.contains(r#"class="loom-banner""#));
+        // <aside> has implicit role="complementary"; no explicit
+        // role attribute is set (axe rejects role="status" on aside).
+        assert!(!html.contains(r#"role="status""#));
+        assert!(html.contains("<aside"));
+        assert!(html.contains(r#"data-tone="info""#));
+        assert!(html.contains(">Heads up!<"));
+        // Non-dismissible: no close button.
+        assert!(!html.contains("loom-banner__dismiss"));
+    }
+
+    #[test]
+    fn banner_each_tone_emits_correct_data_attr() {
+        for (tone, attr) in [
+            (CmsBannerTone::Info, "info"),
+            (CmsBannerTone::Warn, "warn"),
+            (CmsBannerTone::Success, "success"),
+            (CmsBannerTone::Danger, "danger"),
+        ] {
+            let html = render_to_string(&banner_page(tone, "x", false, None));
+            assert!(
+                html.contains(&format!(r#"data-tone="{attr}""#)),
+                "tone {attr}: {html}"
+            );
+        }
+    }
+
+    #[test]
+    fn banner_dismissible_emits_close_button() {
+        let html = render_to_string(&banner_page(CmsBannerTone::Warn, "x", true, None));
+        assert!(html.contains("loom-banner__dismiss"));
+        assert!(html.contains("data-loom-banner-dismiss"));
+        assert!(html.contains(r#"aria-label="Dismiss notice""#));
+        assert!(html.contains(">×<"));
+    }
+
+    #[test]
+    fn banner_id_emits_data_attribute() {
+        let html = render_to_string(&banner_page(
+            CmsBannerTone::Info,
+            "x",
+            true,
+            Some("poc-2026"),
+        ));
+        assert!(html.contains(r#"data-loom-banner-id="poc-2026""#));
+    }
+
+    #[test]
+    fn banner_no_id_omits_data_attribute() {
+        let html = render_to_string(&banner_page(CmsBannerTone::Info, "x", false, None));
+        assert!(!html.contains("data-loom-banner-id"));
+    }
+
+    #[test]
+    fn banner_text_is_escaped() {
+        let html = render_to_string(&banner_page(
+            CmsBannerTone::Danger,
+            "<script>alert(1)</script>",
+            false,
+            None,
+        ));
+        assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
