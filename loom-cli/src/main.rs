@@ -1392,7 +1392,7 @@ mod cms_render_tests {
     fn shell_skip_link_target_matches_div() {
         let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
         assert!(s.contains(r##"href="#content""##));
-        assert!(s.contains(r##"id="content""##));
+        assert!(s.contains(r#"id="content""#));
     }
 
     #[test]
@@ -1977,7 +1977,7 @@ fn render_handler_stub(key: &str, method: &str, path: &str, purpose: &str) -> St
         "handle"
     };
     format!(
-        r##"//! `{key}` — backend handler stub.
+        r#"//! `{key}` — backend handler stub.
 //!
 //! Method: {method}
 //! Path:   {path}
@@ -2033,7 +2033,7 @@ mod tests {{
         assert_eq!("{module_name}", "{module_name}");
     }}
 }}
-"##
+"#
     )
 }
 
@@ -2434,14 +2434,14 @@ mod cmd_audit_bridge_tests {
         let p = unique("full");
         // Stub every required selector. Note these are SUBSTRING
         // checks, so just listing them is enough.
-        let body = r#"
+        let body = r"
             .loom-section-hero { } .loom-section-group { }
             .loom-card-feed { } .loom-card-feed-item { }
             .loom-sidebar { } .loom-panel { }
             .loom-form-section { } .loom-form-field { }
             .loom-composer { } .loom-composer__prompt { }
             .loom-picture { } .loom-prose { } .loom-heading { } .loom-banner { }
-        "#;
+        ";
         std::fs::write(&p, body).expect("write");
         let missing = cmd_audit_bridge(&p).expect("ok");
         assert_eq!(missing, 0);
@@ -2452,14 +2452,14 @@ mod cmd_audit_bridge_tests {
     fn missing_one_selector_returns_count() {
         let p = unique("one-missing");
         // Same as full but minus .loom-banner.
-        let body = r#"
+        let body = r"
             .loom-section-hero { } .loom-section-group { }
             .loom-card-feed { } .loom-card-feed-item { }
             .loom-sidebar { } .loom-panel { }
             .loom-form-section { } .loom-form-field { }
             .loom-composer { } .loom-composer__prompt { }
             .loom-picture { } .loom-prose { } .loom-heading { }
-        "#;
+        ";
         std::fs::write(&p, body).expect("write");
         let missing = cmd_audit_bridge(&p).expect("ok");
         assert_eq!(missing, 1);
