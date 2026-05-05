@@ -254,10 +254,10 @@ pub enum CmsBannerTone {
 impl CmsBannerTone {
     const fn data_attr(self) -> &'static str {
         match self {
-            CmsBannerTone::Info => "info",
-            CmsBannerTone::Warn => "warn",
-            CmsBannerTone::Success => "success",
-            CmsBannerTone::Danger => "danger",
+            Self::Info => "info",
+            Self::Warn => "warn",
+            Self::Success => "success",
+            Self::Danger => "danger",
         }
     }
 }
@@ -304,9 +304,9 @@ pub enum CmsFormStepState {
 impl CmsFormStepState {
     const fn data_attr(self) -> &'static str {
         match self {
-            CmsFormStepState::Current => "current",
-            CmsFormStepState::Upcoming => "upcoming",
-            CmsFormStepState::Done => "done",
+            Self::Current => "current",
+            Self::Upcoming => "upcoming",
+            Self::Done => "done",
         }
     }
 }
@@ -487,10 +487,10 @@ pub enum CmsPromptAction {
 impl From<CmsPromptAction> for PromptAction {
     fn from(c: CmsPromptAction) -> Self {
         match c {
-            CmsPromptAction::UploadClip => PromptAction::UploadClip,
-            CmsPromptAction::ChallengeOpponent => PromptAction::ChallengeOpponent,
-            CmsPromptAction::GoLive => PromptAction::GoLive,
-            CmsPromptAction::PhotoOnly => PromptAction::PhotoOnly,
+            CmsPromptAction::UploadClip => Self::UploadClip,
+            CmsPromptAction::ChallengeOpponent => Self::ChallengeOpponent,
+            CmsPromptAction::GoLive => Self::GoLive,
+            CmsPromptAction::PhotoOnly => Self::PhotoOnly,
         }
     }
 }

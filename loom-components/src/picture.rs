@@ -59,8 +59,8 @@ pub enum PictureLoading {
 impl PictureLoading {
     const fn as_str(self) -> &'static str {
         match self {
-            PictureLoading::Lazy => "lazy",
-            PictureLoading::Eager => "eager",
+            Self::Lazy => "lazy",
+            Self::Eager => "eager",
         }
     }
 }
@@ -82,9 +82,9 @@ impl PicturePriority {
     /// Return the attribute value, or `None` if `Auto` (omit attr).
     const fn as_attr(self) -> Option<&'static str> {
         match self {
-            PicturePriority::Auto => None,
-            PicturePriority::High => Some("high"),
-            PicturePriority::Low => Some("low"),
+            Self::Auto => None,
+            Self::High => Some("high"),
+            Self::Low => Some("low"),
         }
     }
 }
@@ -105,9 +105,9 @@ pub enum PictureFit {
 impl PictureFit {
     const fn modifier_class(self) -> Option<&'static str> {
         match self {
-            PictureFit::Default => None,
-            PictureFit::Cover => Some("loom-picture--cover"),
-            PictureFit::Contain => Some("loom-picture--contain"),
+            Self::Default => None,
+            Self::Cover => Some("loom-picture--cover"),
+            Self::Contain => Some("loom-picture--contain"),
         }
     }
 }
