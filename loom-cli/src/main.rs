@@ -2242,7 +2242,7 @@ fn cmd_backend_list(backends_path: &std::path::Path) -> Result<(), std::io::Erro
     println!();
     println!(
         "loom backend list: {total} declared, {impls} implemented ({pct}%), {stubs} stub",
-        pct = if total > 0 { impls * 100 / total } else { 0 }
+        pct = (impls * 100).checked_div(total).unwrap_or(0)
     );
     Ok(())
 }

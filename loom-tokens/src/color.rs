@@ -77,7 +77,7 @@ fn parse_hsl(inner: &str) -> Option<(u8, u8, u8)> {
 #[allow(clippy::many_single_char_names)]
 fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     // Standard CSS HSL → sRGB conversion. h in degrees, s/l in 0..=1.
-    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let c = (1.0 - 2.0f32.mul_add(l, -1.0).abs()) * s;
     let h_prime = (h.rem_euclid(360.0)) / 60.0;
     let x = c * (1.0 - (h_prime.rem_euclid(2.0) - 1.0).abs());
     // `rem_euclid(360)/60` keeps h_prime in [0, 6); the `as u32` is
