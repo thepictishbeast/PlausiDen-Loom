@@ -238,9 +238,11 @@ pub fn run_css(root: &Path, extra_allowlist_substrings: &[&str]) -> Result<Vec<C
 
         // Coarse `:root { ... }` skip: any line inside a `:root` /
         // `@keyframes` / `@font-face` block is exempt. Track depth so
-        // nested braces don't prematurely close the block.
+        // nested braces don't prematurely close the block. usize works
+        // here — token-skip blocks never close more braces than they
+        // open in well-formed CSS.
         let mut in_token_block = false;
-        let mut depth: i32 = 0;
+        let mut depth: usize = 0;
         for (lineno, line) in content.lines().enumerate() {
             let trimmed = line.trim();
             if trimmed.starts_with(":root")
@@ -252,9 +254,9 @@ pub fn run_css(root: &Path, extra_allowlist_substrings: &[&str]) -> Result<Vec<C
                 depth = 0;
             }
             if in_token_block {
-                depth += line.matches('{').count() as i32;
-                depth -= line.matches('}').count() as i32;
-                if depth <= 0 && trimmed.contains('}') {
+                depth += line.matches('{').count();
+                depth = depth.saturating_sub(line.matches('}').count());
+                if depth == 0 && trimmed.contains('}') {
                     in_token_block = false;
                 }
                 continue;
