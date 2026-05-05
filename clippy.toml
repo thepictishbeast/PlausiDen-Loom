@@ -1,0 +1,8 @@
+# Proper nouns (products, formats, generic abbreviations) that read
+# fine as prose without backticks. Type / fn names get the canonical
+# backtick treatment per-site instead of being broadly allowed here.
+doc-valid-idents = [
+    "LinkedIn", "ImageMagick", "PlausiDen", "SkillShots", "PoC",
+    "JSON", "HTML", "URL", "JPG", "PNG", "SECURITY", "WITHOUT",
+    "..",
+]
