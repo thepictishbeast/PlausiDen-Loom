@@ -1089,7 +1089,7 @@ fn cmd_gtk_theme(dark: bool) -> String {
 }
 
 /// `loom cms-render` error type. We split schema errors (from
-/// serde_json) from I/O errors (from std::fs / std::io) so the
+/// serde_json) from I/O errors (from `std::fs` / `std::io`) so the
 /// dispatch in `main` can map them to distinct exit codes (1 vs 2).
 #[derive(Debug)]
 enum CmsRenderError {

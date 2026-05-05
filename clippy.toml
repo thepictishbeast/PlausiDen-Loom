@@ -10,5 +10,6 @@ doc-valid-idents = [
     "serde_json", "toml_edit",
     "deny_unknown_fields",
     "is_safe_url", "render_page", "submit_endpoint",
+    "CmsPage", "CmsSection", "CardFeed",
     "..",
 ]
