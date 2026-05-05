@@ -187,7 +187,7 @@ pub fn tokens_egui() -> String {
     out.push_str("pub mod breakpoint {\n");
     for bp in Breakpoint::all() {
         let upper = bp.tailwind().to_uppercase();
-        out.push_str(&format!("    pub const {}: u32 = {};\n", upper, bp.px(),));
+        out.push_str(&format!("    pub const {upper}: u32 = {};\n", bp.px()));
     }
     out.push_str("}\n\n");
 
@@ -223,8 +223,7 @@ fn emit_color_const(out: &mut String, role: &ColorRole) {
         role.role, role.color.tailwind, role.color.css,
     ));
     out.push_str(&format!(
-        "    pub const {}: Color32 = Color32::from_rgb({}, {}, {});\n",
-        const_name, r, g, b,
+        "    pub const {const_name}: Color32 = Color32::from_rgb({r}, {g}, {b});\n",
     ));
 }
 
