@@ -1099,13 +1099,13 @@ enum CmsRenderError {
 
 impl From<serde_json::Error> for CmsRenderError {
     fn from(e: serde_json::Error) -> Self {
-        CmsRenderError::Schema(e)
+        Self::Schema(e)
     }
 }
 
 impl From<std::io::Error> for CmsRenderError {
     fn from(e: std::io::Error) -> Self {
-        CmsRenderError::Io(e)
+        Self::Io(e)
     }
 }
 
@@ -1616,7 +1616,7 @@ enum CriticalCssError {
 
 impl From<std::io::Error> for CriticalCssError {
     fn from(e: std::io::Error) -> Self {
-        CriticalCssError::Io(e)
+        Self::Io(e)
     }
 }
 
@@ -1891,7 +1891,7 @@ enum BackendStubError {
 
 impl From<std::io::Error> for BackendStubError {
     fn from(e: std::io::Error) -> Self {
-        BackendStubError::Io(e)
+        Self::Io(e)
     }
 }
 
@@ -2660,7 +2660,7 @@ enum JourneyFromCmsError {
 
 impl From<std::io::Error> for JourneyFromCmsError {
     fn from(e: std::io::Error) -> Self {
-        JourneyFromCmsError::Io(e)
+        Self::Io(e)
     }
 }
 
@@ -2883,7 +2883,7 @@ enum CmsNewError {
 
 impl From<std::io::Error> for CmsNewError {
     fn from(e: std::io::Error) -> Self {
-        CmsNewError::Io(e)
+        Self::Io(e)
     }
 }
 
