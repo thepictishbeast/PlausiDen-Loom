@@ -3213,7 +3213,7 @@ fn cmd_validate(input: &std::path::Path) -> Result<bool, std::io::Error> {
         walk_json(input, &mut files)?;
     }
     let mut any_failed = false;
-    let mut ok_count = 0u32;
+    let mut ok_count: usize = 0;
     for path in &files {
         let raw = match std::fs::read_to_string(path) {
             Ok(r) => r,
@@ -3251,7 +3251,7 @@ fn cmd_validate(input: &std::path::Path) -> Result<bool, std::io::Error> {
     println!(
         "loom validate: {} file(s), {ok_count} ok, {} failed",
         files.len(),
-        files.len() as u32 - ok_count
+        files.len() - ok_count
     );
     Ok(any_failed)
 }
