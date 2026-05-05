@@ -1229,28 +1229,25 @@ fn page_shell(
     let path = escape_html_attr(&page.path);
     let css = escape_html_attr(css_href);
     let nav_links = render_nav_links(&page.nav_links);
-    let (style_block, css_link, csp) = match critical_css {
-        Some(crit) => {
-            let style_hash = csp_sha256(crit.as_bytes());
-            let onload_hash = csp_sha256(DEFER_ONLOAD_JS.as_bytes());
-            let style_block = format!("<style>{crit}</style>\n  ");
-            let css_link = format!(
-                "<link rel=\"stylesheet\" href=\"{css}\" media=\"print\" onload=\"{DEFER_ONLOAD_JS}\">\n  <noscript><link rel=\"stylesheet\" href=\"{css}\"></noscript>"
-            );
-            // CSP: 'self' for default + img/style/script + the
-            // critical-style hash + the deferred-onload script
-            // hash. 'unsafe-hashes' is required (CSP3) to allow
-            // an inline event handler whose hash is in script-src.
-            let csp = format!(
-                "default-src 'self'; img-src 'self' data:; style-src 'self' '{style_hash}'; script-src 'self' 'unsafe-hashes' '{onload_hash}'; frame-ancestors 'none'"
-            );
-            (style_block, css_link, csp)
-        }
-        None => {
-            let css_link = format!("<link rel=\"stylesheet\" href=\"{css}\">");
-            let csp = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'".to_owned();
-            (String::new(), css_link, csp)
-        }
+    let (style_block, css_link, csp) = if let Some(crit) = critical_css {
+        let style_hash = csp_sha256(crit.as_bytes());
+        let onload_hash = csp_sha256(DEFER_ONLOAD_JS.as_bytes());
+        let style_block = format!("<style>{crit}</style>\n  ");
+        let css_link = format!(
+            "<link rel=\"stylesheet\" href=\"{css}\" media=\"print\" onload=\"{DEFER_ONLOAD_JS}\">\n  <noscript><link rel=\"stylesheet\" href=\"{css}\"></noscript>"
+        );
+        // CSP: 'self' for default + img/style/script + the
+        // critical-style hash + the deferred-onload script
+        // hash. 'unsafe-hashes' is required (CSP3) to allow
+        // an inline event handler whose hash is in script-src.
+        let csp = format!(
+            "default-src 'self'; img-src 'self' data:; style-src 'self' '{style_hash}'; script-src 'self' 'unsafe-hashes' '{onload_hash}'; frame-ancestors 'none'"
+        );
+        (style_block, css_link, csp)
+    } else {
+        let css_link = format!("<link rel=\"stylesheet\" href=\"{css}\">");
+        let csp = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'".to_owned();
+        (String::new(), css_link, csp)
     };
     format!(
         "<!doctype html>\n\
