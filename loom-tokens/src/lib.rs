@@ -23,6 +23,7 @@ pub use radius::Radius;
 pub use scale::{Breakpoint, FontSize, Spacing};
 
 use serde::Serialize;
+use std::fmt::Write as _;
 
 /// Top-level export of every token as JSON. Stable wire format.
 ///
@@ -82,47 +83,25 @@ pub fn tokens_css() -> String {
     out.push_str(" * Re-emit via `loom css > path/to/loom-tokens.css`.\n */\n\n");
     out.push_str(":root {\n");
     for role in ColorRole::all() {
-        out.push_str(&format!(
-            "  --loom-color-{}: {};\n",
-            role.role, role.color.css
-        ));
+        let _ = writeln!(out, "  --loom-color-{}: {};", role.role, role.color.css);
     }
     for sp in Spacing::all() {
-        out.push_str(&format!(
-            "  --loom-space-{}: {}rem;\n",
-            sp.tailwind(),
-            sp.rem()
-        ));
+        let _ = writeln!(out, "  --loom-space-{}: {}rem;", sp.tailwind(), sp.rem());
     }
     for bp in Breakpoint::all() {
-        out.push_str(&format!(
-            "  --loom-break-{}: {}px;\n",
-            bp.tailwind(),
-            bp.px()
-        ));
+        let _ = writeln!(out, "  --loom-break-{}: {}px;", bp.tailwind(), bp.px());
     }
     for fs in FontSize::all() {
-        out.push_str(&format!(
-            "  --loom-font-{}: {};\n",
-            fs.tailwind(),
-            fs.css_size()
-        ));
+        let _ = writeln!(out, "  --loom-font-{}: {};", fs.tailwind(), fs.css_size());
     }
     for r in Radius::all() {
-        out.push_str(&format!(
-            "  --loom-radius-{}: {};\n",
-            r.tailwind(),
-            r.css_size()
-        ));
+        let _ = writeln!(out, "  --loom-radius-{}: {};", r.tailwind(), r.css_size());
     }
     out.push_str("}\n\n");
 
     out.push_str(":root[data-theme=\"dark\"] {\n");
     for role in ColorRole::dark_all() {
-        out.push_str(&format!(
-            "  --loom-color-{}: {};\n",
-            role.role, role.color.css
-        ));
+        let _ = writeln!(out, "  --loom-color-{}: {};", role.role, role.color.css);
     }
     out.push_str("}\n");
     out
@@ -172,18 +151,12 @@ pub fn tokens_egui() -> String {
     out.push_str("/// `*_PX` pre-resolved at the 16 px design root.\n");
     out.push_str("pub mod space {\n");
     for sp in Spacing::all() {
-        out.push_str(&format!(
-            "    /// step {tw} — {rem}rem ({px}px @16)\n",
-            tw = sp.tailwind(),
-            rem = sp.rem(),
-            px = sp.px(),
-        ));
-        out.push_str(&format!(
-            "    pub const S{tw}_REM: f32 = {rem}_f32;\n    pub const S{tw}_PX: u32 = {px};\n",
-            tw = sp.tailwind(),
-            rem = sp.rem(),
-            px = sp.px(),
-        ));
+        let (tw, rem, px) = (sp.tailwind(), sp.rem(), sp.px());
+        let _ = writeln!(out, "    /// step {tw} — {rem}rem ({px}px @16)");
+        let _ = writeln!(
+            out,
+            "    pub const S{tw}_REM: f32 = {rem}_f32;\n    pub const S{tw}_PX: u32 = {px};"
+        );
     }
     out.push_str("}\n\n");
 
@@ -191,7 +164,7 @@ pub fn tokens_egui() -> String {
     out.push_str("pub mod breakpoint {\n");
     for bp in Breakpoint::all() {
         let upper = bp.tailwind().to_uppercase();
-        out.push_str(&format!("    pub const {upper}: u32 = {};\n", bp.px()));
+        let _ = writeln!(out, "    pub const {upper}: u32 = {};", bp.px());
     }
     out.push_str("}\n\n");
 
@@ -207,13 +180,12 @@ pub fn tokens_egui() -> String {
             Radius::Xl => 16, // 1rem
             Radius::Full => 9999,
         };
-        out.push_str(&format!(
-            "    /// {} ({})\n    pub const {}: f32 = {}_f32;\n",
+        let _ = writeln!(
+            out,
+            "    /// {} ({})\n    pub const {upper}: f32 = {px}_f32;",
             r.css_size(),
             r.tailwind(),
-            upper,
-            px,
-        ));
+        );
     }
     out.push_str("}\n");
     out
@@ -222,13 +194,15 @@ pub fn tokens_egui() -> String {
 fn emit_color_const(out: &mut String, role: &ColorRole) {
     let const_name = role.role.to_uppercase().replace('-', "_");
     let (r, g, b) = role.color.rgb().unwrap_or((255, 0, 255));
-    out.push_str(&format!(
-        "    /// `{}` — {} — `{}`\n",
+    let _ = writeln!(
+        out,
+        "    /// `{}` — {} — `{}`",
         role.role, role.color.tailwind, role.color.css,
-    ));
-    out.push_str(&format!(
-        "    pub const {const_name}: Color32 = Color32::from_rgb({r}, {g}, {b});\n",
-    ));
+    );
+    let _ = writeln!(
+        out,
+        "    pub const {const_name}: Color32 = Color32::from_rgb({r}, {g}, {b});",
+    );
 }
 
 #[cfg(test)]
