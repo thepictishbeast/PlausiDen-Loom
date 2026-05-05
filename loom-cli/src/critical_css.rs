@@ -36,6 +36,7 @@
 //!   * @rules other than `@media`, `@supports`, `@font-face`
 //!     (those become opaque blocks — included if any contained
 //!     rule matches a critical prefix)
+//!
 //! It DOES handle:
 //!   * comments `/* … */` (counted toward output but not parsed)
 //!   * string literals `"…"` and `'…'` (don't count braces inside)

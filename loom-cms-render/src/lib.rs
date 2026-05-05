@@ -1362,7 +1362,7 @@ mod tests {
         };
         let html = render_to_string(&p);
         assert!(html.contains(r##"href="#invalid-cta""##));
-        assert!(html.contains(r##"data-invalid="true""##));
+        assert!(html.contains(r#"data-invalid="true""#));
         assert!(!html.contains("javascript:alert"));
     }
 
@@ -1890,7 +1890,7 @@ mod tests {
             }],
         };
         let html = render_to_string(&p);
-        assert!(html.contains(r#"<select"#));
+        assert!(html.contains("<select"));
         assert!(html.contains(r#"value="basketball""#));
         assert!(html.contains(">Basketball<"));
         assert!(html.contains(">Parkour<"));

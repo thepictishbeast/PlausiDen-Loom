@@ -1050,8 +1050,8 @@ pub fn render() -> Markup {{
 /// site without re-implementing it.
 ///
 /// The CSS is small (~80 lines) and intentionally limited to color
-/// + spacing tokens — animations, fonts, and layout are GTK-app-
-/// specific and shouldn't be baked into a shared theme.
+/// and spacing tokens — animations, fonts, and layout are
+/// GTK-app-specific and shouldn't be baked into a shared theme.
 fn cmd_gtk_theme(dark: bool) -> String {
     use loom_tokens::ColorRole;
     let palette = if dark {

@@ -211,7 +211,7 @@ mod tests {
             required: true,
         };
         let s = t.render().into_string();
-        assert!(s.contains(r#"<textarea"#));
+        assert!(s.contains("<textarea"));
         assert!(s.contains(r#"for="msg""#));
         assert!(s.contains(r#"id="msg""#));
         assert!(s.contains(r#"maxlength="5000""#));
