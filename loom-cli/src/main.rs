@@ -3292,10 +3292,8 @@ fn validate_section_urls(
 ) {
     use loom_cms_render::{CmsAvatar, CmsPanelBody, CmsSection, is_safe_url};
     match section {
-        CmsSection::Hero { cta: Some(cta), .. } => {
-            if !is_safe_url(&cta.href) {
-                errs.push(format!("/sections/{idx}/cta/href={:?}", cta.href));
-            }
+        CmsSection::Hero { cta: Some(cta), .. } if !is_safe_url(&cta.href) => {
+            errs.push(format!("/sections/{idx}/cta/href={:?}", cta.href));
         }
         CmsSection::Composer {
             submit_endpoint,
@@ -3340,10 +3338,8 @@ fn validate_section_urls(
                 }
             }
         }
-        CmsSection::Form { submit, .. } => {
-            if !is_safe_url(&submit.action) {
-                errs.push(format!("/sections/{idx}/submit/action={:?}", submit.action));
-            }
+        CmsSection::Form { submit, .. } if !is_safe_url(&submit.action) => {
+            errs.push(format!("/sections/{idx}/submit/action={:?}", submit.action));
         }
         // Banner / Picture / Paragraph / Heading / Group / Hero (no cta) —
         // no URL fields to validate.
