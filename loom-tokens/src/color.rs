@@ -93,7 +93,14 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
         _ => (c, 0.0, x),
     };
     let m = l - c / 2.0;
-    let to_byte = |v: f32| ((v + m) * 255.0).round().clamp(0.0, 255.0) as u8;
+    // .clamp(0.0, 255.0) keeps v in [0, 255] before the u8 cast,
+    // so truncation / sign-loss can't fire — but clippy still flags
+    // the float→int cast as suspicious. Document the invariant.
+    let to_byte = |v: f32| {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let byte = ((v + m) * 255.0).round().clamp(0.0, 255.0) as u8;
+        byte
+    };
     (to_byte(r1), to_byte(g1), to_byte(b1))
 }
 
