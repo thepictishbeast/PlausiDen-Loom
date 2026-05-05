@@ -129,10 +129,7 @@ fn rule_is_critical(rule: &Rule<'_>) -> bool {
     // a few rules) and substring is sufficient at this resolution.
     for ar in RECURSED_AT_RULES {
         if selector.starts_with(ar) {
-            return rule
-                .body
-                .map(|b| body_contains_critical(b))
-                .unwrap_or(false);
+            return rule.body.is_some_and(body_contains_critical);
         }
     }
     // Plain selector. Match against any prefix.
@@ -192,14 +189,7 @@ fn body_contains_critical(body: &str) -> bool {
         let next = trimmed.as_bytes().get(after_ix).copied();
         let is_selector_boundary = matches!(
             next,
-            Some(b' ')
-                | Some(b'{')
-                | Some(b',')
-                | Some(b':')
-                | Some(b'>')
-                | Some(b'+')
-                | Some(b'~')
-                | Some(b'[')
+            Some(b' ' | b'{' | b',' | b':' | b'>' | b'+' | b'~' | b'[')
         );
         if !is_selector_boundary {
             continue;

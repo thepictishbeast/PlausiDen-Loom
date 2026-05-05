@@ -1037,7 +1037,7 @@ fn render_panel_body(body: &CmsPanelBody) -> Markup {
         CmsPanelBody::List { items } => html! {
             ul class="loom-panel__list" {
                 @for item in items {
-                    @let href_safe = item.href.as_deref().map(is_safe_url).unwrap_or(false);
+                    @let href_safe = item.href.as_deref().is_some_and(is_safe_url);
                     li class="loom-panel__list-item" {
                         @if let (Some(href), true) = (item.href.as_deref(), href_safe) {
                             a class="loom-panel__list-link" href=(href) data-backend=[item.data_backend.as_deref()] data-loom-rich-link="true" {

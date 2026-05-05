@@ -186,10 +186,10 @@ impl Picture<'_> {
 /// Always emits the base `loom-picture` class so skin.css can
 /// target it; appends `loom-picture--cover` / `--contain` when set.
 fn compose_class(fit: PictureFit) -> String {
-    match fit.modifier_class() {
-        Some(m) => format!("loom-picture {m}"),
-        None => "loom-picture".to_owned(),
-    }
+    fit.modifier_class().map_or_else(
+        || "loom-picture".to_owned(),
+        |m| format!("loom-picture {m}"),
+    )
 }
 
 #[cfg(test)]
