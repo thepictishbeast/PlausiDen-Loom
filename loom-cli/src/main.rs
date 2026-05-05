@@ -1814,7 +1814,7 @@ mod cmd_image_convert_tests {
         let dir = unique_dir("empty");
         std::fs::create_dir_all(&dir).expect("mkdir");
         let r = cmd_image_convert(&dir, 50, 80, false);
-        assert_eq!(r.expect("ok"), false);
+        assert!(!r.expect("ok"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2576,7 +2576,7 @@ mod cmd_hooks_install_tests {
     fn writes_hook_when_absent() {
         let repo = fake_repo("fresh");
         let conflict = cmd_hooks_install(&repo, false).expect("ok");
-        assert_eq!(conflict, false);
+        assert!(!conflict);
         let hook = repo.join(".git/hooks/pre-commit");
         assert!(hook.exists());
         let body = std::fs::read_to_string(&hook).expect("read");
@@ -2606,7 +2606,7 @@ mod cmd_hooks_install_tests {
         let hook_path = repo.join(".git/hooks/pre-commit");
         std::fs::write(&hook_path, "# someone else's hook\n").expect("write");
         let conflict = cmd_hooks_install(&repo, false).expect("ok");
-        assert_eq!(conflict, true);
+        assert!(conflict);
         // Body unchanged.
         let body = std::fs::read_to_string(&hook_path).expect("read");
         assert!(body.contains("someone else's hook"));
@@ -2631,7 +2631,7 @@ mod cmd_hooks_install_tests {
         cmd_hooks_install(&repo, false).expect("first ok");
         // Second invocation: body is already current → Ok(false), no error.
         let conflict = cmd_hooks_install(&repo, false).expect("second ok");
-        assert_eq!(conflict, false);
+        assert!(!conflict);
         let _ = std::fs::remove_dir_all(&repo);
     }
 
@@ -3392,7 +3392,7 @@ mod cmd_validate_tests {
             r#"{"title":"x","description":"x","path":"/x","sections":[]}"#,
         )
         .expect("write");
-        assert_eq!(cmd_validate(&f).expect("ok"), false);
+        assert!(!cmd_validate(&f).expect("ok"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -3406,7 +3406,7 @@ mod cmd_validate_tests {
             r#"{"title":"x","description":"x","path":"/x","sections":[],"smuggled":"x"}"#,
         )
         .expect("write");
-        assert_eq!(cmd_validate(&f).expect("ok-result"), true);
+        assert!(cmd_validate(&f).expect("ok-result"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -3429,7 +3429,7 @@ mod cmd_validate_tests {
             }"#,
         )
         .expect("write");
-        assert_eq!(cmd_validate(&f).expect("ok-result"), true);
+        assert!(cmd_validate(&f).expect("ok-result"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -3447,7 +3447,7 @@ mod cmd_validate_tests {
             }"#,
         )
         .expect("write");
-        assert_eq!(cmd_validate(&f).expect("ok-result"), true);
+        assert!(cmd_validate(&f).expect("ok-result"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -3471,7 +3471,7 @@ mod cmd_validate_tests {
             }"#,
         )
         .expect("write");
-        assert_eq!(cmd_validate(&f).expect("ok-result"), true);
+        assert!(cmd_validate(&f).expect("ok-result"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -3500,7 +3500,7 @@ mod cmd_validate_tests {
             }"#,
         )
         .expect("write");
-        assert_eq!(cmd_validate(&f).expect("ok-result"), true);
+        assert!(cmd_validate(&f).expect("ok-result"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -3514,7 +3514,7 @@ mod cmd_validate_tests {
         std::fs::write(nested.join("p2.json"), ok_doc).expect("w");
         // Plant a non-json that should be ignored.
         std::fs::write(dir.join("readme.txt"), "x").expect("w");
-        assert_eq!(cmd_validate(&dir).expect("ok"), false);
+        assert!(!cmd_validate(&dir).expect("ok"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -3527,7 +3527,7 @@ mod cmd_validate_tests {
         std::fs::write(dir.join("good.json"), ok_doc).expect("w");
         std::fs::write(dir.join("bad.json"), bad_doc).expect("w");
         // ANY failure → cmd returns Ok(true)
-        assert_eq!(cmd_validate(&dir).expect("ok-result"), true);
+        assert!(cmd_validate(&dir).expect("ok-result"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
