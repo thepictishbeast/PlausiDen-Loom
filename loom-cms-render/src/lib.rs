@@ -1075,6 +1075,11 @@ fn render_panel_body(body: &CmsPanelBody) -> Markup {
 /// variant makes typos and field-name drift LOUD. A CMS that
 /// emits an unrecognized field fails deserialization here rather
 /// than silently shipping a missing render.
+///
+/// # Errors
+/// Forwards any `serde_json::Error` raised while deserializing the
+/// document — schema mismatch (unknown field, wrong tag), bad
+/// types, or malformed JSON.
 pub fn render_json(doc: &str) -> Result<Markup, serde_json::Error> {
     let page: CmsPage = serde_json::from_str(doc)?;
     Ok(render_page(&page))
