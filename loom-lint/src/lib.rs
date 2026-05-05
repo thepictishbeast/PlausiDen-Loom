@@ -293,8 +293,10 @@ pub fn run_css(root: &Path, extra_allowlist_substrings: &[&str]) -> Result<Vec<C
                 let all_sub_token = spacing_caps.iter().all(|cap| {
                     let val: f32 = cap[1].parse().unwrap_or(0.0);
                     let unit = &cap[2];
+                    // px maps 1:1; rem/em multiply by the 16px design root;
+                    // unknown units (vh, vw, %) fall through as-is — the
+                    // 4px floor below treats them conservatively.
                     let px_equiv = match unit {
-                        "px" => val,
                         "rem" | "em" => val * 16.0,
                         _ => val,
                     };
