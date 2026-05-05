@@ -508,8 +508,8 @@ pub enum CmsComposerSize {
 impl From<CmsComposerSize> for ComposerSize {
     fn from(c: CmsComposerSize) -> Self {
         match c {
-            CmsComposerSize::Compact => ComposerSize::Compact,
-            CmsComposerSize::Comfortable => ComposerSize::Comfortable,
+            CmsComposerSize::Compact => Self::Compact,
+            CmsComposerSize::Comfortable => Self::Comfortable,
         }
     }
 }
@@ -547,8 +547,8 @@ pub enum CmsLoading {
 impl From<CmsLoading> for PictureLoading {
     fn from(c: CmsLoading) -> Self {
         match c {
-            CmsLoading::Lazy => PictureLoading::Lazy,
-            CmsLoading::Eager => PictureLoading::Eager,
+            CmsLoading::Lazy => Self::Lazy,
+            CmsLoading::Eager => Self::Eager,
         }
     }
 }
@@ -568,9 +568,9 @@ pub enum CmsPriority {
 impl From<CmsPriority> for PicturePriority {
     fn from(c: CmsPriority) -> Self {
         match c {
-            CmsPriority::Auto => PicturePriority::Auto,
-            CmsPriority::High => PicturePriority::High,
-            CmsPriority::Low => PicturePriority::Low,
+            CmsPriority::Auto => Self::Auto,
+            CmsPriority::High => Self::High,
+            CmsPriority::Low => Self::Low,
         }
     }
 }
@@ -590,9 +590,9 @@ pub enum CmsFit {
 impl From<CmsFit> for PictureFit {
     fn from(c: CmsFit) -> Self {
         match c {
-            CmsFit::Default => PictureFit::Default,
-            CmsFit::Cover => PictureFit::Cover,
-            CmsFit::Contain => PictureFit::Contain,
+            CmsFit::Default => Self::Default,
+            CmsFit::Cover => Self::Cover,
+            CmsFit::Contain => Self::Contain,
         }
     }
 }
