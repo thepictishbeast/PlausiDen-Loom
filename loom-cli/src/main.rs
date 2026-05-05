@@ -165,6 +165,25 @@ enum Cmd {
         #[arg(long, default_value_t = false)]
         force: bool,
     },
+    /// `loom backend-stub-all` — T19 mass-mint mode. Walks
+    /// backends.toml, scaffolds every entry whose impl_files is
+    /// empty. Skips entries that already have a non-empty
+    /// impl_files (use `--force` + the per-key form to overwrite
+    /// individual handlers). Per-key debug logging surfaces
+    /// ok/skip/error for each entry.
+    ///
+    /// Exit codes:
+    ///   0 — all stubs minted (or none were stubs to begin with)
+    ///   1 — one or more entries failed (still attempts every key)
+    ///   2 — backends.toml unreadable or crate path not a directory
+    BackendStubAll {
+        /// Path to backends.toml.
+        #[arg(long, default_value = "backends.toml")]
+        backends: PathBuf,
+        /// Crate root that will own the handlers (see backend-stub).
+        #[arg(long)]
+        crate_dir: PathBuf,
+    },
     /// List every backend declared in backends.toml with its
     /// implementation status. Each `[backends.X]` entry is one
     /// row; impl status derived from `impl_files` field (empty →
@@ -506,6 +525,35 @@ fn main() -> ExitCode {
             Err(BackendStubError::Io(e)) => {
                 eprintln!("loom backend-stub: i/o error: {e}");
                 ExitCode::from(2)
+            }
+        },
+        Cmd::BackendStubAll {
+            backends,
+            crate_dir,
+        } => match cmd_backend_stub_all(&backends, &crate_dir) {
+            Ok(BackendStubAllReport { ok, skipped, failed }) => {
+                println!(
+                    "  ok     {ok} minted, {skipped} skipped (already had impl), {failed} failed"
+                );
+                if failed > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS }
+            }
+            Err(BackendStubError::Toml(e)) => {
+                eprintln!("loom backend-stub-all: toml error: {e}");
+                ExitCode::from(2)
+            }
+            Err(BackendStubError::CrateNotDir(p)) => {
+                eprintln!("loom backend-stub-all: {} is not a directory", p.display());
+                ExitCode::from(2)
+            }
+            Err(BackendStubError::Io(e)) => {
+                eprintln!("loom backend-stub-all: i/o error: {e}");
+                ExitCode::from(2)
+            }
+            Err(BackendStubError::KeyNotFound(_) | BackendStubError::Conflict(_)) => {
+                // Per-key errors are reported inline by cmd_backend_stub_all
+                // and never bubble out as a top-level Err — these arms are
+                // for exhaustiveness only.
+                ExitCode::from(1)
             }
         },
         Cmd::BackendList { backends } => match cmd_backend_list(&backends) {
@@ -2173,11 +2221,216 @@ impl_files = []
         assert!(s.contains("pub async fn handle_get"));
         assert!(!s.contains("pub async fn handle_post"));
     }
+
+    // ---- T19: cmd_backend_stub_all ----
+
+    fn fixture_all() -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir = unique("all-fixture");
+        std::fs::create_dir_all(dir.join("src")).expect("mkdir");
+        let backends = dir.join("backends.toml");
+        std::fs::write(
+            &backends,
+            r#"[backends.sign-in]
+method = "POST"
+path = "/auth/sign-in"
+purpose = "operator sign-in"
+impl_files = []
+
+[backends.view-profile]
+method = "GET"
+path = "/u/:id"
+purpose = "public profile"
+impl_files = ["src/handlers/view_profile.rs"]
+
+[backends.cast-vote]
+method = "POST"
+path = "/vote"
+purpose = "submit a vote"
+impl_files = []
+"#,
+        )
+        .expect("write");
+        (backends, dir)
+    }
+
+    #[test]
+    fn stub_all_mints_only_empty_entries() {
+        let (backends, dir) = fixture_all();
+        let r = cmd_backend_stub_all(&backends, &dir).expect("ok");
+        // Two stubs (sign-in, cast-vote); one already-impl (view-profile).
+        assert_eq!(r.ok, 2);
+        assert_eq!(r.skipped, 0);
+        assert_eq!(r.failed, 0);
+        assert!(dir.join("src/handlers/sign_in.rs").exists());
+        assert!(dir.join("src/handlers/cast_vote.rs").exists());
+        // view-profile was NOT a stub → must NOT be touched.
+        assert!(!dir.join("src/handlers/view_profile.rs").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stub_all_updates_backends_toml_for_each_minted_entry() {
+        let (backends, dir) = fixture_all();
+        cmd_backend_stub_all(&backends, &dir).expect("ok");
+        let raw = std::fs::read_to_string(&backends).expect("read");
+        let v: toml::Value = toml::from_str(&raw).expect("parse");
+        let after = |k: &str| {
+            v["backends"][k]["impl_files"]
+                .as_array()
+                .expect("array")
+                .len()
+        };
+        assert_eq!(after("sign-in"), 1);
+        assert_eq!(after("cast-vote"), 1);
+        assert_eq!(after("view-profile"), 1, "must not regress already-impl entry");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stub_all_is_idempotent_on_second_run() {
+        let (backends, dir) = fixture_all();
+        let r1 = cmd_backend_stub_all(&backends, &dir).expect("first");
+        assert_eq!(r1.ok, 2);
+        // Second run finds zero stubs — every entry now has impl_files.
+        let r2 = cmd_backend_stub_all(&backends, &dir).expect("second");
+        assert_eq!(r2.ok, 0);
+        assert_eq!(r2.skipped, 0);
+        assert_eq!(r2.failed, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stub_all_skips_when_handler_file_exists_but_impl_files_empty() {
+        let (backends, dir) = fixture_all();
+        // Pre-create the sign_in.rs file so cmd_backend_stub will hit Conflict.
+        std::fs::create_dir_all(dir.join("src/handlers")).expect("mkdir");
+        std::fs::write(dir.join("src/handlers/sign_in.rs"), "// pre-existing\n").expect("seed");
+        let r = cmd_backend_stub_all(&backends, &dir).expect("ok");
+        // sign-in conflicted (skipped); cast-vote minted (ok).
+        assert_eq!(r.ok, 1);
+        assert_eq!(r.skipped, 1);
+        assert_eq!(r.failed, 0);
+        // Pre-existing file untouched.
+        let body = std::fs::read_to_string(dir.join("src/handlers/sign_in.rs")).expect("read");
+        assert_eq!(body, "// pre-existing\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stub_all_errs_on_non_dir_crate() {
+        let (backends, _) = fixture_all();
+        let bogus = std::env::temp_dir().join("loom-stub-all-not-a-dir-zzzz");
+        let _ = std::fs::remove_dir_all(&bogus);
+        let r = cmd_backend_stub_all(&backends, &bogus);
+        assert!(matches!(r, Err(BackendStubError::CrateNotDir(_))));
+    }
+
+    #[test]
+    fn stub_all_no_backends_section_errs() {
+        let dir = unique("no-backends");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let backends = dir.join("backends.toml");
+        std::fs::write(&backends, "# no [backends] section\n").expect("write");
+        let r = cmd_backend_stub_all(&backends, &dir);
+        assert!(matches!(r, Err(BackendStubError::Toml(_))));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 /// `loom backend list` — read backends.toml + print impl status
 /// table for every declared key.
 ///
+/// `loom backend-stub-all` — T19 mass-mint summary.
+struct BackendStubAllReport {
+    ok: usize,
+    skipped: usize,
+    failed: usize,
+}
+
+/// Walk backends.toml, scaffold every entry whose impl_files is
+/// empty. Per-key results are printed inline; the aggregate
+/// counts are returned for the top-level dispatcher to render
+/// the final summary line.
+///
+/// Errors at the top level mean the whole operation cannot
+/// proceed (unreadable backends.toml, crate root missing).
+/// Per-key failures are logged inline and reflected in the
+/// returned `failed` count, but do NOT abort the loop — partial
+/// progress is more useful than all-or-nothing.
+fn cmd_backend_stub_all(
+    backends_path: &std::path::Path,
+    crate_dir: &std::path::Path,
+) -> Result<BackendStubAllReport, BackendStubError> {
+    if !crate_dir.is_dir() {
+        return Err(BackendStubError::CrateNotDir(crate_dir.to_path_buf()));
+    }
+    let raw = std::fs::read_to_string(backends_path)?;
+    let parsed: toml::Value = toml::from_str(&raw)
+        .map_err(|e| BackendStubError::Toml(format!("parse: {e}")))?;
+    let backends = parsed
+        .get("backends")
+        .and_then(|v| v.as_table())
+        .ok_or_else(|| BackendStubError::Toml("missing [backends] section".to_owned()))?;
+
+    // Enumerate stub keys ahead of time so we don't mutate the
+    // file while iterating it. Keys are sorted for stable, grep-
+    // friendly output across runs.
+    let mut stub_keys: Vec<String> = backends
+        .iter()
+        .filter_map(|(k, v)| {
+            let table = v.as_table()?;
+            let impl_files = table.get("impl_files").and_then(|x| x.as_array())?;
+            if impl_files.is_empty() {
+                Some(k.to_owned())
+            } else {
+                None
+            }
+        })
+        .collect();
+    stub_keys.sort();
+
+    let mut report = BackendStubAllReport {
+        ok: 0,
+        skipped: 0,
+        failed: 0,
+    };
+    if stub_keys.is_empty() {
+        println!("  ok     no stub backends found — nothing to mint");
+        return Ok(report);
+    }
+
+    println!("  ..     minting {} stub backend(s)", stub_keys.len());
+    for key in &stub_keys {
+        // T19: re-read backends.toml on every iteration so
+        // toml_edit picks up the comment-preserving update from
+        // the prior key. cmd_backend_stub does this internally.
+        match cmd_backend_stub(key, backends_path, crate_dir, false) {
+            Ok(()) => {
+                report.ok += 1;
+                // cmd_backend_stub already printed two ok lines.
+            }
+            Err(BackendStubError::Conflict(p)) => {
+                println!(
+                    "  skip   [{key}] file {} already exists (use single-key + --force to overwrite)",
+                    p.display()
+                );
+                report.skipped += 1;
+            }
+            Err(BackendStubError::KeyNotFound(_)) => {
+                // Should be impossible — we just enumerated this
+                // key from the same file. Treat as failure.
+                eprintln!("  fail   [{key}] vanished between enumeration and mint");
+                report.failed += 1;
+            }
+            Err(e) => {
+                eprintln!("  fail   [{key}] {e:?}");
+                report.failed += 1;
+            }
+        }
+    }
+    Ok(report)
+}
+
 /// Pure read-only: no file mutation, no remote I/O. Stable text
 /// output suitable for piping to grep / awk / jq (after
 /// post-processing). Exit code 0 even when every key is STUB —
