@@ -2335,7 +2335,7 @@ impl_files = []
                 e.as_table()
                     .and_then(|t| t.get("impl_files"))
                     .and_then(|v| v.as_array())
-                    .is_some_and(|a| a.is_empty())
+                    .is_some_and(Vec::is_empty)
             })
             .count();
         assert_eq!(stub_count, 2);
