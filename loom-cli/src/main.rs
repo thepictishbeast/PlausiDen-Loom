@@ -2936,7 +2936,10 @@ fn cms_standard_nav() -> Vec<loom_cms_render::CmsNavLink> {
 }
 
 fn cms_template_landing(title: &str, path: &str) -> loom_cms_render::CmsPage {
-    use loom_cms_render::*;
+    use loom_cms_render::{
+        CmsAvatar, CmsCard, CmsCardStat, CmsComposerSize, CmsPage, CmsPromptAction, CmsSection,
+        HeroCta,
+    };
     CmsPage {
         schema: Some("../cms-schema.json".to_owned()),
         title: title.to_owned(),
@@ -2997,7 +3000,7 @@ fn cms_template_landing(title: &str, path: &str) -> loom_cms_render::CmsPage {
 }
 
 fn cms_template_explainer(title: &str, path: &str) -> loom_cms_render::CmsPage {
-    use loom_cms_render::*;
+    use loom_cms_render::{CmsPage, CmsSection};
     CmsPage {
         schema: Some("../cms-schema.json".to_owned()),
         title: title.to_owned(),
@@ -3031,7 +3034,9 @@ fn cms_template_explainer(title: &str, path: &str) -> loom_cms_render::CmsPage {
 }
 
 fn cms_template_form(title: &str, path: &str) -> loom_cms_render::CmsPage {
-    use loom_cms_render::*;
+    use loom_cms_render::{
+        CmsFormField, CmsFormStep, CmsFormStepState, CmsFormSubmit, CmsPage, CmsSection,
+    };
     CmsPage {
         schema: Some("../cms-schema.json".to_owned()),
         title: title.to_owned(),
