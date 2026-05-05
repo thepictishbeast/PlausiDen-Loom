@@ -1842,7 +1842,7 @@ mod cmd_image_convert_tests {
         }
         let mut out = Vec::new();
         walk_images(&dir, &mut out).expect("walk");
-        assert_eq!(out.len(), 5, "got {:?}", out);
+        assert_eq!(out.len(), 5, "got {out:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -3171,7 +3171,7 @@ fn cmd_cms_schema(out: &str) -> Result<(), std::io::Error> {
     let pretty = serde_json::to_string_pretty(&schema)
         .map_err(|e| std::io::Error::other(format!("schema serialize: {e}")))?;
     if out == "-" {
-        print!("{pretty}\n");
+        println!("{pretty}");
         return Ok(());
     }
     if let Some(parent) = std::path::Path::new(out).parent() {
