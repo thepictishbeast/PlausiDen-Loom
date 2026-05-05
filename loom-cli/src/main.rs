@@ -1951,6 +1951,13 @@ fn cmd_backend_stub(
     if !crate_dir.is_dir() {
         return Err(BackendStubError::CrateNotDir(crate_dir.to_path_buf()));
     }
+    // T23: validate the key against the backends.toml schema
+    // BEFORE touching the filesystem or parsing TOML. Catches
+    // shell-injection-shaped keys ("sign;rm") and uppercase /
+    // whitespace typos at the boundary, where the operator can
+    // see a clear error message tied to the input.
+    let validated = BackendKey::new(key)
+        .map_err(|e| BackendStubError::Toml(format!("backend key {key:?}: {e}")))?;
     // Parse + locate the entry.
     let raw = std::fs::read_to_string(backends_path)?;
     let mut doc: toml_edit::DocumentMut = raw
@@ -1980,9 +1987,7 @@ fn cmd_backend_stub(
         .unwrap_or("(no purpose declared)")
         .to_owned();
 
-    // Compute file path. Backend keys have hyphens (e.g. sign-in)
-    // but Rust modules can't, so convert to underscores.
-    let file_stem = key.replace('-', "_");
+    let file_stem = validated.module_name();
     let rel_path = format!("src/handlers/{file_stem}.rs");
     let abs_path = crate_dir.join(&rel_path);
     if abs_path.exists() && !force {
@@ -2463,6 +2468,97 @@ impl_files = []
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    // ---- T23: BackendKey + BackendStatus ADT ----
+
+    #[test]
+    fn backend_key_accepts_valid_schemas() {
+        for valid in ["sign-in", "view-profile", "list-challenges", "a", "a1", "x-9-y"] {
+            assert!(BackendKey::new(valid).is_ok(), "should accept {valid:?}");
+        }
+    }
+
+    #[test]
+    fn backend_key_rejects_empty_and_whitespace() {
+        assert_eq!(BackendKey::new("").unwrap_err(), BackendKeyError::Empty);
+        assert!(matches!(
+            BackendKey::new(" sign-in").unwrap_err(),
+            BackendKeyError::LeadingNonLowercase(_)
+        ));
+    }
+
+    #[test]
+    fn backend_key_rejects_uppercase() {
+        assert!(matches!(
+            BackendKey::new("Sign-In").unwrap_err(),
+            BackendKeyError::LeadingNonLowercase('S'),
+        ));
+        assert!(matches!(
+            BackendKey::new("sign-In").unwrap_err(),
+            BackendKeyError::InvalidChar('I'),
+        ));
+    }
+
+    #[test]
+    fn backend_key_rejects_path_traversal_and_shell_metachars() {
+        for bad in [
+            "../etc/passwd",
+            "sign;rm",
+            "sign in",  // space
+            "sign/in",  // slash
+            "sign_in",  // underscore disallowed in source key
+            "sign.in",  // dot disallowed
+            "9-leading",
+        ] {
+            assert!(BackendKey::new(bad).is_err(), "should reject {bad:?}");
+        }
+    }
+
+    #[test]
+    fn backend_key_module_name_dashes_to_underscores() {
+        let k = BackendKey::new("list-open-votes").expect("valid");
+        assert_eq!(k.module_name(), "list_open_votes");
+        assert_eq!(k.as_str(), "list-open-votes");
+    }
+
+    #[test]
+    fn backend_status_from_empty_vec_is_stub() {
+        assert_eq!(BackendStatus::from_impl_files(vec![]), BackendStatus::Stub);
+    }
+
+    #[test]
+    fn backend_status_from_non_empty_vec_is_impl() {
+        let s = BackendStatus::from_impl_files(vec!["src/handlers/sign_in.rs".to_owned()]);
+        assert!(matches!(s, BackendStatus::Impl(ref paths) if paths.len() == 1));
+        assert_eq!(s.label(), "IMPL");
+        assert!(!s.is_stub());
+    }
+
+    #[test]
+    fn backend_status_label_is_stable_for_table_rendering() {
+        // The CLI table column is fixed-width 6 chars; widening
+        // either label silently breaks alignment for downstream
+        // grep/awk users.
+        assert_eq!(BackendStatus::Stub.label(), "STUB");
+        assert_eq!(
+            BackendStatus::Impl(vec!["x".to_owned()]).label(),
+            "IMPL",
+        );
+    }
+
+    #[test]
+    fn cmd_backend_stub_rejects_invalid_keys_via_typed_err() {
+        let (backends, dir) = fixture();
+        // Even though backends.toml might have a malformed key,
+        // the dispatcher must surface a Toml-class error before
+        // touching the filesystem.
+        let r = cmd_backend_stub("Sign-In", &backends, &dir, false);
+        assert!(matches!(r, Err(BackendStubError::Toml(_))));
+        // No file should exist for the rejected key.
+        assert!(!dir.join("src/handlers/Sign_In.rs").exists());
+        assert!(!dir.join("src/handlers/sign_in.rs").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     // ---- T19: cmd_backend_stub_all ----
 
     fn fixture_all() -> (std::path::PathBuf, std::path::PathBuf) {
@@ -2676,6 +2772,107 @@ fn cmd_backend_stub_all(
 /// output suitable for piping to grep / awk / jq (after
 /// post-processing). Exit code 0 even when every key is STUB —
 /// the data is the value, not the gate.
+/// `BackendKey` — validated identifier for a `[backends.X]` entry.
+///
+/// T23: replaces stringly-typed keys flowing through cmd_backend_*.
+/// Constructor enforces the schema regex `^[a-z][a-z0-9-]*$` so a
+/// caller can't accidentally pass `"../etc/passwd"` or whitespace
+/// through. Once wrapped, the value is trusted by every consumer.
+///
+/// REGRESSION-GUARD: do NOT widen the regex without updating
+/// backends.toml schema docs in PlausiDen-Forge AND the loom
+/// backend-stub file-name derivation (which assumes the only
+/// non-alphanumeric character is `-`, mapped to `_`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct BackendKey(String);
+
+#[derive(Debug, PartialEq, Eq)]
+enum BackendKeyError {
+    Empty,
+    LeadingNonLowercase(char),
+    InvalidChar(char),
+}
+
+impl std::fmt::Display for BackendKeyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BackendKeyError::Empty => f.write_str("backend key must not be empty"),
+            BackendKeyError::LeadingNonLowercase(c) => {
+                write!(f, "backend key must start with a-z (got {c:?})")
+            }
+            BackendKeyError::InvalidChar(c) => {
+                write!(f, "backend key contains invalid character {c:?} (allowed: a-z, 0-9, -)")
+            }
+        }
+    }
+}
+
+impl BackendKey {
+    fn new(s: &str) -> Result<Self, BackendKeyError> {
+        let mut chars = s.chars();
+        let first = chars.next().ok_or(BackendKeyError::Empty)?;
+        if !first.is_ascii_lowercase() {
+            return Err(BackendKeyError::LeadingNonLowercase(first));
+        }
+        for c in chars {
+            if !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+                return Err(BackendKeyError::InvalidChar(c));
+            }
+        }
+        Ok(Self(s.to_owned()))
+    }
+
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Module-name form: dashes → underscores. Used by the handler
+    /// scaffold + handlers/mod.rs registration.
+    fn module_name(&self) -> String {
+        self.0.replace('-', "_")
+    }
+}
+
+/// `BackendStatus` — typed result of inspecting one `[backends.X]`
+/// entry's impl_files.
+///
+/// T23: replaces the stringly-typed "STUB"/"IMPL" status that flowed
+/// through BackendRow. Each variant carries the data that's only
+/// meaningful for that case — a Stub has no paths, an Impl has at
+/// least one. Branches that don't apply are unrepresentable.
+///
+/// Future variant queued: `MissingFile { path: PathBuf }` once Loom
+/// gains filesystem verification (currently lives in forge phase
+/// backend_coverage / T18). Adding that variant later is a single
+/// match arm in cmd_backend_list — no caller will silently fall
+/// through because the enum is non-exhaustive at every match site.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BackendStatus {
+    Stub,
+    Impl(Vec<String>),
+}
+
+impl BackendStatus {
+    fn from_impl_files(paths: Vec<String>) -> Self {
+        if paths.is_empty() {
+            BackendStatus::Stub
+        } else {
+            BackendStatus::Impl(paths)
+        }
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            BackendStatus::Stub => "STUB",
+            BackendStatus::Impl(_) => "IMPL",
+        }
+    }
+
+    fn is_stub(&self) -> bool {
+        matches!(self, BackendStatus::Stub)
+    }
+}
+
 fn cmd_backend_list(backends_path: &std::path::Path) -> Result<(), std::io::Error> {
     let raw = std::fs::read_to_string(backends_path)?;
     let value: toml::Value =
@@ -2686,8 +2883,14 @@ fn cmd_backend_list(backends_path: &std::path::Path) -> Result<(), std::io::Erro
         .ok_or_else(|| std::io::Error::other("missing [backends] section"))?;
 
     let mut rows = Vec::<BackendRow>::new();
-    for (key, entry) in backends {
+    for (raw_key, entry) in backends {
         let Some(table) = entry.as_table() else {
+            continue;
+        };
+        // Skip rows whose key violates the schema rather than
+        // panic — backends.toml is hand-edited and we'd rather
+        // surface other rows than abort the whole listing.
+        let Ok(key) = BackendKey::new(raw_key) else {
             continue;
         };
         let method = table
@@ -2700,22 +2903,27 @@ fn cmd_backend_list(backends_path: &std::path::Path) -> Result<(), std::io::Erro
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_owned();
-        let impl_files = table
+        let impl_files: Vec<String> = table
             .get("impl_files")
             .and_then(|v| v.as_array())
-            .map_or(0, Vec::len);
-        let status = if impl_files == 0 { "STUB" } else { "IMPL" };
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let status = BackendStatus::from_impl_files(impl_files);
         rows.push(BackendRow {
-            key: key.to_owned(),
+            key,
             method,
-            status: status.to_owned(),
+            status,
             purpose,
         });
     }
     rows.sort_by(|a, b| a.key.cmp(&b.key));
 
     let total = rows.len();
-    let stubs = rows.iter().filter(|r| r.status == "STUB").count();
+    let stubs = rows.iter().filter(|r| r.status.is_stub()).count();
     let impls = total - stubs;
 
     println!("  key                          method  status  purpose");
@@ -2730,9 +2938,9 @@ fn cmd_backend_list(backends_path: &std::path::Path) -> Result<(), std::io::Erro
         };
         println!(
             "  {key:<27}  {method:<6}  {status:<6}  {purpose}",
-            key = r.key,
+            key = r.key.as_str(),
             method = r.method,
-            status = r.status,
+            status = r.status.label(),
         );
     }
     println!();
@@ -2745,9 +2953,9 @@ fn cmd_backend_list(backends_path: &std::path::Path) -> Result<(), std::io::Erro
 
 #[derive(Debug, Clone)]
 struct BackendRow {
-    key: String,
+    key: BackendKey,
     method: String,
-    status: String,
+    status: BackendStatus,
     purpose: String,
 }
 
