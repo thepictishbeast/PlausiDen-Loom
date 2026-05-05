@@ -971,8 +971,7 @@ mod tests {{
         assert!(render().into_string().len() > 1_000);
     }}
 }}
-"#,
-        name = name,
+"#
     )
 }
 
@@ -1010,8 +1009,7 @@ pub fn render() -> Markup {{
     }};
     page("{name} — PlausiDen", "/{name}", body)
 }}
-"#,
-        name = name,
+"#
     )
 }
 
@@ -1042,8 +1040,7 @@ pub fn render() -> Markup {{
     }};
     page("{name} — PlausiDen", "/{name}", body)
 }}
-"#,
-        name = name,
+"#
     )
 }
 
