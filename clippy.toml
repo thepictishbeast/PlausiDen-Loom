@@ -4,5 +4,7 @@
 doc-valid-idents = [
     "LinkedIn", "ImageMagick", "PlausiDen", "SkillShots", "PoC",
     "JSON", "HTML", "URL", "JPG", "PNG", "SECURITY", "WITHOUT",
+    "phantom_button", "phase_phantom_button", "phase_seo",
+    "court_dax",
     "..",
 ]

@@ -17,7 +17,7 @@
 //! ---------
 //! - `prompt`             required, the visible call-to-action
 //! - `submit_endpoint`    required, where the prompt-link points
-//! - `actions`            up to 3 typed PromptAction entries
+//! - `actions`            up to 3 typed `PromptAction` entries
 //! - `avatar`             typed enum (none / initials / image)
 //! - `size`               compact (nav-row) | comfortable (feed-top)
 //!

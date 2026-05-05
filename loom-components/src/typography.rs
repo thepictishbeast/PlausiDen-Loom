@@ -149,7 +149,7 @@ pub struct HelperText<'a> {
     pub text: &'a str,
     /// Size step.
     pub size: HelperSize,
-    /// Tone — Ink for light bands, OnDark for dark bands.
+    /// Tone — Ink for light bands, `OnDark` for dark bands.
     pub tone: HeadingTone,
 }
 
