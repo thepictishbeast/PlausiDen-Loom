@@ -2002,12 +2002,126 @@ fn cmd_backend_stub(
     entry.insert("impl_files", toml_edit::value(new_array));
     std::fs::write(backends_path, doc.to_string())?;
 
+    // T22: keep src/handlers/mod.rs in sync. Without this the
+    // newly-scaffolded file lives on disk but the crate's module
+    // tree never sees it — `cargo check` is happy, `cargo test`
+    // misses the placeholder tests, and the backend silently
+    // stays unwired even though the file exists. Idempotent +
+    // sort-preserving so re-running the same key does nothing.
+    let mod_changed = register_handler_module(crate_dir, &file_stem)?;
+    if mod_changed {
+        println!(
+            "  ok     handlers/mod.rs += {file_stem:?}",
+        );
+    }
+
     println!("  ok     scaffolded {}", abs_path.display());
     println!(
         "  ok     updated {} (impl_files += {rel_path:?})",
         backends_path.display()
     );
     Ok(())
+}
+
+/// Insert `pub mod <module>;` into `<crate_dir>/src/handlers/mod.rs`,
+/// keeping the file alphabetically sorted and the doc-block (any
+/// lines that aren't `pub mod`) untouched.
+///
+/// Returns `Ok(true)` when the file changed, `Ok(false)` when the
+/// module was already declared (idempotent). Creates the file with
+/// a minimal doc-block when it doesn't exist yet — useful when
+/// `loom backend-stub` is run before the crate skeleton lands
+/// (T20 may have created a different shape for an existing crate).
+///
+/// REGRESSION-GUARD: a previous design considered appending without
+/// sorting "for simplicity" — but mass-mint runs in arbitrary key
+/// order, and the resulting mod.rs would change line order on every
+/// re-run, polluting `git diff`. Stable sort is the contract.
+fn register_handler_module(
+    crate_dir: &std::path::Path,
+    module_name: &str,
+) -> Result<bool, std::io::Error> {
+    let mod_rs = crate_dir.join("src/handlers/mod.rs");
+    if let Some(parent) = mod_rs.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mod_decl = format!("pub mod {module_name};");
+
+    let (header_lines, mut module_names) = match std::fs::read_to_string(&mod_rs) {
+        Ok(raw) => parse_handler_mod_rs(&raw),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (
+            vec![
+                "//! Handler module list. Each entry corresponds to one".to_owned(),
+                "//! [backends.X] section in backends.toml (key dashes →".to_owned(),
+                "//! underscores). Auto-maintained by `loom backend-stub`".to_owned(),
+                "//! (T22) — manual edits in this file may be reordered.".to_owned(),
+            ],
+            Vec::new(),
+        ),
+        Err(e) => return Err(e),
+    };
+
+    if module_names.iter().any(|m| m == module_name) {
+        return Ok(false);
+    }
+    module_names.push(module_name.to_owned());
+    module_names.sort();
+    module_names.dedup();
+
+    let mut out = String::new();
+    for line in &header_lines {
+        out.push_str(line);
+        out.push('\n');
+    }
+    if !out.is_empty() && !out.ends_with("\n\n") {
+        out.push('\n');
+    }
+    for name in &module_names {
+        out.push_str("pub mod ");
+        out.push_str(name);
+        out.push_str(";\n");
+    }
+    let _ = mod_decl; // silence dead-code lint when the macro form is removed
+
+    std::fs::write(&mod_rs, out)?;
+    Ok(true)
+}
+
+/// Split a `mod.rs` body into (header lines, module names).
+///
+/// "module name" = capture group of `^pub mod (\w+);$` (stripped of
+/// surrounding whitespace). Anything that doesn't match is preserved
+/// in `header_lines` in original order — comments, attribute lines,
+/// `use` statements all survive a round-trip.
+///
+/// BUG ASSUMPTION: a hand-edited mod.rs with a non-trivial body
+/// (e.g. `pub mod foo; pub mod bar;` on one line, or `#[cfg(...)]
+/// pub mod foo;`) is rare enough that the simpler one-line-per-mod
+/// rule is the right contract. T22 owners surface T22-edited mod.rs
+/// with the regenerated comment so reviewers know where to look.
+fn parse_handler_mod_rs(raw: &str) -> (Vec<String>, Vec<String>) {
+    let mut header = Vec::<String>::new();
+    let mut modules = Vec::<String>::new();
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("pub mod ") {
+            if let Some(name) = rest.strip_suffix(';') {
+                let name = name.trim();
+                if !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                    modules.push(name.to_owned());
+                    continue;
+                }
+            }
+        }
+        // Header lines: keep verbatim. Skip trailing blank lines —
+        // we re-add a single blank separator before the module
+        // list to keep the output shape stable.
+        header.push(line.to_owned());
+    }
+    while header.last().is_some_and(|l| l.trim().is_empty()) {
+        header.pop();
+    }
+    (header, modules)
 }
 
 fn render_handler_stub(key: &str, method: &str, path: &str, purpose: &str) -> String {
@@ -2220,6 +2334,133 @@ impl_files = []
         let s = render_handler_stub("view-profile", "GET", "/u/:id", "x");
         assert!(s.contains("pub async fn handle_get"));
         assert!(!s.contains("pub async fn handle_post"));
+    }
+
+    // ---- T22: register_handler_module ----
+
+    #[test]
+    fn parse_mod_rs_splits_header_and_modules() {
+        let raw = "//! header line\n//! second line\n\npub mod alpha;\npub mod beta;\n";
+        let (header, modules) = parse_handler_mod_rs(raw);
+        assert_eq!(
+            header,
+            vec!["//! header line".to_owned(), "//! second line".to_owned()],
+        );
+        assert_eq!(modules, vec!["alpha".to_owned(), "beta".to_owned()]);
+    }
+
+    #[test]
+    fn parse_mod_rs_ignores_malformed_lines() {
+        // Lines with multiple statements or attributes don't match
+        // the simple "pub mod NAME;" rule and are kept as header.
+        let raw = "//! doc\n\n#[cfg(unix)]\npub mod foo;\npub mod bar;\n";
+        let (header, modules) = parse_handler_mod_rs(raw);
+        assert!(header.iter().any(|l| l == "#[cfg(unix)]"));
+        assert_eq!(modules, vec!["foo".to_owned(), "bar".to_owned()]);
+    }
+
+    #[test]
+    fn register_creates_mod_rs_when_absent() {
+        let dir = unique("reg-mod-create");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let changed =
+            register_handler_module(&dir, "sign_in").expect("ok");
+        assert!(changed);
+        let body =
+            std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
+        assert!(body.contains("//! Handler module list."));
+        assert!(body.contains("pub mod sign_in;"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn register_appends_and_sorts() {
+        let dir = unique("reg-mod-sort");
+        std::fs::create_dir_all(dir.join("src/handlers")).expect("mkdir");
+        std::fs::write(
+            dir.join("src/handlers/mod.rs"),
+            "//! existing\n\npub mod beta;\npub mod alpha;\n",
+        )
+        .expect("seed");
+        let changed =
+            register_handler_module(&dir, "delta").expect("ok");
+        assert!(changed);
+        let body =
+            std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
+        // Alphabetical ordering, even when seed was unsorted.
+        let alpha_pos = body.find("pub mod alpha;").expect("alpha");
+        let beta_pos = body.find("pub mod beta;").expect("beta");
+        let delta_pos = body.find("pub mod delta;").expect("delta");
+        assert!(alpha_pos < beta_pos);
+        assert!(beta_pos < delta_pos);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn register_is_idempotent_on_repeat_call() {
+        let dir = unique("reg-mod-idem");
+        std::fs::create_dir_all(dir.join("src/handlers")).expect("mkdir");
+        std::fs::write(
+            dir.join("src/handlers/mod.rs"),
+            "//! header\n\npub mod sign_in;\n",
+        )
+        .expect("seed");
+        let r1 = register_handler_module(&dir, "sign_in").expect("first");
+        assert!(!r1, "second declaration of same module must be a no-op");
+        let body =
+            std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
+        // Exactly one occurrence of the line — no duplicate.
+        assert_eq!(
+            body.matches("pub mod sign_in;").count(),
+            1,
+            "module name must appear exactly once after idempotent re-register",
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn register_preserves_doc_block() {
+        let dir = unique("reg-mod-doc");
+        std::fs::create_dir_all(dir.join("src/handlers")).expect("mkdir");
+        let initial_header =
+            "//! line one\n//! line two — non-ASCII —\n//! line three";
+        std::fs::write(
+            dir.join("src/handlers/mod.rs"),
+            format!("{initial_header}\n\npub mod existing;\n"),
+        )
+        .expect("seed");
+        register_handler_module(&dir, "added").expect("ok");
+        let body =
+            std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
+        assert!(body.starts_with(initial_header));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cmd_backend_stub_registers_module() {
+        // End-to-end: the dispatcher path must wire the new module
+        // into mod.rs, not just write the .rs file.
+        let (backends, dir) = fixture();
+        cmd_backend_stub("sign-in", &backends, &dir, false).expect("ok");
+        let mod_rs =
+            std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
+        assert!(mod_rs.contains("pub mod sign_in;"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stub_all_registers_every_module() {
+        let (backends, dir) = fixture_all();
+        cmd_backend_stub_all(&backends, &dir).expect("ok");
+        let mod_rs =
+            std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
+        assert!(mod_rs.contains("pub mod sign_in;"));
+        assert!(mod_rs.contains("pub mod cast_vote;"));
+        // view-profile was already-IMPL in the fixture so its
+        // file isn't generated; mass-mint must NOT register a
+        // module whose source it didn't write.
+        assert!(!mod_rs.contains("pub mod view_profile;"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ---- T19: cmd_backend_stub_all ----
