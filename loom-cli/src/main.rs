@@ -2191,9 +2191,8 @@ fn cmd_backend_list(backends_path: &std::path::Path) -> Result<(), std::io::Erro
 
     let mut rows = Vec::<BackendRow>::new();
     for (key, entry) in backends {
-        let table = match entry.as_table() {
-            Some(t) => t,
-            None => continue,
+        let Some(table) = entry.as_table() else {
+            continue;
         };
         let method = table
             .get("method")
