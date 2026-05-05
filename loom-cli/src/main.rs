@@ -135,7 +135,7 @@ enum Cmd {
     },
     /// Scaffold a Rust handler stub for one backends.toml key.
     /// Reads the [backends.X] entry, generates
-    /// <crate>/src/handlers/<key>.rs with typed Request/Response
+    /// `<crate>/src/handlers/<key>.rs` with typed Request/Response
     /// structs + axum-style handler signature + test stub, and
     /// updates backends.toml to set `impl_files = ["src/..."]`.
     /// Closes the loop from "key declared" to "code exists".
@@ -157,7 +157,7 @@ enum Cmd {
         #[arg(long, default_value = "backends.toml")]
         backends: PathBuf,
         /// Crate root that will own the handler. The file lands
-        /// at <crate>/src/handlers/<key>.rs (key dashes → underscores).
+        /// at `<crate>/src/handlers/<key>.rs` (key dashes → underscores).
         #[arg(long)]
         crate_dir: PathBuf,
         /// Overwrite existing handler file.
@@ -1947,7 +1947,10 @@ fn cmd_backend_stub(
     if let Some(parent) = abs_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&abs_path, render_handler_stub(key, &method, &path, &purpose))?;
+    std::fs::write(
+        &abs_path,
+        render_handler_stub(key, &method, &path, &purpose),
+    )?;
 
     // Update backends.toml: impl_files = [rel_path].
     let mut new_array = toml_edit::Array::new();
@@ -1956,7 +1959,10 @@ fn cmd_backend_stub(
     std::fs::write(backends_path, doc.to_string())?;
 
     println!("  ok     scaffolded {}", abs_path.display());
-    println!("  ok     updated {} (impl_files += {rel_path:?})", backends_path.display());
+    println!(
+        "  ok     updated {} (impl_files += {rel_path:?})",
+        backends_path.display()
+    );
     Ok(())
 }
 
@@ -2133,8 +2139,7 @@ impl_files = []
         let (backends, dir) = fixture();
         cmd_backend_stub("sign-in", &backends, &dir, false).expect("first");
         // Mutate the file to verify --force replaces it.
-        std::fs::write(dir.join("src/handlers/sign_in.rs"), "// hand-edit\n")
-            .expect("mutate");
+        std::fs::write(dir.join("src/handlers/sign_in.rs"), "// hand-edit\n").expect("mutate");
         cmd_backend_stub("sign-in", &backends, &dir, true).expect("force");
         let body = std::fs::read_to_string(dir.join("src/handlers/sign_in.rs")).expect("read");
         assert!(body.contains("backend handler stub"));
@@ -2146,8 +2151,7 @@ impl_files = []
     fn handler_file_has_test_stub() {
         let (backends, dir) = fixture();
         cmd_backend_stub("view-profile", &backends, &dir, false).expect("ok");
-        let body = std::fs::read_to_string(dir.join("src/handlers/view_profile.rs"))
-            .expect("read");
+        let body = std::fs::read_to_string(dir.join("src/handlers/view_profile.rs")).expect("read");
         assert!(body.contains("#[tokio::test]"));
         assert!(body.contains("placeholder_returns_ok"));
         let _ = std::fs::remove_dir_all(&dir);
@@ -2155,7 +2159,12 @@ impl_files = []
 
     #[test]
     fn render_handler_stub_pure() {
-        let s = render_handler_stub("post-skill", "POST", "/challenges", "operator publishes a new challenge");
+        let s = render_handler_stub(
+            "post-skill",
+            "POST",
+            "/challenges",
+            "operator publishes a new challenge",
+        );
         assert!(s.contains("//! `post-skill`"));
         assert!(s.contains("Method: POST"));
         assert!(s.contains("Path:   /challenges"));
