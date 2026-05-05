@@ -1229,6 +1229,10 @@ fn page_shell(
     let path = escape_html_attr(&page.path);
     let css = escape_html_attr(css_href);
     let nav_links = render_nav_links(&page.nav_links);
+    // Nursery's option_if_let_else wants this as a chained
+    // map_or_else closure pair, but the bodies are multi-statement
+    // and the if-let-else reads cleaner here.
+    #[allow(clippy::option_if_let_else)]
     let (style_block, css_link, csp) = if let Some(crit) = critical_css {
         let style_hash = csp_sha256(crit.as_bytes());
         let onload_hash = csp_sha256(DEFER_ONLOAD_JS.as_bytes());
