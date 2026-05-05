@@ -133,6 +133,37 @@ enum Cmd {
         #[arg(long, default_value = "-")]
         out: String,
     },
+    /// Scaffold a Rust handler stub for one backends.toml key.
+    /// Reads the [backends.X] entry, generates
+    /// <crate>/src/handlers/<key>.rs with typed Request/Response
+    /// structs + axum-style handler signature + test stub, and
+    /// updates backends.toml to set `impl_files = ["src/..."]`.
+    /// Closes the loop from "key declared" to "code exists".
+    ///
+    /// Refuses to overwrite an existing handler file unless
+    /// `--force`. Updates backends.toml in-place via toml_edit
+    /// (preserves comments + ordering).
+    ///
+    /// Exit codes:
+    ///   0 — handler scaffolded + backends.toml updated
+    ///   1 — key not found, file exists + --force not set, or
+    ///       crate path not a directory
+    ///   2 — I/O error
+    BackendStub {
+        /// Backend key (matches a [backends.X] entry).
+        #[arg(long)]
+        key: String,
+        /// Path to backends.toml.
+        #[arg(long, default_value = "backends.toml")]
+        backends: PathBuf,
+        /// Crate root that will own the handler. The file lands
+        /// at <crate>/src/handlers/<key>.rs (key dashes → underscores).
+        #[arg(long)]
+        crate_dir: PathBuf,
+        /// Overwrite existing handler file.
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
     /// List every backend declared in backends.toml with its
     /// implementation status. Each `[backends.X]` entry is one
     /// row; impl status derived from `impl_files` field (empty →
@@ -441,6 +472,37 @@ fn main() -> ExitCode {
             }
             Err(CriticalCssError::Io(e)) => {
                 eprintln!("loom critical-css: i/o error: {e}");
+                ExitCode::from(2)
+            }
+        },
+        Cmd::BackendStub {
+            key,
+            backends,
+            crate_dir,
+            force,
+        } => match cmd_backend_stub(&key, &backends, &crate_dir, force) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(BackendStubError::KeyNotFound(k)) => {
+                eprintln!("loom backend-stub: key {k:?} not found in backends.toml");
+                ExitCode::from(1)
+            }
+            Err(BackendStubError::Conflict(p)) => {
+                eprintln!(
+                    "loom backend-stub: {} already exists; pass --force",
+                    p.display()
+                );
+                ExitCode::from(1)
+            }
+            Err(BackendStubError::CrateNotDir(p)) => {
+                eprintln!("loom backend-stub: {} is not a directory", p.display());
+                ExitCode::from(1)
+            }
+            Err(BackendStubError::Toml(e)) => {
+                eprintln!("loom backend-stub: toml error: {e}");
+                ExitCode::from(1)
+            }
+            Err(BackendStubError::Io(e)) => {
+                eprintln!("loom backend-stub: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1817,6 +1879,295 @@ mod cmd_image_convert_tests {
         std::fs::write(&src, "src").expect("w");
         assert!(!is_dest_fresh(&src, &dest));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// `loom backend-stub` errors.
+#[derive(Debug)]
+enum BackendStubError {
+    KeyNotFound(String),
+    Conflict(std::path::PathBuf),
+    CrateNotDir(std::path::PathBuf),
+    Toml(String),
+    Io(std::io::Error),
+}
+
+impl From<std::io::Error> for BackendStubError {
+    fn from(e: std::io::Error) -> Self {
+        BackendStubError::Io(e)
+    }
+}
+
+fn cmd_backend_stub(
+    key: &str,
+    backends_path: &std::path::Path,
+    crate_dir: &std::path::Path,
+    force: bool,
+) -> Result<(), BackendStubError> {
+    if !crate_dir.is_dir() {
+        return Err(BackendStubError::CrateNotDir(crate_dir.to_path_buf()));
+    }
+    // Parse + locate the entry.
+    let raw = std::fs::read_to_string(backends_path)?;
+    let mut doc: toml_edit::DocumentMut = raw
+        .parse()
+        .map_err(|e: toml_edit::TomlError| BackendStubError::Toml(e.to_string()))?;
+    let backends = doc
+        .get_mut("backends")
+        .and_then(|v| v.as_table_mut())
+        .ok_or_else(|| BackendStubError::Toml("missing [backends] section".to_owned()))?;
+    let entry = backends
+        .get_mut(key)
+        .and_then(|v| v.as_table_mut())
+        .ok_or_else(|| BackendStubError::KeyNotFound(key.to_owned()))?;
+    let method = entry
+        .get("method")
+        .and_then(|v| v.as_str())
+        .unwrap_or("GET")
+        .to_owned();
+    let path = entry
+        .get("path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("/")
+        .to_owned();
+    let purpose = entry
+        .get("purpose")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(no purpose declared)")
+        .to_owned();
+
+    // Compute file path. Backend keys have hyphens (e.g. sign-in)
+    // but Rust modules can't, so convert to underscores.
+    let file_stem = key.replace('-', "_");
+    let rel_path = format!("src/handlers/{file_stem}.rs");
+    let abs_path = crate_dir.join(&rel_path);
+    if abs_path.exists() && !force {
+        return Err(BackendStubError::Conflict(abs_path));
+    }
+    if let Some(parent) = abs_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&abs_path, render_handler_stub(key, &method, &path, &purpose))?;
+
+    // Update backends.toml: impl_files = [rel_path].
+    let mut new_array = toml_edit::Array::new();
+    new_array.push(rel_path.as_str());
+    entry.insert("impl_files", toml_edit::value(new_array));
+    std::fs::write(backends_path, doc.to_string())?;
+
+    println!("  ok     scaffolded {}", abs_path.display());
+    println!("  ok     updated {} (impl_files += {rel_path:?})", backends_path.display());
+    Ok(())
+}
+
+fn render_handler_stub(key: &str, method: &str, path: &str, purpose: &str) -> String {
+    let module_name = key.replace('-', "_");
+    let fn_name = if method.eq_ignore_ascii_case("GET") {
+        "handle_get"
+    } else if method.eq_ignore_ascii_case("POST") {
+        "handle_post"
+    } else if method.eq_ignore_ascii_case("PUT") {
+        "handle_put"
+    } else if method.eq_ignore_ascii_case("DELETE") {
+        "handle_delete"
+    } else {
+        "handle"
+    };
+    format!(
+        r##"//! `{key}` — backend handler stub.
+//!
+//! Method: {method}
+//! Path:   {path}
+//! Purpose: {purpose}
+//!
+//! Scaffolded by `loom backend-stub`. Replace the placeholder
+//! Request/Response types and the handler body with the real
+//! implementation. Update the test below to exercise the
+//! actual semantics.
+
+use serde::{{Deserialize, Serialize}};
+
+/// `{key}` request payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Request {{
+    // TODO: declare request fields.
+}}
+
+/// `{key}` response payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Response {{
+    /// Always `true` on success; absent on error.
+    pub ok: bool,
+}}
+
+/// Handler entry point. Wire into your axum/actix/rocket
+/// router at `{method} {path}`.
+///
+/// AVP-2: returns `Result<Response, anyhow::Error>` so caller
+/// chooses how to translate the error to an HTTP response
+/// (typically 4xx for client error, 5xx for server error).
+pub async fn {fn_name}(_req: Request) -> Result<Response, anyhow::Error> {{
+    // TODO: implement {key} ({purpose}).
+    Ok(Response {{ ok: true }})
+}}
+
+#[cfg(test)]
+mod tests {{
+    use super::*;
+
+    #[tokio::test]
+    async fn placeholder_returns_ok() {{
+        let resp = {fn_name}(Request {{}}).await.expect("ok");
+        assert!(resp.ok);
+    }}
+
+    #[test]
+    fn module_name_matches_key() {{
+        // Self-doc: this file lives at src/handlers/{module_name}.rs
+        // for backend key "{key}".
+        assert_eq!("{module_name}", "{module_name}");
+    }}
+}}
+"##
+    )
+}
+
+#[cfg(test)]
+mod cmd_backend_stub_tests {
+    use super::*;
+
+    fn unique(label: &str) -> std::path::PathBuf {
+        let pid = std::process::id();
+        let n = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("loom-backend-stub-{label}-{pid}-{n}"))
+    }
+
+    fn fixture() -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir = unique("fixture");
+        std::fs::create_dir_all(dir.join("src")).expect("mkdir");
+        let backends = dir.join("backends.toml");
+        std::fs::write(
+            &backends,
+            r#"[backends.sign-in]
+method = "POST"
+path = "/auth/sign-in"
+purpose = "operator sign-in"
+impl_files = []
+
+[backends.view-profile]
+method = "GET"
+path = "/u/:id"
+purpose = "public profile"
+impl_files = []
+"#,
+        )
+        .expect("write");
+        (backends, dir)
+    }
+
+    #[test]
+    fn errs_on_unknown_key() {
+        let (backends, dir) = fixture();
+        let r = cmd_backend_stub("nope", &backends, &dir, false);
+        assert!(matches!(r, Err(BackendStubError::KeyNotFound(_))));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn errs_on_non_dir_crate() {
+        let (backends, _) = fixture();
+        let bogus = std::env::temp_dir().join("loom-backend-stub-not-a-dir-zzz");
+        let _ = std::fs::remove_dir_all(&bogus);
+        let r = cmd_backend_stub("sign-in", &backends, &bogus, false);
+        assert!(matches!(r, Err(BackendStubError::CrateNotDir(_))));
+    }
+
+    #[test]
+    fn writes_handler_with_dash_to_underscore_filename() {
+        let (backends, dir) = fixture();
+        cmd_backend_stub("sign-in", &backends, &dir, false).expect("ok");
+        let handler = dir.join("src/handlers/sign_in.rs");
+        assert!(handler.exists(), "handler file not at expected path");
+        let body = std::fs::read_to_string(&handler).expect("read");
+        assert!(body.contains("//! `sign-in` — backend handler stub"));
+        assert!(body.contains("pub async fn handle_post"));
+        assert!(body.contains("Method: POST"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn updates_backends_toml_impl_files() {
+        let (backends, dir) = fixture();
+        cmd_backend_stub("view-profile", &backends, &dir, false).expect("ok");
+        let raw = std::fs::read_to_string(&backends).expect("read");
+        let v: toml::Value = toml::from_str(&raw).expect("parse");
+        let entry = &v["backends"]["view-profile"];
+        let impl_files = entry["impl_files"].as_array().expect("array");
+        assert_eq!(impl_files.len(), 1);
+        assert_eq!(
+            impl_files[0].as_str().unwrap(),
+            "src/handlers/view_profile.rs"
+        );
+        // Other entries unchanged.
+        let other = &v["backends"]["sign-in"];
+        assert_eq!(other["impl_files"].as_array().unwrap().len(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn refuses_overwrite_without_force() {
+        let (backends, dir) = fixture();
+        cmd_backend_stub("sign-in", &backends, &dir, false).expect("first ok");
+        let r = cmd_backend_stub("sign-in", &backends, &dir, false);
+        assert!(matches!(r, Err(BackendStubError::Conflict(_))));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn force_overwrites() {
+        let (backends, dir) = fixture();
+        cmd_backend_stub("sign-in", &backends, &dir, false).expect("first");
+        // Mutate the file to verify --force replaces it.
+        std::fs::write(dir.join("src/handlers/sign_in.rs"), "// hand-edit\n")
+            .expect("mutate");
+        cmd_backend_stub("sign-in", &backends, &dir, true).expect("force");
+        let body = std::fs::read_to_string(dir.join("src/handlers/sign_in.rs")).expect("read");
+        assert!(body.contains("backend handler stub"));
+        assert!(!body.contains("hand-edit"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn handler_file_has_test_stub() {
+        let (backends, dir) = fixture();
+        cmd_backend_stub("view-profile", &backends, &dir, false).expect("ok");
+        let body = std::fs::read_to_string(dir.join("src/handlers/view_profile.rs"))
+            .expect("read");
+        assert!(body.contains("#[tokio::test]"));
+        assert!(body.contains("placeholder_returns_ok"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn render_handler_stub_pure() {
+        let s = render_handler_stub("post-skill", "POST", "/challenges", "operator publishes a new challenge");
+        assert!(s.contains("//! `post-skill`"));
+        assert!(s.contains("Method: POST"));
+        assert!(s.contains("Path:   /challenges"));
+        assert!(s.contains("Purpose: operator publishes a new challenge"));
+        assert!(s.contains("pub async fn handle_post"));
+    }
+
+    #[test]
+    fn get_method_yields_handle_get_fn_name() {
+        let s = render_handler_stub("view-profile", "GET", "/u/:id", "x");
+        assert!(s.contains("pub async fn handle_get"));
+        assert!(!s.contains("pub async fn handle_post"));
     }
 }
 
