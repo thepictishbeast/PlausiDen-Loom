@@ -9,6 +9,7 @@
 
 mod critical_css;
 
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -1061,17 +1062,14 @@ fn cmd_gtk_theme(dark: bool) -> String {
     };
     let mode = if dark { "dark" } else { "light" };
     let mut out = String::new();
-    out.push_str(&format!(
-        "/* GTK 4 theme generated from loom-tokens ({mode}). */\n"
-    ));
+    let _ = writeln!(
+        out,
+        "/* GTK 4 theme generated from loom-tokens ({mode}). */"
+    );
     out.push_str("/* Do not edit by hand — re-run `loom gtk-theme` after a token change. */\n\n");
     out.push_str(":root {\n");
     for role in palette {
-        out.push_str(&format!(
-            "  --loom-{name}: {css};\n",
-            name = role.role,
-            css = role.color.css
-        ));
+        let _ = writeln!(out, "  --loom-{}: {};", role.role, role.color.css);
     }
     out.push_str("}\n\n");
     // Map a few critical GTK named colors to Loom roles. GTK named
@@ -1175,9 +1173,10 @@ fn render_nav_links(links: &[loom_cms_render::CmsNavLink]) -> String {
         } else {
             " data-invalid=\"true\""
         };
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "\n      <a class=\"loom-page-nav-link\" href=\"{href_attr}\" data-backend=\"{backend_attr}\"{current_attr}{invalid_attr}>{label_text}</a>"
-        ));
+        );
     }
     out
 }

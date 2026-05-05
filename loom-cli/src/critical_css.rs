@@ -383,6 +383,7 @@ impl<'a> Walker<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt::Write as _;
 
     #[test]
     fn extracts_root_token_block() {
@@ -533,7 +534,7 @@ mod tests {
         // Concatenation of one critical rule + 10 component rules.
         let mut css = String::from(":root { --x: 1; }\n");
         for i in 0..10 {
-            css.push_str(&format!(".loom-card-{i} {{ padding: 1rem; }}\n"));
+            let _ = writeln!(css, ".loom-card-{i} {{ padding: 1rem; }}");
         }
         let out = extract(&css).expect("ok");
         assert!(out.len() < css.len() / 2);
