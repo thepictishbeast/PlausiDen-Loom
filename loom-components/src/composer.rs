@@ -62,8 +62,8 @@ pub enum ComposerSize {
 impl ComposerSize {
     const fn data_attr(self) -> &'static str {
         match self {
-            ComposerSize::Compact => "compact",
-            ComposerSize::Comfortable => "comfortable",
+            Self::Compact => "compact",
+            Self::Comfortable => "comfortable",
         }
     }
 }
@@ -109,36 +109,36 @@ pub enum PromptAction {
 impl PromptAction {
     const fn label(self) -> &'static str {
         match self {
-            PromptAction::UploadClip => "Upload clip",
-            PromptAction::ChallengeOpponent => "Challenge",
-            PromptAction::GoLive => "Live",
-            PromptAction::PhotoOnly => "Photo",
+            Self::UploadClip => "Upload clip",
+            Self::ChallengeOpponent => "Challenge",
+            Self::GoLive => "Live",
+            Self::PhotoOnly => "Photo",
         }
     }
     /// Backend key (data-backend value) — must match a key in
     /// `backends.toml`. Forge's phantom_button phase verifies.
     const fn backend(self) -> &'static str {
         match self {
-            PromptAction::UploadClip => "post-skill",
-            PromptAction::ChallengeOpponent => "challenge-create",
-            PromptAction::GoLive => "live-start",
-            PromptAction::PhotoOnly => "post-photo",
+            Self::UploadClip => "post-skill",
+            Self::ChallengeOpponent => "challenge-create",
+            Self::GoLive => "live-start",
+            Self::PhotoOnly => "post-photo",
         }
     }
     /// Inline SVG glyph. 24×24, currentColor stroke. Path-only —
     /// no <style>, no <script>, no external <use>.
     const fn icon_svg(self) -> &'static str {
         match self {
-            PromptAction::UploadClip => {
+            Self::UploadClip => {
                 "<svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"17 8 12 3 7 8\"/><line x1=\"12\" y1=\"3\" x2=\"12\" y2=\"15\"/></svg>"
             }
-            PromptAction::ChallengeOpponent => {
+            Self::ChallengeOpponent => {
                 "<svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><polygon points=\"12 2 15 8.5 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 9 8.5 12 2\"/></svg>"
             }
-            PromptAction::GoLive => {
+            Self::GoLive => {
                 "<svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14\"/></svg>"
             }
-            PromptAction::PhotoOnly => {
+            Self::PhotoOnly => {
                 "<svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z\"/><circle cx=\"12\" cy=\"13\" r=\"4\"/></svg>"
             }
         }

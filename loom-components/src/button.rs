@@ -76,9 +76,9 @@ pub enum ButtonType {
 impl ButtonType {
     const fn as_str(self) -> &'static str {
         match self {
-            ButtonType::Button => "button",
-            ButtonType::Submit => "submit",
-            ButtonType::Reset => "reset",
+            Self::Button => "button",
+            Self::Submit => "submit",
+            Self::Reset => "reset",
         }
     }
 }
