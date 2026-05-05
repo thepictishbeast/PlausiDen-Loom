@@ -1796,8 +1796,7 @@ mod cmd_image_convert_tests {
         let pid = std::process::id();
         let n = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_nanos());
         std::env::temp_dir().join(format!("loom-image-convert-{label}-{pid}-{n}"))
     }
 
@@ -2044,8 +2043,7 @@ mod cmd_backend_stub_tests {
         let pid = std::process::id();
         let n = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_nanos());
         std::env::temp_dir().join(format!("loom-backend-stub-{label}-{pid}-{n}"))
     }
 
@@ -2211,8 +2209,7 @@ fn cmd_backend_list(backends_path: &std::path::Path) -> Result<(), std::io::Erro
         let impl_files = table
             .get("impl_files")
             .and_then(|v| v.as_array())
-            .map(|a| a.len())
-            .unwrap_or(0);
+            .map_or(0, Vec::len);
         let status = if impl_files == 0 { "STUB" } else { "IMPL" };
         rows.push(BackendRow {
             key: key.to_owned(),
@@ -2268,8 +2265,7 @@ mod cmd_backend_list_tests {
         let pid = std::process::id();
         let n = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_nanos());
         std::env::temp_dir().join(format!("loom-backend-list-{label}-{pid}-{n}.toml"))
     }
 
@@ -2405,8 +2401,7 @@ mod cmd_audit_bridge_tests {
         let pid = std::process::id();
         let n = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_nanos());
         std::env::temp_dir().join(format!("loom-audit-bridge-{label}-{pid}-{n}.css"))
     }
 
@@ -2552,8 +2547,7 @@ mod cmd_hooks_install_tests {
         let pid = std::process::id();
         let n = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_nanos());
         std::env::temp_dir().join(format!("loom-hooks-{label}-{pid}-{n}"))
     }
 
@@ -2768,8 +2762,7 @@ mod cmd_journey_from_cms_tests {
         let pid = std::process::id();
         let n = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_nanos());
         std::env::temp_dir().join(format!("loom-journey-{label}-{pid}-{n}"))
     }
 
@@ -3097,8 +3090,7 @@ mod cmd_cms_new_tests {
         let pid = std::process::id();
         let n = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_nanos());
         std::env::temp_dir().join(format!("loom-cms-new-{label}-{pid}-{n}.json"))
     }
 
@@ -3369,8 +3361,7 @@ mod cmd_validate_tests {
         let pid = std::process::id();
         let n = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_nanos());
         std::env::temp_dir().join(format!("loom-validate-{label}-{pid}-{n}"))
     }
 

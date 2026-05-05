@@ -629,8 +629,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
             // styles a warning outline, forge audit can detect).
             let cta_href_safe = cta
                 .as_ref()
-                .map(|c| loom_components::composer::is_safe_url(&c.href))
-                .unwrap_or(true);
+                .map_or(true, |c| loom_components::composer::is_safe_url(&c.href));
             html! {
                 section class="loom-section-hero" data-loom-hero {
                     @if let Some(e) = eyebrow {
