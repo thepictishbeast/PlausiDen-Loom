@@ -116,6 +116,7 @@ pub struct ColorRole {
 impl ColorRole {
     /// Every defined role. Order is stable; new roles append at the end.
     #[must_use]
+    #[allow(clippy::too_many_lines)] // it's a flat data table.
     pub const fn all() -> &'static [Self] {
         &[
             Self {
@@ -328,6 +329,7 @@ impl ColorRole {
     /// BUG ASSUMPTION: every role here corresponds 1:1 to a role in
     /// [`Self::all`]. The `dark_palette_parity` test enforces this.
     #[must_use]
+    #[allow(clippy::too_many_lines)] // it's a flat data table.
     pub const fn dark_all() -> &'static [Self] {
         &[
             Self {

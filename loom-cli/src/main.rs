@@ -406,6 +406,7 @@ enum Cmd {
     },
 }
 
+#[allow(clippy::too_many_lines)] // single match over every Cmd variant.
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {

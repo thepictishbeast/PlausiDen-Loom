@@ -616,6 +616,7 @@ pub fn render_page(page: &CmsPage) -> Markup {
 
 /// Render one CMS section to Loom markup.
 #[must_use]
+#[allow(clippy::too_many_lines)] // single match over every CmsSection variant.
 pub fn render_section(section: &CmsSection) -> Markup {
     match section {
         CmsSection::Hero {

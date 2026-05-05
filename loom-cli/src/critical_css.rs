@@ -227,6 +227,7 @@ impl<'a> Walker<'a> {
     /// Pull the next top-level rule (or comment block) from the
     /// stream. Returns `None` at end of input. Returns
     /// `Err(String)` on malformed CSS (unmatched braces, etc.).
+    #[allow(clippy::too_many_lines)] // CSS state machine; splitting hurts readability.
     fn next_rule(&mut self) -> Result<Option<Rule<'a>>, String> {
         // Capture preceding whitespace + comments so the output
         // preserves the audit trail.
