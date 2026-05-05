@@ -136,10 +136,11 @@ impl BodyText<'_> {
     }
 }
 
-/// Helper text — smaller, lighter prose used under inputs, beside
-/// buttons, and as form notes. Two sizes: Default (`text-sm`) and
-/// Tiny (`text-xs`). Always `text-slate-500` on light, `text-slate-400`
-/// on dark.
+/// Helper text — smaller, lighter prose for inputs and form notes.
+///
+/// Used under inputs, beside buttons, and as form notes. Two sizes:
+/// Default (`text-sm`) and Tiny (`text-xs`). Always
+/// `text-slate-500` on light, `text-slate-400` on dark.
 ///
 /// Use this in place of raw `class="text-sm text-slate-500"` strings
 /// (16 occurrences in plausiden.com at the time this primitive

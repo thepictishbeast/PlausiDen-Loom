@@ -69,10 +69,12 @@ pub fn tokens_json() -> String {
     serde_json::to_string_pretty(&all).expect("token tree is finite + serde-clean")
 }
 
-/// Emit every token as CSS custom properties under `:root` and
-/// `:root[data-theme="dark"]`. Drop-in stylesheet for any web
-/// surface; the lint expects every raw value to be substituted with
-/// `var(--loom-color-*)` / `var(--loom-space-*)` from this output.
+/// Emit every token as CSS custom properties.
+///
+/// Variables land under `:root` and `:root[data-theme="dark"]`.
+/// Drop-in stylesheet for any web surface; the lint expects every
+/// raw value to be substituted with `var(--loom-color-*)` /
+/// `var(--loom-space-*)` from this output.
 #[must_use]
 pub fn tokens_css() -> String {
     let mut out = String::new();
@@ -126,13 +128,15 @@ pub fn tokens_css() -> String {
     out
 }
 
-/// Emit every token as a Rust `pub const` block intended for
-/// inclusion in an egui-driven app (Atrium, Sentinel-GUI). Colours
-/// are emitted as `egui::Color32::from_rgb(r, g, b)` literals
-/// (parsed from the CSS HSL/hex shape at emit time so the egui app
-/// doesn't carry a runtime parser); spacing + radius as `f32` rem
-/// multiples + `u32` pixel values pre-resolved at the design root
-/// font size (16 px).
+/// Emit every token as a Rust `pub const` block for egui apps.
+///
+/// Intended for inclusion in an egui-driven app (Atrium,
+/// Sentinel-GUI). Colours are emitted as
+/// `egui::Color32::from_rgb(r, g, b)` literals (parsed from the
+/// CSS HSL/hex shape at emit time so the egui app doesn't carry a
+/// runtime parser); spacing + radius as `f32` rem multiples +
+/// `u32` pixel values pre-resolved at the design root font size
+/// (16 px).
 ///
 /// Output is drop-in: write to `src/loom_tokens.rs`, add
 /// `mod loom_tokens;` to `lib.rs`, then reference

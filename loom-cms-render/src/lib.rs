@@ -2111,13 +2111,14 @@ mod tests {
     }
 }
 
-/// Generate the JSON Schema for the `CmsPage` document type via
-/// schemars 0.8 (Draft 07; supported by every modern editor LSP).
-/// Editors that read a `$schema` reference (VS Code, Helix, Zed,
-/// Sublime, Neovim with jsonls) provide inline autocomplete +
-/// validation when authors put `"$schema": "..."` in their
-/// `cms/*.json`. The output is fully self-contained: every nested
-/// type expanded inline via `definitions`.
+/// Generate the JSON Schema for the `CmsPage` document type.
+///
+/// Emitted via schemars 0.8 (Draft 07; supported by every modern
+/// editor LSP). Editors that read a `$schema` reference (VS Code,
+/// Helix, Zed, Sublime, Neovim with jsonls) provide inline
+/// autocomplete + validation when authors put `"$schema": "..."`
+/// in their `cms/*.json`. The output is fully self-contained:
+/// every nested type expanded inline via `definitions`.
 #[must_use]
 pub fn cms_page_schema() -> serde_json::Value {
     let schema = schemars::schema_for!(CmsPage);
