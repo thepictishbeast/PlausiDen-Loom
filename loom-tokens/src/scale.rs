@@ -77,8 +77,10 @@ impl Spacing {
 
     /// Logical pixel value at the design root font size (16 px).
     #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub const fn px(self) -> u32 {
-        // Cast through u32: every rem step lands on a whole pixel at 16px root.
+        // Cast through u32: every rem step lands on a whole non-negative
+        // pixel at 16px root, so truncation / sign-loss can't fire.
         (self.rem() * 16.0) as u32
     }
 

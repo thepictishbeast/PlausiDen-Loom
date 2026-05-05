@@ -80,7 +80,11 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
     let h_prime = (h.rem_euclid(360.0)) / 60.0;
     let x = c * (1.0 - (h_prime.rem_euclid(2.0) - 1.0).abs());
-    let (r1, g1, b1) = match h_prime as u32 {
+    // `rem_euclid(360)/60` keeps h_prime in [0, 6); the `as u32` is
+    // a sextant-floor lookup, never NaN, never negative, never > 5.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let sextant = h_prime as u32;
+    let (r1, g1, b1) = match sextant {
         0 => (c, x, 0.0),
         1 => (x, c, 0.0),
         2 => (0.0, c, x),
