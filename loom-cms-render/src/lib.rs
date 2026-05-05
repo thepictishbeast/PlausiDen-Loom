@@ -2123,6 +2123,11 @@ mod tests {
 /// autocomplete + validation when authors put `"$schema": "..."`
 /// in their `cms/*.json`. The output is fully self-contained:
 /// every nested type expanded inline via `definitions`.
+///
+/// # Panics
+/// Only on a contract violation inside schemars (its
+/// `RootSchema → JsonValue` conversion is total for any input it
+/// produces). Unreachable in practice.
 #[must_use]
 pub fn cms_page_schema() -> serde_json::Value {
     let schema = schemars::schema_for!(CmsPage);
