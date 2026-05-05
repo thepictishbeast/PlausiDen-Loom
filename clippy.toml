@@ -5,6 +5,10 @@ doc-valid-idents = [
     "LinkedIn", "ImageMagick", "PlausiDen", "SkillShots", "PoC",
     "JSON", "HTML", "URL", "JPG", "PNG", "SECURITY", "WITHOUT",
     "phantom_button", "phase_phantom_button", "phase_seo",
+    "phase_a11y_landmarks",
     "court_dax",
+    "serde_json", "toml_edit",
+    "deny_unknown_fields",
+    "is_safe_url", "render_page", "submit_endpoint",
     "..",
 ]
