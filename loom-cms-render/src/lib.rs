@@ -378,7 +378,7 @@ pub enum CmsFormField {
     },
 }
 
-fn default_textarea_rows() -> u32 {
+const fn default_textarea_rows() -> u32 {
     4
 }
 

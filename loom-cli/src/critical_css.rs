@@ -220,7 +220,7 @@ struct Walker<'a> {
 }
 
 impl<'a> Walker<'a> {
-    fn new(src: &'a str) -> Self {
+    const fn new(src: &'a str) -> Self {
         Self { src, pos: 0 }
     }
 

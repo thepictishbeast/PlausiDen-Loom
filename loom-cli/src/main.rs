@@ -252,7 +252,7 @@ enum Cmd {
         #[arg(long)]
         cms_dir: PathBuf,
         /// Base URL prepended to each CmsPage.path
-        /// (e.g. "http://127.0.0.1:8123/"). Trailing slash optional.
+        /// (e.g. `<http://127.0.0.1:8123/>`). Trailing slash optional.
         #[arg(long)]
         base_url: String,
         /// Output journey JSON path.
@@ -757,7 +757,7 @@ fn cmd_report(root: &std::path::Path, json: bool) -> Result<()> {
     }
     println!("Per-file breakdown (descending):");
     println!();
-    println!("  {:<60}  {}", "FILE", "RAW CLASSES");
+    println!("  {:<60}  RAW CLASSES", "FILE");
     println!("  {:<60}  {}", "-".repeat(60), "-".repeat(11));
     for (path, count) in &ranked {
         println!("  {path:<60}  {count}");
@@ -1705,9 +1705,8 @@ fn cmd_image_convert(
                 Ok(()) => {
                     converted += 1;
                     println!(
-                        "  ok     {src}{arrow}{dest}",
+                        "  ok     {src} -> {dest}",
                         src = src.display(),
-                        arrow = " -> ",
                         dest = dest.display()
                     );
                 }
