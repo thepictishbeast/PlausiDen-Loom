@@ -2129,29 +2129,41 @@
     --loom-color-bg-canvas:     hsl(0 0% 0%);
     --loom-color-surface:       hsl(0 0% 4%);
     --loom-color-surface-muted: hsl(0 0% 8%);
+    --loom-color-bg-overlay:    hsl(0 0% 100% / 8%);
     --loom-color-ink:           hsl(0 0% 100%);
     --loom-color-ink-muted:     hsl(0 0% 86%);
     --loom-color-border:        hsl(0 0% 50%);
     --loom-color-border-strong: hsl(0 0% 70%);
     --loom-color-primary:       hsl(220 100% 75%);
     --loom-color-primary-fg:    hsl(0 0% 0%);
+    --loom-color-accent-glow:   hsl(220 100% 88%);
     --loom-color-success:       hsl(140 100% 60%);
     --loom-color-warn:          hsl(35 100% 70%);
     --loom-color-warning:       hsl(35 100% 70%);
     --loom-color-danger:        hsl(0 100% 70%);
+    --loom-color-tier-medium:   hsl(45 100% 65%);
+    --loom-color-gradient-a:    hsl(220 100% 75%);
+    --loom-color-gradient-b:    hsl(280 100% 75%);
   }
   :root[data-theme="hc-dark"] {
     --loom-color-bg-canvas:     hsl(0 0% 0%);
     --loom-color-surface:       hsl(0 0% 4%);
     --loom-color-surface-muted: hsl(0 0% 8%);
+    --loom-color-bg-overlay:    hsl(0 0% 100% / 12%);
     --loom-color-ink:           hsl(0 0% 100%);
     --loom-color-ink-muted:     hsl(0 0% 86%);
     --loom-color-border:        hsl(0 0% 50%);
     --loom-color-border-strong: hsl(0 0% 70%);
     --loom-color-primary:       hsl(220 100% 75%);
+    --loom-color-primary-fg:    hsl(0 0% 0%);
+    --loom-color-accent-glow:   hsl(220 100% 88%);
     --loom-color-success:       hsl(140 100% 60%);
     --loom-color-warn:          hsl(35 100% 70%);
+    --loom-color-warning:       hsl(35 100% 70%);
     --loom-color-danger:        hsl(0 100% 70%);
+    --loom-color-tier-medium:   hsl(45 100% 65%);
+    --loom-color-gradient-a:    hsl(220 100% 75%);
+    --loom-color-gradient-b:    hsl(280 100% 75%);
   }
   :root[data-theme="hc-dark"] .loom-hero-title {
     background: none;
@@ -2166,14 +2178,21 @@
     --loom-color-bg-canvas:     hsl(0 0% 100%);
     --loom-color-surface:       hsl(0 0% 100%);
     --loom-color-surface-muted: hsl(0 0% 96%);
+    --loom-color-bg-overlay:    hsl(0 0% 0% / 8%);
     --loom-color-ink:           hsl(0 0% 0%);
     --loom-color-ink-muted:     hsl(0 0% 24%);
     --loom-color-border:        hsl(0 0% 30%);
     --loom-color-border-strong: hsl(0 0% 10%);
     --loom-color-primary:       hsl(220 100% 30%);
+    --loom-color-primary-fg:    hsl(0 0% 100%);
+    --loom-color-accent-glow:   hsl(220 100% 45%);
     --loom-color-success:       hsl(140 100% 22%);
     --loom-color-warn:          hsl(35 100% 32%);
+    --loom-color-warning:       hsl(35 100% 32%);
     --loom-color-danger:        hsl(0 100% 35%);
+    --loom-color-tier-medium:   hsl(45 100% 38%);
+    --loom-color-gradient-a:    hsl(220 100% 30%);
+    --loom-color-gradient-b:    hsl(280 100% 35%);
   }
   :root[data-theme="hc-light"] .loom-hero-title {
     background: none;
@@ -2187,14 +2206,19 @@
     --loom-color-bg-canvas:     hsl(35 35% 91%);
     --loom-color-surface:       hsl(35 35% 95%);
     --loom-color-surface-muted: hsl(35 30% 87%);
+    --loom-color-bg-overlay:    hsl(25 35% 18% / 8%);
     --loom-color-ink:           hsl(25 35% 18%);
     --loom-color-ink-muted:     hsl(25 25% 36%);
     --loom-color-border:        hsl(30 25% 75%);
     --loom-color-border-strong: hsl(30 25% 60%);
     --loom-color-primary:       hsl(20 70% 38%);
+    --loom-color-primary-fg:    hsl(35 35% 95%);
+    --loom-color-accent-glow:   hsl(20 70% 55%);
     --loom-color-success:       hsl(140 50% 28%);
     --loom-color-warn:          hsl(35 80% 32%);
+    --loom-color-warning:       hsl(35 80% 32%);
     --loom-color-danger:        hsl(0 60% 38%);
+    --loom-color-tier-medium:   hsl(40 90% 40%);
     --loom-color-gradient-a:    hsl(20 70% 50%);
     --loom-color-gradient-b:    hsl(35 80% 45%);
   }
