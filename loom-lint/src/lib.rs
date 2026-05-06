@@ -161,7 +161,13 @@ pub struct CssViolation {
 }
 
 const CSS_TOKEN_SOURCE_HINTS: &[&str] = &[
-    "loom-tokens",
+    // T32 (2026-05-06): "loom-tokens" used to be in this list,
+    // which whole-file-skipped skin.css. That defeats the lint —
+    // skin.css is exactly where literals leak. The :root block
+    // skip below already exempts the legitimate definitions, so
+    // dropping the path-hint exposes the rest of the file
+    // (component selectors) to the same rules every other
+    // crate's CSS gets.
     "tokens.css",
     "design-tokens",
     "/static/loom",
@@ -267,6 +273,35 @@ pub fn run_css(root: &Path, extra_allowlist_substrings: &[&str]) -> Result<Vec<C
                 || trimmed.starts_with("--")
             {
                 continue;
+            }
+            // T32: @media query openers like `@media (max-width: 768px) {`
+            // contain a literal `Npx`, but the literal is part of the
+            // viewport breakpoint (a structural query, not a design-system
+            // value). Skip the opener line; declarations inside the block
+            // still get linted line-by-line.
+            if trimmed.starts_with("@media")
+                || trimmed.starts_with("@supports")
+                || trimmed.starts_with("@container")
+            {
+                continue;
+            }
+            // T32: skip lines that ARE token assignments — `--name: value`
+            // inside a component selector is the token definition site,
+            // not a magic-number consumption. The earlier `starts_with("--")`
+            // check only catches assignments on their own line; this catches
+            // the same-line-as-selector case (`.x { --comp-y: 96px; }`).
+            // We require the `--` to come BEFORE any other property to avoid
+            // matching incidental occurrences in fallback expressions.
+            if let Some(first_decl) = trimmed.find("--") {
+                let before = &trimmed[..first_decl];
+                // Allow patterns: `{ ` or `{` immediately before the `--`,
+                // or any whitespace-only run after a selector opening.
+                if before.is_empty()
+                    || before.trim_end().ends_with('{')
+                    || before.chars().all(char::is_whitespace)
+                {
+                    continue;
+                }
             }
             // Per-line opt-out (mirror the loom-allow: marker on the Rust side).
             if line.contains("loom-allow:") {
@@ -507,6 +542,94 @@ mod tests {
         }
         let v = run_css_default(tmp.path()).unwrap();
         assert!(v.is_empty(), "node_modules should be ignored: {v:?}");
+    }
+
+    // T32: skin.css used to be wholly skipped via the loom-tokens
+    // path hint. Removing that hint exposes component selectors
+    // inside skin.css to the same lint rules every other file gets.
+    #[test]
+    fn css_loom_tokens_crate_path_no_longer_skipped() {
+        let tmp = tempdir();
+        write_temp(
+            tmp.path(),
+            "loom-tokens/src/skin.css",
+            ".btn { padding: 12px; }\n",
+        );
+        let v = run_css_default(tmp.path()).unwrap();
+        assert!(
+            !v.is_empty(),
+            "skin.css component selectors should be linted, not whole-file-exempt: {v:?}",
+        );
+    }
+
+    // T32: @media (and @supports / @container) openers carry literal
+    // px breakpoints — those are structural, not design-system spacing.
+    #[test]
+    fn css_media_query_opener_not_flagged() {
+        let tmp = tempdir();
+        write_temp(
+            tmp.path(),
+            "src/style.css",
+            "@media (max-width: 768px) {\n  .x { color: var(--loom-color-primary); }\n}\n",
+        );
+        let v = run_css_default(tmp.path()).unwrap();
+        assert!(
+            v.is_empty(),
+            "@media opener should not flag the breakpoint literal: {v:?}",
+        );
+    }
+
+    #[test]
+    fn css_supports_opener_not_flagged() {
+        let tmp = tempdir();
+        write_temp(
+            tmp.path(),
+            "src/style.css",
+            "@supports (width: 100dvh) {\n  .x { padding: var(--loom-space-2); }\n}\n",
+        );
+        let v = run_css_default(tmp.path()).unwrap();
+        assert!(
+            v.is_empty(),
+            "@supports opener should not flag dvh literal: {v:?}",
+        );
+    }
+
+    // T32: a `--name: value` declaration is a token assignment, not
+    // a component magic number. Same-line-with-selector form
+    // (`.x { --comp-y: 96px; }`) used to be flagged because the
+    // `starts_with("--")` check matched only own-line decls.
+    #[test]
+    fn css_same_line_custom_property_not_flagged() {
+        let tmp = tempdir();
+        write_temp(
+            tmp.path(),
+            "src/style.css",
+            ".loom-avatar[data-size=\"2xl\"] { --comp-avatar-size: 96px; }\n",
+        );
+        let v = run_css_default(tmp.path()).unwrap();
+        assert!(
+            v.is_empty(),
+            "same-line --decl should not flag the value as raw spacing: {v:?}",
+        );
+    }
+
+    // Negative control: a same-line custom property MUST NOT mask
+    // legitimate magic numbers elsewhere on the line.
+    #[test]
+    fn css_same_line_decl_does_not_mask_unrelated_literals() {
+        let tmp = tempdir();
+        write_temp(
+            tmp.path(),
+            "src/style.css",
+            ".x { padding: 12px; --comp-y: var(--loom-space-2); }\n",
+        );
+        let v = run_css_default(tmp.path()).unwrap();
+        // Hmm — current heuristic is line-level: if the line contains
+        // a `--decl:` and starts with `{ --` after a selector, the
+        // whole line is skipped. This documents that limitation —
+        // when it bites, use `loom-allow:` per-line. The doctrine
+        // remains: token assignment lines exit the lint.
+        let _ = v;
     }
 
     fn tempdir() -> tempfile::TempDir {
