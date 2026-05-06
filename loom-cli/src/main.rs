@@ -23,6 +23,27 @@ struct Cli {
     command: Cmd,
 }
 
+/// `loom theme` subcommands. T28.
+#[derive(Subcommand)]
+enum ThemeAction {
+    /// Enumerate every theme declared in skin.css, plus the base
+    /// `:root` block (rendered as theme name "default").
+    List {
+        /// Path to skin.css. Defaults to the canonical location
+        /// in this workspace.
+        #[arg(long, default_value = "loom-tokens/src/skin.css")]
+        skin: PathBuf,
+    },
+    /// Verify (a) every named theme declares the same set of
+    /// `--loom-color-*` tokens as the base `:root` block, and
+    /// (b) every `var(--loom-color-X)` referenced in skin.css
+    /// has a definition in base. Exit 1 on drift.
+    Validate {
+        #[arg(long, default_value = "loom-tokens/src/skin.css")]
+        skin: PathBuf,
+    },
+}
+
 #[derive(Subcommand)]
 enum Cmd {
     /// Walk a crate's `src/` and refuse raw class strings outside the
@@ -200,6 +221,22 @@ enum Cmd {
         /// Path to backends.toml.
         #[arg(long, default_value = "backends.toml")]
         backends: PathBuf,
+    },
+    /// `loom theme` — inspect + validate the theme system.
+    ///
+    /// Themes are declared inline in skin.css as `:root[data-theme=
+    /// "<name>"] { --loom-color-...: ...; }` blocks. Site HTML opts
+    /// in via `<html data-theme="...">`. The base `:root` block
+    /// defines the default theme and the canonical set of tokens
+    /// every named theme must provide.
+    ///
+    /// T28 (2026-05-06): list = enumerate, validate = consistency
+    /// check (every named theme declares the same tokens as base;
+    /// every `var(--loom-color-X)` consumed in skin.css has a
+    /// definition in base). Future: new/apply/audit (T29).
+    Theme {
+        #[command(subcommand)]
+        action: ThemeAction,
     },
     /// Audit the bridge↔skin coverage. For each CmsSection
     /// variant tag, assert that the canonical skin.css declares
@@ -562,6 +599,26 @@ fn main() -> ExitCode {
                 eprintln!("loom backend list: i/o error: {e}");
                 ExitCode::from(2)
             }
+        },
+        Cmd::Theme { action } => match action {
+            ThemeAction::List { skin } => match cmd_theme_list(&skin) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("loom theme list: i/o error: {e}");
+                    ExitCode::from(2)
+                }
+            },
+            ThemeAction::Validate { skin } => match cmd_theme_validate(&skin) {
+                Ok(0) => ExitCode::SUCCESS,
+                Ok(n) => {
+                    eprintln!("loom theme validate: {n} drift finding(s)");
+                    ExitCode::from(1)
+                }
+                Err(e) => {
+                    eprintln!("loom theme validate: i/o error: {e}");
+                    ExitCode::from(2)
+                }
+            },
         },
         Cmd::AuditBridge { skin } => match cmd_audit_bridge(&skin) {
             Ok(0) => ExitCode::SUCCESS,
@@ -2870,6 +2927,445 @@ impl BackendStatus {
 
     fn is_stub(&self) -> bool {
         matches!(self, BackendStatus::Stub)
+    }
+}
+
+// ============================================================
+// T28: theme system
+// ============================================================
+
+/// One `:root` block extracted from skin.css.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ThemeBlock {
+    /// "default" for the bare `:root { ... }`, otherwise the value
+    /// of `data-theme="..."`.
+    name: String,
+    /// Token name → declaration text. Only `--loom-color-*` tokens
+    /// are tracked; other custom properties are ignored.
+    tokens: std::collections::BTreeMap<String, String>,
+}
+
+/// Walk skin.css, return every theme block plus the full set of
+/// tokens referenced via `var(--loom-color-X)` anywhere in the
+/// file. Pure read-only — no I/O beyond the read.
+///
+/// REGRESSION-GUARD: this parser is line-oriented + brace-counted,
+/// not a full CSS parser. It tolerates nested `{...}` (e.g. media
+/// queries containing `:root { ... }`) but breaks on inline
+/// braces inside string literals. skin.css does not currently use
+/// such literals; if it ever does, this needs replacing with
+/// lightningcss or similar.
+/// Remove `/* ... */` blocks from CSS source. Replaces each
+/// comment with a single space so adjacent tokens don't fuse and
+/// line counts stay roughly stable. Linear pass, no nesting since
+/// CSS doesn't allow nested block comments.
+fn strip_css_comments(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let bytes = raw.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+            // Find closing */
+            let mut j = i + 2;
+            while j + 1 < bytes.len() && !(bytes[j] == b'*' && bytes[j + 1] == b'/') {
+                // Preserve newlines so line counts don't collapse,
+                // which keeps any future line-number reporting honest.
+                if bytes[j] == b'\n' {
+                    out.push('\n');
+                }
+                j += 1;
+            }
+            out.push(' ');
+            i = j.saturating_add(2);
+        } else {
+            out.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+    out
+}
+
+fn parse_skin_themes(
+    raw: &str,
+) -> (Vec<ThemeBlock>, std::collections::BTreeSet<String>) {
+    let mut themes = Vec::<ThemeBlock>::new();
+    let mut referenced_vars = std::collections::BTreeSet::<String>::new();
+
+    // Strip /* ... */ comments before any scanning. Without this,
+    // the var() pass picks up examples in doc comments (e.g.
+    // "* var(--loom-color-*)") and reports the wildcard as an
+    // undefined token. Comment-stripping is a single linear pass.
+    let stripped = strip_css_comments(raw);
+
+    // First pass: every `var(--loom-color-X)` outside comments.
+    // Reject names containing characters that aren't valid in a
+    // CSS custom property (lowercase, digits, dash) so a literal
+    // wildcard in some other context can't slip through.
+    for hit in stripped.match_indices("var(--loom-color-") {
+        let start = hit.0 + 4; // skip "var("
+        let rest = &stripped[start..];
+        if let Some(end) = rest.find(|c: char| c == ')' || c == ',' || c.is_whitespace()) {
+            let name = &rest[..end];
+            if !name.is_empty()
+                && name
+                    .strip_prefix("--")
+                    .is_some_and(|tail| tail.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
+            {
+                referenced_vars.insert(name.to_owned());
+            }
+        }
+    }
+
+    // Second pass: locate `:root { ... }` and `:root[data-theme="X"] { ... }`
+    // blocks in the comment-stripped source. Skip `:root[data-font="X"]`
+    // and `:root[data-density="X"]` — those are token variants, not
+    // full themes.
+    let raw = stripped.as_str();
+    let bytes = raw.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        // Find the next `:root` token.
+        let Some(rel) = raw[i..].find(":root") else {
+            break;
+        };
+        let pos = i + rel;
+        let after_root = pos + 5;
+
+        // Determine theme name from the optional attribute selector.
+        let mut probe = after_root;
+        while probe < bytes.len() && (bytes[probe] as char).is_whitespace() {
+            probe += 1;
+        }
+        let mut name = "default".to_owned();
+        let mut is_theme = true;
+        if probe < bytes.len() && bytes[probe] as char == '[' {
+            // Read until ']'.
+            let attr_start = probe + 1;
+            let Some(rel_end) = raw[attr_start..].find(']') else {
+                i = after_root;
+                continue;
+            };
+            let attr = &raw[attr_start..attr_start + rel_end];
+            // Only count `data-theme="X"` blocks. Skip data-font /
+            // data-density variants — they're not full themes and
+            // declare different token sets by design.
+            if let Some(rest) = attr.strip_prefix("data-theme=") {
+                let n = rest.trim_matches(|c: char| c == '"' || c == '\'');
+                name = n.to_owned();
+            } else {
+                is_theme = false;
+            }
+            probe = attr_start + rel_end + 1;
+        }
+        // Find the opening brace.
+        while probe < bytes.len() && (bytes[probe] as char).is_whitespace() {
+            probe += 1;
+        }
+        if probe >= bytes.len() || bytes[probe] as char != '{' {
+            i = after_root;
+            continue;
+        }
+        let body_start = probe + 1;
+
+        // Brace-balanced scan for the matching `}`.
+        let mut depth = 1usize;
+        let mut j = body_start;
+        while j < bytes.len() && depth > 0 {
+            match bytes[j] as char {
+                '{' => depth += 1,
+                '}' => depth -= 1,
+                _ => {}
+            }
+            j += 1;
+        }
+        let body = &raw[body_start..j.saturating_sub(1)];
+
+        if is_theme {
+            let mut tokens = std::collections::BTreeMap::<String, String>::new();
+            for line in body.lines() {
+                let trimmed = line.trim().trim_end_matches(';').trim();
+                if let Some(rest) = trimmed.strip_prefix("--loom-color-") {
+                    if let Some((name_part, value_part)) = rest.split_once(':') {
+                        let token = format!("--loom-color-{}", name_part.trim());
+                        tokens.insert(token, value_part.trim().to_owned());
+                    }
+                }
+            }
+            // Only emit a block if it actually carries colour tokens.
+            // Some `:root` rules in nested `@media` define unrelated
+            // properties (e.g. animation prefers-reduced-motion); we
+            // skip them rather than report them as empty themes.
+            if !tokens.is_empty() {
+                themes.push(ThemeBlock { name, tokens });
+            }
+        }
+        i = j;
+    }
+
+    // De-duplicate: same theme name might appear in multiple
+    // contexts (e.g. nested under a feature query). Merge tokens
+    // by last-write wins, which matches CSS cascade order.
+    let mut merged: std::collections::BTreeMap<String, ThemeBlock> =
+        std::collections::BTreeMap::new();
+    for t in themes {
+        merged
+            .entry(t.name.clone())
+            .and_modify(|existing| existing.tokens.extend(t.tokens.clone()))
+            .or_insert(t);
+    }
+    let merged_vec = merged.into_values().collect::<Vec<_>>();
+    (merged_vec, referenced_vars)
+}
+
+fn cmd_theme_list(skin_path: &std::path::Path) -> Result<(), std::io::Error> {
+    let raw = std::fs::read_to_string(skin_path)?;
+    let (themes, referenced_vars) = parse_skin_themes(&raw);
+    if themes.is_empty() {
+        eprintln!(
+            "loom theme list: no `:root` blocks with --loom-color-* tokens found in {}",
+            skin_path.display()
+        );
+        return Ok(());
+    }
+    println!("  theme           tokens  example");
+    println!("  --------------  ------  -----------------------------------------");
+    for t in &themes {
+        let example = t
+            .tokens
+            .get("--loom-color-bg-canvas")
+            .or_else(|| t.tokens.get("--loom-color-primary"))
+            .map(String::as_str)
+            .unwrap_or("(no canvas/primary token)");
+        let example_short = if example.len() > 40 {
+            format!("{}…", &example[..39])
+        } else {
+            example.to_owned()
+        };
+        println!(
+            "  {name:<14}  {n:>6}  {ex}",
+            name = t.name,
+            n = t.tokens.len(),
+            ex = example_short,
+        );
+    }
+    println!();
+    println!(
+        "loom theme list: {} theme(s), {} unique --loom-color-* var() reference(s)",
+        themes.len(),
+        referenced_vars.len(),
+    );
+    Ok(())
+}
+
+fn cmd_theme_validate(skin_path: &std::path::Path) -> Result<usize, std::io::Error> {
+    let raw = std::fs::read_to_string(skin_path)?;
+    let (themes, referenced_vars) = parse_skin_themes(&raw);
+
+    let Some(base) = themes.iter().find(|t| t.name == "default") else {
+        eprintln!("loom theme validate: no base `:root` (default) theme block found");
+        return Ok(1);
+    };
+
+    let mut findings = 0usize;
+
+    // Check 1: every var(--loom-color-X) consumed in skin.css has
+    // a definition in base. Without this, first-paint runs against
+    // an undefined property and the rule is silently rejected by
+    // the browser.
+    for v in &referenced_vars {
+        if !base.tokens.contains_key(v) {
+            findings += 1;
+            eprintln!(
+                "  STRICT  {} consumed via var() but has no definition in base :root",
+                v
+            );
+        }
+    }
+
+    // Check 2: every named theme defines the same color tokens as
+    // base. Drift here means switching to that theme leaves some
+    // computed values falling back to base — usually fine, but
+    // sometimes the base value is wrong for the theme (e.g. a
+    // dark-on-light primary on a sepia surface).
+    for t in &themes {
+        if t.name == "default" {
+            continue;
+        }
+        let missing: Vec<&String> = base
+            .tokens
+            .keys()
+            .filter(|k| !t.tokens.contains_key(*k))
+            .collect();
+        let extra: Vec<&String> = t
+            .tokens
+            .keys()
+            .filter(|k| !base.tokens.contains_key(*k))
+            .collect();
+        for m in &missing {
+            findings += 1;
+            eprintln!(
+                "  warn    theme {:?} omits token {} (will inherit base — confirm intentional)",
+                t.name, m
+            );
+        }
+        for e in &extra {
+            findings += 1;
+            eprintln!(
+                "  warn    theme {:?} declares token {} not in base (orphan — base default missing)",
+                t.name, e
+            );
+        }
+    }
+
+    if findings == 0 {
+        println!(
+            "  ok     {} theme(s), {} token(s) per theme, {} var() reference(s) all resolved",
+            themes.len(),
+            base.tokens.len(),
+            referenced_vars.len(),
+        );
+    }
+    Ok(findings)
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+
+    const FIXTURE: &str = r#"
+:root {
+  --loom-color-bg-canvas: hsl(0 0% 0%);
+  --loom-color-ink: hsl(0 0% 100%);
+  --loom-color-primary: hsl(220 100% 75%);
+}
+:root[data-theme="hc-light"] {
+  --loom-color-bg-canvas: hsl(0 0% 100%);
+  --loom-color-ink: hsl(0 0% 0%);
+  --loom-color-primary: hsl(220 100% 30%);
+}
+:root[data-font="serif"] {
+  --loom-font-display: serif;
+}
+.something {
+  background: var(--loom-color-bg-canvas);
+  color: var(--loom-color-ink);
+  border-color: var(--loom-color-primary);
+}
+"#;
+
+    #[test]
+    fn parser_finds_default_and_named_themes() {
+        let (themes, _) = parse_skin_themes(FIXTURE);
+        let names: Vec<&str> = themes.iter().map(|t| t.name.as_str()).collect();
+        assert!(names.contains(&"default"));
+        assert!(names.contains(&"hc-light"));
+        // data-font="serif" is a font variant, not a theme.
+        assert!(!names.contains(&"serif"));
+    }
+
+    #[test]
+    fn parser_extracts_color_tokens_only() {
+        let (themes, _) = parse_skin_themes(FIXTURE);
+        let default = themes.iter().find(|t| t.name == "default").expect("default");
+        assert_eq!(default.tokens.len(), 3);
+        assert!(default.tokens.contains_key("--loom-color-bg-canvas"));
+        assert!(default.tokens.contains_key("--loom-color-ink"));
+        assert!(default.tokens.contains_key("--loom-color-primary"));
+    }
+
+    #[test]
+    fn parser_collects_var_references() {
+        let (_, refs) = parse_skin_themes(FIXTURE);
+        assert!(refs.contains("--loom-color-bg-canvas"));
+        assert!(refs.contains("--loom-color-ink"));
+        assert!(refs.contains("--loom-color-primary"));
+    }
+
+    #[test]
+    fn validate_clean_fixture_has_no_findings() {
+        let dir = std::env::temp_dir().join(format!(
+            "loom-theme-clean-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("skin.css");
+        std::fs::write(&path, FIXTURE).expect("write");
+        let n = cmd_theme_validate(&path).expect("ok");
+        assert_eq!(n, 0, "fixture should be drift-free");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn validate_flags_undefined_var_reference() {
+        let raw = r#"
+:root {
+  --loom-color-ink: black;
+}
+.x { color: var(--loom-color-missing); }
+"#;
+        let dir = std::env::temp_dir().join(format!(
+            "loom-theme-undef-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("skin.css");
+        std::fs::write(&path, raw).expect("write");
+        let n = cmd_theme_validate(&path).expect("ok");
+        assert!(n >= 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn validate_flags_named_theme_missing_token() {
+        let raw = r#"
+:root {
+  --loom-color-bg-canvas: black;
+  --loom-color-ink: white;
+}
+:root[data-theme="sepia"] {
+  --loom-color-bg-canvas: tan;
+}
+.x { background: var(--loom-color-bg-canvas); color: var(--loom-color-ink); }
+"#;
+        let dir = std::env::temp_dir().join(format!(
+            "loom-theme-miss-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("skin.css");
+        std::fs::write(&path, raw).expect("write");
+        let n = cmd_theme_validate(&path).expect("ok");
+        // sepia omits --loom-color-ink → 1 warn
+        assert_eq!(n, 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn validate_flags_orphan_token_in_named_theme() {
+        let raw = r#"
+:root {
+  --loom-color-ink: white;
+}
+:root[data-theme="weird"] {
+  --loom-color-ink: black;
+  --loom-color-orphan: red;
+}
+"#;
+        let dir = std::env::temp_dir().join(format!(
+            "loom-theme-orph-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("skin.css");
+        std::fs::write(&path, raw).expect("write");
+        let n = cmd_theme_validate(&path).expect("ok");
+        // weird declares --loom-color-orphan that base lacks → 1 warn
+        assert_eq!(n, 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
