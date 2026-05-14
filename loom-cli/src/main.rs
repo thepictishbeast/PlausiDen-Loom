@@ -6021,6 +6021,28 @@ fn serve_preview(
     }
     let p = static_root.join(rel);
     if !p.is_file() {
+        // REGRESSION-GUARD cycle 52: the editor preview iframe
+        // emits `<link rel="stylesheet" href="/preview/loom-skin.
+        // css">` even when no forge-built skin lives under
+        // static/. Without this fallback the iframe 404s the
+        // skin link → noisy console.error + failed-requests
+        // detector strict. BASE_THEME_CSS is already inlined as
+        // `<style>` by build_edit_preview_html (line 6314), so
+        // serving it here is a safety net: production previews
+        // (where forge has emitted loom-skin.css) still hit the
+        // real file because `p.is_file()` returns true and this
+        // branch is skipped. Self-contained editor doctrine.
+        if rel == "loom-skin.css" {
+            let mut resp = tiny_http::Response::from_data(
+                loom_cms_render::BASE_THEME_CSS.as_bytes().to_vec(),
+            );
+            resp.add_header(
+                tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/css"[..])
+                    .map_err(|_| std::io::Error::other("header"))?,
+            );
+            request.respond(resp)?;
+            return Ok(());
+        }
         return respond_text(request, 404, "not found");
     }
     let bytes = std::fs::read(&p)?;

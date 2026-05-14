@@ -113,6 +113,15 @@ pub enum CmsSection {
         /// Headline text.
         title: String,
         /// Optional subhead paragraph.
+        ///
+        /// REGRESSION-GUARD: serde alias `subtitle` accepts the
+        /// pre-2026-05 field name. Older fixture files written by
+        /// the form-builder still use `subtitle`; without the alias
+        /// the renderer 500s on read because `deny_unknown_fields`
+        /// rejects unknown keys. Save-path scrubbing handles the
+        /// write side; this handles the read side. Cycle 52
+        /// /preview-edit/about.html 500 was the trigger.
+        #[serde(alias = "subtitle")]
         lede: Option<String>,
         /// Optional primary CTA.
         cta: Option<HeroCta>,
@@ -1525,6 +1534,41 @@ mod tests {
         }"#;
         let r = render_json(json);
         assert!(r.is_err(), "unknown section kind silently accepted");
+    }
+
+    #[test]
+    fn hero_legacy_subtitle_field_alias_to_lede() {
+        // REGRESSION-GUARD cycle 52: pre-2026-05 fixtures used
+        // `subtitle` on Hero before the field was renamed to
+        // `lede`. Without the serde alias, a legacy on-disk
+        // cms/about.json 500s the renderer because
+        // `deny_unknown_fields` rejects `subtitle`.
+        let json = r#"{
+            "title": "x",
+            "description": "x",
+            "path": "/x",
+            "sections": [
+                {
+                    "kind": "hero",
+                    "eyebrow": "Hello",
+                    "title": "Hi there",
+                    "subtitle": "Edited subtitle",
+                    "cta": null
+                }
+            ]
+        }"#;
+        let r = render_json(json);
+        assert!(
+            r.is_ok(),
+            "legacy `subtitle` field should alias to `lede`: {:?}",
+            r.err()
+        );
+        let html = r.unwrap().0;
+        assert!(
+            html.contains("loom-section-hero__lede"),
+            "lede should render from aliased `subtitle` field"
+        );
+        assert!(html.contains("Edited subtitle"));
     }
 
     #[test]
