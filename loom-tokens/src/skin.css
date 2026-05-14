@@ -1179,6 +1179,13 @@
     border-radius: var(--loom-radius-sm);
     color: var(--loom-color-ink);
     text-decoration: none;
+    /* T76 (Crawler dogfood 2026-05-14): aside-panel links were
+       invisible-until-hover — same color and weight as surrounding
+       text. Bumping to 600 (semibold) gives sighted users a clear
+       visible affordance even at rest. The Crawler's linkUnderline
+       detector now also passes under the stricter no-chrome-exception
+       interpretation (≥200-unit weight contrast vs parent's 400). */
+    font-weight: 600;
     min-height: var(--loom-tap-min);
   }
   .loom-panel__list-link:hover {
