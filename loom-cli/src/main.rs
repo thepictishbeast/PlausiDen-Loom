@@ -4810,16 +4810,16 @@ fn serve_index(
          <h2 style=\"font-size:1.05em;margin:1rem 0 .5rem\">Create a new page</h2>\
          <form method=\"POST\" action=\"/new-page\" style=\"display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end\">\
          <div style=\"flex:1;min-width:14rem\">\
-           <label for=\"new-slug\" style=\"display:block;font-weight:600;font-size:.9em\">Slug <span aria-hidden=\"true\" style=\"color:#b00020\">*</span><span class=\"visually-hidden\" style=\"position:absolute;left:-9999px\"> required</span></label>\
+           <label for=\"new-slug\" style=\"display:block;font-weight:600;font-size:.9em\">Slug <span aria-hidden=\"true\" style=\"color:#b00020\">*</span></label>\
            <input id=\"new-slug\" name=\"slug\" required pattern=\"[a-z][a-z0-9-]*\" \
                   placeholder=\"about\" \
                   title=\"lowercase letters, digits, dashes; must start with a letter\" \
-                  style=\"width:100%;padding:.5rem;font:inherit;border:1px solid #888;border-radius:4px\">\
+                  style=\"width:100%;padding:.5rem;font:inherit;border:1px solid #888;border-radius:4px;box-sizing:border-box\">\
          </div>\
          <div style=\"flex:1;min-width:14rem\">\
            <label for=\"new-template\" style=\"display:block;font-weight:600;font-size:.9em\">Template</label>\
            <select id=\"new-template\" name=\"template\" \
-                   style=\"width:100%;padding:.5rem;font:inherit;border:1px solid #888;border-radius:4px\">\
+                   style=\"width:100%;padding:.5rem;font:inherit;border:1px solid #888;border-radius:4px;box-sizing:border-box\">\
              <option value=\"blank\">Blank — title + description, no sections</option>\
              <option value=\"landing\">Landing — hero + 3 group sections</option>\
              <option value=\"about\">About — hero + paragraph</option>\
