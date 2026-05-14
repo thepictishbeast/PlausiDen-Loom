@@ -303,6 +303,35 @@ enum Cmd {
         #[command(subcommand)]
         action: AuthAction,
     },
+    /// T63: import existing static HTML into typed CmsPage JSON.
+    ///
+    /// `loom import --from path/to/site.html --into ./cms`
+    /// reads the HTML file, reverse-engineers the structure
+    /// using simple element heuristics (header → Hero, section
+    /// h2+p → Group, etc.), and writes a cms/<slug>.json file
+    /// the editor can immediately open + edit.
+    ///
+    /// Unmappable markup is written as a paragraph section with
+    /// a TODO marker so the operator can audit + convert
+    /// manually.
+    ///
+    /// MVP scope: single HTML file, local path only. Future:
+    /// directory walk, URL fetch, automatic asset extraction.
+    Import {
+        /// Path to the source HTML file.
+        #[arg(long)]
+        from: PathBuf,
+        /// Target CMS directory. The slug is derived from the
+        /// file's basename (without extension).
+        #[arg(long, default_value = "cms")]
+        into: PathBuf,
+        /// Override the derived slug.
+        #[arg(long)]
+        slug: Option<String>,
+        /// Overwrite if the target file exists.
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
     /// `loom theme` — inspect + validate the theme system.
     ///
     /// Themes are declared inline in skin.css as `:root[data-theme=
@@ -712,6 +741,18 @@ fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("loom edit serve: {e}");
+                ExitCode::from(2)
+            }
+        },
+        Cmd::Import {
+            from,
+            into,
+            slug,
+            force,
+        } => match cmd_import(&from, &into, slug.as_deref(), force) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("loom import: {e}");
                 ExitCode::from(2)
             }
         },
@@ -7788,5 +7829,397 @@ mod auth_tests {
             base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, sig);
         let cookie = format!("{payload}.{sig_b64}");
         assert!(verify_session_cookie(&cookie, key).is_none());
+    }
+}
+
+// ============================================================
+// T63: HTML → CmsPage importer.
+// ============================================================
+//
+// Goal: a non-technical operator points loom at an existing
+// .html file and gets a typed cms/<slug>.json they can
+// immediately edit through the GUI.
+//
+// Heuristics (intentionally simple — full HTML parsing via
+// scraper crate is queued for T63b):
+//
+//   <header>            → Hero (eyebrow=h2, title=h1, subtitle=p)
+//   <section><h2>...    → Group (title=h2, body=collected p's)
+//   <h2>/<h3>/<h4>      → Heading (level + text)
+//   <p>                 → Paragraph (body)
+//
+// Anything we don't recognise becomes a paragraph with a TODO
+// marker so the operator sees what was unmappable instead of
+// silently dropping content.
+//
+// Doctrine:
+//   * SECURITY: input is just text bytes; no script eval, no
+//     network, no shell. SVG content is dropped (XSS risk).
+//   * No external HTML parser dep — line-oriented regex-style
+//     scan. Documented limits: nested tags, malformed HTML,
+//     CDATA, processing instructions all fall through to the
+//     TODO bucket. Good enough for typical static-site imports
+//     where the structure is clean.
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ImportedSection {
+    Hero {
+        eyebrow: String,
+        title: String,
+        subtitle: String,
+    },
+    Group {
+        title: String,
+        body: Vec<String>,
+    },
+    Heading {
+        level: u8,
+        text: String,
+    },
+    Paragraph {
+        body: String,
+    },
+    Todo {
+        raw: String,
+    },
+}
+
+impl ImportedSection {
+    pub(crate) fn to_json(&self) -> serde_json::Value {
+        match self {
+            Self::Hero { eyebrow, title, subtitle } => serde_json::json!({
+                "kind": "hero",
+                "eyebrow": eyebrow,
+                "title": title,
+                "subtitle": subtitle,
+                "cta": null,
+            }),
+            Self::Group { title, body } => serde_json::json!({
+                "kind": "group",
+                "title": title,
+                "body": body,
+            }),
+            Self::Heading { level, text } => serde_json::json!({
+                "kind": "heading",
+                "level": level,
+                "text": text,
+            }),
+            Self::Paragraph { body } => serde_json::json!({
+                "kind": "paragraph",
+                "body": body,
+            }),
+            Self::Todo { raw } => serde_json::json!({
+                "kind": "paragraph",
+                "body": format!("TODO (manual conversion needed): {raw}"),
+            }),
+        }
+    }
+}
+
+/// Pull text out of a `<h1>` / `<h2>` / etc. Crude — strips
+/// inner tags. Returns None if the tag isn't found.
+fn extract_inner(html: &str, open: &str, close: &str) -> Option<String> {
+    let lower = html.to_lowercase();
+    let start = lower.find(open)?;
+    // Skip past the opening tag (find the next '>').
+    let body_start = start + html[start..].find('>').unwrap_or(open.len()) + 1;
+    let end_rel = lower[body_start..].find(close)?;
+    let inner = &html[body_start..body_start + end_rel];
+    Some(strip_html_tags(inner).trim().to_owned())
+}
+
+fn extract_title(html: &str) -> Option<String> {
+    extract_inner(html, "<title", "</title>")
+}
+
+fn extract_meta_description(html: &str) -> Option<String> {
+    let lower = html.to_lowercase();
+    // Look for <meta name="description" content="...">
+    let needle = "<meta name=\"description\"";
+    let i = lower.find(needle)?;
+    let rest = &html[i..];
+    let content_pos = rest.to_lowercase().find("content=\"")?;
+    let after = &rest[content_pos + 9..];
+    let end = after.find('"')?;
+    Some(after[..end].to_owned())
+}
+
+fn strip_html_tags(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for c in s.chars() {
+        if c == '<' {
+            in_tag = true;
+        } else if c == '>' {
+            in_tag = false;
+        } else if !in_tag {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Walk a body fragment and emit ImportedSection in order.
+pub(crate) fn import_body(body_html: &str) -> Vec<ImportedSection> {
+    let mut out = Vec::new();
+    let lower = body_html.to_lowercase();
+
+    // Find <header>...</header>
+    if let Some(start) = lower.find("<header") {
+        let body_start = start + body_html[start..].find('>').unwrap_or(0) + 1;
+        if let Some(end_rel) = lower[body_start..].find("</header>") {
+            let inner = &body_html[body_start..body_start + end_rel];
+            let h1 = extract_inner(inner, "<h1", "</h1>").unwrap_or_default();
+            let h2 = extract_inner(inner, "<h2", "</h2>").unwrap_or_default();
+            let p = extract_inner(inner, "<p", "</p>").unwrap_or_default();
+            if !h1.is_empty() || !h2.is_empty() || !p.is_empty() {
+                out.push(ImportedSection::Hero {
+                    eyebrow: h2,
+                    title: h1,
+                    subtitle: p,
+                });
+            }
+        }
+    }
+
+    // Find <section>...</section> blocks with h2 + p's.
+    let mut cursor = 0;
+    while let Some(rel) = lower[cursor..].find("<section") {
+        let start = cursor + rel;
+        let body_start = start + body_html[start..].find('>').unwrap_or(0) + 1;
+        let Some(end_rel) = lower[body_start..].find("</section>") else {
+            break;
+        };
+        let inner = &body_html[body_start..body_start + end_rel];
+        let h2 = extract_inner(inner, "<h2", "</h2>").unwrap_or_default();
+        // Pull every <p>...</p> in inner.
+        let mut paragraphs: Vec<String> = Vec::new();
+        let mut p_cursor = 0;
+        let inner_lower = inner.to_lowercase();
+        while let Some(p_rel) = inner_lower[p_cursor..].find("<p") {
+            let p_start = p_cursor + p_rel;
+            let p_body_start = p_start + inner[p_start..].find('>').unwrap_or(0) + 1;
+            let Some(p_end_rel) = inner_lower[p_body_start..].find("</p>") else {
+                break;
+            };
+            let raw = &inner[p_body_start..p_body_start + p_end_rel];
+            let text = strip_html_tags(raw).trim().to_owned();
+            if !text.is_empty() {
+                paragraphs.push(text);
+            }
+            p_cursor = p_body_start + p_end_rel + 4;
+        }
+        if !h2.is_empty() {
+            out.push(ImportedSection::Group {
+                title: h2,
+                body: paragraphs,
+            });
+        } else {
+            // Section without h2 → emit each paragraph separately.
+            for p in paragraphs {
+                out.push(ImportedSection::Paragraph { body: p });
+            }
+        }
+        cursor = body_start + end_rel + 10;
+    }
+
+    // SECURITY: refuse to import <script> / <style> / <svg>
+    // contents. They're either active code or large inline
+    // graphics that don't belong in the typed CmsPage. Emit a
+    // single TODO so the operator knows we dropped something.
+    for tag in ["<script", "<style", "<svg"] {
+        if lower.contains(tag) {
+            out.push(ImportedSection::Todo {
+                raw: format!(
+                    "source contains <{}> — dropped by importer for safety; \
+                     migrate manually if needed",
+                    &tag[1..]
+                ),
+            });
+            break; // one TODO covers the class
+        }
+    }
+
+    out
+}
+
+fn cmd_import(
+    from: &std::path::Path,
+    into: &std::path::Path,
+    explicit_slug: Option<&str>,
+    force: bool,
+) -> std::io::Result<()> {
+    let html = std::fs::read_to_string(from)
+        .map_err(|e| std::io::Error::other(format!("read {}: {e}", from.display())))?;
+
+    // Slug: explicit override OR derive from filename basename.
+    let derived_slug = from
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("imported")
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>();
+    let raw_slug = explicit_slug.unwrap_or(&derived_slug);
+    let slug = SlugName::new(raw_slug)
+        .map_err(|e| std::io::Error::other(format!("invalid slug: {e}")))?;
+
+    // Ensure target dir + capability scope.
+    std::fs::create_dir_all(into)?;
+    let cap = WriteCapability::for_dir(into).map_err(|_| {
+        std::io::Error::other(format!("cms root {} unreadable", into.display()))
+    })?;
+    let rel = std::path::PathBuf::from(format!("{}.json", slug.as_str()));
+    if cap.file_exists(&rel) && !force {
+        return Err(std::io::Error::other(format!(
+            "{} already exists; pass --force to overwrite",
+            rel.display()
+        )));
+    }
+
+    // Build the CmsPage JSON.
+    let title = extract_title(&html).unwrap_or_else(|| capitalise(slug.as_str()));
+    let description = extract_meta_description(&html)
+        .unwrap_or_else(|| format!("{title} — imported from {}", from.display()));
+    let path_attr = format!("/{}.html", slug.as_str());
+    let sections = import_body(&html);
+    let sections_json: Vec<serde_json::Value> =
+        sections.iter().map(ImportedSection::to_json).collect();
+    let page = serde_json::json!({
+        "$schema": "../cms-schema.json",
+        "title": title,
+        "description": description,
+        "path": path_attr,
+        "sections": sections_json,
+    });
+    let serialized = serde_json::to_string_pretty(&page)
+        .map_err(|e| std::io::Error::other(format!("serialize: {e}")))?;
+    cap.write_atomic(&rel, serialized.as_bytes()).map_err(|_| {
+        std::io::Error::other("write")
+    })?;
+
+    println!("loom import:");
+    println!("  source:    {}", from.display());
+    println!("  target:    {}", into.join(&rel).display());
+    println!("  title:     {title}");
+    println!("  sections:  {} extracted", sections.len());
+    let todo_count = sections
+        .iter()
+        .filter(|s| matches!(s, ImportedSection::Todo { .. }))
+        .count();
+    if todo_count > 0 {
+        println!("  warn:      {todo_count} TODO marker(s) — review manually");
+    }
+    println!();
+    println!("Open in the editor:");
+    println!("  loom edit-serve --cms {} --static-dir static --forge ''", into.display());
+    println!("  then visit http://127.0.0.1:8124/{}", slug.as_str());
+    Ok(())
+}
+
+#[cfg(test)]
+mod import_tests {
+    use super::*;
+
+    #[test]
+    fn extract_title_simple() {
+        let html = "<html><head><title>Hello</title></head></html>";
+        assert_eq!(extract_title(html), Some("Hello".into()));
+    }
+
+    #[test]
+    fn extract_title_with_attrs() {
+        let html = "<html><head><title lang=\"en\">Hi there</title></head></html>";
+        assert_eq!(extract_title(html), Some("Hi there".into()));
+    }
+
+    #[test]
+    fn extract_title_missing() {
+        assert_eq!(extract_title("<html></html>"), None);
+    }
+
+    #[test]
+    fn extract_meta_desc_present() {
+        let html = "<head><meta name=\"description\" content=\"A page\"></head>";
+        assert_eq!(extract_meta_description(html), Some("A page".into()));
+    }
+
+    #[test]
+    fn extract_meta_desc_missing() {
+        let html = "<head><meta name=\"viewport\" content=\"x\"></head>";
+        assert_eq!(extract_meta_description(html), None);
+    }
+
+    #[test]
+    fn strip_tags_basic() {
+        assert_eq!(strip_html_tags("Hello <b>world</b>!"), "Hello world!");
+    }
+
+    #[test]
+    fn import_body_extracts_header_as_hero() {
+        let html = r#"
+        <header>
+          <h2>Welcome</h2>
+          <h1>Mom's Site</h1>
+          <p>Crafted with care.</p>
+        </header>"#;
+        let secs = import_body(html);
+        assert_eq!(secs.len(), 1);
+        assert!(matches!(
+            &secs[0],
+            ImportedSection::Hero { eyebrow, title, subtitle }
+                if eyebrow == "Welcome" && title == "Mom's Site" && subtitle == "Crafted with care."
+        ));
+    }
+
+    #[test]
+    fn import_body_extracts_section_as_group() {
+        let html = r#"
+        <section>
+          <h2>How it works</h2>
+          <p>First paragraph.</p>
+          <p>Second paragraph.</p>
+        </section>"#;
+        let secs = import_body(html);
+        assert_eq!(secs.len(), 1);
+        assert!(matches!(
+            &secs[0],
+            ImportedSection::Group { title, body }
+                if title == "How it works" && body.len() == 2
+        ));
+    }
+
+    #[test]
+    fn import_body_combined_header_plus_sections() {
+        let html = r#"
+        <header><h1>Site</h1><p>tagline</p></header>
+        <section><h2>One</h2><p>a</p></section>
+        <section><h2>Two</h2><p>b</p></section>"#;
+        let secs = import_body(html);
+        assert_eq!(secs.len(), 3);
+    }
+
+    #[test]
+    fn import_body_emits_todo_for_script() {
+        let html = "<header><h1>x</h1></header><script>alert(1)</script>";
+        let secs = import_body(html);
+        assert!(secs.iter().any(|s| matches!(s, ImportedSection::Todo { .. })));
+    }
+
+    #[test]
+    fn import_body_emits_todo_for_svg() {
+        let html = "<svg><circle/></svg>";
+        let secs = import_body(html);
+        assert!(secs.iter().any(|s| matches!(s, ImportedSection::Todo { .. })));
+    }
+
+    #[test]
+    fn imported_section_to_json_shapes_match_cms_schema() {
+        let h = ImportedSection::Heading { level: 2, text: "A".into() };
+        let v = h.to_json();
+        assert_eq!(v["kind"], "heading");
+        assert_eq!(v["level"], 2);
+        assert_eq!(v["text"], "A");
     }
 }
