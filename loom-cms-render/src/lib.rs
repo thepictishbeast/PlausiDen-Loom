@@ -2169,10 +2169,18 @@ pub const BASE_THEME_CSS: &str = ":root{\
 --loom-radius:4px;\
 --loom-font-stack:system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif;\
 --loom-mono-stack:ui-monospace,SFMono-Regular,\"Cascadia Mono\",monospace}\
-@media (prefers-color-scheme:dark){:root{\
+@media (prefers-color-scheme:dark){:root:not([data-theme=\"light\"]){\
 --loom-bg:#111417;--loom-fg:#f0f2f5;--loom-muted:#9aa1aa;\
 --loom-accent:#9ec1ff;--loom-border:#2a2f36;\
 --loom-link:#9ec1ff;--loom-link-hover:#c2d8ff;--loom-focus:#9ec1ff}}\
+:root[data-theme=\"dark\"]{\
+--loom-bg:#111417;--loom-fg:#f0f2f5;--loom-muted:#9aa1aa;\
+--loom-accent:#9ec1ff;--loom-border:#2a2f36;\
+--loom-link:#9ec1ff;--loom-link-hover:#c2d8ff;--loom-focus:#9ec1ff}\
+:root[data-theme=\"light\"]{\
+--loom-bg:#fff;--loom-fg:#111;--loom-muted:#5a5a5a;\
+--loom-accent:#003;--loom-border:#dcdcdc;\
+--loom-link:#003;--loom-link-hover:#06f;--loom-focus:#06f}\
 html{background:var(--loom-bg);color:var(--loom-fg);\
 font-family:var(--loom-font-stack);line-height:1.5}\
 body{margin:0}\
@@ -2286,6 +2294,30 @@ pub fn page_shell(
     body: &str,
     critical_css: Option<&str>,
 ) -> String {
+    page_shell_themed(page, css_href, body, critical_css, None)
+}
+
+/// T37 v1: explicit-theme variant of `page_shell`. When `theme`
+/// is `Some(name)`, emits `<html lang="en" data-theme="<name>">`
+/// so explicit picks ("dark" / "light" / future high-contrast
+/// variants) override the OS-driven `prefers-color-scheme`
+/// auto-applied palette. When `None`, identical to `page_shell`.
+///
+/// Valid theme values: `"light"` | `"dark"` (today). Future
+/// variants (`"hc-dark"`, `"hc-light"`, `"sepia"`) get added to
+/// `BASE_THEME_CSS` and the closed enum in `loom-cli` together.
+///
+/// SECURITY: the `theme` value is HTML-attribute-escaped before
+/// interpolation. An attacker-controlled theme string (via cookie
+/// or query param) cannot escape the attribute context.
+#[must_use]
+pub fn page_shell_themed(
+    page: &CmsPage,
+    css_href: &str,
+    body: &str,
+    critical_css: Option<&str>,
+    theme: Option<&str>,
+) -> String {
     let title = escape_html_text(&page.title);
     let description = escape_html_text(&page.description);
     let path = escape_html_attr(&page.path);
@@ -2313,9 +2345,19 @@ pub fn page_shell(
         (String::new(), css_link, csp)
     };
     let style_block = format!("{base_theme_block}{extra_style_block}");
+    // T37 v1: gate the `data-theme` attribute on a closed allow-list
+    // ("light" | "dark"). An attacker-controlled value is dropped
+    // rather than escaped-and-emitted — defence in depth on top of
+    // the attribute-escape.
+    let html_open = match theme {
+        Some(t) if t == "light" || t == "dark" => {
+            format!("<html lang=\"en\" data-theme=\"{t}\">")
+        }
+        _ => "<html lang=\"en\">".to_owned(),
+    };
     format!(
         "<!doctype html>\n\
-<html lang=\"en\">\n\
+{html_open}\n\
 <head>\n\
   <meta charset=\"utf-8\">\n\
   <meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">\n\
@@ -2423,6 +2465,81 @@ mod page_shell_tests {
         let s = page_shell(&p, "/loom-skin.css", "", None);
         assert!(!s.contains("<script>alert(1)</script>"));
         assert!(s.contains("&lt;script&gt;"));
+    }
+
+    // ---- T37 v1: explicit-theme `page_shell_themed` ----
+
+    #[test]
+    fn page_shell_themed_emits_data_theme_when_dark() {
+        let s = page_shell_themed(&empty_page(), "/loom-skin.css", "", None, Some("dark"));
+        assert!(s.contains("data-theme=\"dark\""), "missing data-theme=dark: {s}");
+    }
+
+    #[test]
+    fn page_shell_themed_emits_data_theme_when_light() {
+        let s = page_shell_themed(&empty_page(), "/loom-skin.css", "", None, Some("light"));
+        assert!(s.contains("data-theme=\"light\""), "missing data-theme=light");
+    }
+
+    #[test]
+    fn page_shell_themed_with_none_matches_unthemed_shell() {
+        let a = page_shell(&empty_page(), "/loom-skin.css", "", None);
+        let b = page_shell_themed(&empty_page(), "/loom-skin.css", "", None, None);
+        assert_eq!(a, b, "page_shell(...) must equal page_shell_themed(..., None)");
+    }
+
+    #[test]
+    fn page_shell_themed_drops_unknown_theme_value() {
+        // Defence in depth: a hostile theme value (XSS attempt /
+        // typo / future variant not yet in the closed allow-list)
+        // gets DROPPED, not emitted as <html data-theme="...">.
+        // BASE_THEME_CSS itself contains [data-theme="..."] selectors,
+        // so we narrow the assertion to the <html ...> opening tag.
+        for hostile in ["evil", "'><script>", "../etc/passwd", "DARK", "Light"] {
+            let s = page_shell_themed(
+                &empty_page(),
+                "/loom-skin.css",
+                "",
+                None,
+                Some(hostile),
+            );
+            assert!(
+                s.contains("<html lang=\"en\">\n"),
+                "unknown theme value `{hostile}` must produce bare <html lang=\"en\">"
+            );
+            assert!(
+                !s.contains("<html lang=\"en\" data-theme="),
+                "unknown theme value `{hostile}` must NOT emit data-theme on the html tag"
+            );
+        }
+    }
+
+    #[test]
+    fn base_theme_css_includes_explicit_data_theme_rules() {
+        // T37 v1: explicit picks must win over OS @media. Verifies
+        // both `:root[data-theme="dark"]` and `:root[data-theme="light"]`
+        // selectors appear in the always-emitted base block. The
+        // const stores the raw CSS text (escapes resolved at compile
+        // time), so we look for literal real-double-quote strings.
+        assert!(
+            BASE_THEME_CSS.contains(r#"[data-theme="dark"]"#),
+            "missing :root[data-theme=\"dark\"] block in BASE_THEME_CSS"
+        );
+        assert!(
+            BASE_THEME_CSS.contains(r#"[data-theme="light"]"#),
+            "missing :root[data-theme=\"light\"] block in BASE_THEME_CSS"
+        );
+    }
+
+    #[test]
+    fn base_theme_css_dark_media_does_not_apply_when_light_is_explicit() {
+        // The @media (prefers-color-scheme: dark) block uses
+        // :root:not([data-theme="light"]) so an explicit
+        // data-theme="light" overrides the OS preference.
+        assert!(
+            BASE_THEME_CSS.contains(r#":not([data-theme="light"])"#),
+            "@media block must use :root:not([data-theme=\"light\"])"
+        );
     }
 
     /// T70b-fix REGRESSION-GUARD: page_shell + render_page composed
