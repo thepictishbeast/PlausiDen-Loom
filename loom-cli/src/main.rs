@@ -23,6 +23,27 @@ struct Cli {
     command: Cmd,
 }
 
+/// `loom site` subcommands. T41 + T48.
+#[derive(Subcommand)]
+enum SiteAction {
+    /// Create a new site directory from an embedded template.
+    Init {
+        /// Site name (also the directory name). SlugName-validated.
+        #[arg(value_name = "NAME")]
+        name: String,
+        /// Which template to use. `basic` is the only one this
+        /// MVP ships; `portfolio` and `blog` will land in
+        /// follow-up ticks.
+        #[arg(long, default_value = "basic")]
+        template: String,
+        /// Overwrite if the target dir exists.
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
+    /// List bundled templates.
+    Templates,
+}
+
 /// `loom auth` subcommands. T43.
 #[derive(Subcommand)]
 enum AuthAction {
@@ -331,6 +352,19 @@ enum Cmd {
         /// Overwrite if the target file exists.
         #[arg(long, default_value_t = false)]
         force: bool,
+    },
+    /// T41 + T48: scaffold a new site from a bundled template.
+    ///
+    /// `loom site init mom` creates a directory `mom/` with a
+    /// minimal CMS, forge.toml, and README. Mom can run forge
+    /// + edit-serve immediately.
+    ///
+    /// Templates are embedded in the binary — no separate fs
+    /// cache to tamper. The chosen template is signed via the
+    /// binary's normal attestation chain.
+    Site {
+        #[command(subcommand)]
+        action: SiteAction,
     },
     /// `loom theme` — inspect + validate the theme system.
     ///
@@ -754,6 +788,26 @@ fn main() -> ExitCode {
             Err(e) => {
                 eprintln!("loom import: {e}");
                 ExitCode::from(2)
+            }
+        },
+        Cmd::Site { action } => match action {
+            SiteAction::Init {
+                name,
+                template,
+                force,
+            } => match cmd_site_init(&name, &template, force) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("loom site init: {e}");
+                    ExitCode::from(2)
+                }
+            },
+            SiteAction::Templates => {
+                println!("bundled templates:");
+                for (name, desc) in BUNDLED_TEMPLATES {
+                    println!("  {name:<12}  {desc}");
+                }
+                ExitCode::SUCCESS
             }
         },
         Cmd::Auth { action } => match action {
@@ -8221,5 +8275,286 @@ mod import_tests {
         assert_eq!(v["kind"], "heading");
         assert_eq!(v["level"], 2);
         assert_eq!(v["text"], "A");
+    }
+}
+
+// ============================================================
+// T41 + T48: bundled site templates + `loom site init`.
+// ============================================================
+//
+// Templates are embedded in the binary as &[(&str, &str)] —
+// each entry is (relative_path, file_contents). The {{SITE_NAME}}
+// placeholder is substituted at write time. No separate fs
+// cache means: no template-tampering attack surface, no version
+// drift between installed binary and templates, deterministic
+// output.
+//
+// MVP ships ONE template (basic). Adding more is a matter of
+// declaring another const + another row in BUNDLED_TEMPLATES.
+
+const BUNDLED_TEMPLATES: &[(&str, &str)] = &[
+    ("basic", "single landing page + about page; minimal forge.toml"),
+];
+
+const TEMPLATE_BASIC: &[(&str, &str)] = &[
+    (
+        "README.md",
+        r#"# {{SITE_NAME}}
+
+Built with Loom + Forge.
+
+## Edit content
+
+```
+loom edit-serve --cms cms --static-dir static --forge ''
+```
+
+Then visit http://127.0.0.1:8124/ in a browser.
+
+## Build the site
+
+```
+cargo run --release -p forge-cli
+```
+"#,
+    ),
+    (
+        "forge.toml",
+        r#"# Forge build configuration for {{SITE_NAME}}.
+# mode controls how strict the build gate is:
+#   poc        — only strict findings block (default)
+#   production — strict + warn both block
+
+mode = "poc"
+"#,
+    ),
+    (
+        "cms/index.json",
+        r#"{
+  "$schema": "../cms-schema.json",
+  "title": "{{SITE_NAME}}",
+  "description": "Welcome to {{SITE_NAME}}.",
+  "path": "/",
+  "sections": [
+    {
+      "kind": "hero",
+      "eyebrow": "Welcome to",
+      "title": "{{SITE_NAME}}",
+      "subtitle": "Edit this subtitle in the loom editor.",
+      "cta": null
+    },
+    {
+      "kind": "group",
+      "title": "What we do",
+      "body": [
+        "Edit this paragraph through the loom editor.",
+        "Add more paragraphs by clicking the + paragraph button."
+      ]
+    }
+  ]
+}
+"#,
+    ),
+    (
+        "cms/about.json",
+        r#"{
+  "$schema": "../cms-schema.json",
+  "title": "About",
+  "description": "About {{SITE_NAME}}.",
+  "path": "/about.html",
+  "sections": [
+    {
+      "kind": "hero",
+      "eyebrow": "About",
+      "title": "About {{SITE_NAME}}",
+      "subtitle": "Who we are and why we built this.",
+      "cta": null
+    },
+    {
+      "kind": "paragraph",
+      "body": "Write your about copy here."
+    }
+  ]
+}
+"#,
+    ),
+    (
+        "backends.toml",
+        r#"# Backend declarations for {{SITE_NAME}}.
+# Each [backends.X] entry corresponds to one
+# data-backend="X" attribute somewhere in the rendered HTML.
+# Forge cross-checks: every UI ref must be declared here,
+# every declaration should be referenced.
+
+# Example (uncomment + edit):
+# [backends.contact-form]
+# method   = "POST"
+# path     = "/contact"
+# purpose  = "contact form submit"
+# impl_files = []
+"#,
+    ),
+    (
+        ".gitignore",
+        r#"/target
+/reports/build-*.json
+/reports/debug-*.log
+# T56: private signing key — NEVER commit. attest-pubkey.b64
+# IS committed (trust anchor); attest-key.b64 is the private half.
+/reports/attest-key.b64
+/static/*.gz
+/static/*.br
+"#,
+    ),
+];
+
+/// Resolve a bundled template by name. Returns the file list if
+/// found; returns a list of available template names otherwise.
+fn resolve_template(name: &str) -> Result<&'static [(&'static str, &'static str)], Vec<&'static str>> {
+    match name {
+        "basic" => Ok(TEMPLATE_BASIC),
+        _ => Err(BUNDLED_TEMPLATES.iter().map(|(n, _)| *n).collect()),
+    }
+}
+
+/// Substitute {{SITE_NAME}} → site_name in a template body.
+/// Title-case the substitution so 'mom' renders as 'Mom'.
+fn render_template_body(content: &str, site_name: &str) -> String {
+    content.replace("{{SITE_NAME}}", &capitalise(site_name))
+}
+
+fn cmd_site_init(name: &str, template: &str, force: bool) -> std::io::Result<()> {
+    cmd_site_init_in(&std::env::current_dir()?, name, template, force)
+}
+
+/// Test-friendly variant: explicit base dir avoids the
+/// std::env::set_current_dir race that bites parallel tests.
+fn cmd_site_init_in(
+    base_dir: &std::path::Path,
+    name: &str,
+    template: &str,
+    force: bool,
+) -> std::io::Result<()> {
+    let slug = SlugName::new(name)
+        .map_err(|e| std::io::Error::other(format!("invalid name: {e}")))?;
+    let target = base_dir.join(slug.as_str());
+    if target.exists() && !force {
+        return Err(std::io::Error::other(format!(
+            "{} already exists; pass --force to overwrite",
+            target.display()
+        )));
+    }
+    let files = resolve_template(template).map_err(|available| {
+        std::io::Error::other(format!(
+            "unknown template '{template}'; available: {}",
+            available.join(", ")
+        ))
+    })?;
+
+    std::fs::create_dir_all(&target)?;
+    let cap = WriteCapability::for_dir(&target).map_err(|_| {
+        std::io::Error::other(format!(
+            "could not scope capability to {}",
+            target.display()
+        ))
+    })?;
+
+    let mut written = 0usize;
+    for (rel, content) in files {
+        let rel_path = std::path::PathBuf::from(rel);
+        let body = render_template_body(content, slug.as_str());
+        cap.write_file(&rel_path, body.as_bytes())
+            .map_err(|_| std::io::Error::other(format!("write {rel}")))?;
+        written += 1;
+    }
+
+    println!("loom site init:");
+    println!("  ok  template '{template}' written to {}/", target.display());
+    println!("  ok  {written} file(s) created");
+    println!();
+    println!("Next:");
+    println!("  cd {} && loom edit-serve --cms cms --static-dir static --forge ''", target.display());
+    println!("  Visit http://127.0.0.1:8124/ in a browser to start editing.");
+    Ok(())
+}
+
+#[cfg(test)]
+mod site_init_tests {
+    use super::*;
+
+    #[test]
+    fn render_substitutes_placeholder() {
+        let s = render_template_body("Hello {{SITE_NAME}}!", "mom");
+        assert_eq!(s, "Hello Mom!");
+    }
+
+    #[test]
+    fn render_handles_no_placeholder() {
+        assert_eq!(render_template_body("static text", "mom"), "static text");
+    }
+
+    #[test]
+    fn render_substitutes_multiple() {
+        let s = render_template_body("{{SITE_NAME}} = {{SITE_NAME}}", "alice");
+        assert_eq!(s, "Alice = Alice");
+    }
+
+    #[test]
+    fn resolve_known_template() {
+        assert!(resolve_template("basic").is_ok());
+    }
+
+    #[test]
+    fn resolve_unknown_returns_available_list() {
+        let r = resolve_template("nope");
+        assert!(r.is_err());
+        let avail = r.unwrap_err();
+        assert!(avail.contains(&"basic"));
+    }
+
+    fn unique_tmp(label: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "loom-site-init-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ))
+    }
+
+    #[test]
+    fn site_init_creates_files_under_slug_dir() {
+        let tmp = unique_tmp("create");
+        std::fs::create_dir_all(&tmp).expect("mk tmp");
+        let result = cmd_site_init_in(&tmp, "momtest", "basic", false);
+        assert!(result.is_ok(), "init failed: {result:?}");
+        assert!(tmp.join("momtest").is_dir());
+        assert!(tmp.join("momtest/cms/index.json").is_file());
+        assert!(tmp.join("momtest/cms/about.json").is_file());
+        assert!(tmp.join("momtest/forge.toml").is_file());
+        assert!(tmp.join("momtest/.gitignore").is_file());
+        // Substitution worked.
+        let idx = std::fs::read_to_string(tmp.join("momtest/cms/index.json")).expect("read");
+        assert!(idx.contains("Momtest"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn site_init_rejects_invalid_name() {
+        let tmp = unique_tmp("invalid");
+        std::fs::create_dir_all(&tmp).expect("mk");
+        let r = cmd_site_init_in(&tmp, "Mom Test", "basic", false);
+        assert!(r.is_err());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn site_init_rejects_unknown_template() {
+        let tmp = unique_tmp("tmpl");
+        std::fs::create_dir_all(&tmp).expect("mk");
+        let r = cmd_site_init_in(&tmp, "sitex", "nonsuch", false);
+        assert!(r.is_err());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }
