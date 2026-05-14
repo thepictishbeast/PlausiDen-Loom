@@ -3924,6 +3924,11 @@ fn handle_edit_request(
     if let Some(rest) = path.strip_prefix("preview/") {
         return serve_preview(request, static_root, rest);
     }
+    // T62 step 9: edit-mode preview. Gated behind auth (the
+    // bypass list above only exempts /preview/ and /uploads/).
+    if let Some(rest) = path.strip_prefix("preview-edit/") {
+        return serve_preview_edit(request, cms_root, rest);
+    }
     // T50: forge admin dashboard. Same server, same auth scope.
     if path == "forge" && is_get {
         return serve_forge_dashboard(request, cms_root, static_root);
@@ -4718,8 +4723,11 @@ fn serve_edit_form(
         let total = sections.len();
         for (i, sec) in sections.iter().enumerate() {
             let kind = sec.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            // T62 step 9: stable id so the click-to-edit overlay
+            // can scrollIntoView + focus the right fieldset when
+            // the iframe postMessages a section index.
             body.push_str(&format!(
-                "<fieldset style=\"margin-top:1.5rem;border:1px solid #ccc;border-radius:6px;padding:1rem\">\
+                "<fieldset id=\"sec-edit-{i}\" style=\"margin-top:1.5rem;border:1px solid #ccc;border-radius:6px;padding:1rem;scroll-margin-top:1rem\">\
                  <legend>{kind_label} (section {n})</legend>",
                 kind_label = html_escape(&capitalise(kind)),
                 n = i + 1,
@@ -4936,17 +4944,47 @@ fn serve_edit_form(
 
     // Close the editor pane + open the live-preview pane.
     body.push_str("</div>");
+    // T62 step 9: the iframe loads /preview-edit/<slug>.html
+    // (edit-mode preview) so each section is clickable. The
+    // "open ↗" link points at the published /preview/* version
+    // (a normal user-facing render). The parent-side bridge
+    // script below listens for postMessages from the iframe and
+    // jumps the form to the matching fieldset.
     body.push_str(&format!(
         "<aside class=\"preview-pane\" aria-label=\"Live preview\">\
          <div class=\"preview-bar\">\
-           <strong>Live preview</strong>\
+           <strong>Live preview · click to edit</strong>\
            <a href=\"/preview/{slug}.html\" target=\"_blank\" rel=\"noopener\">open ↗</a>\
          </div>\
-         <iframe class=\"preview-frame\" src=\"/preview/{slug}.html\" \
-                 title=\"Rendered preview of {slug}\"></iframe>\
+         <iframe class=\"preview-frame\" src=\"/preview-edit/{slug}.html\" \
+                 title=\"Rendered preview of {slug} (click any section to jump to its editor)\"></iframe>\
          </aside>",
         slug = html_escape(slug),
     ));
+
+    // Parent-side click-to-edit bridge. Origin-checked so cross-
+    // origin postMessage attempts are silently dropped.
+    body.push_str(
+        "<script>\
+(function(){\
+var origin=location.origin;\
+window.addEventListener('message',function(e){\
+if(e.origin!==origin)return;\
+var d=e.data;\
+if(!d||d.type!=='loom-edit'||typeof d.target!=='string')return;\
+if(!/^[0-9]+$/.test(d.target))return;\
+var el=document.getElementById('sec-edit-'+d.target);\
+if(!el)return;\
+el.scrollIntoView({behavior:'smooth',block:'start'});\
+var first=el.querySelector('input,textarea,select');\
+if(first){try{first.focus();}catch(_){}}\
+el.style.transition='box-shadow .25s ease';\
+el.style.boxShadow='0 0 0 3px #f06';\
+setTimeout(function(){el.style.boxShadow='';},800);\
+});\
+})();\
+</script>",
+    );
 
     respond_html(request, 200, &body)
 }
@@ -5291,6 +5329,155 @@ fn respond_html(
     );
     request.respond(resp)?;
     Ok(())
+}
+
+// ---- T62 step 9: click-to-edit overlay ---------------------
+//
+// The editor pane uses an iframe. In `/preview/<slug>.html`
+// mode the iframe shows the published page exactly. In
+// `/preview-edit/<slug>.html` mode it shows the same page with
+// a thin chrome injected:
+//
+//   * each top-level section is wrapped in a
+//     `<div class="loom-edit-target" data-edit="<i>">` so that
+//     a click on any element inside it can be mapped back to
+//     the matching `<fieldset id="sec-edit-<i>">` in the
+//     editor pane.
+//   * a tiny inline JS shim listens for clicks, computes the
+//     section index by walking up to the nearest `[data-edit]`
+//     element, and `postMessage`s `{type:"loom-edit",target:
+//     "<i>"}` to the parent window.
+//   * the editor pane runs a parent-side listener that
+//     accepts that message (origin-checked) and scrolls /
+//     focuses / flashes the corresponding fieldset.
+//
+// SECURITY:
+//   * the inline JS + CSS are pinned in CSP via sha256
+//     hashes — no `unsafe-inline` for the editor preview;
+//   * the parent listener checks `event.origin === location.
+//     origin`, refuses cross-origin postMessages;
+//   * the data-edit attributes never appear in published
+//     bundles (they exist only in this preview-edit handler);
+//   * everything runs behind the existing cookie-session auth.
+//
+// REGRESSION-GUARD: any future renderer change that wraps
+// sections in additional containers MUST keep `[data-edit]` as
+// a *direct* child of the body — otherwise the click target
+// resolution `closest('[data-edit]')` may match an outer wrapper
+// and lose the section index.
+
+const EDIT_OVERLAY_CSS: &str = "\
+[data-edit]{position:relative;outline:1px dashed transparent;\
+transition:outline-color .12s ease,background-color .12s ease;\
+cursor:pointer}\
+[data-edit]:hover{outline-color:#f06;background-color:rgba(255,0,102,.04)}\
+[data-edit].loom-edit-active{outline:2px solid #f06;background-color:rgba(255,0,102,.06)}\
+.loom-edit-banner{position:fixed;top:0;left:0;right:0;\
+background:#003;color:#fff;padding:.4rem .8rem;font:13px/1.4 \
+system-ui,sans-serif;z-index:99999;text-align:center}\
+body{padding-top:2rem !important}";
+
+const EDIT_OVERLAY_JS: &str = "\
+(function(){\
+var origin=location.origin;\
+function send(idx){try{parent.postMessage({type:'loom-edit',target:String(idx)},origin);}catch(e){}}\
+function findIdx(el){var t=el&&el.closest?el.closest('[data-edit]'):null;return t?t.getAttribute('data-edit'):null;}\
+document.addEventListener('click',function(e){\
+var idx=findIdx(e.target);\
+if(idx===null)return;\
+e.preventDefault();e.stopPropagation();\
+document.querySelectorAll('.loom-edit-active').forEach(function(n){n.classList.remove('loom-edit-active');});\
+var t=e.target.closest('[data-edit]');if(t)t.classList.add('loom-edit-active');\
+send(idx);\
+},true);\
+document.addEventListener('keydown',function(e){\
+if(e.key==='Escape'){document.querySelectorAll('.loom-edit-active').forEach(function(n){n.classList.remove('loom-edit-active');});}\
+});\
+})();";
+
+/// Build the HTML doc for `/preview-edit/<slug>.html`.
+///
+/// Composition: `<head>` with strict CSP that pins the inline
+/// overlay style + script via sha256 (no `unsafe-inline`); body
+/// is the rendered sections wrapped in `<div data-edit="<i>">`,
+/// followed by the overlay banner and inline overlay script.
+fn build_edit_preview_html(
+    page: &loom_cms_render::CmsPage,
+    css_href: &str,
+) -> String {
+    let title = escape_html_text(&page.title);
+    let css = escape_html_attr(css_href);
+    let css_hash = csp_sha256(EDIT_OVERLAY_CSS.as_bytes());
+    let js_hash = csp_sha256(EDIT_OVERLAY_JS.as_bytes());
+    let csp = format!(
+        "default-src 'self'; img-src 'self' data:; \
+         style-src 'self' '{css_hash}'; \
+         script-src 'self' '{js_hash}'; \
+         connect-src 'self'; frame-ancestors 'self'"
+    );
+    let mut sections_html = String::new();
+    for (i, sec) in page.sections.iter().enumerate() {
+        let inner = loom_cms_render::render_section(sec).into_string();
+        // The wrapper carries data-edit. The kebab-class makes
+        // the wrapper itself stylable (the overlay CSS targets
+        // [data-edit] specifically — no name collision).
+        sections_html.push_str(&format!(
+            "<div class=\"loom-edit-target\" data-edit=\"{i}\">{inner}</div>"
+        ));
+    }
+    format!(
+        "<!doctype html>\n\
+<html lang=\"en\">\n\
+<head>\n\
+  <meta charset=\"utf-8\">\n\
+  <meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">\n\
+  <meta http-equiv=\"X-Content-Type-Options\" content=\"nosniff\">\n\
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
+  <title>[edit] {title}</title>\n\
+  <link rel=\"stylesheet\" href=\"{css}\">\n\
+  <style>{EDIT_OVERLAY_CSS}</style>\n\
+</head>\n\
+<body>\n\
+  <div class=\"loom-edit-banner\" role=\"status\">\
+   Click any section to jump to its editor. \
+   Press <kbd>Esc</kbd> to clear selection.</div>\n\
+  <main id=\"content\">\n{sections_html}\n  </main>\n\
+  <script>{EDIT_OVERLAY_JS}</script>\n\
+</body>\n\
+</html>\n"
+    )
+}
+
+fn serve_preview_edit(
+    request: tiny_http::Request,
+    cms_root: &std::path::Path,
+    slug_with_html: &str,
+) -> std::io::Result<()> {
+    // Path component is e.g. `home.html` — strip suffix, then
+    // validate as SlugName.
+    let slug_str = slug_with_html.strip_suffix(".html").unwrap_or(slug_with_html);
+    let slug = match SlugName::new(slug_str) {
+        Ok(s) => s,
+        Err(why) => return respond_text(request, 400, why),
+    };
+    let cms_path = cms_root.join(format!("{}.json", slug.as_str()));
+    if !cms_path.is_file() {
+        return respond_text(request, 404, "not found");
+    }
+    let raw = match std::fs::read_to_string(&cms_path) {
+        Ok(s) => s,
+        Err(e) => {
+            return respond_text(request, 500, &format!("read cms: {e}"));
+        }
+    };
+    let page: loom_cms_render::CmsPage = match serde_json::from_str(&raw) {
+        Ok(p) => p,
+        Err(e) => {
+            return respond_text(request, 500, &format!("parse cms: {e}"));
+        }
+    };
+    let html = build_edit_preview_html(&page, "/preview/loom-skin.css");
+    respond_html(request, 200, &html)
 }
 
 fn respond_text(
@@ -9989,5 +10176,90 @@ mod deploy_signing_tests {
             "key-substitution attack must be rejected: {r:?}"
         );
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+}
+
+#[cfg(test)]
+mod edit_overlay_tests {
+    use super::*;
+    use loom_cms_render::{CmsPage, CmsSection};
+
+    fn one_section_page(n: usize) -> CmsPage {
+        let sections: Vec<CmsSection> = (0..n)
+            .map(|i| CmsSection::Heading {
+                level: 2,
+                text: format!("section {i}"),
+            })
+            .collect();
+        CmsPage {
+            schema: None,
+            title: "Test".into(),
+            description: "test page".into(),
+            path: "/test".into(),
+            nav_links: vec![],
+            sections,
+        }
+    }
+
+    #[test]
+    fn build_edit_preview_html_wraps_each_section_with_data_edit() {
+        let page = one_section_page(3);
+        let html = build_edit_preview_html(&page, "/preview/loom-skin.css");
+        assert!(html.contains("data-edit=\"0\""), "missing index 0: {html}");
+        assert!(html.contains("data-edit=\"1\""), "missing index 1");
+        assert!(html.contains("data-edit=\"2\""), "missing index 2");
+        // Order matters — section 0 must precede section 1.
+        let idx0 = html.find("data-edit=\"0\"").expect("0");
+        let idx1 = html.find("data-edit=\"1\"").expect("1");
+        let idx2 = html.find("data-edit=\"2\"").expect("2");
+        assert!(idx0 < idx1, "ordering broken");
+        assert!(idx1 < idx2, "ordering broken");
+    }
+
+    #[test]
+    fn build_edit_preview_html_pins_inline_style_and_script_in_csp() {
+        let page = one_section_page(1);
+        let html = build_edit_preview_html(&page, "/preview/loom-skin.css");
+        let css_hash = csp_sha256(EDIT_OVERLAY_CSS.as_bytes());
+        let js_hash = csp_sha256(EDIT_OVERLAY_JS.as_bytes());
+        assert!(html.contains(&css_hash), "css hash not in CSP: {css_hash}");
+        assert!(html.contains(&js_hash), "js hash not in CSP: {js_hash}");
+        // Hard rule: never use unsafe-inline in the editor preview.
+        assert!(
+            !html.contains("'unsafe-inline'"),
+            "edit preview must never grant unsafe-inline"
+        );
+    }
+
+    #[test]
+    fn build_edit_preview_html_zero_sections_renders_skeleton() {
+        let page = one_section_page(0);
+        let html = build_edit_preview_html(&page, "/preview/loom-skin.css");
+        // Empty sections list ⇒ no data-edit attrs at all.
+        assert!(!html.contains("data-edit="), "no sections → no data-edit");
+        // But the chrome (banner + script + body) still renders.
+        assert!(html.contains("loom-edit-banner"));
+        assert!(html.contains("<script>"));
+    }
+
+    #[test]
+    fn overlay_js_is_origin_checked() {
+        // REGRESSION-GUARD: the overlay must scope its postMessage
+        // to its own origin. If someone removes the origin
+        // argument the iframe could leak edit clicks to any
+        // listener, which is bad even though we run same-origin.
+        assert!(
+            EDIT_OVERLAY_JS.contains("location.origin"),
+            "overlay JS must use location.origin"
+        );
+    }
+
+    #[test]
+    fn build_edit_preview_html_includes_main_landmark() {
+        // ACCESSIBILITY: the rendered preview should still have a
+        // main landmark even though it's the edit-mode variant.
+        let page = one_section_page(1);
+        let html = build_edit_preview_html(&page, "/preview/loom-skin.css");
+        assert!(html.contains("<main"), "missing <main> landmark");
     }
 }
