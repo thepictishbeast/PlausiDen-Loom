@@ -257,6 +257,28 @@
     --loom-blur-glass:          16px;
     --loom-saturate-glass:      160%;
 
+    /* T38 (2026-05-14): typed size scale for fixed-dimension UI
+     * primitives. These were raw pixel literals before; tokenising
+     * them lets a single edit re-skin every icon / avatar / dot
+     * across the system. The scale is 4-multiple-aligned so it
+     * composes cleanly with --loom-space-* (which is also
+     * 4-multiple). */
+    --loom-size-dot:            6px;
+    --loom-size-icon-sm:        20px;
+    --loom-size-icon-md:        24px;
+    --loom-size-avatar-sm:      40px;
+    --loom-size-avatar-md:      48px;
+    /* Font micro-sizes for caption / overline text that fall
+     * below the body font-scale floor. */
+    --loom-text-micro:          10px;
+    /* Skeleton placeholder dimensions (em-relative so they scale
+     * with the surrounding text). */
+    --loom-skeleton-h-text:     1em;
+    --loom-skeleton-h-title:    1.4em;
+    /* Per-component minimum heights to keep cards visually
+     * substantial across content density. */
+    --loom-min-h-card:          120px;
+
     /* Motion — premium curves. The "out" curve is what ships
      * everywhere by default; the "spring" curve is for delight
      * moments (button-press release, reveal). */
@@ -671,7 +693,7 @@
   }
 
   .loom-pulse-dot {
-    width: 6px; height: 6px;
+    width: var(--loom-size-dot); height: var(--loom-size-dot);
     border-radius: var(--loom-radius-full);
     background: var(--comp-badge-dot-bg);
     flex-shrink: 0;
@@ -985,8 +1007,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    width: var(--loom-size-icon-md);
+    height: var(--loom-size-icon-md);
     border-radius: 50%;
     background: var(--loom-color-surface);
     color: var(--loom-color-ink);
@@ -1238,8 +1260,8 @@
   }
   .loom-card-feed-item__avatar {
     flex: 0 0 auto;
-    width: 48px;
-    height: 48px;
+    width: var(--loom-size-avatar-md);
+    height: var(--loom-size-avatar-md);
     border-radius: 50%;
     background: var(--loom-color-surface-muted);
     color: var(--loom-color-ink);
@@ -1456,8 +1478,8 @@
   }
   .loom-composer__avatar {
     flex: 0 0 auto;
-    width: 40px;
-    height: 40px;
+    width: var(--loom-size-avatar-sm);
+    height: var(--loom-size-avatar-sm);
     border-radius: 50%;
     background: var(--loom-color-surface-muted);
     color: var(--loom-color-ink);
@@ -1521,8 +1543,8 @@
   .loom-composer__action-icon {
     display: inline-flex;
     align-items: center;
-    width: 24px;
-    height: 24px;
+    width: var(--loom-size-icon-md);
+    height: var(--loom-size-icon-md);
     color: var(--loom-color-primary, currentColor);
   }
   .loom-composer__action-label {
@@ -1742,7 +1764,7 @@
     margin-top: auto;
   }
   .loom-card-battle .stat-label {
-    font-size: 10px;
+    font-size: var(--loom-text-micro);
     color: var(--loom-color-ink-muted);
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -1983,7 +2005,7 @@
     border-color: var(--loom-color-primary);
   }
   .loom-form-field textarea {
-    min-height: 120px;
+    min-height: var(--loom-min-h-card);
     resize: vertical;
   }
   .loom-form-field .hint {
@@ -2024,8 +2046,8 @@
   }
   .loom-step-indicator .num {
     display: inline-flex;
-    width: 20px;
-    height: 20px;
+    width: var(--loom-size-icon-sm);
+    height: var(--loom-size-icon-sm);
     align-items: center;
     justify-content: center;
     border-radius: var(--loom-radius-full);
@@ -2087,7 +2109,7 @@
   }
   .loom-poc-banner code {
     background: var(--loom-color-bg-overlay);
-    padding: 0 6px;
+    padding: 0 6px; /* loom-allow: micro padding for inline code; sub-token by design (between space-1=4px and space-2=8px) */
     border-radius: var(--loom-radius-sm);
     color: var(--loom-color-ink);
     font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
@@ -2413,8 +2435,8 @@
   color: transparent;
   user-select: none;
 }
-.loom-skeleton[data-shape="text"]   { height: 1em; width: 100%; }
-.loom-skeleton[data-shape="title"]  { height: 1.4em; width: 60%; }
+.loom-skeleton[data-shape="text"]   { height: var(--loom-skeleton-h-text); width: 100%; }
+.loom-skeleton[data-shape="title"]  { height: var(--loom-skeleton-h-title); width: 60%; }
 .loom-skeleton[data-shape="circle"] {
   border-radius: var(--loom-radius-full);
   aspect-ratio: 1; width: var(--loom-space-12);

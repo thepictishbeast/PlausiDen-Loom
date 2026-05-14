@@ -213,12 +213,20 @@ pub fn run_css(root: &Path, extra_allowlist_substrings: &[&str]) -> Result<Vec<C
     // the unit suffix so `\b` covers the boundary cleanly.
     let time_literal = Regex::new(r"\b(\d+(?:\.\d+)?)(ms|s)\b").context("time regex")?;
     // Properties whose values are inherently sub-token (border /
-    // outline widths, font-weights, line-heights). When the entire
-    // line's only spacing literals come from one of these properties,
-    // skip — the value belongs to the property's micro-domain, not
-    // the layout scale.
+    // outline widths, font-weights, line-heights, structural CSS
+    // feature parameters). When the entire line's only spacing
+    // literals come from one of these properties, skip — the value
+    // belongs to the property's micro-domain, not the layout scale.
+    //
+    // T38 (2026-05-14): added grid-template-* / background-size /
+    // background-position / text-shadow / box-shadow /
+    // backdrop-filter / -webkit-backdrop-filter / transform — these
+    // are structural CSS feature parameters whose pixel values are
+    // intrinsic to the feature (gradient extent, grid track size,
+    // shadow blur radius) rather than layout spacing. Catching
+    // them as raw-spacing was a noise source.
     let micro_property = Regex::new(
-        r"^\s*(?:border|outline|border-(?:top|right|bottom|left|width|radius)|outline-(?:width|offset)|stroke-width|line-height|letter-spacing)\b",
+        r"^\s*(?:border|outline|border-(?:top|right|bottom|left|width|radius)|outline-(?:width|offset)|stroke-width|line-height|letter-spacing|grid-template-columns|grid-template-rows|grid-template-areas|grid-auto-columns|grid-auto-rows|background-size|background-position|background|text-shadow|box-shadow|backdrop-filter|-webkit-backdrop-filter|transform|filter|clip-path|mask|mask-position|object-position)\b",
     )
     .context("micro property regex")?;
 
@@ -334,11 +342,18 @@ pub fn run_css(root: &Path, extra_allowlist_substrings: &[&str]) -> Result<Vec<C
                     matched: display.clone(),
                 });
             }
+            // T38: lines that contain a gradient call ANYWHERE are
+            // structural CSS feature parameters. Continuation lines
+            // of multi-line `background:` declarations don't trigger
+            // the start-of-line `micro_property` regex.
+            let in_gradient = line.contains("radial-gradient(")
+                || line.contains("linear-gradient(")
+                || line.contains("conic-gradient(");
             // Spacing pass: skip if this line is a micro-property (border
             // width etc.) OR if every captured spacing literal on the
             // line is below the loom spacing floor (≥ 0.25rem == 4px).
             let spacing_caps: Vec<_> = spacing_literal.captures_iter(line).collect();
-            if !spacing_caps.is_empty() {
+            if !spacing_caps.is_empty() && !in_gradient {
                 let is_micro_prop = micro_property.is_match(trimmed);
                 let all_sub_token = spacing_caps.iter().all(|cap| {
                     let val: f32 = cap[1].parse().unwrap_or(0.0);
