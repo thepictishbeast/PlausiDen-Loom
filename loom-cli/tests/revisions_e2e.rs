@@ -172,6 +172,92 @@ fn revisions_pick_out_of_range_errors() {
 }
 
 #[test]
+fn revisions_list_all_slugs_aggregates_across_pages() {
+    // T76 cycle 84: --all-slugs walks the cms_root for ALL
+    // *.bak.<unix>.<nanos>.json files and prints them
+    // newest-first regardless of slug.
+    let f = fixture("all-slugs");
+    let cms = f.join("cms");
+    write(&cms.join("home.json"), "{}");
+    write(&cms.join("about.json"), "{}");
+    // Synthetic backups across two slugs with three different
+    // timestamps. Newest-first order must interleave correctly.
+    write(&cms.join("home.bak.1700000300.0.json"), "home rev (newest)");
+    write(&cms.join("about.bak.1700000200.0.json"), "about rev (middle)");
+    write(&cms.join("home.bak.1700000100.0.json"), "home rev (oldest)");
+
+    // Note: --all-slugs ignores the slug arg but clap requires
+    // the positional. Pass an empty string by quoting.
+    let bin = env!("CARGO_BIN_EXE_loom");
+    let out = std::process::Command::new(bin)
+        .args(["revisions", "list", "--cms"])
+        .arg(&cms)
+        .args(["--all-slugs", "--lines", "10"])
+        .output()
+        .expect("spawn");
+    assert!(out.status.success(),
+        "all-slugs should exit 0:\nstdout={}\nstderr={}",
+        String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // All 3 should appear with their slug column.
+    assert!(stdout.contains("home.bak.1700000300"),
+        "newest home rev missing:\n{stdout}");
+    assert!(stdout.contains("about.bak.1700000200"),
+        "about rev missing:\n{stdout}");
+    assert!(stdout.contains("home.bak.1700000100"),
+        "oldest home rev missing:\n{stdout}");
+    // Header includes a `slug` column.
+    assert!(stdout.contains("slug"),
+        "header should include slug column:\n{stdout}");
+    // Newest-first ordering: the line containing 1700000300
+    // should appear BEFORE the line containing 1700000200 in
+    // the output.
+    let idx_300 = stdout.find("1700000300").expect("idx 300");
+    let idx_200 = stdout.find("1700000200").expect("idx 200");
+    let idx_100 = stdout.find("1700000100").expect("idx 100");
+    assert!(idx_300 < idx_200 && idx_200 < idx_100,
+        "rows must be newest-first:\n{stdout}");
+
+    let _ = std::fs::remove_dir_all(&f);
+}
+
+#[test]
+fn revisions_list_all_slugs_lines_caps_output() {
+    let f = fixture("all-slugs-cap");
+    let cms = f.join("cms");
+    write(&cms.join("home.json"), "{}");
+    // Write 8 backups; ask for top 3.
+    for i in 0..8 {
+        write(
+            &cms.join(format!("home.bak.{}.0.json", 1700000000 + i)),
+            "x",
+        );
+    }
+    let bin = env!("CARGO_BIN_EXE_loom");
+    let out = std::process::Command::new(bin)
+        .args(["revisions", "list", "--cms"])
+        .arg(&cms)
+        .args(["--all-slugs", "--lines", "3"])
+        .output()
+        .expect("spawn");
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // Should contain the 3 newest (1700000005, 1700000006, 1700000007)
+    // and a "showing 3 of 8" hint.
+    assert!(stdout.contains("1700000007"),
+        "newest must appear:\n{stdout}");
+    assert!(stdout.contains("showing 3 of 8"),
+        "expected `showing N of M` hint:\n{stdout}");
+    // Should NOT contain the 5 oldest.
+    for old_ts in [1700000000, 1700000001, 1700000002, 1700000003, 1700000004] {
+        assert!(!stdout.contains(&format!("{}", old_ts)),
+            "old rev {old_ts} should not appear:\n{stdout}");
+    }
+
+    let _ = std::fs::remove_dir_all(&f);
+}
+
+#[test]
 fn revisions_list_empty_slug_prints_friendly_message() {
     let f = fixture("empty");
     let cms = f.join("cms");

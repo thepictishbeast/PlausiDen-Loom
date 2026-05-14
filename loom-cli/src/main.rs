@@ -164,12 +164,32 @@ enum AuthAction {
 enum RevisionsAction {
     /// List every backup for a slug, newest first.
     /// Output: `N  <unix-human>   <bytes>  <filename>`.
+    ///
+    /// With `--all-slugs`, the slug arg is ignored and the
+    /// output becomes a system-wide change feed: every
+    /// revision across every slug, sorted by timestamp.
+    /// Useful for "what changed in the last hour across the
+    /// whole site". Pairs with cycle 70's report-tail and
+    /// cycle 72's report-stats — same operator-friendly
+    /// chronological view, but for CMS content rather than
+    /// security telemetry.
     List {
         /// CMS root directory (defaults to `cms` in cwd).
         #[arg(long, default_value = "cms")]
         cms: PathBuf,
-        /// Slug (without `.json` suffix).
+        /// Slug (without `.json` suffix). Required unless
+        /// `--all-slugs` is set.
+        #[arg(default_value = "")]
         slug: String,
+        /// System-wide mode: aggregate revisions across every
+        /// slug into one chronological feed.
+        #[arg(long, default_value_t = false)]
+        all_slugs: bool,
+        /// Cap on rows shown (most-recent N when in
+        /// all-slugs mode; ignored otherwise — per-slug
+        /// list is already bounded by LOOM_CMS_REVISIONS_KEEP).
+        #[arg(long, default_value_t = 50)]
+        lines: usize,
     },
     /// Print a revision's contents to stdout.
     /// Index is 1-based; 1 = most-recent backup.
@@ -6777,11 +6797,93 @@ fn handle_add_section(
 /// reversible — the cycle 80 ladder has no terminal step.
 fn cmd_revisions(action: RevisionsAction) -> Result<()> {
     match action {
-        RevisionsAction::List { cms, slug } => revisions_list(&cms, &slug),
+        RevisionsAction::List { cms, slug, all_slugs, lines } => {
+            if all_slugs {
+                revisions_list_all_slugs(&cms, lines)
+            } else if slug.is_empty() {
+                Err(anyhow::anyhow!(
+                    "loom revisions list: SLUG is required (or pass --all-slugs)"
+                ))
+            } else {
+                revisions_list(&cms, &slug)
+            }
+        }
         RevisionsAction::Show { cms, slug, index } => revisions_show(&cms, &slug, index),
         RevisionsAction::Diff { cms, slug, index } => revisions_diff(&cms, &slug, index),
         RevisionsAction::Restore { cms, slug, index } => revisions_restore(&cms, &slug, index),
     }
+}
+
+/// System-wide change feed. Walks the cms_root for ALL
+/// `*.bak.<unix>.<nanos>.json` files, sorts by timestamp
+/// newest-first, prints top N.
+///
+/// Output format mirrors cycle 70/72/81 viewer commands.
+fn revisions_list_all_slugs(cms: &std::path::Path, lines: usize) -> Result<()> {
+    let entries = std::fs::read_dir(cms)
+        .map_err(|e| anyhow::anyhow!("read {}: {e}", cms.display()))?;
+    let mut all: Vec<(std::path::PathBuf, i64, String)> = Vec::new();
+    for entry in entries.flatten() {
+        let p = entry.path();
+        let name = match p.file_name().and_then(|s| s.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+        if !name.ends_with(".json") {
+            continue;
+        }
+        // Parse `<slug>.bak.<unix>.<nanos>.json` → (slug, ts).
+        // The `.bak.` substring separates slug from suffix.
+        let bak_idx = match name.find(".bak.") {
+            Some(i) => i,
+            None => continue,
+        };
+        let slug = &name[..bak_idx];
+        let rest = &name[bak_idx + ".bak.".len()..];
+        let rest = match rest.strip_suffix(".json") {
+            Some(r) => r,
+            None => continue,
+        };
+        let ts_str = rest.split('.').next().unwrap_or("");
+        let ts = match ts_str.parse::<i64>() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let slug_owned = slug.to_owned();
+        all.push((p, ts, slug_owned));
+    }
+    if all.is_empty() {
+        println!(
+            "loom revisions list --all-slugs: no backups found in {}",
+            cms.display()
+        );
+        return Ok(());
+    }
+    // Newest first.
+    all.sort_by(|a, b| b.1.cmp(&a.1));
+    let total = all.len();
+    let shown_count = all.len().min(lines);
+    println!(
+        "{:<22}  {:>8}  {:<20}  {}",
+        "when", "bytes", "slug", "filename"
+    );
+    for (path, ts, slug) in all.iter().take(lines) {
+        let human = report_log_format_unix(*ts).unwrap_or_else(|| ts.to_string());
+        let bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("?");
+        println!("{:<22}  {:>8}  {:<20}  {}", human, bytes, slug, name);
+    }
+    println!();
+    if total > shown_count {
+        println!(
+            "(showing {shown_count} of {total} total; pass `--lines N` to see more)",
+        );
+    } else {
+        println!(
+            "(showed all {total} revisions across the CMS)",
+        );
+    }
+    Ok(())
 }
 
 /// Walk the CMS root for `<slug>.bak.<suffix>.json` files,
