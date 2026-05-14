@@ -5505,7 +5505,7 @@ fn serve_edit_form(
                         "<button type=\"submit\" formaction=\"/{slug}/sections/{i}/add-paragraph\" \
                           formmethod=\"post\" formnovalidate \
                           style=\"padding:.3rem .7rem;font:inherit;border:1px solid #888;\
-                                 border-radius:4px;background:#f4f4f4;cursor:pointer;\
+                                 border-radius:4px;background:#f4f4f4;color:#222;cursor:pointer;\
                                  margin-top:.25rem\">+ paragraph</button>",
                         slug = html_escape(slug),
                     ));
@@ -5539,7 +5539,7 @@ fn serve_edit_form(
                     "<button type=\"submit\" formaction=\"/{slug}/sections/{i}/up\" \
                        formmethod=\"post\" formnovalidate \
                        style=\"padding:.3rem .7rem;font:inherit;border:1px solid #888;\
-                              border-radius:4px;background:#f4f4f4;cursor:pointer\">\
+                              border-radius:4px;background:#f4f4f4;color:#222;cursor:pointer\">\
                        ↑ Move up</button>",
                     slug = html_escape(slug),
                 ));
@@ -5549,7 +5549,7 @@ fn serve_edit_form(
                     "<button type=\"submit\" formaction=\"/{slug}/sections/{i}/down\" \
                        formmethod=\"post\" formnovalidate \
                        style=\"padding:.3rem .7rem;font:inherit;border:1px solid #888;\
-                              border-radius:4px;background:#f4f4f4;cursor:pointer\">\
+                              border-radius:4px;background:#f4f4f4;color:#222;cursor:pointer\">\
                        ↓ Move down</button>",
                     slug = html_escape(slug),
                 ));
