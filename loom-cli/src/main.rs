@@ -6785,6 +6785,129 @@ fn rate_limit_admit(ip: &str, now: u64) -> bool {
     true
 }
 
+/// SUPERSOCIETY cycle 71: size-based log rotation for the
+/// cycle 63 collector. Called inline before each append.
+///
+/// Policy:
+///   - When `violations.jsonl` exceeds `ROTATION_BYTES`
+///     (default 50 MiB), rename it to
+///     `violations-<unix_secs>.jsonl`. The collector reopens
+///     the active path on the next write — its `append`
+///     handle is per-call, no inotify/reopen dance needed.
+///   - Prune the oldest rotations beyond `ROTATION_KEEP`
+///     (default 10). The retained files are the most-recent
+///     rotated logs by filename (sorted lexicographically,
+///     which is also chronological because the suffix is
+///     a fixed-width unix timestamp).
+///
+/// Failure modes degrade silently — if rotation can't
+/// rename or stat, the write proceeds to the (oversize) file
+/// and logs to stderr. The browser side cannot tell;
+/// observability of the rotation itself is via stderr.
+///
+/// The function is short-circuit fast in the common case
+/// (file does not exist OR is smaller than ROTATION_BYTES);
+/// the heavy rename + glob + prune path only runs when
+/// rotation is genuinely needed.
+const ROTATION_BYTES_DEFAULT: u64 = 50 * 1024 * 1024;
+const ROTATION_KEEP_DEFAULT: usize = 10;
+
+/// Threshold + retention reads from env so E2E tests can
+/// exercise rotation cheaply without writing 50 MiB of fake
+/// reports.
+///   LOOM_REPORT_ROTATION_BYTES — override the size ceiling.
+///   LOOM_REPORT_ROTATION_KEEP  — override retention count.
+/// Operators in production rely on the defaults; the env
+/// path is opt-in for tests.
+fn rotation_threshold_bytes() -> u64 {
+    std::env::var("LOOM_REPORT_ROTATION_BYTES")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(ROTATION_BYTES_DEFAULT)
+}
+
+fn rotation_keep_count() -> usize {
+    std::env::var("LOOM_REPORT_ROTATION_KEEP")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(ROTATION_KEEP_DEFAULT)
+}
+
+fn rotate_violations_log_if_needed(active: &std::path::Path) {
+    let meta = match std::fs::metadata(active) {
+        Ok(m) => m,
+        Err(_) => return, // file doesn't exist yet; first write creates.
+    };
+    if meta.len() < rotation_threshold_bytes() {
+        return;
+    }
+    let dir = match active.parent() {
+        Some(p) => p,
+        None => return,
+    };
+    // Fresh-monotonic suffix; nanoseconds defend against
+    // burst-rotation collisions if (somehow) two rotations
+    // are triggered in the same wall-clock second.
+    let suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| format!("{}.{:09}", d.as_secs(), d.subsec_nanos()))
+        .unwrap_or_else(|_| "rotation".to_owned());
+    let rotated = dir.join(format!("violations-{suffix}.jsonl"));
+    if let Err(e) = std::fs::rename(active, &rotated) {
+        eprintln!(
+            "[loom report-collector] rotation rename {} -> {} failed: {e}",
+            active.display(),
+            rotated.display(),
+        );
+        return;
+    }
+    eprintln!(
+        "[loom report-collector] rotated {} bytes -> {}",
+        meta.len(),
+        rotated.display(),
+    );
+    // Prune old rotations beyond ROTATION_KEEP.
+    prune_old_rotations(dir);
+}
+
+fn prune_old_rotations(dir: &std::path::Path) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    let mut rotations: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| s.starts_with("violations-") && s.ends_with(".jsonl"))
+                .unwrap_or(false)
+        })
+        .collect();
+    let keep = rotation_keep_count();
+    if rotations.len() <= keep {
+        return;
+    }
+    // Sort by filename (lexical = chronological because the
+    // suffix is a fixed-width unix-secs.ns timestamp).
+    rotations.sort();
+    let drop_count = rotations.len() - keep;
+    for path in rotations.iter().take(drop_count) {
+        if let Err(e) = std::fs::remove_file(path) {
+            eprintln!(
+                "[loom report-collector] prune {} failed: {e}",
+                path.display(),
+            );
+        } else {
+            eprintln!(
+                "[loom report-collector] pruned old rotation {}",
+                path.display(),
+            );
+        }
+    }
+}
+
 fn handle_security_report(
     mut request: tiny_http::Request,
     cms_root: &std::path::Path,
@@ -6845,6 +6968,13 @@ fn handle_security_report(
         };
         let _ = std::fs::create_dir_all(&reports_dir);
         let log_path = reports_dir.join("violations.jsonl");
+        // SUPERSOCIETY cycle 71: size-based log rotation. The
+        // rate limiter (cycle 69) bounds INSTANTANEOUS write
+        // rate; this rotates the file when it crosses a size
+        // ceiling so the log doesn't grow to disk-full over
+        // weeks. Triggered inline on each write; cheap enough
+        // (one stat call) for the collector's POST volume.
+        rotate_violations_log_if_needed(&log_path);
         use std::io::Write as _;
         match std::fs::OpenOptions::new()
             .create(true)

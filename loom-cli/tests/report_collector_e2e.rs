@@ -57,6 +57,13 @@ impl Drop for ServerGuard {
 /// `loom edit-serve`, wait for the port to bind, return a
 /// guard that kills on drop.
 fn spawn_server() -> ServerGuard {
+    spawn_server_with_env(&[])
+}
+
+/// Same as `spawn_server` but with extra environment vars.
+/// Used by the cycle 71 rotation test to set
+/// LOOM_REPORT_ROTATION_BYTES to a small value.
+fn spawn_server_with_env(env: &[(&str, &str)]) -> ServerGuard {
     let port = pick_port();
     // Per-run fixture under /tmp; cleaned up by Drop.
     // REGRESSION-GUARD: `Instant::now().elapsed()` is
@@ -89,15 +96,17 @@ fn spawn_server() -> ServerGuard {
     // Locate the `loom` binary. Cargo sets `CARGO_BIN_EXE_<name>`
     // for integration tests so we can use the just-built bin.
     let bin = env!("CARGO_BIN_EXE_loom");
-    let child = Command::new(bin)
-        .arg("edit-serve")
+    let mut cmd = Command::new(bin);
+    cmd.arg("edit-serve")
         .arg("--port")
         .arg(port.to_string())
         .current_dir(&fixture)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn loom edit-serve");
+        .stderr(Stdio::piped());
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let child = cmd.spawn().expect("spawn loom edit-serve");
 
     // Wait up to 5 seconds for the port to bind.
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -265,6 +274,69 @@ fn collector_rate_limits_after_100_reports_per_min_same_ip() {
         lines >= 90,
         "rate limit should let through ~100 lines; only saw {lines} — limiter too aggressive?",
     );
+}
+
+#[test]
+fn collector_rotates_log_when_size_threshold_exceeded() {
+    // T76 cycle 71: with LOOM_REPORT_ROTATION_BYTES set to a
+    // tiny ceiling, the second-or-third report should trigger
+    // rotation. Verify:
+    //   - violations.jsonl exists after the final POST.
+    //   - At least one violations-<suffix>.jsonl rotation
+    //     file exists in the same directory.
+    //   - LOOM_REPORT_ROTATION_KEEP=2 caps the retained
+    //     rotation count.
+    let g = spawn_server_with_env(&[
+        ("LOOM_REPORT_ROTATION_BYTES", "1024"),  // 1 KiB ceiling
+        ("LOOM_REPORT_ROTATION_KEEP", "2"),
+    ]);
+    // Send larger bodies to cross the 1 KiB ceiling fast.
+    // 600-byte body × 5 POSTs = ~3 KiB on disk (each line
+    // adds ~120 bytes of JSONL wrapper) → ~3-4 rotations.
+    let body: Vec<u8> = vec![b'x'; 600];
+    let big_body = body;
+    for _ in 0..15 {
+        let (status, _) = post(g.port, "/csp-report",
+            "application/csp-report", &big_body);
+        assert_eq!(status, 204);
+    }
+    // Give the server a moment to flush the last write.
+    sleep(Duration::from_millis(200));
+
+    let reports = g.fixture.join("reports");
+    let mut rotations: Vec<std::path::PathBuf> = std::fs::read_dir(&reports)
+        .expect("reports dir exists")
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| s.starts_with("violations-") && s.ends_with(".jsonl"))
+                .unwrap_or(false)
+        })
+        .collect();
+    rotations.sort();
+    assert!(
+        !rotations.is_empty(),
+        "expected at least one rotation file in {}; got {:?}",
+        reports.display(),
+        std::fs::read_dir(&reports)
+            .expect("readdir")
+            .flatten()
+            .map(|e| e.file_name())
+            .collect::<Vec<_>>(),
+    );
+    // Retention: LOOM_REPORT_ROTATION_KEEP=2 means at most 2
+    // rotated files remain (plus the active one).
+    assert!(
+        rotations.len() <= 2,
+        "expected <= 2 rotation files (keep=2); got {}",
+        rotations.len(),
+    );
+
+    // The active log file should still be present.
+    assert!(reports.join("violations.jsonl").is_file(),
+        "active violations.jsonl should exist after rotation");
 }
 
 #[test]
