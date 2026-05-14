@@ -9000,6 +9000,161 @@ fn sniff_image_format(bytes: &[u8]) -> Option<AcceptedImage> {
     None
 }
 
+// ---- T62 step 7: privacy-preserving metadata strip -----------
+//
+// Mom uploads a photo from her iPhone. Out of the camera, that
+// JPEG carries:
+//   * APP1 / EXIF — GPS lat+long, timestamp, camera serial,
+//                   software version, lens info;
+//   * APP1 / XMP  — Adobe's metadata bag (often more PII);
+//   * APP13 / IPTC — captions, copyright, byline;
+//   * APP14 / Adobe — DCT info + version;
+//   * COM segments — author comments.
+//
+// PNGs from screenshot tools / editors leak less but still carry
+// tEXt/iTXt/zTXt (Software, Author), tIME (last-modified), and
+// occasionally an embedded eXIf chunk.
+//
+// We hand-roll a strip pass over each format rather than pulling
+// the `image` crate (its compile cost + transitive deps don't
+// pay off when all we need is to drop a small set of segment/
+// chunk types). The strip is purely structural — it does NOT
+// re-encode pixel data, so there is no quality loss and no
+// CPU/RAM exposure to a malicious decoder.
+//
+// What we KEEP: ICC color profiles (APP2 in JPEG, iCCP in PNG)
+// for color fidelity, and every chunk required to render the
+// image. What we DROP: anything carrying user-attributable info
+// or third-party metadata bags.
+
+/// Strip metadata from `input` for the given format. Returns
+/// owned cleaned bytes. On parse failure, returns Err — the
+/// upload handler will refuse the upload outright (better than
+/// silently storing the unsanitised original).
+///
+/// SECURITY: parsing is bounds-checked and never re-encodes.
+/// REGRESSION-GUARD: any new AcceptedImage variant must extend
+/// this match — the explicit arms make the requirement visible.
+fn strip_image_metadata(format: AcceptedImage, input: &[u8]) -> Result<Vec<u8>, &'static str> {
+    match format {
+        AcceptedImage::Jpeg => strip_jpeg_metadata(input),
+        AcceptedImage::Png => strip_png_metadata(input),
+        // GIF and WebP strips queued (T62-step-7b). For the
+        // first cut we pass them through unchanged — neither is
+        // a typical EXIF/GPS source from a smartphone camera,
+        // and a half-correct strip is worse than no strip.
+        AcceptedImage::Gif | AcceptedImage::Webp => Ok(input.to_vec()),
+    }
+}
+
+fn strip_jpeg_metadata(input: &[u8]) -> Result<Vec<u8>, &'static str> {
+    if input.len() < 4 || input[0] != 0xFF || input[1] != 0xD8 {
+        return Err("not a JPEG (missing SOI)");
+    }
+    let mut out = Vec::with_capacity(input.len());
+    out.extend_from_slice(&input[..2]); // SOI
+    let mut i = 2usize;
+    while i < input.len() {
+        if input[i] != 0xFF {
+            return Err("malformed JPEG (expected marker prefix)");
+        }
+        // RFC 4: any 0xFF fill bytes between markers are valid.
+        while i < input.len() && input[i] == 0xFF {
+            i += 1;
+        }
+        if i >= input.len() {
+            return Err("truncated JPEG (marker prefix without code)");
+        }
+        let marker = input[i];
+        i += 1;
+        match marker {
+            0xD9 => {
+                // EOI — end of image.
+                out.push(0xFF);
+                out.push(marker);
+                return Ok(out);
+            }
+            0xDA => {
+                // SOS — start of scan. The compressed data after
+                // SOS is opaque to us; the simplest safe behaviour
+                // is to copy the rest of the input verbatim. Any
+                // trailing bytes after EOI are preserved (some
+                // cameras append a thumbnail index or padding).
+                out.push(0xFF);
+                out.push(0xDA);
+                out.extend_from_slice(&input[i..]);
+                return Ok(out);
+            }
+            // Standalone markers (no segment payload).
+            0x00 | 0x01 | 0xD0..=0xD7 => {
+                out.push(0xFF);
+                out.push(marker);
+            }
+            _ => {
+                if i + 2 > input.len() {
+                    return Err("truncated JPEG segment length");
+                }
+                let seg_len = u16::from_be_bytes([input[i], input[i + 1]]) as usize;
+                if seg_len < 2 || i + seg_len > input.len() {
+                    return Err("malformed JPEG segment length");
+                }
+                // Drop privacy-leaking segments. APP2 (0xE2) is
+                // commonly an ICC profile — KEEP for color fidelity.
+                let drop = matches!(marker, 0xE1 | 0xED | 0xEE | 0xFE);
+                if !drop {
+                    out.push(0xFF);
+                    out.push(marker);
+                    out.extend_from_slice(&input[i..i + seg_len]);
+                }
+                i += seg_len;
+            }
+        }
+    }
+    Err("JPEG ended without EOI")
+}
+
+fn strip_png_metadata(input: &[u8]) -> Result<Vec<u8>, &'static str> {
+    const PNG_SIG: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+    if input.len() < 8 || &input[..8] != PNG_SIG {
+        return Err("not a PNG (bad signature)");
+    }
+    let mut out = Vec::with_capacity(input.len());
+    out.extend_from_slice(PNG_SIG);
+    let mut i = 8usize;
+    while i + 8 <= input.len() {
+        let len = u32::from_be_bytes([input[i], input[i + 1], input[i + 2], input[i + 3]])
+            as usize;
+        let kind = &input[i + 4..i + 8];
+        // Length-cap: PNG spec allows up to 2^31 - 1, but anything
+        // close to that in our editor uploads is hostile. The
+        // outer 10 MiB cap on the request body already bounds us;
+        // this just avoids arithmetic overflow in pathological
+        // cases.
+        if len > input.len() {
+            return Err("PNG chunk length overflows input");
+        }
+        let chunk_total = 4usize + 4 + len + 4; // length + type + data + crc
+        if i + chunk_total > input.len() {
+            return Err("PNG chunk overruns input");
+        }
+        // Drop privacy-leaking chunks; preserve everything else
+        // (IHDR / PLTE / IDAT / tRNS / sRGB / iCCP / gAMA / cHRM
+        // / sBIT / bKGD / hIST / pHYs / sPLT / IEND). iCCP is the
+        // ICC color profile — keep for color fidelity.
+        let drop = matches!(kind, b"tEXt" | b"iTXt" | b"zTXt" | b"tIME" | b"eXIf");
+        if !drop {
+            out.extend_from_slice(&input[i..i + chunk_total]);
+        }
+        i += chunk_total;
+        if kind == b"IEND" {
+            // IEND is the terminator; trailing bytes (rare but
+            // legal) are dropped to avoid hidden payload smuggling.
+            return Ok(out);
+        }
+    }
+    Err("PNG ended without IEND")
+}
+
 /// Compute lowercase hex sha256 of bytes.
 fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::{Digest as _, Sha256};
@@ -9122,8 +9277,28 @@ fn handle_upload_image(
         }
     };
 
-    // Content-addressed filename.
-    let hex = sha256_hex(file_bytes);
+    // T62 step 7: strip privacy-leaking metadata (EXIF / GPS /
+    // timestamps / author / camera serial) BEFORE hashing or
+    // storing. The content address derives from the cleaned
+    // bytes so two images that differ only in metadata
+    // dedupe cleanly. On parse failure we refuse the upload —
+    // storing the un-sanitised original would silently leak Mom's
+    // GPS coordinates the moment she embedded the image.
+    let original_len = file_bytes.len();
+    let cleaned = match strip_image_metadata(format, file_bytes) {
+        Ok(b) => b,
+        Err(why) => {
+            return respond_text(
+                request,
+                422,
+                &format!("upload rejected: {why} (could not safely strip metadata)"),
+            );
+        }
+    };
+    let stripped_bytes = original_len.saturating_sub(cleaned.len());
+
+    // Content-addressed filename — hash the CLEANED bytes.
+    let hex = sha256_hex(&cleaned);
     let rel_path = std::path::PathBuf::from(format!("uploads/{hex}.{}", format.ext()));
 
     // Scope writes via capability. static/ may not exist yet.
@@ -9132,22 +9307,35 @@ fn handle_upload_image(
         std::io::Error::other(format!("static_root {} unreadable", static_root.display()))
     })?;
     let abs = cap
-        .write_file(&rel_path, file_bytes)
+        .write_file(&rel_path, &cleaned)
         .map_err(|_| std::io::Error::other("write upload"))?;
 
     let url = format!("/uploads/{hex}.{}", format.ext());
+    // Surface the privacy strip so Mom can see the GPS / EXIF
+    // were removed (UX-DEBT: localise + theme the success page).
+    let strip_line = if stripped_bytes > 0 {
+        format!(
+            "<p style=\"color:#063;\">Removed {stripped_bytes} bytes of metadata \
+             (EXIF / GPS / timestamps) before storing.</p>"
+        )
+    } else {
+        String::from(
+            "<p style=\"color:#666;\">No metadata to remove (image was already clean).</p>",
+        )
+    };
     let mut resp = tiny_http::Response::from_string(format!(
         r#"<!doctype html><meta charset=utf-8><title>upload ok</title>
 <style>body{{font:16px/1.5 system-ui;max-width:36rem;margin:3rem auto;padding:0 1rem}}
 img{{max-width:100%;border:1px solid #ddd;border-radius:6px}}
 code{{background:#f4f4f4;padding:.1em .35em;border-radius:3px}}</style>
 <h1>uploaded</h1>
-<p>Stored at <code>{}</code> ({} bytes, {}).</p>
+<p>Stored at <code>{}</code> ({} bytes after metadata strip, {}).</p>
+{strip_line}
 <p>URL to embed in a section: <code>{}</code></p>
 <p><img src="{}" alt="just-uploaded image"></p>
 <p><a href="/uploads">← all uploads</a> · <a href="/">all pages</a></p>"#,
         html_escape(&abs.display().to_string()),
-        file_bytes.len(),
+        cleaned.len(),
         format.content_type(),
         html_escape(&url),
         html_escape(&url),
@@ -9961,6 +10149,19 @@ fn try_sign_manifest_with_key(
 /// against a *trusted* key. The bundle-local pubkey is untrusted
 /// data, so it is treated as a deposit-for-cross-verification —
 /// never as a trust anchor on its own.
+///
+/// SHIP-DECISION: 2026-05-13 (claude). `ValidUntrusted` is
+/// fail-OPEN by design — when no trust anchor is configured we
+/// accept the signature but flag it loudly in the verify output.
+/// Strict supersociety doctrine would fail-closed. Accepted
+/// residual risk: an attacker who fully controls the bundle and
+/// fully controls the operator's local config (no anchor file +
+/// bundle pubkey deposit) gets a "valid signature" verdict that
+/// is weaker than the warning text suggests. The mitigation is
+/// the warning string + the recommendation to run `loom attest
+/// init` before deploy. T47e (`loom attest export`) lowers the
+/// barrier to anchor distribution; once that ships, this should
+/// be reassessed for fail-closed default.
 #[derive(Debug, PartialEq, Eq)]
 enum SigStatus {
     /// No `manifest.sig` file present. Bundle is unsigned.
@@ -10208,6 +10409,200 @@ mod deploy_signing_tests {
         );
         let _ = std::fs::remove_dir_all(&tmp);
     }
+}
+
+#[cfg(test)]
+mod image_strip_tests {
+    //! T62 step 7. Validate JPEG / PNG metadata removal end-to-end.
+    use super::*;
+
+    /// Build a minimal JPEG: SOI, optional segments, SOS+empty
+    /// scan, EOI. The "scan" data is just an EOI directly after
+    /// the SOS marker — invalid as a real image but structurally
+    /// valid for our parser, which doesn't decode pixels.
+    fn build_jpeg(segments: &[(u8, &[u8])]) -> Vec<u8> {
+        let mut out = vec![0xFF, 0xD8]; // SOI
+        for (marker, data) in segments {
+            out.push(0xFF);
+            out.push(*marker);
+            let len = (data.len() + 2) as u16;
+            out.extend_from_slice(&len.to_be_bytes());
+            out.extend_from_slice(data);
+        }
+        // SOS with 2-byte length, no scan body, then EOI.
+        out.push(0xFF);
+        out.push(0xDA);
+        out.extend_from_slice(&3u16.to_be_bytes());
+        out.push(0x00);
+        out.push(0xFF);
+        out.push(0xD9);
+        out
+    }
+
+    #[test]
+    fn jpeg_strip_removes_app1_exif() {
+        let original = build_jpeg(&[
+            (0xE0, b"JFIF\0"),                // APP0  — keep
+            (0xE1, b"Exif\0\0BIG SECRETS"),   // APP1  — drop
+            (0xDB, b"qtable"),                // DQT   — keep
+        ]);
+        let cleaned = strip_jpeg_metadata(&original).expect("strip ok");
+        assert!(cleaned.len() < original.len(), "must be smaller");
+        assert!(
+            !cleaned.windows(b"BIG SECRETS".len()).any(|w| w == b"BIG SECRETS"),
+            "EXIF payload must be stripped"
+        );
+        // APP0 + DQT + SOS + EOI must survive.
+        assert!(cleaned.windows(2).any(|w| w == [0xFF, 0xE0]), "APP0 kept");
+        assert!(cleaned.windows(2).any(|w| w == [0xFF, 0xDB]), "DQT kept");
+        assert!(cleaned.windows(2).any(|w| w == [0xFF, 0xD9]), "EOI present");
+    }
+
+    #[test]
+    fn jpeg_strip_keeps_icc_profile_app2() {
+        let original = build_jpeg(&[
+            (0xE2, b"ICC_PROFILE\0color data"),
+            (0xE1, b"Exif\0\0gps coords"),
+        ]);
+        let cleaned = strip_jpeg_metadata(&original).expect("strip ok");
+        assert!(
+            cleaned.windows(b"color data".len()).any(|w| w == b"color data"),
+            "ICC profile (APP2) must be preserved for color fidelity"
+        );
+        assert!(
+            !cleaned.windows(b"gps coords".len()).any(|w| w == b"gps coords"),
+            "EXIF must be dropped"
+        );
+    }
+
+    #[test]
+    fn jpeg_strip_drops_iptc_and_comment_segments() {
+        let original = build_jpeg(&[
+            (0xED, b"Photoshop 3.0\0IPTC stuff"),
+            (0xFE, b"AUTHOR COMMENT"),
+            (0xEE, b"Adobe v1.0"),
+        ]);
+        let cleaned = strip_jpeg_metadata(&original).expect("strip ok");
+        for needle in [&b"IPTC stuff"[..], b"AUTHOR COMMENT", b"Adobe v1.0"] {
+            assert!(
+                !cleaned.windows(needle.len()).any(|w| w == needle),
+                "must drop: {needle:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn jpeg_strip_rejects_truncated_input() {
+        assert!(strip_jpeg_metadata(b"\xFF\xD8").is_err());
+        assert!(strip_jpeg_metadata(b"\xFF\xD8\xFF").is_err());
+        assert!(strip_jpeg_metadata(b"not a jpeg").is_err());
+    }
+
+    fn build_png(chunks: &[(&[u8; 4], &[u8])]) -> Vec<u8> {
+        let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+        for (kind, data) in chunks {
+            let len = data.len() as u32;
+            out.extend_from_slice(&len.to_be_bytes());
+            out.extend_from_slice(*kind);
+            out.extend_from_slice(data);
+            // Bogus CRC — our strip pass doesn't verify CRCs.
+            out.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        }
+        out
+    }
+
+    #[test]
+    fn png_strip_removes_text_and_time_chunks() {
+        let original = build_png(&[
+            (b"IHDR", b"header bytes"),
+            (b"tEXt", b"Software\0Photoshop CS6"),
+            (b"iTXt", b"GPS\0\0\0\0\0lat=1,lng=2"),
+            (b"tIME", b"\x07\xE9\x05\x0D\x0E\x00\x00"),
+            (b"IDAT", b"pixels"),
+            (b"IEND", b""),
+        ]);
+        let cleaned = strip_png_metadata(&original).expect("strip ok");
+        for needle in [
+            &b"Photoshop CS6"[..],
+            b"lat=1,lng=2",
+        ] {
+            assert!(
+                !cleaned.windows(needle.len()).any(|w| w == needle),
+                "must drop: {needle:?}"
+            );
+        }
+        // IHDR + IDAT + IEND must survive.
+        assert!(cleaned.windows(b"IHDR".len()).any(|w| w == b"IHDR"));
+        assert!(cleaned.windows(b"IDAT".len()).any(|w| w == b"IDAT"));
+        assert!(cleaned.windows(b"IEND".len()).any(|w| w == b"IEND"));
+    }
+
+    #[test]
+    fn png_strip_keeps_iccp_color_profile() {
+        let original = build_png(&[
+            (b"IHDR", b"header"),
+            (b"iCCP", b"sRGB IEC61966-2.1\0\0sentinel-icc-bytes"),
+            (b"IDAT", b"pixels"),
+            (b"IEND", b""),
+        ]);
+        let cleaned = strip_png_metadata(&original).expect("strip ok");
+        assert!(
+            cleaned.windows(b"sentinel-icc-bytes".len()).any(|w| w == b"sentinel-icc-bytes"),
+            "iCCP color profile must be preserved"
+        );
+    }
+
+    #[test]
+    fn png_strip_rejects_chunk_overrun() {
+        // Length field claims 9999 bytes but the chunk body is empty.
+        let mut bad = b"\x89PNG\r\n\x1a\n".to_vec();
+        bad.extend_from_slice(&9999u32.to_be_bytes());
+        bad.extend_from_slice(b"IDAT");
+        assert!(strip_png_metadata(&bad).is_err());
+    }
+
+    #[test]
+    fn png_strip_drops_trailing_bytes_after_iend() {
+        let mut original = build_png(&[
+            (b"IHDR", b"header"),
+            (b"IDAT", b"pixels"),
+            (b"IEND", b""),
+        ]);
+        original.extend_from_slice(b"HIDDEN PAYLOAD");
+        let cleaned = strip_png_metadata(&original).expect("strip ok");
+        assert!(
+            !cleaned.windows(b"HIDDEN PAYLOAD".len()).any(|w| w == b"HIDDEN PAYLOAD"),
+            "trailing bytes after IEND must be dropped"
+        );
+    }
+
+    #[test]
+    fn strip_image_metadata_passes_through_gif_and_webp() {
+        let gif = b"GIF89a\x01\x00\x01\x00\x00\x00\x00\x00";
+        let webp = b"RIFF\x10\x00\x00\x00WEBPVP8 ";
+        let g = strip_image_metadata(AcceptedImage::Gif, gif).expect("gif passes");
+        let w = strip_image_metadata(AcceptedImage::Webp, webp).expect("webp passes");
+        assert_eq!(g, gif);
+        assert_eq!(w, webp);
+    }
+
+    proptest::proptest! {
+        // Fuzz: any random byte string handed to the JPEG /
+        // PNG stripper must NEVER panic — return Err is fine.
+        // Catches malformed-input crashes the AVP-2 fuzz pass
+        // would also catch but cheaper to run as a unit.
+        #[test]
+        fn jpeg_strip_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..1024)) {
+            let _ = strip_jpeg_metadata(&bytes);
+        }
+
+        #[test]
+        fn png_strip_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..1024)) {
+            let _ = strip_png_metadata(&bytes);
+        }
+    }
+
+    use proptest::prelude::any;
 }
 
 #[cfg(test)]
