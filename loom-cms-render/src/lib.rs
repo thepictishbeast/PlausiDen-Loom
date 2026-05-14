@@ -2532,7 +2532,8 @@ header.loom-page-header{padding:1rem;border-bottom:1px solid var(--loom-border)}
 footer.loom-page-footer{padding:1rem;border-top:1px solid var(--loom-border);\
 color:var(--loom-muted);margin-top:2rem}\
 nav.loom-page-nav{display:flex;gap:1rem;align-items:center;flex-wrap:wrap}\
-nav.loom-page-nav a{text-decoration:none;color:var(--loom-fg)}\
+nav.loom-page-nav a{text-decoration:none;color:var(--loom-fg);\
+display:inline-flex;align-items:center;min-height:44px;padding:.5rem .25rem}\
 nav.loom-page-nav a:hover{color:var(--loom-link-hover)}\
 .loom-page-title{margin:.5rem 0 0;font-weight:600}\
 main#content{padding:1rem;max-width:60rem;margin:0 auto}\
