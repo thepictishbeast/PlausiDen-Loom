@@ -5561,8 +5561,10 @@ fn render_section_for_edit(sec: &loom_cms_render::CmsSection) -> String {
     use loom_cms_render::CmsSection;
     match sec {
         CmsSection::Heading { level, text } => {
-            // Renderer clamps to h2..h6 (h1 is owned by page-shell).
-            let lvl = (*level).clamp(2, 6);
+            // T36: HeadingLevel is typed; no clamp needed (the
+            // enum constructor + Deserialize already enforce
+            // 2..=6).
+            let lvl = level.as_u8();
             format!(
                 "<h{lvl} class=\"loom-heading\" data-loom-level=\"{lvl}\" \
                  data-edit-field=\"text\">{}</h{lvl}>",
@@ -12523,7 +12525,7 @@ mod inline_edit_tests {
     fn render_section_for_edit_emits_data_edit_field_per_kind() {
         use loom_cms_render::CmsSection;
         let h = render_section_for_edit(&CmsSection::Heading {
-            level: 2,
+            level: loom_cms_render::HeadingLevel::H2,
             text: "T".into(),
         });
         assert!(h.contains("data-edit-field=\"text\""), "heading: {h}");
@@ -12579,7 +12581,7 @@ mod inline_edit_tests {
         // execute as HTML inside the editor preview.
         use loom_cms_render::CmsSection;
         let h = render_section_for_edit(&CmsSection::Heading {
-            level: 2,
+            level: loom_cms_render::HeadingLevel::H2,
             text: "<script>alert(1)</script>".into(),
         });
         assert!(!h.contains("<script>alert(1)</script>"));
@@ -12595,7 +12597,7 @@ mod edit_overlay_tests {
     fn one_section_page(n: usize) -> CmsPage {
         let sections: Vec<CmsSection> = (0..n)
             .map(|i| CmsSection::Heading {
-                level: 2,
+                level: loom_cms_render::HeadingLevel::H2,
                 text: format!("section {i}"),
             })
             .collect();

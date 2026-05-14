@@ -211,14 +211,136 @@ pub enum CmsSection {
         /// Plain-text body (no markup).
         text: String,
     },
-    /// A heading. Level constrained to 2-4 (h1 is owned by the
-    /// page-shell template, not section content).
+    /// A heading. Level constrained to 2-6 (h1 is owned by the
+    /// page-shell template, not section content). T36 (2026-05-14):
+    /// `level` is a typed `HeadingLevel` enum so out-of-range
+    /// values are uncompilable AND parse-failed at the
+    /// JSON boundary — no runtime clamp surface.
     Heading {
         /// Heading text.
         text: String,
-        /// `2` → `<h2>`, etc. Validation in [`render_section`].
-        level: u8,
+        /// Typed heading level. JSON: integer 2..=6 (anything
+        /// else fails parse with `deny_unknown_fields`-style
+        /// strictness).
+        level: HeadingLevel,
     },
+}
+
+/// T36: typed heading level for `CmsSection::Heading`.
+///
+/// `<h1>` is reserved for the page-shell template (every page has
+/// exactly one); section headings live at h2..=h6. The variants
+/// here mirror the HTML tag set 1:1 — there is no `H1` variant
+/// because emitting a second h1 from CMS content would break
+/// landmark semantics.
+///
+/// JSON wire format: integer `2..=6`. `serde` round-trips through
+/// `u8`; out-of-range values fail `Deserialize` at the boundary
+/// with a clear error, never landing as runtime drift.
+///
+/// Why typed instead of `u8`:
+///   * **Compile-time guarantee** — `HeadingLevel::H7` doesn't
+///     compile. Runtime clamps + `data-cms-warn` markers no
+///     longer needed; the level is always valid by construction.
+///   * **Exhaustive match** — every consumer matches on the
+///     enum and the compiler refuses to forget a variant.
+///   * **Type-state doctrine** — moves a runtime invariant into
+///     the type system, where AVP-2's "no boolean blindness"
+///     rule belongs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeadingLevel {
+    /// `<h2>` — top-level section heading inside a page.
+    H2,
+    /// `<h3>` — subsection.
+    H3,
+    /// `<h4>`.
+    H4,
+    /// `<h5>`.
+    H5,
+    /// `<h6>`.
+    H6,
+}
+
+impl HeadingLevel {
+    /// Tag name (`"h2"`..`"h6"`).
+    #[must_use]
+    pub const fn tag(self) -> &'static str {
+        match self {
+            Self::H2 => "h2",
+            Self::H3 => "h3",
+            Self::H4 => "h4",
+            Self::H5 => "h5",
+            Self::H6 => "h6",
+        }
+    }
+
+    /// Numeric level (`2`..`6`).
+    #[must_use]
+    pub const fn as_u8(self) -> u8 {
+        match self {
+            Self::H2 => 2,
+            Self::H3 => 3,
+            Self::H4 => 4,
+            Self::H5 => 5,
+            Self::H6 => 6,
+        }
+    }
+
+    /// Construct from a numeric level. Returns `None` for any
+    /// value outside `2..=6`.
+    #[must_use]
+    pub const fn from_u8(n: u8) -> Option<Self> {
+        match n {
+            2 => Some(Self::H2),
+            3 => Some(Self::H3),
+            4 => Some(Self::H4),
+            5 => Some(Self::H5),
+            6 => Some(Self::H6),
+            _ => None,
+        }
+    }
+}
+
+impl Serialize for HeadingLevel {
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        ser.serialize_u8(self.as_u8())
+    }
+}
+
+impl<'de> Deserialize<'de> for HeadingLevel {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        let n = u8::deserialize(de)?;
+        Self::from_u8(n).ok_or_else(|| {
+            serde::de::Error::custom(format!(
+                "heading level must be 2..=6 (h1 is owned by the page-shell), got {n}"
+            ))
+        })
+    }
+}
+
+impl schemars::JsonSchema for HeadingLevel {
+    fn schema_name() -> String {
+        "HeadingLevel".to_owned()
+    }
+    fn json_schema(_gen: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+        // Integer enum 2..=6 — the editor / IDE autocomplete sees
+        // exactly the valid values.
+        let mut obj = schemars::schema::SchemaObject {
+            instance_type: Some(schemars::schema::InstanceType::Integer.into()),
+            ..Default::default()
+        };
+        obj.enum_values = Some(vec![
+            serde_json::json!(2),
+            serde_json::json!(3),
+            serde_json::json!(4),
+            serde_json::json!(5),
+            serde_json::json!(6),
+        ]);
+        obj.metadata().description = Some(
+            "Heading level (h2-h6). h1 is reserved for the page-shell.".to_owned(),
+        );
+        schemars::schema::Schema::Object(obj)
+    }
 }
 
 /// Hero CTA — the single typed primary action attached to a Hero
@@ -774,18 +896,30 @@ pub fn render_section(section: &CmsSection) -> Markup {
             p class="loom-prose" { (text) }
         },
         CmsSection::Heading { text, level } => {
-            // Constrain to h2-h4 — h1 is owned by the page-shell.
-            // Any out-of-range level falls back to h2 (still
-            // semantically valid, just less specific) AND emits a
-            // data-cms-warn attribute so the forge audit can spot
-            // CMS pages with bad heading levels.
+            // T36 (2026-05-14): typed HeadingLevel enum makes
+            // out-of-range values uncompilable. The runtime clamp
+            // + data-cms-warn fallback are gone — invalid levels
+            // never reach this match (Deserialize fails first at
+            // the JSON boundary).
+            //
+            // Future: enabling `non_exhaustive` on HeadingLevel
+            // would turn this into an explicit-arm match; for
+            // now the compiler exhaustiveness check is enough.
             match level {
-                3 => html! { h3 class="loom-heading" data-loom-level="3" { (text) } },
-                4 => html! { h4 class="loom-heading" data-loom-level="4" { (text) } },
-                _ => html! {
-                    h2 class="loom-heading" data-loom-level="2" data-cms-warn=[
-                        (*level != 2).then_some("level-clamped")
-                    ] { (text) }
+                HeadingLevel::H2 => html! {
+                    h2 class="loom-heading" data-loom-level="2" { (text) }
+                },
+                HeadingLevel::H3 => html! {
+                    h3 class="loom-heading" data-loom-level="3" { (text) }
+                },
+                HeadingLevel::H4 => html! {
+                    h4 class="loom-heading" data-loom-level="4" { (text) }
+                },
+                HeadingLevel::H5 => html! {
+                    h5 class="loom-heading" data-loom-level="5" { (text) }
+                },
+                HeadingLevel::H6 => html! {
+                    h6 class="loom-heading" data-loom-level="6" { (text) }
                 },
             }
         }
@@ -1166,17 +1300,25 @@ mod tests {
             nav_links: vec![],
             sections: vec![CmsSection::Heading {
                 text: "Section".to_owned(),
-                level: 2,
+                level: HeadingLevel::H2,
             }],
         };
         let html = render_to_string(&p);
         assert!(html.contains(r#"<h2 class="loom-heading" data-loom-level="2""#));
+        // T36: data-cms-warn no longer emitted — invalid levels
+        // can't construct, so no clamp surface to warn about.
         assert!(!html.contains("data-cms-warn"));
     }
 
     #[test]
-    fn heading_level_3_and_4_render_correctly() {
-        for (level, expected_tag) in [(3, "h3"), (4, "h4")] {
+    fn heading_level_3_through_6_render_correctly() {
+        // T36: full h2-h6 coverage now (was h2-h4 with clamp).
+        for (level, expected_tag) in [
+            (HeadingLevel::H3, "h3"),
+            (HeadingLevel::H4, "h4"),
+            (HeadingLevel::H5, "h5"),
+            (HeadingLevel::H6, "h6"),
+        ] {
             let p = CmsPage {
                 schema: None,
                 title: "x".to_owned(),
@@ -1191,27 +1333,75 @@ mod tests {
             let html = render_to_string(&p);
             assert!(
                 html.contains(&format!("<{expected_tag} ")),
-                "level {level} → {expected_tag}: {html}"
+                "level {level:?} → {expected_tag}: {html}"
+            );
+        }
+    }
+
+    /// T36 REGRESSION-GUARD: out-of-range levels in JSON are now
+    /// REJECTED at parse time (was: clamped to h2 with warn).
+    /// This test pins the new fail-closed behaviour.
+    #[test]
+    fn heading_level_out_of_range_fails_deserialize() {
+        for bad in [0u8, 1, 7, 99, 255] {
+            let json = format!(
+                r#"{{"title":"x","description":"x","path":"/","sections":[
+                   {{"kind":"heading","level":{bad},"text":"x"}}
+                ]}}"#
+            );
+            let r: Result<CmsPage, _> = serde_json::from_str(&json);
+            assert!(
+                r.is_err(),
+                "level {bad} must fail deserialize, got: {:?}",
+                r
+            );
+            let err_msg = r.unwrap_err().to_string();
+            assert!(
+                err_msg.contains("2..=6") || err_msg.contains("h1"),
+                "error must explain valid range, got: {err_msg}"
             );
         }
     }
 
     #[test]
-    fn heading_level_out_of_range_clamps_with_warn() {
-        let p = CmsPage {
-            schema: None,
-            title: "x".to_owned(),
-            description: "x".to_owned(),
-            path: "/x".to_owned(),
-            nav_links: vec![],
-            sections: vec![CmsSection::Heading {
-                text: "x".to_owned(),
-                level: 7,
-            }],
-        };
-        let html = render_to_string(&p);
-        assert!(html.contains("<h2 "));
-        assert!(html.contains(r#"data-cms-warn="level-clamped""#));
+    fn heading_level_in_range_round_trips() {
+        for n in 2u8..=6 {
+            let json = format!(
+                r#"{{"title":"x","description":"x","path":"/","sections":[
+                   {{"kind":"heading","level":{n},"text":"x"}}
+                ]}}"#
+            );
+            let p: CmsPage = serde_json::from_str(&json).expect("valid level parses");
+            // Round-trip the level through the typed enum.
+            if let CmsSection::Heading { level, .. } = &p.sections[0] {
+                assert_eq!(level.as_u8(), n);
+            } else {
+                panic!("section is not a heading");
+            }
+        }
+    }
+
+    #[test]
+    fn heading_level_serialize_emits_integer() {
+        let level = HeadingLevel::H3;
+        let s = serde_json::to_string(&level).expect("serialize");
+        assert_eq!(s, "3");
+    }
+
+    #[test]
+    fn heading_level_from_u8_rejects_out_of_range() {
+        assert_eq!(HeadingLevel::from_u8(0), None);
+        assert_eq!(HeadingLevel::from_u8(1), None);
+        assert_eq!(HeadingLevel::from_u8(2), Some(HeadingLevel::H2));
+        assert_eq!(HeadingLevel::from_u8(6), Some(HeadingLevel::H6));
+        assert_eq!(HeadingLevel::from_u8(7), None);
+        assert_eq!(HeadingLevel::from_u8(255), None);
+    }
+
+    #[test]
+    fn heading_level_tag_strings() {
+        assert_eq!(HeadingLevel::H2.tag(), "h2");
+        assert_eq!(HeadingLevel::H6.tag(), "h6");
     }
 
     #[test]
@@ -2553,7 +2743,7 @@ mod page_shell_tests {
             description: "T".into(),
             path: "/".into(),
             nav_links: vec![],
-            sections: vec![CmsSection::Heading { level: 2, text: "x".into() }],
+            sections: vec![CmsSection::Heading { level: HeadingLevel::H2, text: "x".into() }],
         };
         let body = render_page(&p).into_string();
         let composed = page_shell(&p, "/loom-skin.css", &body, None);
