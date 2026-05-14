@@ -4243,7 +4243,155 @@ fn serve_index(
     );
 
     body.push_str("<hr><p><a href=\"/forge\">forge admin →</a></p>");
+    // T64b: tour overlay — appended last so it sits on top of
+    // the index content. `?tour=N` activates step N (1..6).
+    if let Some(step) = parse_tour_query(request.url()) {
+        body.push_str(&render_tour_overlay(step, "/"));
+    }
     respond_html(request, 200, &body)
+}
+
+// ---- T64b: interactive query-string tour ----
+//
+// Owner directive (long-standing): "have a tour on how to use the
+// GUI in the GUI. like a totorial." The static `/tutorial` page
+// (T64) ships an explanatory walkthrough. T64b adds a
+// step-by-step IN-CONTEXT overlay activated via `?tour=N` query
+// param so the operator sees the actual UI being explained, not
+// a screenshot of it.
+//
+// Steps walk the operator through the editor's main surfaces:
+//   1. Page list (on /)
+//   2. Edit one page (suggest clicking a slug; advances on click)
+//   3. Form pane (typed editors per section)
+//   4. Live preview iframe + theme picker
+//   5. Add a section
+//   6. Publish (links to forge admin)
+//
+// Zero JS — pure links. `Next` carries `?tour=<step+1>` to the
+// suggested next URL. `Done` clears the param.
+
+const TOUR_STEPS: &[(u8, &str, &str, &str)] = &[
+    // (step, here, blurb, next_url)
+    (
+        1,
+        "Welcome — page list",
+        "This is your editor home. Every page in your site shows up here. \
+         Click a page to start editing.",
+        // The next-step URL needs an actual slug; the per-page step
+        // injects ?tour=2 onto whichever slug the operator clicks.
+        "/?tour=2",
+    ),
+    (
+        2,
+        "Pick a page to edit",
+        "Click any page above. The editor will open with two panes: \
+         the typed forms on the left, the live preview on the right. \
+         (Click 'Next' once you've opened one.)",
+        "?tour=3",
+    ),
+    (
+        3,
+        "Form pane",
+        "Each section of your page has a typed form. Edit titles, lede \
+         paragraphs, banners, etc. Hit 'Save' below each form to commit.",
+        "?tour=4",
+    ),
+    (
+        4,
+        "Live preview · click to edit",
+        "The right pane shows your page rendered. Click any text to \
+         edit it inline — Enter saves, Esc cancels. The Light/Dark/Auto \
+         buttons preview your theme choices.",
+        "?tour=5",
+    ),
+    (
+        5,
+        "Add a new section",
+        "Scroll down on this page to find the 'Add a section' form. \
+         Pick a kind (hero, paragraph, banner, etc.) and append.",
+        "?tour=6",
+    ),
+    (
+        6,
+        "Publish",
+        "When you're happy, run `loom deploy publish` from your terminal \
+         to ship your site. Or visit the forge admin to see audits before \
+         deploying.",
+        "?tour=done",
+    ),
+];
+
+/// Parse `?tour=N` (1..=6). `?tour=done` and any other value
+/// returns None (tour cleared / unknown).
+fn parse_tour_query(url: &str) -> Option<u8> {
+    let qs = url.split_once('?').map(|(_, q)| q)?;
+    for pair in qs.split('&') {
+        if let Some(value) = pair.strip_prefix("tour=") {
+            return match value.parse::<u8>() {
+                Ok(n) if (1..=6).contains(&n) => Some(n),
+                _ => None,
+            };
+        }
+    }
+    None
+}
+
+/// Render a fixed-position tour callout with step N's text +
+/// Prev / Next / Done links. The `current_path` is used to build
+/// the Prev URL preserving the current page.
+fn render_tour_overlay(step: u8, current_path: &str) -> String {
+    let row = TOUR_STEPS
+        .iter()
+        .find(|(n, ..)| *n == step)
+        .copied()
+        .unwrap_or(TOUR_STEPS[0]);
+    let (n, here, blurb, next_url) = row;
+    // Escape EARLY — every URL we interpolate from `current_path`
+    // goes into an `href="..."` attribute and must be safe.
+    let escaped_path = html_escape(current_path);
+    let prev_url = if n > 1 {
+        format!("{escaped_path}?tour={prev}", prev = n - 1)
+    } else {
+        String::new()
+    };
+    let prev_link = if prev_url.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<a href=\"{prev_url}\" \
+              style=\"padding:.3rem .6rem;background:rgba(255,255,255,.15);\
+                     border-radius:3px;text-decoration:none;color:inherit\">← Prev</a> "
+        )
+    };
+    format!(
+        "<aside class=\"loom-tour\" role=\"complementary\" aria-label=\"Tour\" \
+                style=\"position:fixed;bottom:1rem;right:1rem;max-width:24rem;\
+                       background:#003;color:#fff;padding:.75rem 1rem;\
+                       border-radius:6px;font:14px/1.4 system-ui,sans-serif;\
+                       box-shadow:0 4px 16px rgba(0,0,0,.25);z-index:99999\">\
+         <div style=\"display:flex;justify-content:space-between;\
+                     align-items:baseline;margin-bottom:.4rem\">\
+           <strong>Step {n}/6 · {here}</strong>\
+           <a href=\"{escaped_path}\" \
+              style=\"color:rgba(255,255,255,.7);text-decoration:none;\
+                     font-size:.85em\">✕ end tour</a>\
+         </div>\
+         <p style=\"margin:0 0 .6rem;color:rgba(255,255,255,.92)\">{blurb}</p>\
+         <div style=\"display:flex;gap:.4rem;align-items:center\">\
+           {prev_link}\
+           <a href=\"{next_url}\" \
+              style=\"padding:.3rem .6rem;background:#fff;color:#003;\
+                     border-radius:3px;text-decoration:none;font-weight:600\">Next →</a>\
+         </div>\
+         </aside>",
+        n = n,
+        here = html_escape(here),
+        blurb = html_escape(blurb),
+        prev_link = prev_link,
+        next_url = html_escape(next_url),
+        escaped_path = escaped_path,
+    )
 }
 
 // ============================================================
@@ -4918,6 +5066,14 @@ setTimeout(function(){el.style.boxShadow='';},800);\
 })();\
 </script>",
     );
+
+    // T64b: tour overlay carries through to the edit form. Steps
+    // 2-5 are best viewed from this page (form + preview side-by-
+    // side), so the operator can land here from step 1's link.
+    if let Some(step) = parse_tour_query(request.url()) {
+        let here_url = format!("/{slug}", slug = html_escape(slug));
+        body.push_str(&render_tour_overlay(step, &here_url));
+    }
 
     respond_html(request, 200, &body)
 }
@@ -12584,5 +12740,70 @@ mod edit_overlay_tests {
         assert_eq!(parse_theme_query("/x?theme=DARK"), None);
         assert_eq!(parse_theme_query("/x"), None);
         assert_eq!(parse_theme_query("/x?other=1"), None);
+    }
+
+    // ---- T64b: interactive tour parser + overlay ----
+
+    #[test]
+    fn parse_tour_query_accepts_valid_steps() {
+        for n in 1..=6u8 {
+            assert_eq!(parse_tour_query(&format!("/?tour={n}")), Some(n));
+        }
+    }
+
+    #[test]
+    fn parse_tour_query_rejects_out_of_range_and_garbage() {
+        assert_eq!(parse_tour_query("/?tour=0"), None);
+        assert_eq!(parse_tour_query("/?tour=7"), None);
+        assert_eq!(parse_tour_query("/?tour=999"), None);
+        assert_eq!(parse_tour_query("/?tour=done"), None);
+        assert_eq!(parse_tour_query("/?tour="), None);
+        assert_eq!(parse_tour_query("/?other=1"), None);
+        assert_eq!(parse_tour_query("/"), None);
+        // Defence in depth: hostile values must not panic
+        assert_eq!(parse_tour_query("/?tour=<script>"), None);
+    }
+
+    #[test]
+    fn render_tour_overlay_emits_step_n_of_6() {
+        for step in 1..=6u8 {
+            let html = render_tour_overlay(step, "/");
+            assert!(html.contains(&format!("Step {step}/6")), "missing Step {step}/6 marker");
+        }
+    }
+
+    #[test]
+    fn render_tour_overlay_step_1_has_no_prev_link() {
+        let html = render_tour_overlay(1, "/");
+        assert!(!html.contains("← Prev"), "step 1 must not show Prev link");
+        assert!(html.contains("Next →"), "step 1 must show Next link");
+    }
+
+    #[test]
+    fn render_tour_overlay_step_6_includes_done_link() {
+        let html = render_tour_overlay(6, "/");
+        assert!(
+            html.contains("✕ end tour"),
+            "every step has end tour; step 6 next URL goes to ?tour=done which the parser rejects → tour cleared"
+        );
+        // Prev link present (step 6 isn't the first).
+        assert!(html.contains("← Prev"));
+    }
+
+    #[test]
+    fn render_tour_overlay_escapes_current_path() {
+        // Current path with HTML special chars must be escaped to
+        // prevent attribute injection.
+        let html = render_tour_overlay(3, "/path-with-\"-quotes");
+        assert!(!html.contains("/path-with-\"-quotes"), "raw quote leaked");
+        assert!(html.contains("&quot;") || html.contains("&#34;"));
+    }
+
+    #[test]
+    fn render_tour_overlay_high_z_index_for_overlay() {
+        // The callout sits over editor content; needs a high z-index.
+        let html = render_tour_overlay(1, "/");
+        assert!(html.contains("z-index:99999"));
+        assert!(html.contains("position:fixed"));
     }
 }
