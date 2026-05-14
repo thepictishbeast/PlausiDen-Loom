@@ -6563,6 +6563,8 @@ fn handle_add_section(
             parsed["sections"] = serde_json::Value::Array(vec![new_section]);
         }
     }
+    // Cycle 80: revision snapshot before overwrite (add-section).
+    save_cms_revision(cms_root, slug, &raw);
     let serialized = serde_json::to_string_pretty(&parsed)
         .map_err(|e| std::io::Error::other(format!("serialize: {e}")))?;
     cap.write_atomic(&rel, serialized.as_bytes())
@@ -6590,6 +6592,83 @@ fn handle_add_section(
     );
     request.respond(resp)?;
     Ok(())
+}
+
+/// SUPERSOCIETY cycle 80: snapshot the prior `<slug>.json`
+/// content to a `<slug>.bak.<unix_secs>.<nanos>.json` sibling
+/// before overwrite. Per-slug retention with LRU pruning.
+///
+/// Failure modes (full disk, permission denied, etc.) log to
+/// stderr but never propagate. Backups are decorative for the
+/// happy path; lost backups don't invalidate the operator's
+/// save.
+///
+/// Env tunables (operators rely on defaults):
+///   LOOM_CMS_REVISIONS_KEEP   how many backups to retain per slug (default 10)
+const CMS_REVISIONS_KEEP_DEFAULT: usize = 10;
+
+fn cms_revisions_keep_count() -> usize {
+    std::env::var("LOOM_CMS_REVISIONS_KEEP")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(CMS_REVISIONS_KEEP_DEFAULT)
+}
+
+fn save_cms_revision(cms_root: &std::path::Path, slug: &str, prior_content: &str) {
+    // Skip if prior content is empty (the file didn't exist
+    // before — there's nothing to save).
+    if prior_content.is_empty() {
+        return;
+    }
+    let suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| format!("{}.{:09}", d.as_secs(), d.subsec_nanos()))
+        .unwrap_or_else(|_| "rev".to_owned());
+    let bak_name = format!("{slug}.bak.{suffix}.json");
+    let bak_path = cms_root.join(&bak_name);
+    if let Err(e) = std::fs::write(&bak_path, prior_content) {
+        eprintln!(
+            "[loom revisions] write {} failed: {e}",
+            bak_path.display(),
+        );
+        return;
+    }
+    // Prune older revisions for THIS slug only.
+    prune_cms_revisions(cms_root, slug);
+}
+
+fn prune_cms_revisions(cms_root: &std::path::Path, slug: &str) {
+    let keep = cms_revisions_keep_count();
+    let prefix = format!("{slug}.bak.");
+    let entries = match std::fs::read_dir(cms_root) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    let mut revisions: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| s.starts_with(&prefix) && s.ends_with(".json"))
+                .unwrap_or(false)
+        })
+        .collect();
+    if revisions.len() <= keep {
+        return;
+    }
+    // Sort by filename = chronological per the fixed-width
+    // unix-secs.nanos suffix.
+    revisions.sort();
+    let drop_count = revisions.len() - keep;
+    for path in revisions.iter().take(drop_count) {
+        if let Err(e) = std::fs::remove_file(path) {
+            eprintln!(
+                "[loom revisions] prune {} failed: {e}",
+                path.display(),
+            );
+        }
+    }
 }
 
 fn handle_edit_post(
@@ -6740,6 +6819,26 @@ fn handle_edit_post(
             }
         }
     }
+
+    // SUPERSOCIETY cycle 80: snapshot the PRIOR file content
+    // to a `.bak.<unix>.json` sibling before overwriting.
+    // Operator data-loss prevention at the file level — every
+    // save creates a revision; a botched edit can be restored
+    // without git.
+    //
+    // Backups live alongside the active file:
+    //   cms/about.json                    (live, mutable)
+    //   cms/about.bak.1736380800.123.json (revision)
+    //   cms/about.bak.1736381900.456.json (revision)
+    //
+    // Retention: last LOOM_CMS_REVISIONS_KEEP (default 10)
+    // per slug. LRU prune the oldest beyond the cap.
+    //
+    // Failure to write a backup must NEVER block the save —
+    // log to stderr and proceed. Lost revisions are a backup
+    // problem; lost typing is a UX problem; the save itself
+    // is the operator's intent.
+    save_cms_revision(cms_root, slug, &raw);
 
     // T60: atomic write THROUGH the capability. Capability builds
     // its own temp filename (encoded with pid+nanos) inside the
@@ -7809,6 +7908,8 @@ fn handle_inline_edit(
         Err(_) => return respond_text(request, 500, "cms_root unreadable"),
     };
     let rel = std::path::PathBuf::from(format!("{}.json", slug.as_str()));
+    // Cycle 80: revision snapshot before overwrite (inline-edit).
+    save_cms_revision(cms_root, slug.as_str(), &raw);
     if let Err(_e) = cap.write_atomic(&rel, serialised.as_bytes()) {
         return respond_text(request, 500, "atomic write failed");
     }
@@ -8076,6 +8177,9 @@ fn handle_section_op(
         }
     }
 
+    // Cycle 80: revision snapshot before overwrite (section-op:
+    // up/down/delete/append-paragraph).
+    save_cms_revision(cms_root, slug, &raw);
     let serialized = serde_json::to_string_pretty(&parsed)
         .map_err(|e| std::io::Error::other(format!("serialize: {e}")))?;
     cap.write_atomic(&rel, serialized.as_bytes())
