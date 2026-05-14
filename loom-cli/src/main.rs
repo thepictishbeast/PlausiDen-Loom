@@ -223,6 +223,72 @@ enum RevisionsAction {
     },
 }
 
+/// T76 cycle 88: operator triage actions for the cycle 63 report
+/// collector. Completes the 6-layer security observability
+/// pipeline: detect → enforce → report → COLLECT → audit (stats)
+/// → REVIEW. State is an append-only log at
+/// `<dir>/.review-state.jsonl` so the audit trail itself can be
+/// audited; newest decision per signature wins on read.
+#[derive(Subcommand)]
+enum ReviewAction {
+    /// Print recent reports with triage status:
+    ///   sig          status     ts        kind             url
+    ///   3a9f0b1c…    NEW        2026-…   csp-violation    https://…
+    ///   8e4d77ab…    ACK        2026-…   nel              https://…
+    ///
+    /// The signature is the first 12 hex chars of sha256(body) —
+    /// stable across runs, log rotations, and re-orderings.
+    List {
+        /// reports/ directory containing violations.jsonl.
+        #[arg(long, default_value = "reports")]
+        dir: PathBuf,
+        /// Cap on rows shown (most-recent N entries).
+        #[arg(long, short = 'n', default_value_t = 30)]
+        lines: usize,
+        /// Filter by triage status: `new`, `ack`, `dismiss`, or
+        /// empty (default) = all. Matched case-insensitively.
+        #[arg(long, default_value = "")]
+        status: String,
+    },
+    /// Mark a report as acknowledged. Operators run this after
+    /// they've read + understood the violation. Optional note
+    /// is appended to the audit log alongside the action.
+    ///
+    /// The sig argument may be the full 12-char signature OR a
+    /// unique prefix (≥4 chars). Ambiguous prefixes refuse.
+    Ack {
+        /// reports/ directory.
+        #[arg(long, default_value = "reports")]
+        dir: PathBuf,
+        /// Report signature (full 12-char hex OR unique prefix
+        /// ≥4 chars).
+        sig: String,
+        /// Optional triage note. Stored verbatim in the audit log.
+        #[arg(long, default_value = "")]
+        note: String,
+    },
+    /// Mark a report as dismissed (intentionally not actionable —
+    /// e.g., known browser-extension noise). Note is REQUIRED to
+    /// force the operator to record reasoning for the audit log.
+    Dismiss {
+        #[arg(long, default_value = "reports")]
+        dir: PathBuf,
+        /// Report signature (full 12-char hex OR unique prefix
+        /// ≥4 chars).
+        sig: String,
+        /// Required dismissal note (empty rejected).
+        #[arg(long)]
+        note: String,
+    },
+    /// Summary counts: total / new / ack / dismiss across every
+    /// report-collector file in <dir>. Pairs with `report-stats`
+    /// (which slices by kind) — this slices by triage state.
+    Status {
+        #[arg(long, default_value = "reports")]
+        dir: PathBuf,
+    },
+}
+
 #[derive(Subcommand)]
 enum ThemeAction {
     /// Enumerate every theme declared in skin.css, plus the base
@@ -587,6 +653,25 @@ enum Cmd {
         /// new lines as they arrive. Ctrl-C to exit.
         #[arg(long, short = 'f', default_value_t = false)]
         follow: bool,
+    },
+    /// T76 cycle 88: operator triage for the cycle 63 report
+    /// collector — `loom report-review {list|ack|dismiss|status}`.
+    ///
+    /// Completes the 6-layer security observability pipeline:
+    /// detect (Trusted Types, hash-pinned CSP, NEL, document
+    /// policy) → enforce (CSP) → report (Reporting-API headers)
+    /// → COLLECT (cycle 63 endpoint) → audit (`report-stats`,
+    /// `report-tail`) → REVIEW (this command).
+    ///
+    /// The REVIEW layer lets operators acknowledge or dismiss
+    /// individual reports without mutating the underlying log
+    /// (which stays append-only and signature-stable). Triage
+    /// decisions are themselves logged to
+    /// `<dir>/.review-state.jsonl` — audit trail of the audit
+    /// trail.
+    ReportReview {
+        #[command(subcommand)]
+        action: ReviewAction,
     },
     /// T43: admin auth management.
     ///
@@ -1122,6 +1207,13 @@ fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("loom report-stats: {e}");
+                ExitCode::from(2)
+            }
+        },
+        Cmd::ReportReview { action } => match cmd_report_review(action) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("loom report-review: {e}");
                 ExitCode::from(2)
             }
         },
@@ -4941,9 +5033,378 @@ fn report_log_format_unix(ts: i64) -> Option<String> {
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
     let mp = (5 * doy + 2) / 153;
     let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let mo = (mp + if mp < 10 { 3 } else { -9_i64 as u64 }) as u32;
+    // REGRESSION-GUARD (cycle 88 CROSSFIX into cycle 70 code):
+    // the previous form `(mp + if mp < 10 { 3 } else { -9_i64 as u64 })`
+    // overflows in debug mode for mp >= 10 (January/February
+    // months — i.e., any timestamp where `report_log_format_unix`
+    // is asked to render a Jan/Feb date). Wrapping arithmetic in
+    // release masked it; the cycle 70 e2e test
+    // (report_tail_prints_classified_lines_with_human_timestamp)
+    // pinned ts=1736380800 = 2025-01-09 which DOES hit mp=10 and
+    // therefore panicked on `cargo test`. AVP-2 Tier-1 boundary
+    // sweep should have caught this — adding the explicit branch
+    // form so debug + release agree and the algorithm reads as
+    // Howard Hinnant intended (mp + 3 for Mar..Dec, mp - 9 for
+    // Jan..Feb).
+    let mo: u32 = if mp < 10 {
+        (mp + 3) as u32
+    } else {
+        (mp - 9) as u32
+    };
     let year = if mo <= 2 { y + 1 } else { y };
     Some(format!("{year:04}-{mo:02}-{d:02} {h:02}:{m:02}:{s:02}Z"))
+}
+
+// ============================================================
+// T76 cycle 88: report-review — operator triage for the cycle
+// 63 collector log. Append-only audit-log-of-the-audit-log;
+// signature stable across log rotations because it's
+// sha256(body) not byte-offset.
+// ============================================================
+
+/// One on-disk record in `.review-state.jsonl`. We hand-roll
+/// the JSON encode/decode (cycle 70 + 81 discipline — no
+/// serde_json round-trip) so the byte format is auditable.
+struct ReviewLogRecord {
+    ts: u64,
+    action: String,
+    note: String,
+}
+
+fn review_state_path(dir: &std::path::Path) -> std::path::PathBuf {
+    dir.join(".review-state.jsonl")
+}
+
+/// 12-char hex prefix of sha256(body). Stable across runs,
+/// log rotations, and reorderings — the report's body bytes
+/// are the identity. 12 hex chars = 48 bits ≈ 280 trillion
+/// → collision-resistant for any realistic report volume,
+/// short enough for operators to read.
+fn review_compute_sig(body: &str) -> String {
+    let full = sha256_hex(body.as_bytes());
+    full.chars().take(12).collect()
+}
+
+/// JSON-string-escape a value for the `.jsonl` audit log.
+/// Matches the cycle 63 collector's escaping rules so the two
+/// log formats stay symmetric.
+fn review_jsonl_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Append a triage decision to the review-state log.
+fn review_action_write(
+    dir: &std::path::Path,
+    sig_input: &str,
+    action: &str,
+    note: &str,
+) -> Result<()> {
+    use std::io::Write as _;
+
+    if action != "ack" && action != "dismiss" {
+        anyhow::bail!("review_action_write: invalid action {action:?}");
+    }
+    if sig_input.trim().len() < 4 {
+        anyhow::bail!("signature too short (need ≥4 chars, got {:?})", sig_input);
+    }
+
+    // Resolve `sig_input` against the actual report sigs.
+    // Reject ambiguous prefixes — the operator must be precise
+    // about which report they're triaging.
+    let entries = review_collect_entries(dir)?;
+    let resolved = review_resolve_sig(&entries, sig_input.trim())?;
+
+    if !dir.exists() {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| anyhow::anyhow!("create {}: {e}", dir.display()))?;
+    }
+
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let line = format!(
+        "{{\"ts\":{ts},\"sig\":\"{}\",\"action\":\"{}\",\"note\":\"{}\"}}\n",
+        review_jsonl_escape(&resolved),
+        review_jsonl_escape(action),
+        review_jsonl_escape(note),
+    );
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(review_state_path(dir))
+        .map_err(|e| anyhow::anyhow!("open review-state log: {e}"))?;
+    f.write_all(line.as_bytes())
+        .map_err(|e| anyhow::anyhow!("append review-state: {e}"))?;
+    f.sync_all()
+        .map_err(|e| anyhow::anyhow!("fsync review-state: {e}"))?;
+
+    println!("loom report-review: {action} {} (note={:?})", resolved, note);
+    Ok(())
+}
+
+/// Read all triage decisions, return latest-wins per signature.
+fn review_state_read(
+    dir: &std::path::Path,
+) -> std::collections::HashMap<String, ReviewLogRecord> {
+    use std::collections::HashMap;
+    use std::io::{BufRead as _, BufReader};
+
+    let mut latest: HashMap<String, ReviewLogRecord> = HashMap::new();
+    let p = review_state_path(dir);
+    let f = match std::fs::File::open(&p) {
+        Ok(f) => f,
+        Err(_) => return latest,
+    };
+    for line in BufReader::new(f).lines().map_while(|r| r.ok()) {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let ts = report_log_field(&line, "ts")
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+        let sig = report_log_field(&line, "sig").unwrap_or_default();
+        let action = report_log_field(&line, "action").unwrap_or_default();
+        let note = report_log_field(&line, "note").unwrap_or_default();
+        if sig.is_empty() {
+            continue;
+        }
+        let rec = ReviewLogRecord { ts, action, note };
+        match latest.get(&sig) {
+            Some(prev) if prev.ts >= rec.ts => {}
+            _ => {
+                latest.insert(sig, rec);
+            }
+        }
+    }
+    latest
+}
+
+/// One in-memory report-collector entry — what `report-review
+/// list` shows. Hand-extracted from the same JSONL the
+/// cycle 70 viewer reads.
+#[derive(Clone)]
+struct ReviewEntry {
+    sig: String,
+    ts: u64,
+    kind: String,
+    url: String,
+}
+
+/// Walk every violations-*.jsonl file in `dir`, return one
+/// `ReviewEntry` per line. Same file-set logic as
+/// `cmd_report_stats`.
+fn review_collect_entries(dir: &std::path::Path) -> Result<Vec<ReviewEntry>> {
+    use std::io::{BufRead as _, BufReader};
+
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            let name = match p.file_name().and_then(|s| s.to_str()) {
+                Some(n) => n,
+                None => continue,
+            };
+            if name == "violations.jsonl"
+                || (name.starts_with("violations-") && name.ends_with(".jsonl"))
+            {
+                files.push(p);
+            }
+        }
+    }
+    files.sort();
+
+    let mut out = Vec::new();
+    for path in &files {
+        let f = match std::fs::File::open(path) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+        for line in BufReader::new(f).lines().map_while(|r| r.ok()) {
+            if line.is_empty() {
+                continue;
+            }
+            let ts = report_log_field(&line, "ts")
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
+            let body = report_log_field(&line, "body").unwrap_or_default();
+            let sig = review_compute_sig(&body);
+            let kind = report_log_classify(&body);
+            let url = extract_url(&body).unwrap_or_default();
+            out.push(ReviewEntry { sig, ts, kind, url });
+        }
+    }
+    Ok(out)
+}
+
+/// Resolve a possibly-prefix signature to a full 12-char sig.
+/// Accepts an exact match, a unique prefix (≥4 chars), or
+/// fails with a list of candidates on ambiguity.
+fn review_resolve_sig(entries: &[ReviewEntry], input: &str) -> Result<String> {
+    // Distinct sigs we know about, sorted for deterministic
+    // ambiguity error output.
+    let mut sigs: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for e in entries {
+        sigs.insert(&e.sig);
+    }
+    // Exact match first.
+    if sigs.contains(input) {
+        return Ok(input.to_owned());
+    }
+    let matches: Vec<&str> = sigs.iter().filter(|s| s.starts_with(input)).copied().collect();
+    match matches.len() {
+        0 => anyhow::bail!("no report matches signature {input:?}"),
+        1 => Ok(matches[0].to_owned()),
+        _ => anyhow::bail!(
+            "ambiguous signature prefix {:?} matches {} reports: {}",
+            input,
+            matches.len(),
+            matches.join(", ")
+        ),
+    }
+}
+
+/// `loom report-review list` — pretty-print recent reports with
+/// triage status.
+fn review_list(
+    dir: &std::path::Path,
+    lines: usize,
+    status_filter: &str,
+) -> Result<()> {
+    let entries = review_collect_entries(dir)?;
+    let state = review_state_read(dir);
+
+    if entries.is_empty() {
+        println!(
+            "loom report-review: no reports in {} (looked for violations.jsonl + violations-*.jsonl)",
+            dir.display()
+        );
+        return Ok(());
+    }
+
+    let filter_lc = status_filter.to_ascii_lowercase();
+    let mut rows: Vec<(String, &'static str, String, String, String, String)> =
+        Vec::new();
+    for e in entries.iter().rev() {
+        let decision = state.get(&e.sig);
+        let action = decision.map(|r| r.action.as_str()).unwrap_or("");
+        let label: &'static str = match action {
+            "ack" => "ACK",
+            "dismiss" => "DISMISSED",
+            _ => "NEW",
+        };
+        if !filter_lc.is_empty() {
+            let want = match filter_lc.as_str() {
+                "new" => "NEW",
+                "ack" => "ACK",
+                "dismiss" | "dismissed" => "DISMISSED",
+                other => other,
+            };
+            if !label.eq_ignore_ascii_case(want) {
+                continue;
+            }
+        }
+        let when =
+            report_log_format_unix(e.ts as i64).unwrap_or_else(|| e.ts.to_string());
+        let url_short: String = e.url.chars().take(56).collect();
+        let note = decision.map(|r| r.note.clone()).unwrap_or_default();
+        rows.push((e.sig.clone(), label, when, e.kind.clone(), url_short, note));
+        if rows.len() >= lines {
+            break;
+        }
+    }
+
+    if rows.is_empty() {
+        println!(
+            "loom report-review: no entries match status={status_filter:?} (filtered from {})",
+            entries.len()
+        );
+        return Ok(());
+    }
+
+    println!(
+        "{:<13}  {:<10}  {:<22}  {:<16}  {}",
+        "sig", "status", "ts", "kind", "url"
+    );
+    for (sig, label, when, kind, url, note) in &rows {
+        println!(
+            "{sig:<13}  {label:<10}  {when:<22}  {kind:<16}  {url}"
+        );
+        if !note.is_empty() {
+            println!("{:<13}  └─ note: {}", "", note);
+        }
+    }
+    println!();
+    println!(
+        "(showed {} of {} entries; triage decisions: {})",
+        rows.len(),
+        entries.len(),
+        state.len()
+    );
+    Ok(())
+}
+
+/// `loom report-review status` — total / new / ack / dismissed counts.
+fn review_status(dir: &std::path::Path) -> Result<()> {
+    let entries = review_collect_entries(dir)?;
+    let state = review_state_read(dir);
+
+    let mut new_n: u64 = 0;
+    let mut ack_n: u64 = 0;
+    let mut dismiss_n: u64 = 0;
+    let mut seen: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    for e in &entries {
+        if !seen.insert(e.sig.clone()) {
+            continue;
+        }
+        match state.get(&e.sig).map(|r| r.action.as_str()).unwrap_or("") {
+            "ack" => ack_n += 1,
+            "dismiss" => dismiss_n += 1,
+            _ => new_n += 1,
+        }
+    }
+
+    println!("loom report-review status — {}", dir.display());
+    println!("  total distinct reports : {}", seen.len());
+    println!("  NEW (untriaged)        : {new_n}");
+    println!("  ACK                    : {ack_n}");
+    println!("  DISMISSED              : {dismiss_n}");
+    println!("  raw lines              : {}", entries.len());
+    println!("  audit-log decisions    : {}", state.len());
+    Ok(())
+}
+
+fn cmd_report_review(action: ReviewAction) -> Result<()> {
+    match action {
+        ReviewAction::List { dir, lines, status } => review_list(&dir, lines, &status),
+        ReviewAction::Ack { dir, sig, note } => {
+            review_action_write(&dir, &sig, "ack", &note)
+        }
+        ReviewAction::Dismiss { dir, sig, note } => {
+            if note.trim().is_empty() {
+                anyhow::bail!(
+                    "loom report-review dismiss: --note is required and cannot be empty"
+                );
+            }
+            review_action_write(&dir, &sig, "dismiss", &note)
+        }
+        ReviewAction::Status { dir } => review_status(&dir),
+    }
 }
 
 fn cmd_edit_serve(
