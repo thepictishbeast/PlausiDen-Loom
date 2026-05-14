@@ -271,6 +271,73 @@ fn unique_prefix_resolves() {
 }
 
 #[test]
+fn rotation_files_aggregate_into_one_view() {
+    // Cycle 71 rotates the collector log when it exceeds size
+    // bounds, producing `violations-<unix>.<nanos>.jsonl`
+    // alongside the active `violations.jsonl`. Cycle 88's
+    // `review_collect_entries` accepts both name shapes —
+    // this test pins that aggregation so a future rotation-
+    // format change doesn't silently drop history from the
+    // REVIEW layer.
+    //
+    // REGRESSION-GUARD (cycle 91): the report-review reader
+    // MUST include rotated files when listing/triaging. If
+    // review_collect_entries only reads `violations.jsonl`,
+    // operators triage today's reports while yesterday's
+    // ROTATED violations stay un-triaged forever.
+
+    let g = make_fixture("rotation");
+    // Existing fixture already has violations.jsonl with 3
+    // entries. Add a SECOND file simulating a rotated log
+    // with 2 older entries (different bodies → different sigs).
+    let older = "\
+{\"ts\":1699900000,\"endpoint\":\"/csp-report\",\"body\":\"{\\\"violated-directive\\\":\\\"style-src\\\",\\\"document-uri\\\":\\\"https://example.com/old-page-1\\\"}\"}
+{\"ts\":1699900060,\"endpoint\":\"/csp-report\",\"body\":\"{\\\"violated-directive\\\":\\\"connect-src\\\",\\\"document-uri\\\":\\\"https://example.com/old-page-2\\\"}\"}
+";
+    std::fs::write(
+        g.dir.join("reports").join("violations-1699900000.0.jsonl"),
+        older,
+    )
+    .expect("write rotated fixture");
+
+    let (code, stdout, stderr) =
+        run_review(&g.dir, &["status"]);
+    assert_eq!(code, 0, "status failed; stderr={stderr}");
+    assert!(
+        stdout.contains("total distinct reports : 5"),
+        "expected aggregate over 2 files = 5 reports; stdout={stdout}"
+    );
+
+    // Also: ack a sig from the ROTATED file. Sig resolution
+    // must see it. Pull a sig from `list` (which orders newest-
+    // first; the rotated entries are older → towards the
+    // bottom).
+    let (_, list_out, _) = run_review(&g.dir, &["list"]);
+    let mut sigs: Vec<String> = Vec::new();
+    for line in list_out.lines() {
+        let tok = line.split_whitespace().next().unwrap_or("");
+        if tok.len() == 12 && tok.chars().all(|c| c.is_ascii_hexdigit()) {
+            sigs.push(tok.to_owned());
+        }
+    }
+    assert!(
+        sigs.len() >= 5,
+        "list must show all 5 reports across rotation; got {}",
+        sigs.len()
+    );
+    // The last two sigs are from the rotated file (older ts).
+    // Ack the very-oldest one — it would be invisible if we
+    // only read violations.jsonl.
+    let oldest = sigs.last().unwrap().clone();
+    let (code, _, stderr) =
+        run_review(&g.dir, &["ack", &oldest, "--note", "old-but-real"]);
+    assert_eq!(
+        code, 0,
+        "ack on rotated-file sig must succeed; stderr={stderr}"
+    );
+}
+
+#[test]
 fn list_purely_additive_does_not_mutate_violations() {
     let g = make_fixture("immutable_log");
     let violations = g.dir.join("reports/violations.jsonl");
