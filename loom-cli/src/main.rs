@@ -36,6 +36,17 @@ enum LoomAttestAction {
     },
     /// Print the public key (stable trust anchor for auditors).
     Pubkey,
+    /// T47e: emit the pubkey in operator-shareable forms.
+    /// Default: print the full base64 + a short fingerprint
+    /// (first 8 hex chars of sha256 of pubkey bytes) suitable
+    /// for verbal verification ("send me a sig — your fingerprint
+    /// should be 4f3a8c1d"). Future flags add QR + clipboard.
+    Export {
+        /// Emit only the short fingerprint (8 hex chars).
+        /// Useful when piping into a fingerprint-only verifier.
+        #[arg(long, default_value_t = false)]
+        fingerprint_only: bool,
+    },
 }
 
 /// `loom deploy` subcommands. T47.
@@ -888,6 +899,15 @@ fn main() -> ExitCode {
                     ExitCode::from(2)
                 }
             },
+            LoomAttestAction::Export { fingerprint_only } => {
+                match cmd_loom_attest_export(fingerprint_only) {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(e) => {
+                        eprintln!("loom attest export: {e}");
+                        ExitCode::from(2)
+                    }
+                }
+            }
         },
         Cmd::Deploy { action } => match action {
             DeployAction::Publish { from, to, name } => {
@@ -1159,6 +1179,7 @@ fn cmd_lint(root: &std::path::Path, json: bool) -> Result<usize> {
             let kind = match cv.kind {
                 loom_lint::CssViolationKind::RawColour => "raw-colour",
                 loom_lint::CssViolationKind::RawSpacing => "raw-spacing",
+                loom_lint::CssViolationKind::RawTime => "raw-time",
             };
             println!("  {}:{} [{}]", cv.path.display(), cv.line, kind);
             println!("    {}", cv.matched);
@@ -11046,6 +11067,61 @@ fn cmd_loom_attest_pubkey() -> std::io::Result<()> {
     Ok(())
 }
 
+/// T47e: compute a short verbal-friendly fingerprint for a base64
+/// pubkey string. SHA-256 the decoded pubkey bytes, take the first
+/// 4 bytes (8 hex chars). Short enough to verbalise / SMS / write
+/// on a sticky note; long enough that random collision is < 2^-32.
+///
+/// SECURITY: not a cryptographic identifier on its own — pair with
+/// the full base64 for binding. The fingerprint exists to give
+/// operators a "did the bytes I see match what was sent?" sanity
+/// check without reading 44 base64 chars over the phone.
+fn pubkey_fingerprint(pub_b64: &str) -> Result<String, String> {
+    use sha2::{Digest as _, Sha256};
+    let bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        pub_b64.trim(),
+    )
+    .map_err(|e| format!("base64 decode: {e}"))?;
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    let digest = hasher.finalize();
+    Ok(format!(
+        "{:02x}{:02x}{:02x}{:02x}",
+        digest[0], digest[1], digest[2], digest[3]
+    ))
+}
+
+/// T47e: emit the operator pubkey + a short fingerprint. With
+/// `--fingerprint-only`, emit just the 8-hex-char fingerprint
+/// suitable for piping into a fingerprint-only verifier.
+fn cmd_loom_attest_export(fingerprint_only: bool) -> std::io::Result<()> {
+    let path = loom_attest_pubkey_path();
+    if !path.is_file() {
+        return Err(std::io::Error::other(format!(
+            "{} missing — run `loom attest init` first",
+            path.display()
+        )));
+    }
+    let pub_b64 = std::fs::read_to_string(&path)?;
+    let pub_b64 = pub_b64.trim();
+    let fp = pubkey_fingerprint(pub_b64)
+        .map_err(std::io::Error::other)?;
+    if fingerprint_only {
+        println!("{fp}");
+    } else {
+        println!("loom attest export:");
+        println!("  algorithm:   ed25519");
+        println!("  pubkey:      {pub_b64}");
+        println!("  fingerprint: {fp}");
+        println!();
+        println!("  share the full pubkey with auditors who will verify your bundles;");
+        println!("  share the fingerprint over a side channel (phone, SMS, sticky note)");
+        println!("  so the auditor can spot-check that the pubkey they received is yours.");
+    }
+    Ok(())
+}
+
 /// Sign manifest bytes with the operator's Ed25519 key. Returns
 /// `None` (silently) if no key file exists — unsigned bundles
 /// are valid; verifier simply skips the signature check.
@@ -11312,6 +11388,54 @@ mod deploy_signing_tests {
         let r = verify_manifest_signature(b"anything", &tmp, &anchor);
         assert_eq!(r, Ok(SigStatus::Unsigned), "got {r:?}");
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ---- T47e: pubkey_fingerprint ----
+
+    #[test]
+    fn pubkey_fingerprint_is_8_hex_chars() {
+        // Use a deterministic pubkey to lock in the fingerprint.
+        let pub_b64 = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            [0x00u8; 32],
+        );
+        let fp = pubkey_fingerprint(&pub_b64).expect("fingerprint");
+        assert_eq!(fp.len(), 8);
+        assert!(fp.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn pubkey_fingerprint_changes_with_pubkey() {
+        let a = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            [0x00u8; 32],
+        );
+        let b = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            [0x01u8; 32],
+        );
+        assert_ne!(
+            pubkey_fingerprint(&a).expect("a"),
+            pubkey_fingerprint(&b).expect("b")
+        );
+    }
+
+    #[test]
+    fn pubkey_fingerprint_rejects_invalid_base64() {
+        let r = pubkey_fingerprint("!!!not-base64!!!");
+        assert!(r.is_err(), "must reject invalid base64");
+    }
+
+    #[test]
+    fn pubkey_fingerprint_known_value_for_zeros() {
+        // SHA-256 of 32 zero bytes starts with 66687aad…
+        // (well-known test vector for SHA-256 over null-bytes).
+        let pub_b64 = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            [0x00u8; 32],
+        );
+        let fp = pubkey_fingerprint(&pub_b64).expect("fingerprint");
+        assert_eq!(fp, "66687aad");
     }
 
     /// SECURITY: defends against key-substitution. An attacker
