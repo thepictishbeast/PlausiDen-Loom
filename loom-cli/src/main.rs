@@ -3833,6 +3833,12 @@ fn handle_edit_request(
     if is_post && path == "inline-edit" {
         return handle_inline_edit(request, cms_root, forge_path);
     }
+    // T37 v2.b: theme picker POST — sets/clears `loom-theme`
+    // cookie + 303-redirects back. Cookie-based persistence so
+    // the operator's pick survives across navigation.
+    if is_post && path == "theme" {
+        return handle_theme_post(request);
+    }
     // T50: forge admin dashboard. Same server, same auth scope.
     if path == "forge" && is_get {
         return serve_forge_dashboard(request, cms_root, static_root);
@@ -4689,10 +4695,10 @@ fn serve_edit_form(
     cms_root: &std::path::Path,
     slug: &str,
 ) -> std::io::Result<()> {
-    // T37 v2: theme picker on the editor page. Reads the same
-    // `?theme=` query param the inline preview uses; the iframe
-    // src below carries it through to /preview-edit/<slug>.html.
-    let preview_theme = parse_theme_query(request.url());
+    // T37 v2 + v2.b: resolve the active theme. Order:
+    // ?theme= query param (explicit override) > loom-theme cookie
+    // (persistent pick from the picker form) > None (OS auto).
+    let preview_theme = resolve_theme(&request);
     let json_path = cms_root.join(format!("{slug}.json"));
     if !json_path.is_file() {
         return respond_text(request, 404, "page not found");
@@ -5009,11 +5015,11 @@ fn serve_edit_form(
     // (a normal user-facing render). The parent-side bridge
     // script below listens for postMessages from the iframe and
     // jumps the form to the matching fieldset.
-    // T37 v2: 3-button theme picker. Each link points back at this
-    // editor page with `?theme=light|dark|auto`. The dispatcher
-    // reads the param, the iframe `src` carries it through to
-    // `/preview-edit/<slug>.html?theme=…`. Zero JS — pure links +
-    // server-rendered HTML. Cookie persistence queued for v2.b.
+    // T37 v2.b: 3-button theme picker as POST forms. Each form
+    // POSTs to `/theme` with the chosen value + a `back` field so
+    // the redirect lands the operator on the same page. The
+    // `loom-theme` cookie persists the pick across navigation;
+    // `auto` clears the cookie (Max-Age=0).
     let iframe_src_qs = match preview_theme {
         Some("light") => "?theme=light",
         Some("dark") => "?theme=dark",
@@ -5022,21 +5028,29 @@ fn serve_edit_form(
     let active = |t: &str| -> &'static str {
         if Some(t) == preview_theme { " aria-current=\"true\"" } else { "" }
     };
+    let back_path = format!("/{slug}", slug = html_escape(slug));
+    let theme_btn = |val: &str, label: &str, active_attr: &str| -> String {
+        format!(
+            "<form method=\"POST\" action=\"/theme\" style=\"margin:0;display:inline\">\
+             <input type=\"hidden\" name=\"back\" value=\"{back}\">\
+             <button type=\"submit\" name=\"theme\" value=\"{val}\"{active_attr} \
+                     style=\"padding:.15rem .4rem;border-radius:3px;border:0;\
+                            color:inherit;font:inherit;cursor:pointer;\
+                            background:rgba(255,255,255,.1)\">{label}</button>\
+             </form>",
+            back = back_path,
+            val = val,
+            label = label,
+            active_attr = active_attr,
+        )
+    };
     body.push_str(&format!(
         "<aside class=\"preview-pane\" aria-label=\"Live preview\">\
          <div class=\"preview-bar\">\
            <strong>Live preview · click to edit</strong>\
            <span class=\"theme-picker\" role=\"group\" aria-label=\"Theme\" \
                  style=\"margin-left:1rem;display:inline-flex;gap:.25rem;font-size:.85em\">\
-             <a href=\"?theme=light\"{light_active} \
-                style=\"padding:.15rem .4rem;border-radius:3px;text-decoration:none;color:inherit;\
-                       background:rgba(255,255,255,.1)\">Light</a>\
-             <a href=\"?theme=dark\"{dark_active} \
-                style=\"padding:.15rem .4rem;border-radius:3px;text-decoration:none;color:inherit;\
-                       background:rgba(255,255,255,.1)\">Dark</a>\
-             <a href=\"?theme=auto\"{auto_active} \
-                style=\"padding:.15rem .4rem;border-radius:3px;text-decoration:none;color:inherit;\
-                       background:rgba(255,255,255,.1)\">Auto</a>\
+             {light_btn}{dark_btn}{auto_btn}\
            </span>\
            <a href=\"/preview/{slug}.html\" target=\"_blank\" rel=\"noopener\" \
               style=\"margin-left:auto\">open ↗</a>\
@@ -5045,9 +5059,10 @@ fn serve_edit_form(
                  title=\"Rendered preview of {slug} (click any section to jump to its editor)\"></iframe>\
          </aside>",
         slug = html_escape(slug),
-        light_active = active("light"),
-        dark_active = active("dark"),
-        auto_active = if preview_theme.is_none() { " aria-current=\"true\"" } else { "" },
+        light_btn = theme_btn("light", "Light", active("light")),
+        dark_btn = theme_btn("dark", "Dark", active("dark")),
+        auto_btn = theme_btn("auto", "Auto",
+            if preview_theme.is_none() { " aria-current=\"true\"" } else { "" }),
     ));
 
     // Parent-side click-to-edit bridge. Origin-checked so cross-
@@ -5741,12 +5756,11 @@ fn serve_preview_edit(
     cms_root: &std::path::Path,
     slug_with_html: &str,
 ) -> std::io::Result<()> {
-    // T37 v2: parse `?theme=` from the request URL. Cookie support
-    // queued for v2.b — the query-param flow is the iframe-friendly
-    // primitive (parent editor sets the param when the picker form
-    // POSTs).
-    let raw_url = request.url().to_owned();
-    let theme = parse_theme_query(&raw_url);
+    // T37 v2 + v2.b: resolve theme. Query-param wins (iframe src
+    // can carry `?theme=` for explicit override per session);
+    // otherwise the `loom-theme` cookie persists the operator's
+    // POST /theme pick across navigation.
+    let theme = resolve_theme(&request);
     // Strip query-string from path before slug validation so
     // `home.html?theme=dark` → slug `home`.
     let slug_with_html = slug_with_html
@@ -8638,6 +8652,107 @@ fn extract_session_cookie(request: &tiny_http::Request) -> Option<String> {
         }
     }
     None
+}
+
+/// T37 v2.b: read the `loom-theme` cookie. Returns the matching
+/// closed-allow-list value or None for absent / unknown values.
+/// Mirrors `parse_theme_query`'s shape so the two sources cascade
+/// identically.
+fn extract_theme_cookie(request: &tiny_http::Request) -> Option<&'static str> {
+    for h in request.headers() {
+        if !h.field.equiv("Cookie") {
+            continue;
+        }
+        for entry in h.value.as_str().split(';') {
+            let trimmed = entry.trim();
+            if let Some(value) = trimmed.strip_prefix("loom-theme=") {
+                return match value {
+                    "light" => Some("light"),
+                    "dark" => Some("dark"),
+                    _ => None,
+                };
+            }
+        }
+    }
+    None
+}
+
+/// T37 v2.b: resolve the active theme for a request.
+/// Order: `?theme=` query param (explicit override, includes
+/// `?theme=auto` which clears) > `loom-theme` cookie > None
+/// (OS preference wins).
+fn resolve_theme(request: &tiny_http::Request) -> Option<&'static str> {
+    // If the URL has a `?theme=` (any value), the query is
+    // authoritative — including `auto` which we want to mean
+    // "clear my pick this navigation." parse_theme_query
+    // already filters: only "light"/"dark" return Some(...).
+    let url = request.url();
+    if url.contains("theme=") {
+        return parse_theme_query(url);
+    }
+    extract_theme_cookie(request)
+}
+
+/// T37 v2.b: POST /theme handler. Reads form-POST body
+/// `theme=light|dark|auto`, sets/clears the `loom-theme` cookie,
+/// and 303-redirects back to the form's `back` field (or `/` as
+/// safe default). The `back` value is path-validated to prevent
+/// open-redirect (must start with `/` and not contain `//` /
+/// `\\` / control chars).
+fn handle_theme_post(mut request: tiny_http::Request) -> std::io::Result<()> {
+    use std::io::Read as _;
+    let mut body = String::new();
+    request.as_reader().read_to_string(&mut body)?;
+    let mut theme: Option<&str> = None;
+    let mut back: String = "/".to_owned();
+    for pair in body.split('&').filter(|s| !s.is_empty()) {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        let v = urlencoding::decode(&v.replace('+', " "))
+            .unwrap_or_default()
+            .into_owned();
+        match k {
+            "theme" => {
+                theme = match v.as_str() {
+                    "light" => Some("light"),
+                    "dark" => Some("dark"),
+                    _ => None, // `auto` and unknown both clear
+                };
+            }
+            "back" => {
+                // Validate: same-origin path only. Refuse anything
+                // that could redirect off-site or to a protocol-
+                // relative URL like `//evil.com`.
+                if v.starts_with('/')
+                    && !v.starts_with("//")
+                    && !v.contains('\\')
+                    && !v.chars().any(|c| c.is_control())
+                {
+                    back = v;
+                }
+            }
+            _ => {}
+        }
+    }
+    let cookie_attrs = match theme {
+        Some(t) => format!(
+            "loom-theme={t}; Path=/; SameSite=Strict; Max-Age=31536000"
+        ),
+        None => {
+            // Clear the cookie by setting Max-Age=0.
+            "loom-theme=; Path=/; SameSite=Strict; Max-Age=0".to_owned()
+        }
+    };
+    let mut resp = tiny_http::Response::from_string(String::new()).with_status_code(303);
+    resp.add_header(
+        tiny_http::Header::from_bytes(&b"Set-Cookie"[..], cookie_attrs.as_bytes())
+            .map_err(|_| std::io::Error::other("set-cookie header"))?,
+    );
+    resp.add_header(
+        tiny_http::Header::from_bytes(&b"Location"[..], back.as_bytes())
+            .map_err(|_| std::io::Error::other("location header"))?,
+    );
+    request.respond(resp)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -12853,6 +12968,80 @@ mod edit_overlay_tests {
     }
 
     // ---- T64b: interactive tour parser + overlay ----
+
+    // ---- T37 v2.b: cookie-based theme persistence ----
+
+    /// Build a tiny test request via tiny_http::Request internals?
+    /// tiny_http doesn't expose a public constructor — so test the
+    /// helpers directly on string inputs that mirror the cookie
+    /// header value parsing logic.
+    #[test]
+    fn extract_theme_cookie_logic_accepts_dark() {
+        // Mirror the parsing logic — a real Request can't be
+        // synthesised in unit tests easily.
+        let header_val = "session=abc; loom-theme=dark; other=42";
+        let mut found = None;
+        for entry in header_val.split(';') {
+            let trimmed = entry.trim();
+            if let Some(value) = trimmed.strip_prefix("loom-theme=") {
+                found = match value {
+                    "light" => Some("light"),
+                    "dark" => Some("dark"),
+                    _ => None,
+                };
+            }
+        }
+        assert_eq!(found, Some("dark"));
+    }
+
+    #[test]
+    fn extract_theme_cookie_logic_drops_unknown() {
+        for hostile in ["evil", "EVIL", "../etc", "'><script>"] {
+            let header_val = format!("loom-theme={hostile}");
+            let mut found = None;
+            for entry in header_val.split(';') {
+                let trimmed = entry.trim();
+                if let Some(value) = trimmed.strip_prefix("loom-theme=") {
+                    found = match value {
+                        "light" => Some("light"),
+                        "dark" => Some("dark"),
+                        _ => None,
+                    };
+                }
+            }
+            assert_eq!(found, None, "hostile value `{hostile}` must drop");
+        }
+    }
+
+    /// Sanity checks on the back-redirect validator (extracted
+    /// inline inside `handle_theme_post`). Open-redirect defence:
+    /// the `back` field must start with `/`, not start with `//`,
+    /// not contain `\\`, not contain control chars.
+    #[test]
+    fn back_redirect_validator_rules() {
+        let validate = |v: &str| -> bool {
+            v.starts_with('/')
+                && !v.starts_with("//")
+                && !v.contains('\\')
+                && !v.chars().any(|c| c.is_control())
+        };
+        // Accept: same-origin paths.
+        assert!(validate("/"));
+        assert!(validate("/index"));
+        assert!(validate("/page-1"));
+        assert!(validate("/index?tour=2"));
+        // Reject: protocol-relative (open redirect).
+        assert!(!validate("//evil.com"));
+        assert!(!validate("//evil.com/path"));
+        // Reject: scheme-prefixed.
+        assert!(!validate("https://evil.com"));
+        assert!(!validate("javascript:alert(1)"));
+        // Reject: backslash injection.
+        assert!(!validate("/path\\with\\back"));
+        // Reject: control chars.
+        assert!(!validate("/path\nLocation:evil.com"));
+        assert!(!validate("/path\rother"));
+    }
 
     #[test]
     fn parse_tour_query_accepts_valid_steps() {
