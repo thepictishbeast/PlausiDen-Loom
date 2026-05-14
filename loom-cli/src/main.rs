@@ -4739,7 +4739,11 @@ fn serve_edit_form(
             match kind {
                 "hero" => {
                     let h_title = sec.get("title").and_then(|v| v.as_str()).unwrap_or("");
-                    let h_sub = sec.get("subtitle").and_then(|v| v.as_str()).unwrap_or("");
+                    // SCHEMA: the renderer's Hero variant uses `lede`,
+                    // not `subtitle`. The form field name + JSON key
+                    // both have to match or save round-trips break the
+                    // file (deny_unknown_fields in CmsSection).
+                    let h_lede = sec.get("lede").and_then(|v| v.as_str()).unwrap_or("");
                     let h_eye = sec.get("eyebrow").and_then(|v| v.as_str()).unwrap_or("");
                     body.push_str(&format!(
                         "<label>Eyebrow</label><input name=\"sec.{i}.eyebrow\" value=\"{}\">",
@@ -4750,16 +4754,17 @@ fn serve_edit_form(
                         html_escape(h_title)
                     ));
                     body.push_str(&format!(
-                        "<label>Subtitle</label><textarea name=\"sec.{i}.subtitle\">{}</textarea>",
-                        html_escape(h_sub)
+                        "<label>Lede</label><textarea name=\"sec.{i}.lede\">{}</textarea>",
+                        html_escape(h_lede)
                     ));
                 }
                 "paragraph" => {
-                    let pbody = sec.get("body").and_then(|v| v.as_str()).unwrap_or("");
+                    // SCHEMA: renderer's Paragraph variant is `text`.
+                    let ptext = sec.get("text").and_then(|v| v.as_str()).unwrap_or("");
                     body.push_str(&format!(
-                        "<label>Body</label>\
-                         <textarea name=\"sec.{i}.body\" rows=\"4\" required>{}</textarea>",
-                        html_escape(pbody)
+                        "<label>Text</label>\
+                         <textarea name=\"sec.{i}.text\" rows=\"4\" required>{}</textarea>",
+                        html_escape(ptext)
                     ));
                 }
                 "heading" => {
@@ -4784,9 +4789,11 @@ fn serve_edit_form(
                     ));
                 }
                 "banner" => {
+                    // SCHEMA: renderer's Banner variant is
+                    // { tone, text, dismissible, id } — there is NO
+                    // `title` field, and the body is `text`.
                     let tone = sec.get("tone").and_then(|v| v.as_str()).unwrap_or("info");
-                    let title_v = sec.get("title").and_then(|v| v.as_str()).unwrap_or("");
-                    let body_v = sec.get("body").and_then(|v| v.as_str()).unwrap_or("");
+                    let text_v = sec.get("text").and_then(|v| v.as_str()).unwrap_or("");
                     body.push_str(&format!(
                         "<label>Tone</label>\
                          <select name=\"sec.{i}.tone\" \
@@ -4801,12 +4808,8 @@ fn serve_edit_form(
                     }
                     body.push_str("</select>");
                     body.push_str(&format!(
-                        "<label>Title</label><input name=\"sec.{i}.title\" value=\"{}\">",
-                        html_escape(title_v)
-                    ));
-                    body.push_str(&format!(
-                        "<label>Body</label><textarea name=\"sec.{i}.body\" rows=\"3\">{}</textarea>",
-                        html_escape(body_v)
+                        "<label>Text</label><textarea name=\"sec.{i}.text\" rows=\"3\">{}</textarea>",
+                        html_escape(text_v)
                     ));
                 }
                 "group" => {
@@ -5034,12 +5037,18 @@ fn handle_add_section(
     // Map kind → default section JSON. The shapes mirror
     // loom-cms-render's CmsSection variants. Future kinds land
     // by adding a match arm + an option in the dropdown.
+    // SCHEMA: every JSON value emitted here MUST be parseable by
+    // loom_cms_render::CmsSection — which uses deny_unknown_fields.
+    // Mismatches silently corrupt the file at save time and 500
+    // the next render. Keys here are the source of truth alongside
+    // the form rendering + save dispatch above; all three must
+    // agree (paragraph/banner→`text`, hero→`lede`).
     let new_section = match kind {
         "hero" => serde_json::json!({
             "kind": "hero",
             "eyebrow": "",
             "title": "New hero section",
-            "subtitle": "Edit this subtitle.",
+            "lede": "Edit this lede.",
             "cta": null,
         }),
         "group" => serde_json::json!({
@@ -5049,7 +5058,7 @@ fn handle_add_section(
         }),
         "paragraph" => serde_json::json!({
             "kind": "paragraph",
-            "body": "Edit this paragraph.",
+            "text": "Edit this paragraph.",
         }),
         "heading" => serde_json::json!({
             "kind": "heading",
@@ -5059,8 +5068,7 @@ fn handle_add_section(
         "banner" => serde_json::json!({
             "kind": "banner",
             "tone": "info",
-            "title": "Notice",
-            "body": "Edit this banner.",
+            "text": "Edit this banner.",
         }),
         _ => return respond_text(request, 400, "unknown section kind"),
     };
@@ -5176,15 +5184,27 @@ fn handle_edit_post(
             let kind = sec.get("kind").and_then(|v| v.as_str()).unwrap_or("").to_owned();
             match kind.as_str() {
                 "hero" => {
-                    for key in ["title", "subtitle", "eyebrow"] {
+                    // SCHEMA: see new_section seed — Hero's body
+                    // text field is `lede`, NOT `subtitle`.
+                    for key in ["title", "lede", "eyebrow"] {
                         if let Some(v) = fields.get(&format!("sec.{i}.{key}")) {
                             sec[key] = serde_json::Value::String(v.clone());
                         }
                     }
+                    // Migrate any legacy `subtitle` key that
+                    // earlier (broken) versions of the editor
+                    // wrote — strip it on save so the file parses.
+                    if let Some(obj) = sec.as_object_mut() {
+                        obj.remove("subtitle");
+                    }
                 }
                 "paragraph" => {
-                    if let Some(v) = fields.get(&format!("sec.{i}.body")) {
-                        sec["body"] = serde_json::Value::String(v.clone());
+                    // SCHEMA: Paragraph variant uses `text`.
+                    if let Some(v) = fields.get(&format!("sec.{i}.text")) {
+                        sec["text"] = serde_json::Value::String(v.clone());
+                    }
+                    if let Some(obj) = sec.as_object_mut() {
+                        obj.remove("body");
                     }
                 }
                 "heading" => {
@@ -5208,10 +5228,15 @@ fn handle_edit_post(
                         };
                         sec["tone"] = serde_json::Value::String(tone);
                     }
-                    for key in ["title", "body"] {
-                        if let Some(v) = fields.get(&format!("sec.{i}.{key}")) {
-                            sec[key] = serde_json::Value::String(v.clone());
-                        }
+                    // SCHEMA: Banner variant is { tone, text,
+                    // dismissible, id }. No `title`. The body field
+                    // is `text`, not `body`.
+                    if let Some(v) = fields.get(&format!("sec.{i}.text")) {
+                        sec["text"] = serde_json::Value::String(v.clone());
+                    }
+                    if let Some(obj) = sec.as_object_mut() {
+                        obj.remove("title");
+                        obj.remove("body");
                     }
                 }
                 "group" => {
@@ -8266,12 +8291,18 @@ pub(crate) enum ImportedSection {
 
 impl ImportedSection {
     pub(crate) fn to_json(&self) -> serde_json::Value {
+        // SCHEMA: see new_section seed in cmd_add_section. The
+        // renderer enforces deny_unknown_fields, so any field
+        // name drift here corrupts the imported JSON. Internal
+        // ImportedSection field names (subtitle, body) deliberately
+        // differ from the JSON keys (lede, text) — the rename
+        // happens here so the rust-side type stays stable.
         match self {
             Self::Hero { eyebrow, title, subtitle } => serde_json::json!({
                 "kind": "hero",
                 "eyebrow": eyebrow,
                 "title": title,
-                "subtitle": subtitle,
+                "lede": subtitle,
                 "cta": null,
             }),
             Self::Group { title, body } => serde_json::json!({
@@ -8286,11 +8317,11 @@ impl ImportedSection {
             }),
             Self::Paragraph { body } => serde_json::json!({
                 "kind": "paragraph",
-                "body": body,
+                "text": body,
             }),
             Self::Todo { raw } => serde_json::json!({
                 "kind": "paragraph",
-                "body": format!("TODO (manual conversion needed): {raw}"),
+                "text": format!("TODO (manual conversion needed): {raw}"),
             }),
         }
     }
@@ -10176,6 +10207,144 @@ mod deploy_signing_tests {
             "key-substitution attack must be rejected: {r:?}"
         );
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+}
+
+#[cfg(test)]
+mod editor_schema_tests {
+    //! T65: regression-guard against editor-vs-renderer schema
+    //! drift. The renderer's `CmsSection` enum is the source of
+    //! truth (with deny_unknown_fields). Every JSON value the
+    //! editor emits — new-section seeds, importer output,
+    //! save-handler patches — must parse cleanly into `CmsSection`
+    //! or Mom's saves silently corrupt her file.
+    use super::*;
+
+    fn assert_parses(name: &str, json: serde_json::Value) {
+        let s = serde_json::to_string(&json).expect("to_string");
+        let r: Result<loom_cms_render::CmsSection, _> = serde_json::from_str(&s);
+        assert!(
+            r.is_ok(),
+            "{name}: editor-emitted JSON failed CmsSection parse:\n  json: {s}\n  err: {:?}",
+            r.err()
+        );
+    }
+
+    #[test]
+    fn new_section_seed_hero_parses() {
+        assert_parses("hero seed", serde_json::json!({
+            "kind": "hero",
+            "eyebrow": "",
+            "title": "New hero section",
+            "lede": "Edit this lede.",
+            "cta": null,
+        }));
+    }
+
+    #[test]
+    fn new_section_seed_paragraph_parses() {
+        assert_parses("paragraph seed", serde_json::json!({
+            "kind": "paragraph",
+            "text": "Edit this paragraph.",
+        }));
+    }
+
+    #[test]
+    fn new_section_seed_banner_parses() {
+        assert_parses("banner seed", serde_json::json!({
+            "kind": "banner",
+            "tone": "info",
+            "text": "Edit this banner.",
+        }));
+    }
+
+    #[test]
+    fn new_section_seed_heading_parses() {
+        assert_parses("heading seed", serde_json::json!({
+            "kind": "heading",
+            "level": 2,
+            "text": "New heading",
+        }));
+    }
+
+    #[test]
+    fn new_section_seed_group_parses() {
+        assert_parses("group seed", serde_json::json!({
+            "kind": "group",
+            "title": "New group",
+            "body": ["First paragraph.", "Second paragraph."],
+        }));
+    }
+
+    #[test]
+    fn imported_paragraph_emits_text_not_body() {
+        let j = ImportedSection::Paragraph { body: "hi".into() }.to_json();
+        assert_parses("imported paragraph", j);
+    }
+
+    #[test]
+    fn imported_hero_emits_lede_not_subtitle() {
+        let j = ImportedSection::Hero {
+            eyebrow: "tag".into(),
+            title: "title".into(),
+            subtitle: "sub".into(),
+        }.to_json();
+        assert_parses("imported hero", j);
+    }
+
+    #[test]
+    fn imported_todo_paragraph_parses() {
+        let j = ImportedSection::Todo { raw: "<details>...".into() }.to_json();
+        assert_parses("imported todo", j);
+    }
+
+    /// REGRESSION-GUARD: legacy on-disk JSON might still carry a
+    /// `subtitle` key from the broken editor. The save handler's
+    /// migration sweep must scrub it on the next save so the
+    /// resulting file parses against the strict schema.
+    #[test]
+    fn save_dispatch_scrubs_legacy_subtitle_on_hero() {
+        // Simulate what `handle_edit_post`'s hero arm does when
+        // the on-disk JSON still has the legacy field.
+        let mut sec = serde_json::json!({
+            "kind": "hero",
+            "title": "T",
+            "subtitle": "STALE legacy field",
+            "lede": "good",
+        });
+        if let Some(obj) = sec.as_object_mut() {
+            obj.remove("subtitle");
+        }
+        assert_parses("scrubbed hero", sec);
+    }
+
+    #[test]
+    fn save_dispatch_scrubs_legacy_body_on_paragraph() {
+        let mut sec = serde_json::json!({
+            "kind": "paragraph",
+            "text": "good",
+            "body": "STALE legacy field",
+        });
+        if let Some(obj) = sec.as_object_mut() {
+            obj.remove("body");
+        }
+        assert_parses("scrubbed paragraph", sec);
+    }
+
+    #[test]
+    fn save_dispatch_scrubs_legacy_title_and_body_on_banner() {
+        let mut sec = serde_json::json!({
+            "kind": "banner",
+            "tone": "info",
+            "text": "good",
+            "title": "STALE",
+            "body": "STALE",
+        });
+        if let Some(obj) = sec.as_object_mut() {
+            obj.remove("title");
+            obj.remove("body");
+        }
+        assert_parses("scrubbed banner", sec);
     }
 }
 
