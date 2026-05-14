@@ -53,18 +53,43 @@ enum LoomAttestAction {
 #[derive(Subcommand)]
 enum DeployAction {
     /// Publish a built site to the target dir atomically.
+    ///
+    /// T47b (2026-05-14): when `--ssh-host` is provided, the
+    /// publish flow becomes remote — bundle built locally,
+    /// rsync'd to the host, atomic symlink swap via `ssh`. Same
+    /// Ed25519-signed manifest, same content-addressed layout,
+    /// same rollback shape (the bundle is just bytes; sig stays
+    /// valid post-transport).
     Publish {
         /// Source directory (typically `static/`).
         #[arg(long)]
         from: PathBuf,
-        /// Target dir. Will contain `publish-<sha>/` subdirs +
-        /// a `current/` symlink.
+        /// Target dir. Local mode: a real path on disk. Remote
+        /// mode (with `--ssh-host`): the path ON the remote host.
         #[arg(long)]
         to: PathBuf,
         /// Site name — used in the symlink + manifest. Defaults
         /// to the source dir's parent's basename.
         #[arg(long)]
         name: Option<String>,
+        /// T47b: SSH host for remote deploy. When set, the
+        /// flow becomes remote: build bundle locally → rsync to
+        /// `<host>:<to>/publish-<sha>/` → ssh + atomic symlink
+        /// swap. Without this flag, the existing local-only
+        /// path runs unchanged.
+        ///
+        /// Auth uses the operator's `~/.ssh/id_ed25519` (or
+        /// whatever ssh-agent has loaded) + `~/.ssh/known_hosts`.
+        /// Mom-class doctrine: no in-app key management — leverage
+        /// the OS-level SSH config the operator already has.
+        #[arg(long)]
+        ssh_host: Option<String>,
+        /// SSH user. Defaults to `$USER` if not set.
+        #[arg(long)]
+        ssh_user: Option<String>,
+        /// SSH port. Defaults to 22.
+        #[arg(long, default_value_t = 22)]
+        ssh_port: u16,
     },
     /// Verify a published bundle against its manifest.
     Verify {
@@ -952,8 +977,20 @@ fn main() -> ExitCode {
             }
         },
         Cmd::Deploy { action } => match action {
-            DeployAction::Publish { from, to, name } => {
-                match cmd_deploy_publish(&from, &to, name.as_deref()) {
+            DeployAction::Publish {
+                from,
+                to,
+                name,
+                ssh_host,
+                ssh_user,
+                ssh_port,
+            } => {
+                let remote = ssh_host.as_ref().map(|h| RemoteDeployTarget {
+                    host: h.clone(),
+                    user: ssh_user.clone(),
+                    port: ssh_port,
+                });
+                match cmd_deploy_publish(&from, &to, name.as_deref(), remote.as_ref()) {
                     Ok(()) => ExitCode::SUCCESS,
                     Err(e) => {
                         eprintln!("loom deploy publish: {e}");
@@ -11640,10 +11677,34 @@ fn atomic_symlink_swap(
     }
 }
 
+/// T47b: remote SSH target for deploy. None → local-only flow.
+#[derive(Debug, Clone)]
+struct RemoteDeployTarget {
+    host: String,
+    user: Option<String>,
+    port: u16,
+}
+
+impl RemoteDeployTarget {
+    /// SSH user@host string.
+    fn endpoint(&self) -> String {
+        match &self.user {
+            Some(u) => format!("{u}@{}", self.host),
+            None => self.host.clone(),
+        }
+    }
+
+    /// Format the rsync remote-path token: `user@host:/path`.
+    fn rsync_target(&self, remote_path: &std::path::Path) -> String {
+        format!("{}:{}", self.endpoint(), remote_path.display())
+    }
+}
+
 fn cmd_deploy_publish(
     from: &std::path::Path,
     to: &std::path::Path,
     name: Option<&str>,
+    remote: Option<&RemoteDeployTarget>,
 ) -> std::io::Result<()> {
     if !from.is_dir() {
         return Err(std::io::Error::other(format!(
@@ -11651,7 +11712,6 @@ fn cmd_deploy_publish(
             from.display()
         )));
     }
-    std::fs::create_dir_all(to)?;
     // Derive site name.
     let site_name = name
         .map(str::to_owned)
@@ -11662,7 +11722,8 @@ fn cmd_deploy_publish(
                 .map(str::to_owned)
         })
         .unwrap_or_else(|| "site".to_owned());
-    // Build manifest.
+    // Build manifest. The bundle bytes are identical regardless of
+    // local-vs-remote — only the WHERE-it-lands differs.
     let files = walk_and_hash(from)?;
     let published_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -11676,66 +11737,204 @@ fn cmd_deploy_publish(
     let manifest_bytes = serde_json::to_vec(&manifest)
         .map_err(|e| std::io::Error::other(format!("serialize manifest: {e}")))?;
     let manifest_sha = sha256_hex(&manifest_bytes);
-    let bundle_dir = to.join(format!("publish-{manifest_sha}"));
-    if bundle_dir.exists() {
-        // Idempotent: same content → same bundle. Touch + return.
+    let bundle_subdir = format!("publish-{manifest_sha}");
+
+    // T47b: choose local staging dir.
+    //   * Local-only: stage directly under `to` (existing behaviour).
+    //   * Remote: stage under `to` (treated as local cache) AND then
+    //     rsync to the remote `to` path. We use the same `to` path
+    //     locally as the cache so re-runs are idempotent + the
+    //     existing rollback flow keeps working for the local cache.
+    std::fs::create_dir_all(to)?;
+    let bundle_dir = to.join(&bundle_subdir);
+    if bundle_dir.exists() && remote.is_none() {
         println!(
             "loom deploy publish: identical bundle already at {} — no-op",
             bundle_dir.display()
         );
         return Ok(());
     }
-    // Copy source → bundle dir.
-    copy_tree(from, &bundle_dir)?;
-    // Write manifest into the bundle.
-    std::fs::write(
-        bundle_dir.join("manifest.json"),
-        serde_json::to_string_pretty(&manifest)
-            .map_err(|e| std::io::Error::other(format!("manifest json: {e}")))?,
-    )?;
-    // T47c: sign the manifest if a key is configured. Silent
-    // skip if not (unsigned bundles are valid; verifier
-    // returns Ok(false) for them).
-    if let Some(sig_b64) = try_sign_manifest(&manifest_bytes) {
-        std::fs::write(bundle_dir.join("manifest.sig"), &sig_b64)?;
-        // Snapshot the pubkey alongside so an auditor with
-        // physical access to the bundle can verify without
-        // needing the operator's ~/.config/loom/.
-        let pub_path = loom_attest_pubkey_path();
-        if pub_path.is_file() {
-            let _ = std::fs::copy(&pub_path, bundle_dir.join("attest-pubkey.b64"));
+    if !bundle_dir.exists() {
+        // Copy source → local bundle dir.
+        copy_tree(from, &bundle_dir)?;
+        // Write manifest into the bundle.
+        std::fs::write(
+            bundle_dir.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest)
+                .map_err(|e| std::io::Error::other(format!("manifest json: {e}")))?,
+        )?;
+        // T47c: sign the manifest if a key is configured.
+        if let Some(sig_b64) = try_sign_manifest(&manifest_bytes) {
+            std::fs::write(bundle_dir.join("manifest.sig"), &sig_b64)?;
+            let pub_path = loom_attest_pubkey_path();
+            if pub_path.is_file() {
+                let _ = std::fs::copy(&pub_path, bundle_dir.join("attest-pubkey.b64"));
+            }
         }
     }
-    // Capture previous symlink target before swap (for rollback).
-    let current_link = to.join("current");
-    let prev_target = std::fs::read_link(&current_link).ok();
-    // Atomic swap.
-    atomic_symlink_swap(
-        std::path::Path::new(&format!("publish-{manifest_sha}")),
-        &current_link,
-    )?;
-    // Update history.
-    if let Some(prev) = prev_target {
-        std::fs::write(
-            to.join(".loom-deploy-history"),
-            prev.display().to_string(),
-        )?;
+
+    // Local atomic-swap path.
+    if remote.is_none() {
+        let current_link = to.join("current");
+        let prev_target = std::fs::read_link(&current_link).ok();
+        atomic_symlink_swap(std::path::Path::new(&bundle_subdir), &current_link)?;
+        if let Some(prev) = prev_target {
+            std::fs::write(
+                to.join(".loom-deploy-history"),
+                prev.display().to_string(),
+            )?;
+        }
+        println!("loom deploy publish:");
+        println!("  ok  bundled {} file(s)", manifest.files.len());
+        println!("  ok  manifest sha: {manifest_sha}");
+        println!("  ok  bundle:      {}", bundle_dir.display());
+        println!("  ok  current ->   {bundle_subdir}");
+        println!();
+        println!("Verify:  loom deploy verify --at {}", current_link.display());
+        println!("Roll back: loom deploy rollback --at {}", to.display());
+        return Ok(());
     }
 
-    println!("loom deploy publish:");
+    // T47b remote path: rsync the bundle to the host + ssh-swap
+    // the symlink. We treat `to` as the path ON THE REMOTE here.
+    let remote = remote.expect("remote checked above");
+    let remote_to = to;
+    let remote_bundle = remote_to.join(&bundle_subdir);
+
+    // SECURITY: --to is user-controlled and gets embedded inside
+    // a shell-quoted swap script over ssh. We don't trust shell
+    // metachars to round-trip through single-quotes (a literal `'`
+    // in the path closes the quote and re-opens injection). Reject
+    // anything outside an allow-list of POSIX-portable characters
+    // BEFORE constructing the script. This also rejects the
+    // `host:path` form rsync would otherwise parse as remote.
+    // SUPERSOCIETY: a malicious config file pointing --to at a
+    // path with `;rm -rf /` would otherwise root the deploy
+    // target. Refuse early.
+    let to_str = remote_to.to_string_lossy();
+    let path_safe = to_str.chars().all(|c| {
+        c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-')
+    });
+    if !path_safe || to_str.contains("..") {
+        return Err(std::io::Error::other(format!(
+            "remote --to path {to_str:?} contains characters that aren't allowed in a deploy target \
+             (allowed: A-Z a-z 0-9 / . _ -; no `..`); refuse for shell-injection safety"
+        )));
+    }
+    // Same constraint for the host (it lands in the ssh + rsync
+    // arg vector — argv-safe but worth catching nonsense early).
+    if remote.host.is_empty()
+        || !remote.host.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')
+        })
+    {
+        return Err(std::io::Error::other(format!(
+            "ssh-host {:?} contains characters that aren't a hostname (A-Z a-z 0-9 . - _)",
+            remote.host
+        )));
+    }
+    if let Some(u) = &remote.user {
+        if u.is_empty()
+            || !u.chars().all(|c| {
+                c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')
+            })
+        {
+            return Err(std::io::Error::other(format!(
+                "ssh-user {u:?} contains characters that aren't a unix user (A-Z a-z 0-9 . - _)"
+            )));
+        }
+    }
+
+    // 1. Make sure the remote target dir exists.
+    let mkdir_status = std::process::Command::new("ssh")
+        .arg("-p")
+        .arg(remote.port.to_string())
+        .arg("-o")
+        .arg("BatchMode=yes")
+        .arg(remote.endpoint())
+        .arg("mkdir")
+        .arg("-p")
+        .arg(remote_to)
+        .status()
+        .map_err(|e| std::io::Error::other(format!("ssh spawn: {e}")))?;
+    if !mkdir_status.success() {
+        return Err(std::io::Error::other(format!(
+            "ssh mkdir -p {} failed (exit {:?}); check ssh config + key + path permissions",
+            remote_to.display(),
+            mkdir_status.code()
+        )));
+    }
+
+    // 2. rsync the bundle to the remote.
+    // -a archive (perms + symlinks + timestamps), -z compress over wire,
+    // --delete-after for replay safety on repeat publish, -e ssh -p N
+    // to honour the configured port. Trailing slash on src so we copy
+    // the bundle's CONTENTS into the remote bundle dir.
+    let rsync_args = [
+        "-az",
+        "--delete-after",
+        "-e",
+        &format!("ssh -p {} -o BatchMode=yes", remote.port),
+        &format!("{}/", bundle_dir.display()),
+        &remote.rsync_target(&remote_bundle),
+    ];
+    let rsync_status = std::process::Command::new("rsync")
+        .args(rsync_args)
+        .status()
+        .map_err(|e| std::io::Error::other(format!("rsync spawn: {e}; install rsync to use remote deploy")))?;
+    if !rsync_status.success() {
+        return Err(std::io::Error::other(format!(
+            "rsync failed (exit {:?}); check ssh + remote disk space + path perms",
+            rsync_status.code()
+        )));
+    }
+
+    // 3. ssh + atomic symlink swap. `ln -sfn` rewrites the symlink
+    // atomically when the target was already a symlink — POSIX
+    // `rename(2)` semantics. Capture the previous target first so
+    // we can write a remote rollback-history file.
+    //
+    // The shell snippet is constructed carefully — we shell-quote
+    // the bundle name (alphanumeric + `-` from the sha hex, so
+    // safe by construction; doctrine still says quote).
+    let remote_to_str = remote_to.display().to_string();
+    let swap_script = format!(
+        "set -eu; \
+         cd '{remote_to_str}'; \
+         prev=$(readlink current 2>/dev/null || echo ''); \
+         ln -sfn '{bundle_subdir}' current.tmp.$$ && \
+         mv -T current.tmp.$$ current; \
+         if [ -n \"$prev\" ]; then echo \"$prev\" > .loom-deploy-history; fi"
+    );
+    let swap_status = std::process::Command::new("ssh")
+        .arg("-p")
+        .arg(remote.port.to_string())
+        .arg("-o")
+        .arg("BatchMode=yes")
+        .arg(remote.endpoint())
+        .arg(&swap_script)
+        .status()
+        .map_err(|e| std::io::Error::other(format!("ssh spawn: {e}")))?;
+    if !swap_status.success() {
+        return Err(std::io::Error::other(format!(
+            "remote symlink swap failed (exit {:?}); the bundle was uploaded but is NOT live; \
+             ssh in and `ln -sfn {bundle_subdir} current` to recover, or rerun publish",
+            swap_status.code()
+        )));
+    }
+
+    println!("loom deploy publish (remote):");
     println!("  ok  bundled {} file(s)", manifest.files.len());
     println!("  ok  manifest sha: {manifest_sha}");
-    println!("  ok  bundle:      {}", bundle_dir.display());
-    println!("  ok  current ->   publish-{manifest_sha}");
+    println!("  ok  local bundle: {}", bundle_dir.display());
+    println!(
+        "  ok  rsync'd to:   {}",
+        remote.rsync_target(&remote_bundle)
+    );
+    println!("  ok  remote current -> {bundle_subdir}");
     println!();
-    println!(
-        "Verify:  loom deploy verify --at {}",
-        current_link.display()
-    );
-    println!(
-        "Roll back: loom deploy rollback --at {}",
-        to.display()
-    );
+    println!("Verify (on remote): ssh {} 'cd {} && loom deploy verify --at current'",
+        remote.endpoint(), remote_to.display());
     Ok(())
 }
 
@@ -11879,7 +12078,7 @@ mod deploy_tests {
         let src = unique_tmp("pub-src");
         seed_source(&src);
         let dst = unique_tmp("pub-dst");
-        cmd_deploy_publish(&src, &dst, Some("site")).expect("publish");
+        cmd_deploy_publish(&src, &dst, Some("site"), None).expect("publish");
 
         // current symlink exists.
         let current = dst.join("current");
@@ -11905,8 +12104,8 @@ mod deploy_tests {
         let src = unique_tmp("pub-idem-src");
         seed_source(&src);
         let dst = unique_tmp("pub-idem-dst");
-        cmd_deploy_publish(&src, &dst, Some("site")).expect("first");
-        cmd_deploy_publish(&src, &dst, Some("site")).expect("second");
+        cmd_deploy_publish(&src, &dst, Some("site"), None).expect("first");
+        cmd_deploy_publish(&src, &dst, Some("site"), None).expect("second");
         let bundles = std::fs::read_dir(&dst)
             .expect("readdir")
             .flatten()
@@ -11922,7 +12121,7 @@ mod deploy_tests {
         let src = unique_tmp("verify-src");
         seed_source(&src);
         let dst = unique_tmp("verify-dst");
-        cmd_deploy_publish(&src, &dst, Some("site")).expect("publish");
+        cmd_deploy_publish(&src, &dst, Some("site"), None).expect("publish");
         let mismatches = cmd_deploy_verify(&dst.join("current")).expect("verify");
         assert_eq!(mismatches, 0);
         let _ = std::fs::remove_dir_all(&src);
@@ -11934,7 +12133,7 @@ mod deploy_tests {
         let src = unique_tmp("tamp-src");
         seed_source(&src);
         let dst = unique_tmp("tamp-dst");
-        cmd_deploy_publish(&src, &dst, Some("site")).expect("publish");
+        cmd_deploy_publish(&src, &dst, Some("site"), None).expect("publish");
         // Find the bundle dir + tamper one file inside.
         let bundle = std::fs::read_dir(&dst)
             .expect("readdir")
@@ -11958,11 +12157,11 @@ mod deploy_tests {
         let src = unique_tmp("rb-src");
         seed_source(&src);
         let dst = unique_tmp("rb-dst");
-        cmd_deploy_publish(&src, &dst, Some("site")).expect("first");
+        cmd_deploy_publish(&src, &dst, Some("site"), None).expect("first");
 
         // Mutate src + republish so we have two bundles.
         std::fs::write(src.join("index.html"), b"<h1>v2</h1>").expect("mutate");
-        cmd_deploy_publish(&src, &dst, Some("site")).expect("second");
+        cmd_deploy_publish(&src, &dst, Some("site"), None).expect("second");
 
         // History exists.
         assert!(dst.join(".loom-deploy-history").is_file());
@@ -11979,6 +12178,122 @@ mod deploy_tests {
 
         let _ = std::fs::remove_dir_all(&src);
         let _ = std::fs::remove_dir_all(&dst);
+    }
+
+    // T47b — RemoteDeployTarget addressing.
+    //
+    // BUG ASSUMPTION: a typo in endpoint() drops the user, sending
+    // bundles as `root` over SSH. A typo in rsync_target() corrupts
+    // the rsync syntax (`host/path` instead of `host:/path`) and
+    // rsync silently treats it as a local path on the publisher.
+    // Both failure modes look fine in dry-run output, so we lock
+    // the formats with explicit assertions.
+
+    #[test]
+    fn remote_target_endpoint_with_user() {
+        let r = RemoteDeployTarget {
+            host: "deploy.plausiden.com".into(),
+            user: Some("loom".into()),
+            port: 22,
+        };
+        assert_eq!(r.endpoint(), "loom@deploy.plausiden.com");
+    }
+
+    #[test]
+    fn remote_target_endpoint_without_user_relies_on_ssh_config() {
+        // SUPERSOCIETY: omitting the user defers to ~/.ssh/config,
+        // which is where the operator should be pinning identity
+        // anyway (per-host IdentityFile, ProxyJump, etc).
+        let r = RemoteDeployTarget {
+            host: "edge1".into(),
+            user: None,
+            port: 22,
+        };
+        assert_eq!(r.endpoint(), "edge1");
+    }
+
+    // T47b — shell-injection refuse-on-bad-input.
+    //
+    // SECURITY: each input below would either escape the swap
+    // script's single-quotes or take advantage of unquoted argv
+    // expansion. Catch them at the publisher, before bytes hit
+    // ssh.
+
+    #[test]
+    fn remote_publish_refuses_path_with_shell_metachars() {
+        let src = unique_tmp("inject-src");
+        seed_source(&src);
+        let bad = std::path::PathBuf::from("/var/www/o'malley");
+        let r = RemoteDeployTarget {
+            host: "edge".into(),
+            user: None,
+            port: 22,
+        };
+        let err = cmd_deploy_publish(&src, &bad, Some("site"), Some(&r))
+            .expect_err("should refuse single-quote in path");
+        assert!(
+            err.to_string().contains("shell-injection")
+                || err.to_string().contains("aren't allowed"),
+            "msg = {err}"
+        );
+        let _ = std::fs::remove_dir_all(&src);
+    }
+
+    #[test]
+    fn remote_publish_refuses_dotdot_in_path() {
+        let src = unique_tmp("dotdot-src");
+        seed_source(&src);
+        let bad = std::path::PathBuf::from("/var/www/../etc");
+        let r = RemoteDeployTarget {
+            host: "edge".into(),
+            user: None,
+            port: 22,
+        };
+        assert!(cmd_deploy_publish(&src, &bad, Some("site"), Some(&r)).is_err());
+        let _ = std::fs::remove_dir_all(&src);
+    }
+
+    #[test]
+    fn remote_publish_refuses_host_with_metachars() {
+        let src = unique_tmp("badhost-src");
+        seed_source(&src);
+        let dst = std::path::PathBuf::from("/var/www/site");
+        let r = RemoteDeployTarget {
+            host: "edge;evil".into(),
+            user: None,
+            port: 22,
+        };
+        assert!(cmd_deploy_publish(&src, &dst, Some("site"), Some(&r)).is_err());
+        let _ = std::fs::remove_dir_all(&src);
+    }
+
+    #[test]
+    fn remote_publish_refuses_user_with_metachars() {
+        let src = unique_tmp("baduser-src");
+        seed_source(&src);
+        let dst = std::path::PathBuf::from("/var/www/site");
+        let r = RemoteDeployTarget {
+            host: "edge".into(),
+            user: Some("loom`whoami`".into()),
+            port: 22,
+        };
+        assert!(cmd_deploy_publish(&src, &dst, Some("site"), Some(&r)).is_err());
+        let _ = std::fs::remove_dir_all(&src);
+    }
+
+    #[test]
+    fn remote_target_rsync_target_uses_colon_separator() {
+        let r = RemoteDeployTarget {
+            host: "deploy.example".into(),
+            user: Some("opsbot".into()),
+            port: 2222,
+        };
+        let path = std::path::PathBuf::from("/var/www/site");
+        // CRITICAL: rsync uses `host:/path` not `host/path`.
+        assert_eq!(
+            r.rsync_target(&path),
+            "opsbot@deploy.example:/var/www/site"
+        );
     }
 }
 
