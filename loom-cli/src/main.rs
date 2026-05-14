@@ -350,9 +350,12 @@ enum Cmd {
         /// Static output directory served as /preview/*.
         #[arg(long, default_value = "static")]
         static_dir: PathBuf,
-        /// forge.sh path; invoked after every successful save.
-        /// Empty string disables the rebuild hook (useful in tests).
-        #[arg(long, default_value = "forge.sh")]
+        /// Rebuild command invoked after every successful save.
+        /// Default empty (skip rebuild) — `forge.sh` was deleted
+        /// in PlausiDen-Forge T54 (2026-05-14). Pass an explicit
+        /// path or shell command if you want auto-rebuild
+        /// (e.g. `cargo run --release -p forge-cli`).
+        #[arg(long, default_value = "")]
         forge: String,
         /// TCP port to listen on. Bound to 127.0.0.1 always.
         #[arg(long, default_value_t = 8124)]
