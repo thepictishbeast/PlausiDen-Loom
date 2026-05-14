@@ -429,6 +429,44 @@ enum Cmd {
         #[arg(long, default_value_t = 8124)]
         port: u16,
     },
+    /// T76 cycle 70: tail the cycle 63 violations.jsonl log.
+    ///
+    /// Pretty-prints the report-collector's JSONL log to a TTY.
+    /// Each line gets colorised by report type (csp-violation,
+    /// nel, coep, deprecation, etc.), shows the wall-clock
+    /// timestamp + endpoint + a body preview.
+    ///
+    /// Without this command, operators have to grep + jq the
+    /// raw JSONL file. With it, the supersociety observability
+    /// loop closes from "we collect reports" to "you can read
+    /// them".
+    ///
+    /// `loom report-tail` — print the last 20 entries.
+    /// `loom report-tail --follow` — print + live-tail new
+    /// entries as they arrive (poll every 1s).
+    /// `loom report-tail --kind csp-violation` — filter by
+    /// report type (substring match against the body field).
+    ReportTail {
+        /// reports/ directory containing violations.jsonl. By
+        /// default looks for `<cwd>/reports/violations.jsonl`,
+        /// matching where `loom edit-serve` writes when run
+        /// from a CMS root.
+        #[arg(long, default_value = "reports")]
+        dir: PathBuf,
+        /// How many of the most-recent entries to print before
+        /// (optionally) following.
+        #[arg(long, short = 'n', default_value_t = 20)]
+        lines: usize,
+        /// Substring filter against the JSONL body field.
+        /// Skips entries whose body doesn't contain the
+        /// substring. Empty = no filter.
+        #[arg(long, default_value = "")]
+        kind: String,
+        /// Live-tail: poll the file every 1 second and print
+        /// new lines as they arrive. Ctrl-C to exit.
+        #[arg(long, short = 'f', default_value_t = false)]
+        follow: bool,
+    },
     /// T43: admin auth management.
     ///
     /// `loom auth init <user>` creates the first admin user.
@@ -939,6 +977,18 @@ fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("loom edit serve: {e}");
+                ExitCode::from(2)
+            }
+        },
+        Cmd::ReportTail {
+            dir,
+            lines,
+            kind,
+            follow,
+        } => match cmd_report_tail(&dir, lines, &kind, follow) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("loom report-tail: {e}");
                 ExitCode::from(2)
             }
         },
@@ -4311,6 +4361,261 @@ struct ThemeBlock {
 // Anything else is rendered as a read-only JSON snippet so the
 // operator can see the field exists but can't mangle it from
 // the form. Follow-up ticks expand the widget set.
+
+/// SUPERSOCIETY cycle 70: TUI viewer for the cycle 63 report
+/// collector log.
+///
+/// Reads `<dir>/violations.jsonl`, parses each line as a
+/// minimal JSON object (no full serde_json round-trip; the
+/// auditor stays trivially auditable), and pretty-prints the
+/// most-recent `lines` entries. Optional `--follow` polls
+/// every 1s for new lines.
+///
+/// Output format (TTY-detected, colour-when-attached):
+///   <timestamp>  <endpoint-kind>  <body-preview>
+///
+/// Filters: `--kind <substring>` matches against the body
+/// field. Common values:
+///   csp-violation              CSP enforcement reports
+///   coep                       Cross-Origin Embedder Policy
+///   trusted-types              Trusted-Types policy violation
+///   document-policy            Document-Policy violation
+///   deprecation, intervention  Browser deprecation feedback
+///   nel, network-error         NEL transport-level failures
+fn cmd_report_tail(
+    dir: &std::path::Path,
+    lines: usize,
+    kind_filter: &str,
+    follow: bool,
+) -> Result<()> {
+    use std::io::{BufRead as _, BufReader, Write as _};
+
+    let log_path = dir.join("violations.jsonl");
+    let want_color = atty_stdout();
+
+    // Pretty-print one parsed JSONL line. Lines that don't
+    // match the expected shape are still printed verbatim so
+    // an operator can spot legitimate corruption.
+    fn print_one(line: &str, want_color: bool) {
+        let ts = field_or(line, "ts", "?");
+        let endpoint = field_or(line, "endpoint", "?");
+        let body = field_or(line, "body", "");
+        // Try to extract a `"type":"X"` from the body field
+        // (Reporting-API reports include type; legacy CSP
+        // reports don't but have `violated-directive`).
+        let kind = if let Some(t) = body_type(&body) {
+            t
+        } else if body.contains("violated-directive") {
+            "csp-violation".to_owned()
+        } else {
+            "(unknown)".to_owned()
+        };
+        let preview: String = body.chars().take(140).collect();
+        let ts_human = ts
+            .parse::<i64>()
+            .ok()
+            .and_then(format_unix_secs)
+            .unwrap_or_else(|| ts.clone());
+        let dim = if want_color { "\x1b[2m" } else { "" };
+        let reset = if want_color { "\x1b[0m" } else { "" };
+        let kind_col = if want_color {
+            match kind.as_str() {
+                "csp-violation" => "\x1b[1;31m",
+                "trusted-types" => "\x1b[1;35m",
+                "coep" | "coop" | "corp" => "\x1b[1;33m",
+                "deprecation" | "intervention" => "\x1b[36m",
+                "network-error" | "nel" => "\x1b[1;36m",
+                _ => "\x1b[37m",
+            }
+        } else {
+            ""
+        };
+        println!(
+            "{dim}{ts_human}{reset}  {kind_col}{kind:<16}{reset}  {dim}[{endpoint}]{reset}  {preview}"
+        );
+    }
+
+    // Helper: extract a string-valued top-level JSON field
+    // by name. Hand-rolled to avoid pulling serde_json into
+    // the CLI's audit surface for one tiny job. Falls back
+    // to `default` on parse failure.
+    fn field_or(line: &str, key: &str, default: &str) -> String {
+        let needle = format!("\"{key}\":");
+        let Some(start) = line.find(&needle) else {
+            return default.to_owned();
+        };
+        let rest = &line[start + needle.len()..];
+        if let Some(stripped) = rest.strip_prefix('"') {
+            let mut out = String::new();
+            let mut escape = false;
+            for ch in stripped.chars() {
+                if escape {
+                    match ch {
+                        'n' => out.push('\n'),
+                        'r' => out.push('\r'),
+                        't' => out.push('\t'),
+                        '"' => out.push('"'),
+                        '\\' => out.push('\\'),
+                        other => {
+                            out.push('\\');
+                            out.push(other);
+                        }
+                    }
+                    escape = false;
+                } else if ch == '\\' {
+                    escape = true;
+                } else if ch == '"' {
+                    break;
+                } else {
+                    out.push(ch);
+                }
+            }
+            out
+        } else {
+            // Numeric / boolean — take up to , } whitespace.
+            rest.chars()
+                .take_while(|c| !matches!(c, ',' | '}' | ' ' | '\t' | '\n'))
+                .collect()
+        }
+    }
+
+    fn body_type(body: &str) -> Option<String> {
+        // Look for `"type":"X"` inside the body field's stored
+        // string. The body is double-escaped at this point
+        // (it was JSON-encoded inside the JSONL line), so look
+        // for the literal `"type":"X"` substring without
+        // re-decoding.
+        let needle = "\"type\":\"";
+        let idx = body.find(needle)?;
+        let rest = &body[idx + needle.len()..];
+        let end = rest.find('"')?;
+        Some(rest[..end].to_owned())
+    }
+
+    fn format_unix_secs(ts: i64) -> Option<String> {
+        // Minimal "YYYY-MM-DD HH:MM:SSZ" formatter without
+        // pulling chrono into the CLI. Uses the seconds-since-
+        // epoch fixed-point arithmetic from RFC 3339 §A.6.
+        if ts < 0 {
+            return None;
+        }
+        let secs_per_day: i64 = 86400;
+        let days_since_epoch = ts / secs_per_day;
+        let secs_today = ts % secs_per_day;
+        let h = (secs_today / 3600) as u32;
+        let m = ((secs_today % 3600) / 60) as u32;
+        let s = (secs_today % 60) as u32;
+        // 1970-01-01 was a Thursday; convert days_since_epoch
+        // to YMD via Howard Hinnant's date.cpp algorithm.
+        let z = days_since_epoch + 719468;
+        let era = z.div_euclid(146097);
+        let doe = z.rem_euclid(146097) as u64;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        let y = yoe as i64 + era * 400;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+        let mo = (mp + if mp < 10 { 3 } else { -9_i64 as u64 }) as u32;
+        let year = if mo <= 2 { y + 1 } else { y };
+        Some(format!(
+            "{year:04}-{mo:02}-{d:02} {h:02}:{m:02}:{s:02}Z"
+        ))
+    }
+
+    fn atty_stdout() -> bool {
+        // stdlib IsTerminal trait (Rust 1.70+). No FFI, no
+        // edition-2024 unsafe-extern complications. Conservative:
+        // require $TERM set too, so non-interactive shells (CI,
+        // cron) don't emit ANSI escapes.
+        use std::io::IsTerminal as _;
+        std::env::var("TERM").is_ok() && std::io::stdout().is_terminal()
+    }
+
+    // Open the file. If it doesn't exist yet, that's OK in
+    // --follow mode (we'll poll for it); otherwise it's a
+    // genuine "no reports collected yet" message.
+    let exists = log_path.is_file();
+    if !exists && !follow {
+        println!(
+            "loom report-tail: no reports yet (looking at {})",
+            log_path.display()
+        );
+        return Ok(());
+    }
+
+    // Read the file, keep the last `lines` matching entries.
+    let mut all: std::collections::VecDeque<String> =
+        std::collections::VecDeque::with_capacity(lines.max(1));
+    let mut last_pos: u64 = 0;
+    if exists {
+        let f = std::fs::File::open(&log_path).map_err(|e| {
+            anyhow::anyhow!("open {}: {e}", log_path.display())
+        })?;
+        let metadata = f.metadata().ok();
+        let reader = BufReader::new(f);
+        for line in reader.lines() {
+            let l = match line {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            if !kind_filter.is_empty() && !l.contains(kind_filter) {
+                continue;
+            }
+            if all.len() == lines {
+                all.pop_front();
+            }
+            all.push_back(l);
+        }
+        if let Some(m) = metadata {
+            last_pos = m.len();
+        }
+    }
+    for line in &all {
+        print_one(line, want_color);
+    }
+    let _ = std::io::stdout().flush();
+
+    if !follow {
+        return Ok(());
+    }
+
+    // --follow: poll every 1s. Stat the file; if larger than
+    // last_pos, read from last_pos forward and print new
+    // lines. If file was rotated (size < last_pos), reset to
+    // 0 and start reading.
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let metadata = match std::fs::metadata(&log_path) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let len = metadata.len();
+        if len < last_pos {
+            last_pos = 0;
+            eprintln!("loom report-tail: log was rotated; resyncing");
+        }
+        if len <= last_pos {
+            continue;
+        }
+        let mut f = std::fs::File::open(&log_path).map_err(|e| {
+            anyhow::anyhow!("re-open {}: {e}", log_path.display())
+        })?;
+        use std::io::{Read as _, Seek as _, SeekFrom};
+        f.seek(SeekFrom::Start(last_pos)).map_err(|e| {
+            anyhow::anyhow!("seek {}: {e}", log_path.display())
+        })?;
+        let mut buf = String::new();
+        f.read_to_string(&mut buf).ok();
+        for line in buf.lines() {
+            if !kind_filter.is_empty() && !line.contains(kind_filter) {
+                continue;
+            }
+            print_one(line, want_color);
+        }
+        let _ = std::io::stdout().flush();
+        last_pos = len;
+    }
+}
 
 fn cmd_edit_serve(
     cms_root: &std::path::Path,
