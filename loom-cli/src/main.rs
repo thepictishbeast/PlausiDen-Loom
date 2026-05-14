@@ -23,6 +23,21 @@ struct Cli {
     command: Cmd,
 }
 
+/// `loom attest` subcommands. T47c.
+#[derive(Subcommand)]
+enum LoomAttestAction {
+    /// Generate a fresh Ed25519 keypair under ~/.config/loom/.
+    Init {
+        /// Overwrite an existing keypair. Use only if you've
+        /// rotated keys deliberately + accepted the chain-of-
+        /// trust break for previously-signed bundles.
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
+    /// Print the public key (stable trust anchor for auditors).
+    Pubkey,
+}
+
 /// `loom deploy` subcommands. T47.
 #[derive(Subcommand)]
 enum DeployAction {
@@ -419,6 +434,17 @@ enum Cmd {
     Deploy {
         #[command(subcommand)]
         action: DeployAction,
+    },
+    /// T47c: Ed25519 attestation key management for deploy
+    /// manifests. Same shape as Forge's `forge attest`.
+    ///
+    /// `loom attest init` writes a fresh keypair to
+    /// `~/.config/loom/attest-{key,pubkey}.b64` (private key
+    /// mode 0600). Subsequent `loom deploy publish` runs sign
+    /// the manifest if the key is present.
+    Attest {
+        #[command(subcommand)]
+        action: LoomAttestAction,
     },
     /// `loom theme` — inspect + validate the theme system.
     ///
@@ -843,6 +869,22 @@ fn main() -> ExitCode {
                 eprintln!("loom import: {e}");
                 ExitCode::from(2)
             }
+        },
+        Cmd::Attest { action } => match action {
+            LoomAttestAction::Init { force } => match cmd_loom_attest_init(force) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("loom attest init: {e}");
+                    ExitCode::from(2)
+                }
+            },
+            LoomAttestAction::Pubkey => match cmd_loom_attest_pubkey() {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("loom attest pubkey: {e}");
+                    ExitCode::from(2)
+                }
+            },
         },
         Cmd::Deploy { action } => match action {
             DeployAction::Publish { from, to, name } => {
@@ -9290,6 +9332,19 @@ fn cmd_deploy_publish(
         serde_json::to_string_pretty(&manifest)
             .map_err(|e| std::io::Error::other(format!("manifest json: {e}")))?,
     )?;
+    // T47c: sign the manifest if a key is configured. Silent
+    // skip if not (unsigned bundles are valid; verifier
+    // returns Ok(false) for them).
+    if let Some(sig_b64) = try_sign_manifest(&manifest_bytes) {
+        std::fs::write(bundle_dir.join("manifest.sig"), &sig_b64)?;
+        // Snapshot the pubkey alongside so an auditor with
+        // physical access to the bundle can verify without
+        // needing the operator's ~/.config/loom/.
+        let pub_path = loom_attest_pubkey_path();
+        if pub_path.is_file() {
+            let _ = std::fs::copy(&pub_path, bundle_dir.join("attest-pubkey.b64"));
+        }
+    }
     // Capture previous symlink target before swap (for rollback).
     let current_link = to.join("current");
     let prev_target = std::fs::read_link(&current_link).ok();
@@ -9355,19 +9410,45 @@ fn cmd_deploy_verify(at: &std::path::Path) -> std::io::Result<usize> {
         }
     }
     // Anything in `actual` but not in `manifest` is fine IF it
-    // is the manifest itself (which we add post-walk). Anything
-    // else is a strict mismatch.
+    // is bundle metadata (manifest.json itself, signature, or the
+    // deposited pubkey-copy). Everything else is a strict
+    // mismatch.
     for rel in actual.keys() {
-        if !manifest.files.contains_key(rel) && rel != "manifest.json" {
+        if !manifest.files.contains_key(rel)
+            && rel != "manifest.json"
+            && rel != "manifest.sig"
+            && rel != "attest-pubkey.b64"
+        {
             eprintln!("  FAIL  {rel}: present on disk but not in manifest");
             mismatches += 1;
         }
     }
+    // T47c: signature verification against an out-of-band trust
+    // anchor. The bundle-local pubkey, if present, MUST match the
+    // anchor (otherwise it is a key-substitution attack).
+    let manifest_bytes = serde_json::to_vec(&manifest).unwrap_or_default();
+    let sig_status = match verify_manifest_signature(
+        &manifest_bytes,
+        at,
+        &loom_attest_pubkey_path(),
+    ) {
+        Ok(SigStatus::ValidTrusted) => "valid Ed25519 signature (trusted anchor)",
+        Ok(SigStatus::ValidUntrusted) => {
+            "valid Ed25519 signature (no trust anchor — verify pubkey out-of-band before relying on this)"
+        }
+        Ok(SigStatus::Unsigned) => "unsigned bundle (T47c not applied; pass for back-compat)",
+        Err(why) => {
+            eprintln!("  FAIL  signature: {why}");
+            mismatches += 1;
+            "FAILED signature"
+        }
+    };
+
     if mismatches == 0 {
         println!(
-            "loom deploy verify:\n  ok  {} file(s) verified against manifest sha {}",
+            "loom deploy verify:\n  ok  {} file(s) verified against manifest sha {}\n  ok  {sig_status}",
             manifest.files.len(),
-            sha256_hex(serde_json::to_vec(&manifest).unwrap_or_default().as_slice())
+            sha256_hex(&manifest_bytes)
         );
     }
     Ok(mismatches)
@@ -9507,6 +9588,10 @@ mod deploy_tests {
         let _ = std::fs::remove_dir_all(&dst);
     }
 
+    // T47c: signed-manifest tests live below in
+    // deploy_signing_tests; we skip them here to keep the
+    // existing deploy tests fast (no Ed25519 setup).
+
     #[test]
     fn second_publish_records_first_in_history_and_rollback_flips() {
         let src = unique_tmp("rb-src");
@@ -9533,5 +9618,376 @@ mod deploy_tests {
 
         let _ = std::fs::remove_dir_all(&src);
         let _ = std::fs::remove_dir_all(&dst);
+    }
+}
+
+// ============================================================
+// T47c: Ed25519-signed deploy manifests.
+// ============================================================
+//
+// Doctrine matches forge-core::attest (T56):
+//   * Ed25519 (RFC 8032) — modern, fast, deterministic.
+//   * Pure-fn surface; key persistence at the binary edge.
+//   * Private key mode 0600.
+//   * Signature stored as base64 alongside manifest.json.
+
+fn loom_attest_key_path() -> std::path::PathBuf {
+    if let Ok(env) = std::env::var("LOOM_ATTEST_KEY") {
+        return std::path::PathBuf::from(env);
+    }
+    dirs_next::config_dir()
+        .map(|d| d.join("loom").join("attest-key.b64"))
+        .unwrap_or_else(|| std::path::PathBuf::from("./attest-key.b64"))
+}
+
+fn loom_attest_pubkey_path() -> std::path::PathBuf {
+    if let Ok(env) = std::env::var("LOOM_ATTEST_PUBKEY") {
+        return std::path::PathBuf::from(env);
+    }
+    dirs_next::config_dir()
+        .map(|d| d.join("loom").join("attest-pubkey.b64"))
+        .unwrap_or_else(|| std::path::PathBuf::from("./attest-pubkey.b64"))
+}
+
+fn cmd_loom_attest_init(force: bool) -> std::io::Result<()> {
+    use ed25519_dalek::SigningKey;
+    use rand_core::OsRng;
+    let key_path = loom_attest_key_path();
+    let pub_path = loom_attest_pubkey_path();
+    if key_path.exists() && !force {
+        return Err(std::io::Error::other(format!(
+            "{} already exists; pass --force to overwrite (chain-of-trust will break for any auditor pinned to the old key)",
+            key_path.display()
+        )));
+    }
+    if let Some(parent) = key_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let key = SigningKey::generate(&mut OsRng);
+    let priv_b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        key.to_bytes(),
+    );
+    let pub_b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        key.verifying_key().as_bytes(),
+    );
+    std::fs::write(&key_path, &priv_b64)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&key_path)?.permissions();
+        perms.set_mode(0o600);
+        let _ = std::fs::set_permissions(&key_path, perms);
+    }
+    std::fs::write(&pub_path, &pub_b64)?;
+    println!("loom attest init:");
+    println!("  ok    private key → {} (mode 0600)", key_path.display());
+    println!("  ok    public  key → {}", pub_path.display());
+    println!("  pubkey: {pub_b64}");
+    Ok(())
+}
+
+fn cmd_loom_attest_pubkey() -> std::io::Result<()> {
+    let path = loom_attest_pubkey_path();
+    if !path.is_file() {
+        return Err(std::io::Error::other(format!(
+            "{} missing — run `loom attest init` first",
+            path.display()
+        )));
+    }
+    let s = std::fs::read_to_string(&path)?;
+    print!("{}", s.trim());
+    println!();
+    Ok(())
+}
+
+/// Sign manifest bytes with the operator's Ed25519 key. Returns
+/// `None` (silently) if no key file exists — unsigned bundles
+/// are valid; verifier simply skips the signature check.
+fn try_sign_manifest(manifest_bytes: &[u8]) -> Option<String> {
+    try_sign_manifest_with_key(&loom_attest_key_path(), manifest_bytes)
+}
+
+/// Test-friendly variant: explicit key path.
+fn try_sign_manifest_with_key(
+    key_path: &std::path::Path,
+    manifest_bytes: &[u8],
+) -> Option<String> {
+    use ed25519_dalek::{Signer as _, SigningKey};
+    if !key_path.is_file() {
+        return None;
+    }
+    let raw = std::fs::read_to_string(key_path).ok()?;
+    let bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        raw.trim(),
+    )
+    .ok()?;
+    if bytes.len() != ed25519_dalek::SECRET_KEY_LENGTH {
+        return None;
+    }
+    let mut arr = [0u8; ed25519_dalek::SECRET_KEY_LENGTH];
+    arr.copy_from_slice(&bytes);
+    let key = SigningKey::from_bytes(&arr);
+    let sig = key.sign(manifest_bytes);
+    Some(base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        sig.to_bytes(),
+    ))
+}
+
+/// Outcome of an Ed25519 manifest-signature check.
+///
+/// AVP-2 doctrine: a signature only proves trust when checked
+/// against a *trusted* key. The bundle-local pubkey is untrusted
+/// data, so it is treated as a deposit-for-cross-verification —
+/// never as a trust anchor on its own.
+#[derive(Debug, PartialEq, Eq)]
+enum SigStatus {
+    /// No `manifest.sig` file present. Bundle is unsigned.
+    Unsigned,
+    /// Sig verified against the configured trust anchor (env
+    /// override or `~/.config/loom/attest-pubkey.b64`). If the
+    /// bundle also carried a pubkey copy it matched the anchor.
+    ValidTrusted,
+    /// Sig verified against the bundle-local pubkey, but no
+    /// out-of-band trust anchor is configured. Caller MUST treat
+    /// this as untrusted until the pubkey is verified through a
+    /// separate channel.
+    ValidUntrusted,
+}
+
+/// Verify a manifest signature against a trust-anchor pubkey.
+///
+/// Behaviour matrix:
+///   * no `manifest.sig`             → `Ok(Unsigned)`
+///   * sig + trust-anchor file       → check; bundle pubkey (if
+///                                     present) MUST match anchor
+///   * sig + only bundle pubkey      → `Ok(ValidUntrusted)` on
+///                                     valid sig (loud warning)
+///   * sig + nothing to verify with  → `Err`
+///   * sig invalid / malformed       → `Err`
+///   * bundle pubkey ≠ anchor pubkey → `Err` (key-substitution
+///                                     attempt — fail closed)
+fn verify_manifest_signature(
+    manifest_bytes: &[u8],
+    bundle_dir: &std::path::Path,
+    trust_anchor_path: &std::path::Path,
+) -> Result<SigStatus, String> {
+    use ed25519_dalek::{Signature, Verifier as _, VerifyingKey, SIGNATURE_LENGTH};
+    let sig_path = bundle_dir.join("manifest.sig");
+    if !sig_path.is_file() {
+        return Ok(SigStatus::Unsigned);
+    }
+    let bundle_pub_path = bundle_dir.join("attest-pubkey.b64");
+    let bundle_pub_present = bundle_pub_path.is_file();
+    let anchor_present = trust_anchor_path.is_file();
+
+    // SECURITY: the trust anchor is authoritative when present.
+    // The bundle-local pubkey is convenience metadata only —
+    // never a trust source on its own.
+    let (pubkey_b64, status_kind) = match (anchor_present, bundle_pub_present) {
+        (true, true) => {
+            let anchor_b64 = std::fs::read_to_string(trust_anchor_path)
+                .map_err(|e| format!("read trust anchor: {e}"))?;
+            let bundle_b64 = std::fs::read_to_string(&bundle_pub_path)
+                .map_err(|e| format!("read bundle pubkey: {e}"))?;
+            // Constant-time compare. Padding differences would
+            // round-trip identically through base64, but we
+            // normalise just in case.
+            use subtle::ConstantTimeEq as _;
+            let a = anchor_b64.trim().as_bytes();
+            let b = bundle_b64.trim().as_bytes();
+            if a.ct_eq(b).unwrap_u8() != 1 {
+                return Err(format!(
+                    "trust-anchor mismatch: bundle pubkey != configured anchor at {} \
+                     (possible key-substitution attack)",
+                    trust_anchor_path.display()
+                ));
+            }
+            (anchor_b64, SigStatus::ValidTrusted)
+        }
+        (true, false) => {
+            let anchor_b64 = std::fs::read_to_string(trust_anchor_path)
+                .map_err(|e| format!("read trust anchor: {e}"))?;
+            (anchor_b64, SigStatus::ValidTrusted)
+        }
+        (false, true) => {
+            let bundle_b64 = std::fs::read_to_string(&bundle_pub_path)
+                .map_err(|e| format!("read bundle pubkey: {e}"))?;
+            (bundle_b64, SigStatus::ValidUntrusted)
+        }
+        (false, false) => {
+            return Err(format!(
+                "manifest.sig present but no pubkey available (trust anchor: {})",
+                trust_anchor_path.display()
+            ));
+        }
+    };
+
+    let pub_bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        pubkey_b64.trim(),
+    )
+    .map_err(|e| format!("decode pubkey: {e}"))?;
+    if pub_bytes.len() != ed25519_dalek::PUBLIC_KEY_LENGTH {
+        return Err("pubkey wrong length".into());
+    }
+    let mut pub_arr = [0u8; ed25519_dalek::PUBLIC_KEY_LENGTH];
+    pub_arr.copy_from_slice(&pub_bytes);
+    let pubkey = VerifyingKey::from_bytes(&pub_arr).map_err(|e| e.to_string())?;
+    let sig_b64 = std::fs::read_to_string(&sig_path).map_err(|e| e.to_string())?;
+    let sig_bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        sig_b64.trim(),
+    )
+    .map_err(|e| format!("decode signature: {e}"))?;
+    if sig_bytes.len() != SIGNATURE_LENGTH {
+        return Err("signature wrong length".into());
+    }
+    let mut sig_arr = [0u8; SIGNATURE_LENGTH];
+    sig_arr.copy_from_slice(&sig_bytes);
+    let sig = Signature::from_bytes(&sig_arr);
+    pubkey
+        .verify(manifest_bytes, &sig)
+        .map(|_| status_kind)
+        .map_err(|e| format!("signature verification failed: {e}"))
+}
+
+#[cfg(test)]
+mod deploy_signing_tests {
+    use super::*;
+
+    fn unique_tmp(label: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "loom-sign-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ))
+    }
+
+    fn make_keypair(dir: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
+        use ed25519_dalek::SigningKey;
+        use rand_core::OsRng;
+        let key = SigningKey::generate(&mut OsRng);
+        let priv_b64 = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            key.to_bytes(),
+        );
+        let pub_b64 = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            key.verifying_key().as_bytes(),
+        );
+        let kp = dir.join("k.b64");
+        let pp = dir.join("p.b64");
+        std::fs::write(&kp, &priv_b64).expect("write key");
+        std::fs::write(&pp, &pub_b64).expect("write pub");
+        (kp, pp)
+    }
+
+    #[test]
+    fn try_sign_returns_none_when_no_key() {
+        let bogus = unique_tmp("nokey").join("nope.b64");
+        let r = try_sign_manifest_with_key(&bogus, b"hello");
+        assert!(r.is_none());
+    }
+
+    #[test]
+    fn sign_then_verify_round_trip_trusted() {
+        let tmp = unique_tmp("rt-trust");
+        std::fs::create_dir_all(&tmp).expect("mk");
+        let (kp, pp) = make_keypair(&tmp);
+        let payload = b"manifest contents";
+        let sig = try_sign_manifest_with_key(&kp, payload).expect("sign");
+        let bundle = tmp.join("bundle");
+        std::fs::create_dir_all(&bundle).expect("bundle");
+        std::fs::write(bundle.join("manifest.sig"), &sig).expect("sig file");
+        std::fs::copy(&pp, bundle.join("attest-pubkey.b64")).expect("pub copy");
+        // Anchor = the same pubkey, configured out-of-band.
+        let r = verify_manifest_signature(payload, &bundle, &pp);
+        assert_eq!(r, Ok(SigStatus::ValidTrusted), "got {r:?}");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn sign_then_verify_round_trip_untrusted_when_no_anchor() {
+        let tmp = unique_tmp("rt-untrust");
+        std::fs::create_dir_all(&tmp).expect("mk");
+        let (kp, pp) = make_keypair(&tmp);
+        let payload = b"manifest contents";
+        let sig = try_sign_manifest_with_key(&kp, payload).expect("sign");
+        let bundle = tmp.join("bundle");
+        std::fs::create_dir_all(&bundle).expect("bundle");
+        std::fs::write(bundle.join("manifest.sig"), &sig).expect("sig file");
+        std::fs::copy(&pp, bundle.join("attest-pubkey.b64")).expect("pub copy");
+        // Anchor path doesn't exist → degrade to ValidUntrusted.
+        let nowhere = tmp.join("no-anchor.b64");
+        let r = verify_manifest_signature(payload, &bundle, &nowhere);
+        assert_eq!(r, Ok(SigStatus::ValidUntrusted), "got {r:?}");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn verify_rejects_tampered_payload() {
+        let tmp = unique_tmp("tamper");
+        std::fs::create_dir_all(&tmp).expect("mk");
+        let (kp, pp) = make_keypair(&tmp);
+        let payload = b"original";
+        let sig = try_sign_manifest_with_key(&kp, payload).expect("sign");
+        let bundle = tmp.join("bundle");
+        std::fs::create_dir_all(&bundle).expect("bundle");
+        std::fs::write(bundle.join("manifest.sig"), &sig).expect("sig file");
+        std::fs::copy(&pp, bundle.join("attest-pubkey.b64")).expect("pub copy");
+        let r = verify_manifest_signature(b"FORGED PAYLOAD", &bundle, &pp);
+        assert!(matches!(r, Err(_)), "tampered payload must fail: {r:?}");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn verify_returns_unsigned_for_no_sig_file() {
+        let tmp = unique_tmp("unsigned");
+        std::fs::create_dir_all(&tmp).expect("mk");
+        let anchor = tmp.join("absent.b64");
+        let r = verify_manifest_signature(b"anything", &tmp, &anchor);
+        assert_eq!(r, Ok(SigStatus::Unsigned), "got {r:?}");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// SECURITY: defends against key-substitution. An attacker
+    /// who controls a bundle can produce a valid Ed25519 signature
+    /// with their own keypair and drop their pubkey into the
+    /// bundle. The verifier MUST refuse to trust a pubkey that
+    /// did not come from the out-of-band anchor.
+    #[test]
+    fn verify_rejects_key_substitution_attack() {
+        let tmp = unique_tmp("subst");
+        std::fs::create_dir_all(&tmp).expect("mk");
+        // "Real" keypair the operator established as the anchor.
+        let real_dir = tmp.join("real");
+        std::fs::create_dir_all(&real_dir).expect("mk-real");
+        let (_real_kp, real_pp) = make_keypair(&real_dir);
+        // Attacker's keypair.
+        let evil_dir = tmp.join("evil");
+        std::fs::create_dir_all(&evil_dir).expect("mk-evil");
+        let (evil_kp, evil_pp) = make_keypair(&evil_dir);
+        // Attacker signs their forged manifest with their key and
+        // deposits their pubkey alongside it.
+        let payload = b"forged manifest";
+        let evil_sig = try_sign_manifest_with_key(&evil_kp, payload).expect("sign-evil");
+        let bundle = tmp.join("bundle");
+        std::fs::create_dir_all(&bundle).expect("bundle");
+        std::fs::write(bundle.join("manifest.sig"), &evil_sig).expect("sig file");
+        std::fs::copy(&evil_pp, bundle.join("attest-pubkey.b64")).expect("pub copy");
+        // Verifier configured with the REAL anchor — must reject.
+        let r = verify_manifest_signature(payload, &bundle, &real_pp);
+        assert!(
+            matches!(r, Err(ref why) if why.contains("trust-anchor mismatch")),
+            "key-substitution attack must be rejected: {r:?}"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

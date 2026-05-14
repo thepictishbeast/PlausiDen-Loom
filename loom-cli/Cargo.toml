@@ -45,6 +45,10 @@ dirs-next = "2"
 rand_core = { version = "0.6", features = ["std", "getrandom"] }
 # T43: TOML serializer with serde for auth.toml.
 serde = { version = "1", features = ["derive"] }
+# T47c: Ed25519 signing for deploy manifests. Same crate
+# PlausiDen-Forge uses (T56). Auditor with the attest-pubkey
+# can prove a bundle was published by THIS loom instance.
+ed25519-dalek = { version = "2", features = ["rand_core"] }
 
 [dev-dependencies]
 # T29: property-based tests on the contrast math + parser.
