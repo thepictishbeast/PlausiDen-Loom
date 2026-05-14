@@ -6220,6 +6220,69 @@ fn respond_html(
         tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
             .map_err(|_| std::io::Error::other("header"))?,
     );
+    // SUPERSOCIETY cycle 61: Document-Policy (2024 W3C, CSP-
+    // Level-3 companion). MUST be a response header — browsers
+    // do NOT honor meta http-equiv for this directive.
+    //
+    // REGRESSION-GUARD: only `force-load-at-top` is currently
+    // SHIPPED in Chromium. The proposed `document-write=?0` and
+    // `unsized-media=?0` directives are spec'd but not yet
+    // recognised by Chrome — emitting them produces console
+    // warnings ("Unrecognized document policy feature name").
+    // The narrower header is forward-compatible: when Chromium
+    // ships the missing directives, we add them here.
+    //
+    //   force-load-at-top — disable scroll restoration so the
+    //   admin pages always land at the top after navigation
+    //   (predictable UX, no surprise jumps from back-nav).
+    resp.add_header(
+        tiny_http::Header::from_bytes(
+            &b"Document-Policy"[..],
+            &b"force-load-at-top"[..],
+        )
+        .map_err(|_| std::io::Error::other("header"))?,
+    );
+    // SUPERSOCIETY cycle 61: defense-in-depth response headers
+    // that aren't expressible via meta http-equiv:
+    //   * X-Content-Type-Options: nosniff — block MIME sniffing.
+    //   * Cross-Origin-Opener-Policy: same-origin — process-
+    //     isolate this top-level browsing context from cross-
+    //     origin openers (Spectre mitigation + isolating
+    //     window.opener attacks).
+    //   * Cross-Origin-Resource-Policy: same-origin — only
+    //     same-origin documents may embed our admin responses
+    //     as resources.
+    //   * Origin-Agent-Cluster: ?1 — request a dedicated agent
+    //     cluster (process-level isolation distinct from
+    //     COOP/COEP cross-origin isolation; cycle 45 detector).
+    resp.add_header(
+        tiny_http::Header::from_bytes(
+            &b"X-Content-Type-Options"[..],
+            &b"nosniff"[..],
+        )
+        .map_err(|_| std::io::Error::other("header"))?,
+    );
+    resp.add_header(
+        tiny_http::Header::from_bytes(
+            &b"Cross-Origin-Opener-Policy"[..],
+            &b"same-origin"[..],
+        )
+        .map_err(|_| std::io::Error::other("header"))?,
+    );
+    resp.add_header(
+        tiny_http::Header::from_bytes(
+            &b"Cross-Origin-Resource-Policy"[..],
+            &b"same-origin"[..],
+        )
+        .map_err(|_| std::io::Error::other("header"))?,
+    );
+    resp.add_header(
+        tiny_http::Header::from_bytes(
+            &b"Origin-Agent-Cluster"[..],
+            &b"?1"[..],
+        )
+        .map_err(|_| std::io::Error::other("header"))?,
+    );
     request.respond(resp)?;
     Ok(())
 }
