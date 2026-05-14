@@ -145,6 +145,15 @@ pub enum CssViolationKind {
     /// or font-size token (`var(--loom-space-*)` /
     /// `var(--loom-font-*)`).
     RawSpacing,
+    /// T40 (2026-05-14): raw `200ms` / `1.5s` time literal outside
+    /// `:root` / `@keyframes`. Animation + transition durations
+    /// should come from `var(--loom-motion-*)` so a single token
+    /// edit re-skins every micro-interaction.
+    ///
+    /// Skips `0ms` / `0s` (used as "instant" markers, especially
+    /// inside `prefers-reduced-motion` overrides) and skips lines
+    /// already wrapped in `var(--loom-motion-*)`.
+    RawTime,
 }
 
 /// One CSS violation.
@@ -199,6 +208,10 @@ pub fn run_css(root: &Path, extra_allowlist_substrings: &[&str]) -> Result<Vec<C
     // Loom's smallest spacing token is 0.25rem (4px); flagging
     // sub-token values yields false positives that drown the signal.
     let spacing_literal = Regex::new(r"\b(\d+(?:\.\d+)?)(px|rem|em)\b").context("spacing regex")?;
+    // T40: time-literal regex for animation / transition durations.
+    // Matches `200ms`, `1.5s`, `0.3s` etc.; deliberately greedy on
+    // the unit suffix so `\b` covers the boundary cleanly.
+    let time_literal = Regex::new(r"\b(\d+(?:\.\d+)?)(ms|s)\b").context("time regex")?;
     // Properties whose values are inherently sub-token (border /
     // outline widths, font-weights, line-heights). When the entire
     // line's only spacing literals come from one of these properties,
@@ -344,6 +357,29 @@ pub fn run_css(root: &Path, extra_allowlist_substrings: &[&str]) -> Result<Vec<C
                         path: path.to_path_buf(),
                         line: lineno + 1,
                         kind: CssViolationKind::RawSpacing,
+                        matched: display.clone(),
+                    });
+                }
+            }
+            // T40: time-literal pass. Skip if every captured value is 0
+            // (`0ms` / `0s` are "instant" markers, especially inside
+            // `prefers-reduced-motion: reduce` overrides where the doctrine
+            // is to neutralise every transition). Otherwise flag —
+            // animation / transition durations belong in
+            // `var(--loom-motion-*)` tokens.
+            let time_caps: Vec<_> = time_literal.captures_iter(line).collect();
+            if !time_caps.is_empty()
+                && !line.contains("var(--loom-motion-")
+            {
+                let all_zero = time_caps.iter().all(|cap| {
+                    let val: f32 = cap[1].parse().unwrap_or(0.0);
+                    val == 0.0
+                });
+                if !all_zero {
+                    violations.push(CssViolation {
+                        path: path.to_path_buf(),
+                        line: lineno + 1,
+                        kind: CssViolationKind::RawTime,
                         matched: display,
                     });
                 }
@@ -634,5 +670,109 @@ mod tests {
 
     fn tempdir() -> tempfile::TempDir {
         tempfile::tempdir().expect("tmp")
+    }
+
+    // -------- T40: raw ms/s time-literal lint --------
+
+    #[test]
+    fn css_raw_ms_time_flagged() {
+        let tmp = tempdir();
+        write_temp(
+            tmp.path(),
+            "src/style.css",
+            ".btn { transition: opacity 200ms ease; }\n",
+        );
+        let v = run_css_default(tmp.path()).unwrap();
+        assert!(
+            v.iter().any(|cv| matches!(cv.kind, CssViolationKind::RawTime)),
+            "missing RawTime for 200ms: {v:?}"
+        );
+    }
+
+    #[test]
+    fn css_raw_seconds_time_flagged() {
+        let tmp = tempdir();
+        write_temp(
+            tmp.path(),
+            "src/style.css",
+            ".bounce { animation-duration: 1.5s; }\n",
+        );
+        let v = run_css_default(tmp.path()).unwrap();
+        assert!(
+            v.iter().any(|cv| matches!(cv.kind, CssViolationKind::RawTime)),
+            "missing RawTime for 1.5s: {v:?}"
+        );
+    }
+
+    #[test]
+    fn css_zero_time_not_flagged() {
+        // 0ms / 0s are "instant" markers, especially under
+        // prefers-reduced-motion. Doctrine accepts them.
+        let tmp = tempdir();
+        write_temp(
+            tmp.path(),
+            "src/style.css",
+            "@media (prefers-reduced-motion: reduce) { * { transition-duration: 0ms !important; animation-duration: 0s !important; } }\n",
+        );
+        let v = run_css_default(tmp.path()).unwrap();
+        assert!(
+            !v.iter().any(|cv| matches!(cv.kind, CssViolationKind::RawTime)),
+            "0ms / 0s must not flag (instant marker): {v:?}"
+        );
+    }
+
+    #[test]
+    fn css_var_loom_motion_skipped() {
+        let tmp = tempdir();
+        write_temp(
+            tmp.path(),
+            "src/style.css",
+            ".btn { transition: opacity var(--loom-motion-fast) ease; }\n",
+        );
+        let v = run_css_default(tmp.path()).unwrap();
+        assert!(
+            !v.iter().any(|cv| matches!(cv.kind, CssViolationKind::RawTime)),
+            "var(--loom-motion-*) must not flag: {v:?}"
+        );
+    }
+
+    #[test]
+    fn css_keyframes_block_skipped_for_time() {
+        // @keyframes blocks are token-source territory; literals
+        // inside are part of the keyframe definition.
+        let tmp = tempdir();
+        write_temp(
+            tmp.path(),
+            "src/style.css",
+            "@keyframes pulse { 0% { opacity: 0; } 100% { opacity: 1; } }\n.x { transition: 200ms; }\n",
+        );
+        let v = run_css_default(tmp.path()).unwrap();
+        // The 200ms in `.x { transition: 200ms }` should still flag,
+        // but the @keyframes block should not have surfaced any
+        // time-literal noise.
+        let times: Vec<_> = v
+            .iter()
+            .filter(|cv| matches!(cv.kind, CssViolationKind::RawTime))
+            .collect();
+        assert_eq!(times.len(), 1, "expected only the .x line to flag: {v:?}");
+        assert!(
+            times[0].matched.contains(".x") || times[0].matched.contains("transition"),
+            "wrong line flagged: {v:?}"
+        );
+    }
+
+    #[test]
+    fn css_root_block_skipped_for_time() {
+        let tmp = tempdir();
+        write_temp(
+            tmp.path(),
+            "src/style.css",
+            ":root { --loom-motion-fast: 200ms; --loom-motion-slow: 400ms; }\n",
+        );
+        let v = run_css_default(tmp.path()).unwrap();
+        assert!(
+            !v.iter().any(|cv| matches!(cv.kind, CssViolationKind::RawTime)),
+            "time literals inside :root are token definitions: {v:?}"
+        );
     }
 }
