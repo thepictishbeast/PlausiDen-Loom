@@ -89,14 +89,20 @@ enum SiteAction {
         /// Site name (also the directory name). SlugName-validated.
         #[arg(value_name = "NAME")]
         name: String,
-        /// Which template to use. `basic` is the only one this
-        /// MVP ships; `portfolio` and `blog` will land in
-        /// follow-up ticks.
+        /// Which template to use. `basic` (single landing page),
+        /// `portfolio` (5 pages), or `blog` (6 + sample posts).
         #[arg(long, default_value = "basic")]
         template: String,
         /// Overwrite if the target dir exists.
         #[arg(long, default_value_t = false)]
         force: bool,
+        /// T37 v3.b: bake an explicit theme into the scaffolded
+        /// site. Writes `[render] theme = "<name>"` into
+        /// `forge.toml`. Closed allow-list: "light" or "dark".
+        /// Without this flag, deployed pages fall back to
+        /// OS-driven `prefers-color-scheme`.
+        #[arg(long)]
+        theme: Option<String>,
     },
     /// List bundled templates.
     Templates,
@@ -949,7 +955,8 @@ fn main() -> ExitCode {
                 name,
                 template,
                 force,
-            } => match cmd_site_init(&name, &template, force) {
+                theme,
+            } => match cmd_site_init(&name, &template, force, theme.as_deref()) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
                     eprintln!("loom site init: {e}");
@@ -9795,8 +9802,13 @@ fn render_template_body(content: &str, site_name: &str) -> String {
     content.replace("{{SITE_NAME}}", &capitalise(site_name))
 }
 
-fn cmd_site_init(name: &str, template: &str, force: bool) -> std::io::Result<()> {
-    cmd_site_init_in(&std::env::current_dir()?, name, template, force)
+fn cmd_site_init(
+    name: &str,
+    template: &str,
+    force: bool,
+    theme: Option<&str>,
+) -> std::io::Result<()> {
+    cmd_site_init_in(&std::env::current_dir()?, name, template, force, theme)
 }
 
 /// Test-friendly variant: explicit base dir avoids the
@@ -9806,9 +9818,21 @@ fn cmd_site_init_in(
     name: &str,
     template: &str,
     force: bool,
+    theme: Option<&str>,
 ) -> std::io::Result<()> {
     let slug = SlugName::new(name)
         .map_err(|e| std::io::Error::other(format!("invalid name: {e}")))?;
+    // T37 v3.b: validate theme against the same closed allow-list
+    // page_shell_themed enforces. Reject unknown values BEFORE any
+    // file is written — fail closed rather than scaffold a half-
+    // configured site.
+    if let Some(t) = theme {
+        if t != "light" && t != "dark" {
+            return Err(std::io::Error::other(format!(
+                "invalid --theme '{t}'; valid: light, dark (or omit for OS auto)"
+            )));
+        }
+    }
     let target = base_dir.join(slug.as_str());
     if target.exists() && !force {
         return Err(std::io::Error::other(format!(
@@ -9834,7 +9858,20 @@ fn cmd_site_init_in(
     let mut written = 0usize;
     for (rel, content) in files {
         let rel_path = std::path::PathBuf::from(rel);
-        let body = render_template_body(content, slug.as_str());
+        let mut body = render_template_body(content, slug.as_str());
+        // T37 v3.b: when --theme is set + we're writing forge.toml,
+        // append `[render] theme = "<name>"` so phase_render bakes
+        // the theme into the deployed site. The bundled forge.toml
+        // ends with a trailing newline, so we just append.
+        if rel == &"forge.toml" {
+            if let Some(t) = theme {
+                body.push_str(&format!(
+                    "\n# T37 v3.b: explicit theme baked at `loom site init`.\n\
+                     # Forge phase_render reads this to emit `<html data-theme=\"{t}\">`.\n\
+                     [render]\ntheme = \"{t}\"\n"
+                ));
+            }
+        }
         cap.write_file(&rel_path, body.as_bytes())
             .map_err(|_| std::io::Error::other(format!("write {rel}")))?;
         written += 1;
@@ -9842,6 +9879,9 @@ fn cmd_site_init_in(
 
     println!("loom site init:");
     println!("  ok  template '{template}' written to {}/", target.display());
+    if let Some(t) = theme {
+        println!("  ok  theme '{t}' baked into forge.toml [render] entry");
+    }
     println!("  ok  {written} file(s) created");
     println!();
     println!("Next:");
@@ -9899,7 +9939,7 @@ mod site_init_tests {
     fn site_init_creates_files_under_slug_dir() {
         let tmp = unique_tmp("create");
         std::fs::create_dir_all(&tmp).expect("mk tmp");
-        let result = cmd_site_init_in(&tmp, "momtest", "basic", false);
+        let result = cmd_site_init_in(&tmp, "momtest", "basic", false, None);
         assert!(result.is_ok(), "init failed: {result:?}");
         assert!(tmp.join("momtest").is_dir());
         assert!(tmp.join("momtest/cms/index.json").is_file());
@@ -9916,7 +9956,7 @@ mod site_init_tests {
     fn site_init_rejects_invalid_name() {
         let tmp = unique_tmp("invalid");
         std::fs::create_dir_all(&tmp).expect("mk");
-        let r = cmd_site_init_in(&tmp, "Mom Test", "basic", false);
+        let r = cmd_site_init_in(&tmp, "Mom Test", "basic", false, None);
         assert!(r.is_err());
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -9925,8 +9965,76 @@ mod site_init_tests {
     fn site_init_rejects_unknown_template() {
         let tmp = unique_tmp("tmpl");
         std::fs::create_dir_all(&tmp).expect("mk");
-        let r = cmd_site_init_in(&tmp, "sitex", "nonsuch", false);
+        let r = cmd_site_init_in(&tmp, "sitex", "nonsuch", false, None);
         assert!(r.is_err());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ---- T37 v3.b: --theme baking into forge.toml ----
+
+    #[test]
+    fn site_init_with_dark_theme_writes_forge_toml_entry() {
+        let tmp = unique_tmp("theme-dark");
+        std::fs::create_dir_all(&tmp).expect("mk tmp");
+        let r = cmd_site_init_in(&tmp, "darksite", "basic", false, Some("dark"));
+        assert!(r.is_ok(), "scaffold should succeed: {:?}", r);
+        let forge_toml = std::fs::read_to_string(tmp.join("darksite/forge.toml"))
+            .expect("forge.toml exists");
+        assert!(forge_toml.contains("[render]"), "missing [render]: {forge_toml}");
+        assert!(forge_toml.contains("theme = \"dark\""), "missing entry: {forge_toml}");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn site_init_with_light_theme_writes_light_entry() {
+        let tmp = unique_tmp("theme-light");
+        std::fs::create_dir_all(&tmp).expect("mk tmp");
+        let r = cmd_site_init_in(&tmp, "lightsite", "portfolio", false, Some("light"));
+        assert!(r.is_ok());
+        let forge_toml = std::fs::read_to_string(tmp.join("lightsite/forge.toml"))
+            .expect("forge.toml exists");
+        assert!(forge_toml.contains("theme = \"light\""));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn site_init_without_theme_omits_render_section() {
+        let tmp = unique_tmp("theme-none");
+        std::fs::create_dir_all(&tmp).expect("mk tmp");
+        let r = cmd_site_init_in(&tmp, "autosite", "basic", false, None);
+        assert!(r.is_ok());
+        let forge_toml = std::fs::read_to_string(tmp.join("autosite/forge.toml"))
+            .expect("forge.toml exists");
+        assert!(!forge_toml.contains("[render]"), "no theme = no [render]: {forge_toml}");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn site_init_rejects_invalid_theme() {
+        let tmp = unique_tmp("theme-evil");
+        std::fs::create_dir_all(&tmp).expect("mk tmp");
+        let r = cmd_site_init_in(&tmp, "x", "basic", false, Some("evil"));
+        assert!(r.is_err(), "must reject unknown theme");
+        let err = r.unwrap_err().to_string();
+        assert!(err.contains("invalid --theme"), "wrong error: {err}");
+        // Fail-closed: no scaffold dir created.
+        assert!(!tmp.join("x").exists(), "no scaffold on rejected theme");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn site_init_resulting_forge_toml_round_trips_through_toml_parse() {
+        // T37 v3.b: the appended [render] section must be valid
+        // TOML the next forge build can read.
+        let tmp = unique_tmp("theme-rt");
+        std::fs::create_dir_all(&tmp).expect("mk tmp");
+        cmd_site_init_in(&tmp, "rt", "basic", false, Some("dark")).expect("init");
+        let s = std::fs::read_to_string(tmp.join("rt/forge.toml")).expect("read");
+        let parsed: toml::Value = s.parse().expect("forge.toml must be valid TOML");
+        assert_eq!(
+            parsed.get("render").and_then(|r| r.get("theme")).and_then(|t| t.as_str()),
+            Some("dark")
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }
