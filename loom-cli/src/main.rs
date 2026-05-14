@@ -2240,6 +2240,63 @@ impl WriteCapability {
         Ok(std::fs::read(&abs)?)
     }
 
+    /// Atomic write: temp file + rename. Concurrent callers can't
+    /// half-write a file the next reader observes — POSIX guarantees
+    /// rename(2) on the same filesystem is atomic.
+    ///
+    /// SECURITY: temp + final paths both flow through the capability
+    /// resolver so the rename can't escape scope even if a malicious
+    /// rel_path tried to inject a `..` segment in the temp suffix.
+    /// We construct the temp filename ourselves (`<rel>.tmp.<pid>.<ns>`)
+    /// rather than letting the caller pick it, so the temp path is
+    /// always inside the same parent dir as the target.
+    pub fn write_atomic(
+        &self,
+        rel_path: &std::path::Path,
+        contents: &[u8],
+    ) -> Result<std::path::PathBuf, CapabilityError> {
+        let final_abs = self.resolve(rel_path)?;
+        if let Some(parent) = final_abs.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        // Build a temp filename that lives in the SAME directory as
+        // the target (so the rename is intra-filesystem and atomic).
+        // Encode pid + nanos so concurrent writers don't race on the
+        // temp filename itself.
+        let pid = std::process::id();
+        let ns = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let final_name = final_abs
+            .file_name()
+            .map(|n| n.to_owned())
+            .unwrap_or_default();
+        let tmp_name = {
+            let mut s = final_name.clone();
+            s.push(format!(".tmp.{pid}.{ns}"));
+            s
+        };
+        let tmp_abs = match final_abs.parent() {
+            Some(p) => p.join(&tmp_name),
+            None => return Err(CapabilityError::EscapesScope {
+                attempted: final_abs,
+                confined_root: self.confined_root.clone(),
+            }),
+        };
+        // Re-validate the temp path is inside the capability — paranoid
+        // (we just built it from validated parts) but cheap.
+        if !tmp_abs.starts_with(&self.confined_root) {
+            return Err(CapabilityError::EscapesScope {
+                attempted: tmp_abs,
+                confined_root: self.confined_root.clone(),
+            });
+        }
+        std::fs::write(&tmp_abs, contents)?;
+        std::fs::rename(&tmp_abs, &final_abs)?;
+        Ok(final_abs)
+    }
+
     /// Test whether a relative path resolves to an existing file
     /// within the confined root.
     pub fn file_exists(&self, rel_path: &std::path::Path) -> bool {
@@ -2382,6 +2439,59 @@ mod write_capability_tests {
         let cap = WriteCapability::for_dir(&dir).expect("cap");
         let r = cap.read_file(std::path::Path::new("../../etc/passwd"));
         assert!(matches!(r, Err(CapabilityError::EscapesScope { .. })));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // T60: write_atomic does temp+rename and lands the bytes
+    // exactly once at the target.
+    #[test]
+    fn atomic_write_lands_at_target() {
+        let dir = unique("atomic-ok");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let cap = WriteCapability::for_dir(&dir).expect("cap");
+        let p = cap
+            .write_atomic(std::path::Path::new("about.json"), b"{\"v\":1}")
+            .expect("atomic");
+        assert_eq!(std::fs::read(&p).expect("read"), b"{\"v\":1}");
+        // No leftover .tmp files.
+        let leftover: Vec<_> = std::fs::read_dir(&dir)
+            .expect("readdir")
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .contains(".tmp.")
+            })
+            .collect();
+        assert!(leftover.is_empty(), "no .tmp leftover after atomic write");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // T60: atomic write is constrained to the capability scope
+    // even if the rel_path tries to escape via the temp filename.
+    #[test]
+    fn atomic_write_traversal_rejected() {
+        let dir = unique("atomic-trav");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let cap = WriteCapability::for_dir(&dir).expect("cap");
+        let r = cap.write_atomic(
+            std::path::Path::new("../../tmp/escape.txt"),
+            b"x",
+        );
+        assert!(matches!(r, Err(CapabilityError::EscapesScope { .. })));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // T60: atomic write overwrites cleanly (the rename replaces).
+    #[test]
+    fn atomic_write_overwrites() {
+        let dir = unique("atomic-over");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let cap = WriteCapability::for_dir(&dir).expect("cap");
+        cap.write_atomic(std::path::Path::new("x.txt"), b"old").expect("first");
+        cap.write_atomic(std::path::Path::new("x.txt"), b"new").expect("second");
+        let p = cap.resolve(std::path::Path::new("x.txt")).expect("resolve");
+        assert_eq!(std::fs::read(&p).expect("read"), b"new");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
@@ -3896,8 +4006,22 @@ fn handle_edit_post(
     forge_path: &str,
     slug: &str,
 ) -> std::io::Result<()> {
-    let json_path = cms_root.join(format!("{slug}.json"));
-    if !json_path.is_file() {
+    // T60: every read/write to cms_root flows through a capability
+    // constructed at the request boundary. The slug came from the
+    // URL — operator-controlled, hostile-by-default — so the
+    // capability is the SECURITY gate. Path traversal, symlink
+    // escape, and any future malicious slug are physically
+    // constrained at runtime.
+    //
+    // The pre-existing string-heuristic path-traversal check in
+    // handle_edit_request stays as defense-in-depth + an early
+    // 400, but the capability is the canonical enforcement point.
+    let cap = match WriteCapability::for_dir(cms_root) {
+        Ok(c) => c,
+        Err(_) => return respond_text(request, 500, "cms root unreadable"),
+    };
+    let rel = std::path::PathBuf::from(format!("{slug}.json"));
+    if !cap.file_exists(&rel) {
         return respond_text(request, 404, "page not found");
     }
     // Read body (form-urlencoded).
@@ -3913,10 +4037,19 @@ fn handle_edit_post(
         fields.insert(key, val);
     }
 
-    // Mutate the JSON in place.
-    let raw = std::fs::read_to_string(&json_path)?;
+    // Mutate the JSON in place — read THROUGH the capability.
+    let raw_bytes = cap.read_file(&rel).map_err(|e| match e {
+        CapabilityError::Io(i) => i,
+        CapabilityError::EscapesScope { .. } => {
+            std::io::Error::other("path escapes cms scope")
+        }
+        CapabilityError::NotADir(_) => {
+            std::io::Error::other("cms root not a directory")
+        }
+    })?;
+    let raw = String::from_utf8(raw_bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
     let mut parsed: serde_json::Value = serde_json::from_str(&raw).map_err(|e| {
-        std::io::Error::other(format!("parse {}: {e}", json_path.display()))
+        std::io::Error::other(format!("parse {}: {e}", rel.display()))
     })?;
     if let Some(t) = fields.get("title") {
         parsed["title"] = serde_json::Value::String(t.clone());
@@ -3936,12 +4069,21 @@ fn handle_edit_post(
         }
     }
 
-    // Atomic write: temp file + rename.
-    let tmp = json_path.with_extension("json.tmp");
+    // T60: atomic write THROUGH the capability. Capability builds
+    // its own temp filename (encoded with pid+nanos) inside the
+    // same parent dir, runs fs::write + fs::rename, all
+    // boundary-checked.
     let serialized = serde_json::to_string_pretty(&parsed)
         .map_err(|e| std::io::Error::other(format!("serialize: {e}")))?;
-    std::fs::write(&tmp, serialized.as_bytes())?;
-    std::fs::rename(&tmp, &json_path)?;
+    cap.write_atomic(&rel, serialized.as_bytes()).map_err(|e| match e {
+        CapabilityError::Io(i) => i,
+        CapabilityError::EscapesScope { .. } => {
+            std::io::Error::other("write attempt escapes cms scope")
+        }
+        CapabilityError::NotADir(_) => {
+            std::io::Error::other("cms root not a directory")
+        }
+    })?;
 
     // Trigger forge rebuild. Honour empty string = disabled (tests).
     if !forge_path.is_empty() {
