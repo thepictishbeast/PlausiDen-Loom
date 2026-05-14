@@ -4830,7 +4830,7 @@ fn serve_index(
                  style=\"padding:.5rem 1rem;font:inherit;border:0;border-radius:4px;\
                         background:#003;color:#fff;cursor:pointer\">Create</button>\
          </form>\
-         <p style=\"color:#888;font-size:.85em;margin-top:.5rem\">\
+         <p style=\"color:#595959;font-size:.85em;margin-top:.5rem\">\
            Slug becomes the filename (cms/&lt;slug&gt;.json) and the URL path \
            (/&lt;slug&gt;.html). Edit the new page inline after creation.\
          </p>"
@@ -4998,7 +4998,7 @@ fn forge_admin_shell(title: &str, body_inner: &str) -> String {
     let mut out = String::new();
     out.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\">");
     out.push_str(&format!("<title>forge · {}</title>", html_escape(title)));
-    out.push_str("<style>body{font:16px/1.5 system-ui;max-width:64rem;margin:2rem auto;padding:0 1rem}nav.t50{display:flex;gap:1rem;margin-bottom:2rem;padding-bottom:1rem;border-bottom:1px solid #ccc}nav.t50 a{color:#003;text-decoration:none;font-weight:600}nav.t50 a.cur{color:#000;border-bottom:2px solid #003;padding-bottom:.25rem}h1{margin-top:0}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{padding:.5rem;text-align:left;border-bottom:1px solid #eee;font-variant-numeric:tabular-nums}.muted{color:#888}.ok{color:#0a7d2c}.bad{color:#b00020}.warn{color:#a87000}button{padding:.6rem 1.2rem;font:inherit;border:0;border-radius:4px;background:#003;color:#fff;cursor:pointer}.card{padding:1rem 1.5rem;border:1px solid #ddd;border-radius:8px;margin:1rem 0;background:#fafafa}.card h2{margin-top:0;font-size:1.1em}</style><body><main>");
+    out.push_str("<style>body{font:16px/1.5 system-ui;max-width:64rem;margin:2rem auto;padding:0 1rem}nav.t50{display:flex;gap:1rem;margin-bottom:2rem;padding-bottom:1rem;border-bottom:1px solid #ccc}nav.t50 a{color:#003;text-decoration:none;font-weight:600}nav.t50 a.cur{color:#000;border-bottom:2px solid #003;padding-bottom:.25rem}h1{margin-top:0}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{padding:.5rem;text-align:left;border-bottom:1px solid #eee;font-variant-numeric:tabular-nums}.muted{color:#595959}.ok{color:#0a7d2c}.bad{color:#b00020}.warn{color:#8a5a00}button{padding:.6rem 1.2rem;font:inherit;border:0;border-radius:4px;background:#003;color:#fff;cursor:pointer}.card{padding:1rem 1.5rem;border:1px solid #ddd;border-radius:8px;margin:1rem 0;background:#fafafa}.card h2{margin-top:0;font-size:1.1em}</style><body><main>");
     out.push_str("<nav class=\"t50\"><a href=\"/\">← pages</a>");
     let cur = title;
     for (label, href) in [
@@ -5350,12 +5350,12 @@ fn serve_edit_form(
         slug = html_escape(slug)
     ));
     body.push_str(&format!(
-        "<label for=\"f-title\">Title <span style=\"color:#888;font-weight:400\">(&lt;title&gt; tag + page header)</span></label>\
+        "<label for=\"f-title\">Title <span style=\"color:#595959;font-weight:400\">(&lt;title&gt; tag + page header)</span></label>\
          <input id=\"f-title\" name=\"title\" value=\"{val}\" required>",
         val = html_escape(title)
     ));
     body.push_str(&format!(
-        "<label for=\"f-description\">Description <span style=\"color:#888;font-weight:400\">(meta description for search engines)</span></label>\
+        "<label for=\"f-description\">Description <span style=\"color:#595959;font-weight:400\">(meta description for search engines)</span></label>\
          <textarea id=\"f-description\" name=\"description\" required>{val}</textarea>",
         val = html_escape(description)
     ));
@@ -5477,7 +5477,7 @@ fn serve_edit_form(
                     }
                     if count == 0 {
                         body.push_str(
-                            "<p style=\"color:#888;font-size:.85em;margin:0\">\
+                            "<p style=\"color:#595959;font-size:.85em;margin:0\">\
                              (no body paragraphs — append below to add one)</p>",
                         );
                     }
@@ -5583,7 +5583,7 @@ fn serve_edit_form(
                  style=\"background:#003;color:#fff;padding:.5rem 1rem;border:0;\
                         border-radius:4px;font:inherit;cursor:pointer\">Append</button>\
          </form>\
-         <p style=\"color:#888;font-size:.85em;margin-top:.5rem\">\
+         <p style=\"color:#595959;font-size:.85em;margin-top:.5rem\">\
            Adds a section with default values. Edit it inline above after save.\
          </p>",
         slug = html_escape(slug),
@@ -11415,7 +11415,7 @@ fn serve_uploads_gallery(
         entries.len()
     ));
     if entries.is_empty() {
-        body.push_str("<p style=\"color:#888\">No uploads yet.</p>");
+        body.push_str("<p style=\"color:#595959\">No uploads yet.</p>");
     } else {
         body.push_str("<div class=\"grid\">");
         for path in &entries {
@@ -11432,7 +11432,7 @@ fn serve_uploads_gallery(
         body.push_str("</div>");
     }
     body.push_str(
-        "<p style=\"color:#888;font-size:.85em;margin-top:1.5rem\">\
+        "<p style=\"color:#595959;font-size:.85em;margin-top:1.5rem\">\
          Uploads are content-addressed (sha256 of bytes is the filename) so the same image \
          uploaded twice yields one stored file. Embed in a CmsSection by editing the JSON \
          to include the URL.\
