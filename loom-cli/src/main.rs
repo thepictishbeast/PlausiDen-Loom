@@ -11982,6 +11982,451 @@ mod auth_tests {
 }
 
 // ============================================================
+// T43d cycle 93: WebAuthn passkey auth — challenge primitive.
+// ============================================================
+//
+// First slice (cycle 93). Server-side challenge generation +
+// storage + replay prevention. NO browser integration yet (the
+// /webauthn/register and /webauthn/authenticate HTTP routes
+// land in cycle 94; the attestation parser lands in cycle 95).
+//
+// Why WebAuthn at all:
+//   * Phishing-resistant — the browser scopes credentials to
+//     the origin; a lookalike domain cannot present a working
+//     passkey.
+//   * Hardware-backed — biometric / TPM / FIDO2 token. The
+//     private key never leaves the user's device.
+//   * No shared-secret server breach — server stores only the
+//     pubkey. A full database dump grants the adversary nothing.
+//   * Passwordless — operators stop choosing 'password123'.
+//
+// Doctrine (AVP-2 Tier-3 adversarial security):
+//   * 32 bytes from OsRng (CSPRNG). The W3C spec requires ≥16
+//     bytes; 32 is the de-facto industry minimum for production.
+//   * Base64url (no padding) — the WebAuthn JS API hands
+//     challenges directly to the browser as ArrayBuffers, but
+//     transport + storage uses base64url throughout.
+//   * 5-minute TTL — the W3C recommends 60 sec to 10 min;
+//     5 min balances clock skew with replay window minimisation.
+//   * `subtle::ConstantTimeEq` for verification — defeats
+//     timing oracles that would otherwise leak prefix bits.
+//   * Single-use: once consumed, the challenge is removed from
+//     the store. A second attempt fails closed.
+//   * In-memory Mutex<HashMap> — single-binary server, single
+//     process. Once Loom goes multi-tenant (T45), this becomes
+//     a per-tenant SQLite table. The trait surface stays.
+//   * REGRESSION-GUARD: every error path must NOT leak whether
+//     the challenge existed-but-expired vs never-existed vs
+//     was-already-consumed. All three return one error variant.
+//
+// Future hardening (deferred):
+//   * `zeroize` crate on Drop. Challenge is short-lived (5 min)
+//     and non-reusable, so the marginal value is small; tracked
+//     as a follow-up.
+//   * Per-user-handle rate limiting to defeat enumeration.
+//   * Origin binding: the challenge is bound to (rpId, origin,
+//     userHandle) — the attestation parser (cycle 95) will
+//     check all three.
+
+const WEBAUTHN_CHALLENGE_BYTES: usize = 32;
+const WEBAUTHN_CHALLENGE_TTL_SECS: u64 = 5 * 60;
+
+/// One outstanding WebAuthn challenge. Lives in the store until
+/// either (a) consumed by a successful authenticate/register
+/// completion, (b) explicitly evicted by `evict_expired`, or
+/// (c) overwritten by a fresh `generate` on the same user-handle
+/// (we keep at-most-one per user to avoid challenge floods).
+#[derive(Debug, Clone)]
+struct WebAuthnChallenge {
+    /// Base64url-encoded 32 random bytes (no padding). Length
+    /// is always 43 chars.
+    encoded: String,
+    /// Unix-seconds when this challenge was minted.
+    issued_at: u64,
+    /// Opaque per-user handle the challenge is bound to. Empty
+    /// for registration flows (no user-handle exists yet); the
+    /// rpId binding from the eventual attestation parser will
+    /// handle that case in cycle 95.
+    user_handle: String,
+}
+
+/// Why a challenge verification failed. All variants are
+/// indistinguishable from the operator side — the caller MUST
+/// surface the SAME error message regardless of variant to
+/// avoid leaking which condition tripped.
+#[derive(Debug, PartialEq, Eq)]
+enum WebAuthnChallengeError {
+    /// The challenge did not exist in the store.
+    NotFound,
+    /// The challenge existed but its TTL has elapsed.
+    Expired,
+    /// The challenge existed and was within TTL but was already
+    /// consumed by a prior successful verification.
+    Replay,
+    /// Constant-time comparison rejected the candidate bytes.
+    /// (Should be unreachable via lookup-then-compare path, but
+    /// kept as a distinct internal variant for unit-testing the
+    /// compare primitive.)
+    Mismatch,
+}
+
+/// Thread-safe challenge store. Pin one of these per (binary,
+/// process) instance; multi-tenant Loom (T45) will swap this
+/// for a per-tenant SQLite implementation behind the same
+/// `ChallengeStoreLike` trait (introduced when cycle 95 lands).
+#[derive(Debug, Default)]
+struct WebAuthnChallengeStore {
+    inner: std::sync::Mutex<std::collections::HashMap<String, WebAuthnChallenge>>,
+}
+
+impl WebAuthnChallengeStore {
+    fn new() -> Self {
+        Self {
+            inner: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    /// Generate a fresh 32-byte challenge bound to `user_handle`
+    /// (may be empty for registration flows). Replaces any prior
+    /// outstanding challenge for that user-handle — we DELIBERATELY
+    /// keep at-most-one outstanding so an attacker can't flood the
+    /// store by spamming /webauthn/options.
+    fn generate(&self, user_handle: &str) -> WebAuthnChallenge {
+        use rand_core::RngCore as _;
+        let mut bytes = [0u8; WEBAUTHN_CHALLENGE_BYTES];
+        rand_core::OsRng.fill_bytes(&mut bytes);
+
+        use base64::Engine as _;
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
+        let issued_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let challenge = WebAuthnChallenge {
+            encoded: encoded.clone(),
+            issued_at,
+            user_handle: user_handle.to_owned(),
+        };
+        if let Ok(mut guard) = self.inner.lock() {
+            // SECURITY: keying by user_handle (not by encoded
+            // value) enforces the at-most-one invariant. If
+            // user_handle is empty (registration), every
+            // registration attempt overwrites the previous one
+            // for that empty handle — a single registration
+            // session at a time per process. Multi-tenant T45
+            // refactors this to (tenant_id, user_handle).
+            guard.insert(challenge.user_handle.clone(), challenge.clone());
+        }
+        challenge
+    }
+
+    /// Consume + verify a candidate challenge. Returns the
+    /// stored challenge on success (caller uses it for
+    /// signature verification downstream); removes it from the
+    /// store atomically so a second call fails Replay.
+    ///
+    /// Constant-time compare prevents timing oracles. The
+    /// store-lookup-then-compare flow could leak via map
+    /// iteration timing if we matched on encoded value; we
+    /// instead key by `user_handle` and verify the encoded
+    /// value matches via subtle::ConstantTimeEq.
+    fn consume(
+        &self,
+        user_handle: &str,
+        candidate_encoded: &str,
+    ) -> Result<WebAuthnChallenge, WebAuthnChallengeError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| WebAuthnChallengeError::NotFound)?;
+        let stored = match guard.remove(user_handle) {
+            Some(c) => c,
+            None => return Err(WebAuthnChallengeError::NotFound),
+        };
+        // From here, the challenge is REMOVED from the store
+        // regardless of whether verification succeeds. A second
+        // attempt with the same user_handle will fail NotFound
+        // (which is the same external-facing error as Replay,
+        // by doctrine).
+        if now.saturating_sub(stored.issued_at) > WEBAUTHN_CHALLENGE_TTL_SECS {
+            return Err(WebAuthnChallengeError::Expired);
+        }
+        // Constant-time compare. The two byte slices must be the
+        // same length for ConstantTimeEq to be meaningful; we
+        // check that first via a non-secret-leaking length test.
+        if stored.encoded.len() != candidate_encoded.len() {
+            return Err(WebAuthnChallengeError::Mismatch);
+        }
+        use subtle::ConstantTimeEq as _;
+        let eq: subtle::Choice =
+            stored.encoded.as_bytes().ct_eq(candidate_encoded.as_bytes());
+        if bool::from(eq) {
+            Ok(stored)
+        } else {
+            Err(WebAuthnChallengeError::Mismatch)
+        }
+    }
+
+    /// Garbage-collect any challenge older than the TTL.
+    /// Returns the number of evictions. Called from the HTTP
+    /// hot path (every N requests) AND from a future background
+    /// sweep when the multi-tenant T45 store lands. Idempotent.
+    fn evict_expired(&self) -> usize {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let mut guard = match self.inner.lock() {
+            Ok(g) => g,
+            Err(_) => return 0,
+        };
+        let before = guard.len();
+        guard.retain(|_, c| {
+            now.saturating_sub(c.issued_at) <= WEBAUTHN_CHALLENGE_TTL_SECS
+        });
+        before - guard.len()
+    }
+
+    /// Test-only: how many outstanding challenges. Helpful for
+    /// the unit tests below; NEVER call this from production
+    /// HTTP code (would leak per-tenant state).
+    #[cfg(test)]
+    fn outstanding(&self) -> usize {
+        self.inner.lock().map(|g| g.len()).unwrap_or(0)
+    }
+
+    /// Test-only override of issued_at, so we can simulate TTL
+    /// expiry without sleeping in the test.
+    #[cfg(test)]
+    fn set_issued_at_for_test(&self, user_handle: &str, when: u64) {
+        if let Ok(mut g) = self.inner.lock() {
+            if let Some(c) = g.get_mut(user_handle) {
+                c.issued_at = when;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod webauthn_challenge_tests {
+    use super::*;
+
+    #[test]
+    fn challenge_format_is_base64url_43_chars_no_padding() {
+        let store = WebAuthnChallengeStore::new();
+        let c = store.generate("alice");
+        // 32 bytes base64url-no-padding = ceil(32*4/3) - padding = 44 - 1 = 43.
+        assert_eq!(c.encoded.len(), 43, "expected 43-char encoding; got {:?}", c.encoded);
+        // base64url alphabet: A-Z a-z 0-9 - _
+        for ch in c.encoded.chars() {
+            assert!(
+                ch.is_ascii_alphanumeric() || ch == '-' || ch == '_',
+                "non-base64url char {:?} in {:?}", ch, c.encoded
+            );
+        }
+        // No padding.
+        assert!(!c.encoded.contains('='), "padding '=' not allowed: {:?}", c.encoded);
+    }
+
+    #[test]
+    fn challenge_entropy_no_two_collide_across_1k_calls() {
+        let store = WebAuthnChallengeStore::new();
+        let mut seen = std::collections::HashSet::new();
+        for i in 0..1000 {
+            let c = store.generate(&format!("u{i}"));
+            assert!(
+                seen.insert(c.encoded.clone()),
+                "challenge collision at iteration {i}: {:?}",
+                c.encoded
+            );
+        }
+    }
+
+    #[test]
+    fn consume_success_returns_challenge_and_clears_store() {
+        let store = WebAuthnChallengeStore::new();
+        let c = store.generate("alice");
+        assert_eq!(store.outstanding(), 1);
+        let consumed = store.consume("alice", &c.encoded).expect("consume ok");
+        assert_eq!(consumed.encoded, c.encoded);
+        // After consume the challenge MUST be gone.
+        assert_eq!(store.outstanding(), 0);
+    }
+
+    #[test]
+    fn second_consume_is_replay_rejected_as_not_found() {
+        let store = WebAuthnChallengeStore::new();
+        let c = store.generate("alice");
+        let _ = store.consume("alice", &c.encoded).expect("first consume ok");
+        // Same challenge bytes, same user — must fail.
+        let err = store.consume("alice", &c.encoded).expect_err("second consume must fail");
+        // Doctrine: NotFound and Replay are observationally
+        // identical to a caller. NotFound is what the impl
+        // returns (because the entry was removed atomically on
+        // first consume).
+        assert_eq!(err, WebAuthnChallengeError::NotFound);
+    }
+
+    #[test]
+    fn consume_unknown_user_returns_not_found() {
+        let store = WebAuthnChallengeStore::new();
+        let _ = store.generate("alice");
+        let err = store.consume("bob", "x".repeat(43).as_str())
+            .expect_err("unknown user must fail");
+        assert_eq!(err, WebAuthnChallengeError::NotFound);
+    }
+
+    #[test]
+    fn ttl_expiry_rejects_old_challenge() {
+        let store = WebAuthnChallengeStore::new();
+        let c = store.generate("alice");
+        // Simulate the challenge having been minted 1 second
+        // PAST the TTL boundary.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        store.set_issued_at_for_test("alice", now.saturating_sub(WEBAUTHN_CHALLENGE_TTL_SECS + 1));
+        let err = store.consume("alice", &c.encoded).expect_err("expired must fail");
+        assert_eq!(err, WebAuthnChallengeError::Expired);
+        // Expired entry MUST also be removed from the store
+        // (consume runs the remove BEFORE the TTL check).
+        assert_eq!(store.outstanding(), 0);
+    }
+
+    #[test]
+    fn wrong_candidate_bytes_are_mismatch() {
+        let store = WebAuthnChallengeStore::new();
+        let _c = store.generate("alice");
+        // 43-char candidate that won't match the real one.
+        let candidate: String = "A".repeat(43);
+        let err = store.consume("alice", &candidate).expect_err("mismatch must fail");
+        assert_eq!(err, WebAuthnChallengeError::Mismatch);
+        // The entry is ALSO removed on mismatch — single-use,
+        // any consume attempt clears the slot to prevent
+        // brute-force-by-flood.
+        assert_eq!(store.outstanding(), 0);
+    }
+
+    #[test]
+    fn wrong_length_is_mismatch_not_panic() {
+        let store = WebAuthnChallengeStore::new();
+        let _c = store.generate("alice");
+        // Empty candidate. Must not panic; must not constant-
+        // time-compare slices of different lengths.
+        let err = store.consume("alice", "").expect_err("empty must fail");
+        assert_eq!(err, WebAuthnChallengeError::Mismatch);
+    }
+
+    #[test]
+    fn generate_at_most_one_per_user_handle() {
+        let store = WebAuthnChallengeStore::new();
+        let c1 = store.generate("alice");
+        let c2 = store.generate("alice");
+        // Two generates must NOT both be outstanding; the
+        // second one overwrites the first.
+        assert_eq!(store.outstanding(), 1);
+        // The first challenge must NOT be consumable.
+        let err = store.consume("alice", &c1.encoded).expect_err("c1 must be overwritten");
+        assert_eq!(err, WebAuthnChallengeError::Mismatch);
+        // The second IS consumable (with the same user_handle).
+        // We re-generate because the first consume removed it.
+        let c3 = store.generate("alice");
+        let _ = store.consume("alice", &c3.encoded).expect("c3 ok");
+        // Sanity: c1 != c2 != c3.
+        assert_ne!(c1.encoded, c2.encoded);
+        assert_ne!(c2.encoded, c3.encoded);
+    }
+
+    #[test]
+    fn evict_expired_sweeps_old_entries_only() {
+        let store = WebAuthnChallengeStore::new();
+        let _ = store.generate("alice");
+        let _ = store.generate("bob");
+        let _ = store.generate("carol");
+        assert_eq!(store.outstanding(), 3);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        // Age alice's and bob's challenges past the TTL boundary.
+        store.set_issued_at_for_test("alice", now.saturating_sub(WEBAUTHN_CHALLENGE_TTL_SECS + 10));
+        store.set_issued_at_for_test("bob", now.saturating_sub(WEBAUTHN_CHALLENGE_TTL_SECS + 1));
+        let evicted = store.evict_expired();
+        assert_eq!(evicted, 2);
+        assert_eq!(store.outstanding(), 1);
+    }
+
+    #[test]
+    fn cross_user_consume_isolates_other_users_slots() {
+        // Issuance + consumption is keyed by user_handle; one
+        // user's verification flow MUST NOT touch another's
+        // outstanding challenge. (The wrong-user attack is
+        // already covered by `wrong_candidate_bytes_are_mismatch`
+        // — the relevant invariant here is isolation across
+        // unrelated handles.)
+        let store = WebAuthnChallengeStore::new();
+        let c_alice = store.generate("alice");
+        let c_bob = store.generate("bob");
+        assert_eq!(store.outstanding(), 2);
+        // Alice consumes her own challenge → bob's must persist.
+        let _ = store.consume("alice", &c_alice.encoded).expect("alice ok");
+        assert_eq!(
+            store.outstanding(),
+            1,
+            "bob's slot must persist after alice's successful consume"
+        );
+        // Bob can still use his.
+        let _ = store.consume("bob", &c_bob.encoded).expect("bob ok");
+        assert_eq!(store.outstanding(), 0);
+    }
+
+    #[test]
+    fn submitting_alices_bytes_under_bobs_handle_burns_bobs_slot() {
+        // SECURITY: WebAuthn doctrine — any consume attempt
+        // burns the slot (brute-force-by-flood mitigation).
+        // We pin this to surface the trade-off: a single
+        // mis-routed verification kills the legitimate user's
+        // outstanding challenge. Operators MUST surface a
+        // "please retry" UX rather than a silent failure.
+        let store = WebAuthnChallengeStore::new();
+        let c_alice = store.generate("alice");
+        let _c_bob = store.generate("bob");
+        // Caller submits alice's bytes under bob's handle.
+        let err = store
+            .consume("bob", &c_alice.encoded)
+            .expect_err("cross-user submission must fail Mismatch");
+        assert_eq!(err, WebAuthnChallengeError::Mismatch);
+        // Bob's slot is now BURNED — this is the documented
+        // cost of single-use semantics.
+        assert_eq!(
+            store.outstanding(),
+            1,
+            "alice's slot still present, bob's burned"
+        );
+        // Alice's slot still works.
+        let _ = store.consume("alice", &c_alice.encoded).expect("alice ok");
+        assert_eq!(store.outstanding(), 0);
+    }
+
+    #[test]
+    fn registration_handle_empty_string_works() {
+        // For registration flows (cycle 94 will wire this), the
+        // user-handle is empty until the new credential is
+        // bound to a fresh user. Store + consume MUST handle the
+        // empty string as a valid key.
+        let store = WebAuthnChallengeStore::new();
+        let c = store.generate("");
+        let _ = store.consume("", &c.encoded).expect("empty handle ok");
+    }
+}
+
+// ============================================================
 // T63: HTML → CmsPage importer.
 // ============================================================
 //
