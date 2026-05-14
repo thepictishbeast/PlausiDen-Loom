@@ -598,15 +598,24 @@ impl From<CmsFit> for PictureFit {
 }
 
 /// Render a complete CMS page to Loom markup. The output is a
-/// `<main>` containing one rendered subtree per section, in order.
+/// `<div class="loom-page">` containing one rendered subtree per
+/// section, in order.
 ///
 /// PAGE-SHELL CONTRACT: this function emits NO `<html>`, `<head>`,
-/// `<title>`, or `<h1>`. Those belong to the page-layout template.
-/// The bridge focuses on the body region the CMS owns.
+/// `<title>`, `<h1>`, or `<main>`. Those belong to the page-shell
+/// template (`page_shell` in this crate). The bridge focuses on
+/// the body REGION the CMS owns.
+///
+/// REGRESSION-GUARD T70b-fix (2026-05-14): formerly emitted
+/// `<main class="loom-page">` which produced nested `<main>` tags
+/// when wrapped by `page_shell` (which emits its own
+/// `<main id="content">`). WCAG forbids more than one `<main>`
+/// per document. The wrapper is now `<div>`; the landmark stays
+/// in `page_shell`.
 #[must_use]
 pub fn render_page(page: &CmsPage) -> Markup {
     html! {
-        main class="loom-page" data-cms-path=(page.path) {
+        div class="loom-page" data-cms-path=(page.path) {
             @for section in &page.sections {
                 (render_section(section))
             }
@@ -1095,7 +1104,10 @@ mod tests {
     }
 
     #[test]
-    fn empty_page_renders_main_shell() {
+    fn empty_page_renders_div_wrapper() {
+        // T70b-fix (2026-05-14): wrapper is now <div>, not <main>.
+        // The <main> landmark belongs to page_shell, not render_page,
+        // to avoid nested <main> tags in the composed output.
         let p = CmsPage {
             schema: None,
             title: "Home".to_owned(),
@@ -1105,7 +1117,9 @@ mod tests {
             sections: vec![],
         };
         let html = render_to_string(&p);
-        assert!(html.contains(r#"<main class="loom-page""#));
+        assert!(html.contains(r#"<div class="loom-page""#));
+        assert!(!html.contains(r#"<main class="loom-page""#),
+            "render_page must NOT emit <main> — page_shell owns the landmark");
         assert!(html.contains(r#"data-cms-path="/""#));
     }
 
@@ -2409,6 +2423,27 @@ mod page_shell_tests {
         let s = page_shell(&p, "/loom-skin.css", "", None);
         assert!(!s.contains("<script>alert(1)</script>"));
         assert!(s.contains("&lt;script&gt;"));
+    }
+
+    /// T70b-fix REGRESSION-GUARD: page_shell + render_page composed
+    /// must produce EXACTLY ONE `<main>` element. Two `<main>`s
+    /// per document is a WCAG violation.
+    #[test]
+    fn page_shell_with_rendered_body_produces_exactly_one_main() {
+        let p = CmsPage {
+            schema: None,
+            title: "Test".into(),
+            description: "T".into(),
+            path: "/".into(),
+            nav_links: vec![],
+            sections: vec![CmsSection::Heading { level: 2, text: "x".into() }],
+        };
+        let body = render_page(&p).into_string();
+        let composed = page_shell(&p, "/loom-skin.css", &body, None);
+        let main_open_count = composed.matches("<main").count();
+        let main_close_count = composed.matches("</main>").count();
+        assert_eq!(main_open_count, 1, "exactly one <main> open: composed = {composed}");
+        assert_eq!(main_close_count, 1, "exactly one </main> close");
     }
 }
 
