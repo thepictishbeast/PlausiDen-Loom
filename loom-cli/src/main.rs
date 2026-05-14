@@ -5306,26 +5306,18 @@ fn serve_edit_form(
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    let mut body = String::new();
-    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\">");
-    body.push_str(&format!(
-        "<title>edit {slug}</title>",
-        slug = html_escape(slug)
-    ));
-    // REGRESSION-GUARD cycle 53: skip-link + page-specific
-    // <style> both moved BEFORE <body> so neither lives inside
-    // the <main> landmark. Avoids overflow.text-clipped strict
-    // from the crawler that treats <style> text content as
-    // overflowing inside main.
-    body.push_str("<style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style>");
-    // T62 step 5: split-pane layout — editor on the left, live
-    // preview iframe on the right (stacks vertically on narrow
-    // viewports). The iframe reloads automatically after every
-    // POST because the server returns 303 → editor re-renders →
-    // iframe `src` is fetched again.
-    body.push_str(
-        "<style>\
-         body{font:16px/1.5 system-ui;margin:0;padding:0;display:grid;\
+    // SUPERSOCIETY cycle 54: hash-pinned CSP for the edit form.
+    // The page emits exactly two inline <style> blocks
+    // (SKIP_LINK_CSS + EDIT_PAGE_CSS) and one inline <script>
+    // (EDIT_PAGE_JS, see below); their sha256 hashes are
+    // pre-computed here and pinned in the CSP `script-src` /
+    // `style-src` directives. No 'unsafe-inline'. Any future
+    // mutation of these blocks changes the hash and breaks the
+    // policy until the policy is regenerated alongside — the
+    // tests below pin the hashes to catch drift.
+    const SKIP_LINK_CSS: &str = ".loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}";
+    const EDIT_PAGE_CSS: &str =
+         "body{font:16px/1.5 system-ui;margin:0;padding:0;display:grid;\
               grid-template-columns:minmax(0,1fr) minmax(0,1fr);\
               gap:1rem;min-height:100vh}\
          @media(max-width:60rem){body{grid-template-columns:1fr}}\
@@ -5347,9 +5339,71 @@ fn serve_edit_form(
          textarea{min-height:4em}\
          button[type=\"submit\"]{margin-top:1.5rem;padding:.6rem 1.2rem;\
                                 font:inherit;border:0;border-radius:4px;\
-                                background:#003;color:#fff;cursor:pointer}\
-         </style>"
+                                background:#003;color:#fff;cursor:pointer}";
+    const EDIT_PAGE_JS: &str = "(function(){\
+var origin=location.origin;\
+window.addEventListener('message',function(e){\
+if(e.origin!==origin)return;\
+var d=e.data;\
+if(!d||d.type!=='loom-edit'||typeof d.target!=='string')return;\
+if(!/^[0-9]+$/.test(d.target))return;\
+var el=document.getElementById('sec-edit-'+d.target);\
+if(!el)return;\
+el.scrollIntoView({behavior:'smooth',block:'start'});\
+var first=el.querySelector('input,textarea,select');\
+if(first){try{first.focus();}catch(_){}}\
+el.style.transition='box-shadow .25s ease';\
+el.style.boxShadow='0 0 0 3px #f06';\
+setTimeout(function(){el.style.boxShadow='';},800);\
+});\
+document.addEventListener('click',function(e){\
+var t=e.target;\
+if(!t||!t.closest)return;\
+var btn=t.closest('[data-loom-confirm]');\
+if(!btn)return;\
+var msg=btn.getAttribute('data-loom-confirm')||'Confirm?';\
+if(!window.confirm(msg)){e.preventDefault();e.stopImmediatePropagation();}\
+},true);\
+})();";
+    let skip_link_hash = loom_cms_render::csp_sha256(SKIP_LINK_CSS.as_bytes());
+    let edit_page_hash = loom_cms_render::csp_sha256(EDIT_PAGE_CSS.as_bytes());
+    let edit_script_hash = loom_cms_render::csp_sha256(EDIT_PAGE_JS.as_bytes());
+    let csp = format!(
+        "default-src 'self'; \
+         img-src 'self' data:; \
+         style-src 'self' '{skip_link_hash}' '{edit_page_hash}'; \
+         script-src 'self' '{edit_script_hash}'; \
+         frame-src 'self'; \
+         connect-src 'self'; \
+         frame-ancestors 'self'; \
+         base-uri 'self'; \
+         form-action 'self'"
     );
+
+    let mut body = String::new();
+    body.push_str("<!doctype html><html lang=en><meta charset=utf-8>");
+    body.push_str(&format!(
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">"
+    ));
+    body.push_str("<meta http-equiv=\"X-Content-Type-Options\" content=\"nosniff\">");
+    body.push_str("<meta http-equiv=\"Referrer-Policy\" content=\"no-referrer\">");
+    body.push_str("<meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\">");
+    body.push_str(&format!(
+        "<title>edit {slug}</title>",
+        slug = html_escape(slug)
+    ));
+    // REGRESSION-GUARD cycle 53: skip-link + page-specific
+    // <style> both moved BEFORE <body> so neither lives inside
+    // the <main> landmark. Avoids overflow.text-clipped strict
+    // from the crawler that treats <style> text content as
+    // overflowing inside main.
+    body.push_str(&format!("<style>{SKIP_LINK_CSS}</style>"));
+    // T62 step 5: split-pane layout — editor on the left, live
+    // preview iframe on the right (stacks vertically on narrow
+    // viewports). The iframe reloads automatically after every
+    // POST because the server returns 303 → editor re-renders →
+    // iframe `src` is fetched again.
+    body.push_str(&format!("<style>{EDIT_PAGE_CSS}</style>"));
     body.push_str("<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
     body.push_str("<div class=\"editor\">");
     body.push_str(&format!(
@@ -5568,13 +5622,21 @@ fn serve_edit_form(
                     slug = html_escape(slug),
                 ));
             }
+            // REGRESSION-GUARD cycle 54: data-confirm attribute
+            // instead of onclick="return confirm(...)". CSP cannot
+            // nonce event-handler attributes (would need
+            // 'unsafe-hashes'), so the delegated handler in the
+            // inline script below intercepts the click and runs
+            // confirm() from there. Defence-in-depth: CSP can
+            // hash the inline script but cannot hash inline
+            // event handlers.
             body.push_str(&format!(
                 "<button type=\"submit\" formaction=\"/{slug}/sections/{i}/delete\" \
                    formmethod=\"post\" formnovalidate \
+                   data-loom-confirm=\"Delete section {n}? This can be undone by re-creating it.\" \
                    style=\"padding:.3rem .7rem;font:inherit;border:1px solid #b00020;\
                           border-radius:4px;background:#fee;color:#b00020;cursor:pointer;\
-                          margin-left:auto\" \
-                   onclick=\"return confirm('Delete section {n}? This can be undone by re-creating it.')\">\
+                          margin-left:auto\">\
                    Delete</button>",
                 slug = html_escape(slug),
                 n = i + 1,
@@ -5671,29 +5733,15 @@ fn serve_edit_form(
             if preview_theme.is_none() { " aria-current=\"true\"" } else { "" }),
     ));
 
-    // Parent-side click-to-edit bridge. Origin-checked so cross-
-    // origin postMessage attempts are silently dropped.
-    body.push_str(
-        "<script>\
-(function(){\
-var origin=location.origin;\
-window.addEventListener('message',function(e){\
-if(e.origin!==origin)return;\
-var d=e.data;\
-if(!d||d.type!=='loom-edit'||typeof d.target!=='string')return;\
-if(!/^[0-9]+$/.test(d.target))return;\
-var el=document.getElementById('sec-edit-'+d.target);\
-if(!el)return;\
-el.scrollIntoView({behavior:'smooth',block:'start'});\
-var first=el.querySelector('input,textarea,select');\
-if(first){try{first.focus();}catch(_){}}\
-el.style.transition='box-shadow .25s ease';\
-el.style.boxShadow='0 0 0 3px #f06';\
-setTimeout(function(){el.style.boxShadow='';},800);\
-});\
-})();\
-</script>",
-    );
+    // Parent-side click-to-edit bridge + delegated confirm
+    // handler. Origin-checked so cross-origin postMessage
+    // attempts are silently dropped.
+    //
+    // SUPERSOCIETY cycle 54: script body lives in EDIT_PAGE_JS
+    // const (declared up top so its sha256 hash can pin it in
+    // the CSP `script-src` directive). Any change to the body
+    // here MUST keep the const + the page in sync.
+    body.push_str(&format!("<script>{EDIT_PAGE_JS}</script>"));
 
     // T64b: tour overlay carries through to the edit form. Steps
     // 2-5 are best viewed from this page (form + preview side-by-
