@@ -4496,14 +4496,9 @@ fn handle_edit_request(
 /// Linked from: index page header, every editor's "← all pages"
 /// link, every forge admin nav.
 fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
-    let mut body = String::new();
-    // REGRESSION-GUARD cycle 53: page-specific <style> moved
-    // BEFORE <body> so it lives in head context, not inside
-    // <main>. Same restructuring as serve_uploads_gallery.
-    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\"><title>loom — tutorial</title><style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style>");
-    body.push_str(
-        "<style>\
-         body{font:16px/1.65 system-ui;max-width:42rem;margin:2rem auto;padding:0 1rem;color:#222}\
+    // SUPERSOCIETY cycle 56: hash-pinned CSP for the tutorial.
+    const TUTORIAL_PAGE_CSS: &str =
+         "body{font:16px/1.65 system-ui;max-width:42rem;margin:2rem auto;padding:0 1rem;color:#222}\
          h1{margin-top:0;font-size:1.6em}\
          h2{margin-top:2rem;font-size:1.2em;border-bottom:1px solid #ddd;padding-bottom:.25rem}\
          h3{margin-top:1.5rem;font-size:1em}\
@@ -4517,9 +4512,33 @@ fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
          nav.tut{display:flex;gap:1rem;margin-bottom:1rem;font-size:.9em}\
          nav.tut a{display:inline-flex;align-items:center;min-height:44px;padding:0 .75rem;\
                    border-radius:4px}\
-         nav.tut a:hover,nav.tut a:focus-visible{background:#f4f4f4;outline:2px solid #003;outline-offset:2px}\
-         </style>"
+         nav.tut a:hover,nav.tut a:focus-visible{background:#f4f4f4;outline:2px solid #003;outline-offset:2px}";
+    let skip_hash = loom_cms_render::csp_sha256(ADMIN_SKIP_LINK_CSS.as_bytes());
+    let page_hash = loom_cms_render::csp_sha256(TUTORIAL_PAGE_CSS.as_bytes());
+    let csp = format!(
+        "default-src 'self'; \
+         img-src 'self' data:; \
+         style-src 'self' '{skip_hash}' '{page_hash}'; \
+         script-src 'self'; \
+         connect-src 'self'; \
+         frame-ancestors 'self'; \
+         base-uri 'self'; \
+         form-action 'self'"
     );
+
+    let mut body = String::new();
+    body.push_str("<!doctype html><html lang=en><meta charset=utf-8>");
+    body.push_str(&format!(
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">"
+    ));
+    body.push_str("<meta http-equiv=\"X-Content-Type-Options\" content=\"nosniff\">");
+    body.push_str("<meta http-equiv=\"Referrer-Policy\" content=\"no-referrer\">");
+    // REGRESSION-GUARD cycle 53: page-specific <style> moved
+    // BEFORE <body> so it lives in head context, not inside
+    // <main>. Same restructuring as serve_uploads_gallery.
+    body.push_str("<meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\"><title>loom — tutorial</title>");
+    body.push_str(&format!("<style>{ADMIN_SKIP_LINK_CSS}</style>"));
+    body.push_str(&format!("<style>{TUTORIAL_PAGE_CSS}</style>"));
     body.push_str("<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
     body.push_str(
         "<nav class=\"tut\"><a href=\"/\">← back to pages</a> · <a href=\"/forge\">forge admin</a></nav>\
@@ -4790,23 +4809,44 @@ fn serve_index(
         }
     }
     entries.sort();
+    // SUPERSOCIETY cycle 56: hash-pinned CSP for the index page.
+    // Two inline <style> blocks (shared skip-link + page-layout);
+    // sha256 hashes pinned in CSP `style-src`. No inline scripts.
+    const INDEX_PAGE_CSS: &str =
+         "body{font:16px/1.5 system-ui;max-width:36rem;margin:3rem auto;padding:0 1rem}\
+         a{display:flex;align-items:center;min-height:44px;padding:.5rem 0;text-decoration:underline;color:#003}\
+         a:hover,a:focus-visible{background:#f4f4f4;text-decoration:none;outline:2px solid #003;outline-offset:2px}\
+         input,select,textarea,button{min-height:44px;font:inherit;box-sizing:border-box}";
+    let skip_hash = loom_cms_render::csp_sha256(ADMIN_SKIP_LINK_CSS.as_bytes());
+    let page_hash = loom_cms_render::csp_sha256(INDEX_PAGE_CSS.as_bytes());
+    let csp = format!(
+        "default-src 'self'; \
+         img-src 'self' data:; \
+         style-src 'self' '{skip_hash}' '{page_hash}'; \
+         script-src 'self'; \
+         connect-src 'self'; \
+         frame-ancestors 'self'; \
+         base-uri 'self'; \
+         form-action 'self'"
+    );
+
     let mut body = String::new();
+    body.push_str("<!doctype html><html lang=en><meta charset=utf-8>");
+    body.push_str(&format!(
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">"
+    ));
+    body.push_str("<meta http-equiv=\"X-Content-Type-Options\" content=\"nosniff\">");
+    body.push_str("<meta http-equiv=\"Referrer-Policy\" content=\"no-referrer\">");
     // REGRESSION-GUARD cycle 53: page-specific <style> moved
     // BEFORE <body> so it lives in head context, not inside
     // <main>. Same restructuring as serve_uploads_gallery.
-    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\"><title>loom edit</title><style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style>");
+    body.push_str("<meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\"><title>loom edit</title>");
+    body.push_str(&format!("<style>{ADMIN_SKIP_LINK_CSS}</style>"));
     // REGRESSION-GUARD cycle 55: tap-target heights ≥44px on
     // every interactive element. WCAG 2.1 SC 2.5.5 (AAA). The
     // index page is the operator's daily landing — bigger
     // targets reduce thumb-mis-tap on touch devices.
-    body.push_str(
-        "<style>\
-         body{font:16px/1.5 system-ui;max-width:36rem;margin:3rem auto;padding:0 1rem}\
-         a{display:flex;align-items:center;min-height:44px;padding:.5rem 0;text-decoration:underline;color:#003}\
-         a:hover,a:focus-visible{background:#f4f4f4;text-decoration:none;outline:2px solid #003;outline-offset:2px}\
-         input,select,textarea,button{min-height:44px;font:inherit;box-sizing:border-box}\
-         </style>"
-    );
+    body.push_str(&format!("<style>{INDEX_PAGE_CSS}</style>"));
     body.push_str("<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
     body.push_str(
         "<p style=\"margin:0 0 1rem;font-size:.9em\">\
@@ -5329,7 +5369,9 @@ fn serve_edit_form(
     // mutation of these blocks changes the hash and breaks the
     // policy until the policy is regenerated alongside — the
     // tests below pin the hashes to catch drift.
-    const SKIP_LINK_CSS: &str = ".loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}";
+    // Cycle 56: now sourced from module-level ADMIN_SKIP_LINK_CSS
+    // so the hash matches across every admin page that emits it.
+    const SKIP_LINK_CSS: &str = ADMIN_SKIP_LINK_CSS;
     // REGRESSION-GUARD cycle 55: ≥44px target heights across
     // every interactive element. Includes editor pane buttons
     // (Move-up / Move-down / Delete / Append / Save), theme-
@@ -6206,6 +6248,19 @@ fn respond_html(
 // a *direct* child of the body — otherwise the click target
 // resolution `closest('[data-edit]')` may match an outer wrapper
 // and lose the section index.
+
+/// SUPERSOCIETY cycle 56: shared skip-link CSS for every Loom
+/// admin page. Single source of truth so the sha256 hash is the
+/// same wherever the block is emitted and the hash pin in CSP
+/// `style-src` covers every admin response uniformly.
+///
+/// Pattern: visually-hidden skip link that becomes visible on
+/// focus. `position:absolute; left:-9999px` is the
+/// pre-clip-path legacy form chosen for maximum-compatibility
+/// SR + keyboard-tab semantics (matches WordPress / Bootstrap
+/// sr-only). The `:focus` variant reveals the link at the top-
+/// left corner with a PlausiDen-blue outline ring.
+pub(crate) const ADMIN_SKIP_LINK_CSS: &str = ".loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}";
 
 const EDIT_OVERLAY_CSS: &str = "\
 [data-edit]{position:relative;outline:1px dashed transparent;\
@@ -11506,6 +11561,36 @@ fn serve_uploads_gallery(
         Vec::new()
     };
     entries.sort();
+    // SUPERSOCIETY cycle 56: hash-pinned CSP for the uploads page.
+    const UPLOADS_PAGE_CSS: &str =
+         "body{font:16px/1.5 system-ui;max-width:48rem;margin:2rem auto;padding:0 1rem}\
+         h1{margin-top:0}\
+         .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1rem}\
+         .grid figure{margin:0;padding:.5rem;border:1px solid #ddd;border-radius:6px;\
+                      background:#fafafa}\
+         .grid img{max-width:100%;height:120px;object-fit:cover;border-radius:4px;display:block}\
+         .grid figcaption{font:.75em monospace;color:#666;margin-top:.25rem;\
+                         word-break:break-all;max-height:3.6em;overflow:hidden}\
+         input[type=file]{padding:.75rem;border:1px dashed #888;border-radius:4px;width:100%;\
+                          box-sizing:border-box;min-height:44px}\
+         button{margin-top:1rem;padding:.75rem 1rem;font:inherit;border:0;border-radius:4px;\
+                background:#003;color:#fff;cursor:pointer;min-height:44px}\
+         a{display:inline-flex;align-items:center;min-height:44px;padding:0 .25rem;\
+           border-radius:4px}\
+         a:hover,a:focus-visible{background:#f4f4f4;outline:2px solid #003;outline-offset:2px}";
+    let skip_hash = loom_cms_render::csp_sha256(ADMIN_SKIP_LINK_CSS.as_bytes());
+    let page_hash = loom_cms_render::csp_sha256(UPLOADS_PAGE_CSS.as_bytes());
+    let csp = format!(
+        "default-src 'self'; \
+         img-src 'self' data:; \
+         style-src 'self' '{skip_hash}' '{page_hash}'; \
+         script-src 'self'; \
+         connect-src 'self'; \
+         frame-ancestors 'self'; \
+         base-uri 'self'; \
+         form-action 'self'"
+    );
+
     // REGRESSION-GUARD cycle 53: the page-specific <style> block
     // was previously pushed AFTER `<main id=main>` opened, which
     // put it INSIDE the main landmark. The crawler's
@@ -11515,27 +11600,15 @@ fn serve_uploads_gallery(
     // page-specific <style>, and `<body><main>` opens cleanly
     // with no style text inside.
     let mut body = String::new();
-    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\"><title>uploads</title><style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style>");
-    body.push_str(
-        "<style>\
-         body{font:16px/1.5 system-ui;max-width:48rem;margin:2rem auto;padding:0 1rem}\
-         h1{margin-top:0}\
-         .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1rem}\
-         .grid figure{margin:0;padding:.5rem;border:1px solid #ddd;border-radius:6px;\
-                      background:#fafafa}\
-         .grid img{max-width:100%;height:120px;object-fit:cover;border-radius:4px;display:block}\
-         .grid figcaption{font:.75em monospace;color:#666;margin-top:.25rem;\
-                         word-break:break-all;max-height:3.6em;overflow:hidden}\
-         /* cycle 55: ≥44px tap targets on file input + Upload button. */\
-         input[type=file]{padding:.75rem;border:1px dashed #888;border-radius:4px;width:100%;\
-                          box-sizing:border-box;min-height:44px}\
-         button{margin-top:1rem;padding:.75rem 1rem;font:inherit;border:0;border-radius:4px;\
-                background:#003;color:#fff;cursor:pointer;min-height:44px}\
-         a{display:inline-flex;align-items:center;min-height:44px;padding:0 .25rem;\
-           border-radius:4px}\
-         a:hover,a:focus-visible{background:#f4f4f4;outline:2px solid #003;outline-offset:2px}\
-         </style>"
-    );
+    body.push_str("<!doctype html><html lang=en><meta charset=utf-8>");
+    body.push_str(&format!(
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">"
+    ));
+    body.push_str("<meta http-equiv=\"X-Content-Type-Options\" content=\"nosniff\">");
+    body.push_str("<meta http-equiv=\"Referrer-Policy\" content=\"no-referrer\">");
+    body.push_str("<meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\"><title>uploads</title>");
+    body.push_str(&format!("<style>{ADMIN_SKIP_LINK_CSS}</style>"));
+    body.push_str(&format!("<style>{UPLOADS_PAGE_CSS}</style>"));
     body.push_str("<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
     body.push_str(
         "<p><a href=\"/\">← all pages</a> · <a href=\"/tutorial\">📖 tutorial</a></p>\
