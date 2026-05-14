@@ -4378,6 +4378,23 @@ fn handle_edit_request(
         return respond_text(request, 400, "bad path");
     }
 
+    // SUPERSOCIETY cycle 63: CSP / Reporting-API violation
+    // collector. Two endpoints:
+    //   /csp-report  → legacy `application/csp-report` (CSP-L1/L2).
+    //   /reports     → modern `application/reports+json` (CSP-L3
+    //                  + COEP / COOP / Crash / Deprecation /
+    //                  Intervention / Network-Error / Document-
+    //                  Policy reports).
+    // Both write a JSONL line to `cms_root/../reports/violations.
+    // jsonl` for forensic review. Unauthenticated by design —
+    // browsers cannot carry session cookies on report POSTs. A
+    // 64KiB body cap defends against bored attackers spamming
+    // the endpoint; rotation is operator responsibility (cron
+    // logrotate).
+    if is_post && (path == "csp-report" || path == "reports") {
+        return handle_security_report(request, cms_root, path);
+    }
+
     // T43: auth middleware. If auth.toml exists, every endpoint
     // except /login + the static preview is gated. Without
     // auth.toml the editor stays open (back-compat).
@@ -4541,7 +4558,8 @@ fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
          connect-src 'self'; \
          frame-ancestors 'self'; \
          base-uri 'self'; \
-         form-action 'self'"
+         form-action 'self'; \
+         report-to default"
     );
 
     let mut body = String::new();
@@ -4845,7 +4863,8 @@ fn serve_index(
          connect-src 'self'; \
          frame-ancestors 'self'; \
          base-uri 'self'; \
-         form-action 'self'"
+         form-action 'self'; \
+         report-to default"
     );
 
     let mut body = String::new();
@@ -5475,7 +5494,8 @@ if(!window.confirm(msg)){e.preventDefault();e.stopImmediatePropagation();}\
          base-uri 'self'; \
          form-action 'self'; \
          require-trusted-types-for 'script'; \
-         trusted-types loom-editor"
+         trusted-types loom-editor; \
+         report-to default"
     );
 
     let mut body = String::new();
@@ -6301,6 +6321,133 @@ fn respond_html(
         )
         .map_err(|_| std::io::Error::other("header"))?,
     );
+    // SUPERSOCIETY cycle 63: Reporting-Endpoints header (CSP-L3
+    // / Reporting API). Names a "default" endpoint that the
+    // browser POSTs reports to when CSP, COEP, Document-Policy,
+    // Crash, Deprecation, Intervention, or Network-Error fire.
+    // The endpoint is /reports on this same origin — handled by
+    // handle_security_report().
+    //
+    // Plus the legacy `Report-To` header for older browsers
+    // that haven't migrated to Reporting-Endpoints yet (Chrome
+    // 96+ supports Reporting-Endpoints; older only Report-To).
+    resp.add_header(
+        tiny_http::Header::from_bytes(
+            &b"Reporting-Endpoints"[..],
+            &b"default=\"/reports\""[..],
+        )
+        .map_err(|_| std::io::Error::other("header"))?,
+    );
+    resp.add_header(
+        tiny_http::Header::from_bytes(
+            &b"Report-To"[..],
+            &b"{\"group\":\"default\",\"max_age\":10886400,\"endpoints\":[{\"url\":\"/reports\"}]}"[..],
+        )
+        .map_err(|_| std::io::Error::other("header"))?,
+    );
+    request.respond(resp)?;
+    Ok(())
+}
+
+/// SUPERSOCIETY cycle 63: security-report collector handler.
+///
+/// Browsers POST CSP / COEP / COOP / Document-Policy / Crash /
+/// Deprecation / Intervention / Network-Error reports to this
+/// endpoint when one of those features fires. Without a
+/// collector, these reports are LOST — the operator never
+/// learns the policy is misconfigured or under attack.
+///
+/// Body shape varies by report type:
+///   * `/csp-report` (legacy CSP-L1/L2): `application/csp-report`
+///     `{"csp-report": {"document-uri": "...", "violated-
+///      directive": "...", "blocked-uri": "...", ...}}`
+///   * `/reports` (CSP-L3 + Reporting-API): `application/
+///     reports+json` — array of report objects with `type`,
+///     `age`, `url`, `body`.
+///
+/// Both formats land in the same JSONL file with a server-side
+/// timestamp + the wire body verbatim. Operator-side analysis
+/// happens out-of-band.
+///
+/// SECURITY:
+///   * 64 KiB body cap prevents flood-of-large-reports DoS.
+///   * Unauthenticated (browsers can't carry session cookies
+///     on report POSTs per W3C spec).
+///   * Always returns 204 No Content so attacker reconnaissance
+///     can't distinguish presence vs absence.
+///   * Never echoes report content in the response.
+///
+/// REGRESSION-GUARD: any write failure (full disk, permission
+/// error) MUST still return 204 — the browser shouldn't see
+/// a 5xx and retry-storm. The error is logged to stderr for
+/// the operator and the report is silently dropped.
+fn handle_security_report(
+    mut request: tiny_http::Request,
+    cms_root: &std::path::Path,
+    endpoint: &str,
+) -> std::io::Result<()> {
+    const MAX_BODY: usize = 64 * 1024;
+    let content_type = request
+        .headers()
+        .iter()
+        .find(|h| h.field.equiv("content-type"))
+        .map(|h| h.value.as_str().to_owned())
+        .unwrap_or_default();
+    let mut body = String::new();
+    {
+        use std::io::Read as _;
+        let reader = request.as_reader();
+        let mut limited = std::io::Read::take(reader, MAX_BODY as u64);
+        let _ = limited.read_to_string(&mut body);
+    }
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    // Compose the JSONL line. We hand-build the JSON instead of
+    // pulling in serde_json so this stays trivially auditable.
+    // Body is opaque (could be malformed JSON, could be empty)
+    // — store it as a JSON string field with proper escaping.
+    let escaped_body = body
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t");
+    let escaped_ct = content_type
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let line = format!(
+        "{{\"ts\":{timestamp},\"endpoint\":\"{endpoint}\",\"content_type\":\"{escaped_ct}\",\"body\":\"{escaped_body}\"}}\n"
+    );
+    // reports/ lives as a SIBLING of cms_root so an operator's
+    // editing context is separate from the violation log. If
+    // cms_root has no parent, fall back to `./reports`.
+    let reports_dir = match cms_root.parent() {
+        Some(p) => p.join("reports"),
+        None => std::path::PathBuf::from("reports"),
+    };
+    let _ = std::fs::create_dir_all(&reports_dir);
+    let log_path = reports_dir.join("violations.jsonl");
+    use std::io::Write as _;
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+    {
+        Ok(mut f) => {
+            if let Err(e) = f.write_all(line.as_bytes()) {
+                eprintln!("[loom report-collector] write failed: {e}");
+            }
+        }
+        Err(e) => {
+            eprintln!(
+                "[loom report-collector] open {} failed: {e}",
+                log_path.display()
+            );
+        }
+    }
+    let resp = tiny_http::Response::empty(204);
     request.respond(resp)?;
     Ok(())
 }
@@ -11679,7 +11826,8 @@ fn serve_uploads_gallery(
          connect-src 'self'; \
          frame-ancestors 'self'; \
          base-uri 'self'; \
-         form-action 'self'"
+         form-action 'self'; \
+         report-to default"
     );
 
     // REGRESSION-GUARD cycle 53: the page-specific <style> block
