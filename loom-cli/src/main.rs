@@ -429,6 +429,37 @@ enum Cmd {
         #[arg(long, default_value_t = 8124)]
         port: u16,
     },
+    /// T76 cycle 72: aggregate the cycle 63 violations.jsonl log
+    /// (and its rotated siblings) into per-kind summary stats.
+    ///
+    /// Reads `<dir>/violations.jsonl` AND every
+    /// `<dir>/violations-*.jsonl` rotation file, parses each
+    /// JSONL line, groups by report-kind, and prints:
+    ///   kind         count   first-seen          last-seen           top-url
+    ///
+    /// With `--json`, emits a single JSON document suitable
+    /// for piping into jq, dashboards, SIEM, etc.
+    ///
+    /// With `--since <unix-secs>`, filters entries to those
+    /// at-or-after the given timestamp. Useful for "what
+    /// fired in the last hour" / "since the deploy at $TS".
+    ReportStats {
+        /// reports/ directory containing violations.jsonl and
+        /// rotated siblings. Defaults to `<cwd>/reports`.
+        #[arg(long, default_value = "reports")]
+        dir: PathBuf,
+        /// Filter to entries with ts >= this unix-seconds value.
+        /// 0 (default) = no filter.
+        #[arg(long, default_value_t = 0u64)]
+        since: u64,
+        /// Substring filter (matched against the body field).
+        /// Empty = no filter.
+        #[arg(long, default_value = "")]
+        kind: String,
+        /// Emit JSON instead of the human-readable table.
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
     /// T76 cycle 70: tail the cycle 63 violations.jsonl log.
     ///
     /// Pretty-prints the report-collector's JSONL log to a TTY.
@@ -989,6 +1020,18 @@ fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("loom report-tail: {e}");
+                ExitCode::from(2)
+            }
+        },
+        Cmd::ReportStats {
+            dir,
+            since,
+            kind,
+            json,
+        } => match cmd_report_stats(&dir, since, &kind, json) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("loom report-stats: {e}");
                 ExitCode::from(2)
             }
         },
@@ -4615,6 +4658,284 @@ fn cmd_report_tail(
         let _ = std::io::stdout().flush();
         last_pos = len;
     }
+}
+
+/// SUPERSOCIETY cycle 72: aggregate stats over the cycle 63
+/// collector log AND its rotated siblings.
+///
+/// The cycle 70 `loom report-tail` is per-entry detail.
+/// This is per-kind summary. Together they form the operator
+/// dashboard: tail for "what just happened", stats for
+/// "what's been happening".
+///
+/// Cross-rotation: reads `violations.jsonl` PLUS every
+/// `violations-*.jsonl` in the same directory. Sorted by
+/// filename (lexical = chronological per cycle 71's
+/// fixed-width unix-secs.ns suffix). This means a `--since`
+/// query that pre-dates the active file still sees pruned
+/// rotations as long as cycle 71's retention kept them.
+///
+/// Output format (default, table):
+///   kind             count  first-seen           last-seen            top-url
+///   csp-violation    47     2025-01-09 03:00:00Z 2025-01-09 17:42:11Z https://x.example/
+///   nel              3      2025-01-09 12:00:00Z 2025-01-09 17:40:00Z https://y.example/
+///
+/// With --json: emit a JSON object `{ kinds: [{kind, count,
+/// first, last, top_url}, ...], window: {since, total_lines,
+/// files_read} }`.
+fn cmd_report_stats(
+    dir: &std::path::Path,
+    since: u64,
+    kind_filter: &str,
+    json: bool,
+) -> Result<()> {
+    use std::collections::HashMap;
+    use std::io::{BufRead as _, BufReader};
+
+    // Collect every log file (active + rotated). Sort by
+    // filename so older rotations are processed first; the
+    // first/last-seen aggregation respects time order.
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            let name = match p.file_name().and_then(|s| s.to_str()) {
+                Some(n) => n,
+                None => continue,
+            };
+            if name == "violations.jsonl"
+                || (name.starts_with("violations-") && name.ends_with(".jsonl"))
+            {
+                files.push(p);
+            }
+        }
+    }
+    files.sort();
+
+    #[derive(Default)]
+    struct KindStats {
+        count: u64,
+        first: u64,
+        last: u64,
+        url_counts: HashMap<String, u64>,
+    }
+    let mut by_kind: HashMap<String, KindStats> = HashMap::new();
+    let mut total_lines: u64 = 0;
+
+    for path in &files {
+        let f = match std::fs::File::open(path) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+        let reader = BufReader::new(f);
+        for line in reader.lines().map_while(|r| r.ok()) {
+            if line.is_empty() {
+                continue;
+            }
+            // Optional substring filter (matched against the
+            // raw line so kind names + URLs all work).
+            if !kind_filter.is_empty() && !line.contains(kind_filter) {
+                continue;
+            }
+            // Extract ts via the same hand-rolled JSON field
+            // walker the report-tail viewer uses (defined
+            // below as a static helper).
+            let ts = report_log_field(&line, "ts")
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
+            if ts < since {
+                continue;
+            }
+            let body = report_log_field(&line, "body").unwrap_or_default();
+            let kind = report_log_classify(&body);
+            let entry = by_kind.entry(kind).or_default();
+            entry.count += 1;
+            if entry.first == 0 || ts < entry.first {
+                entry.first = ts;
+            }
+            if ts > entry.last {
+                entry.last = ts;
+            }
+            // Track URL hits — the report-tail viewer doesn't
+            // do this so the JSON walker has to dig deeper.
+            // We look for `"url":"X"` AND `document-uri":"X"`
+            // (legacy CSP form) inside the body.
+            if let Some(url) = extract_url(&body) {
+                *entry.url_counts.entry(url).or_insert(0) += 1;
+            }
+            total_lines += 1;
+        }
+    }
+
+    if json {
+        // Emit a single JSON document.
+        let mut kinds: Vec<(&String, &KindStats)> = by_kind.iter().collect();
+        kinds.sort_by(|a, b| b.1.count.cmp(&a.1.count));
+        let mut out = String::from("{\"window\":{");
+        out.push_str(&format!("\"since\":{since},"));
+        out.push_str(&format!("\"total_lines\":{total_lines},"));
+        out.push_str(&format!("\"files_read\":{}}}", files.len()));
+        out.push_str(",\"kinds\":[");
+        for (i, (k, v)) in kinds.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            let top = top_url(&v.url_counts).unwrap_or_default();
+            out.push_str(&format!(
+                "{{\"kind\":\"{}\",\"count\":{},\"first\":{},\"last\":{},\"top_url\":\"{}\"}}",
+                k.replace('"', "\\\""),
+                v.count,
+                v.first,
+                v.last,
+                top.replace('"', "\\\""),
+            ));
+        }
+        out.push_str("]}");
+        println!("{out}");
+        return Ok(());
+    }
+
+    // Human-readable table.
+    let mut kinds: Vec<(&String, &KindStats)> = by_kind.iter().collect();
+    kinds.sort_by(|a, b| b.1.count.cmp(&a.1.count));
+    if kinds.is_empty() {
+        println!("loom report-stats: no entries match (files_read={}, since={since})", files.len());
+        return Ok(());
+    }
+    println!(
+        "{:<16}  {:>6}  {:<22}  {:<22}  {}",
+        "kind", "count", "first-seen", "last-seen", "top-url"
+    );
+    for (k, v) in &kinds {
+        let first = report_log_format_unix(v.first as i64)
+            .unwrap_or_else(|| v.first.to_string());
+        let last = report_log_format_unix(v.last as i64)
+            .unwrap_or_else(|| v.last.to_string());
+        let top = top_url(&v.url_counts).unwrap_or_else(|| "—".to_owned());
+        let top_short: String = top.chars().take(60).collect();
+        println!("{:<16}  {:>6}  {:<22}  {:<22}  {}", k, v.count, first, last, top_short);
+    }
+    println!();
+    println!(
+        "(read {} file(s), {} lines{}{})",
+        files.len(),
+        total_lines,
+        if since > 0 { format!(", since={}", since) } else { String::new() },
+        if !kind_filter.is_empty() {
+            format!(", kind~{kind_filter:?}")
+        } else {
+            String::new()
+        },
+    );
+    Ok(())
+}
+
+/// Hand-rolled top-level JSON field extractor for the
+/// collector log. Mirrors the helper in `cmd_report_tail` so
+/// both subcommands stay byte-verifiable without a
+/// serde_json round-trip.
+fn report_log_field(line: &str, key: &str) -> Option<String> {
+    let needle = format!("\"{key}\":");
+    let start = line.find(&needle)?;
+    let rest = &line[start + needle.len()..];
+    if let Some(stripped) = rest.strip_prefix('"') {
+        let mut out = String::new();
+        let mut escape = false;
+        for ch in stripped.chars() {
+            if escape {
+                match ch {
+                    'n' => out.push('\n'),
+                    'r' => out.push('\r'),
+                    't' => out.push('\t'),
+                    '"' => out.push('"'),
+                    '\\' => out.push('\\'),
+                    other => {
+                        out.push('\\');
+                        out.push(other);
+                    }
+                }
+                escape = false;
+            } else if ch == '\\' {
+                escape = true;
+            } else if ch == '"' {
+                break;
+            } else {
+                out.push(ch);
+            }
+        }
+        Some(out)
+    } else {
+        Some(
+            rest.chars()
+                .take_while(|c| !matches!(c, ',' | '}' | ' ' | '\t' | '\n'))
+                .collect(),
+        )
+    }
+}
+
+/// Classify a Reporting-API or legacy-CSP body string.
+/// Mirrors the cycle 70 viewer's logic so the two
+/// subcommands agree on kind names.
+fn report_log_classify(body: &str) -> String {
+    let needle = "\"type\":\"";
+    if let Some(idx) = body.find(needle) {
+        let rest = &body[idx + needle.len()..];
+        if let Some(end) = rest.find('"') {
+            return rest[..end].to_owned();
+        }
+    }
+    if body.contains("violated-directive") {
+        return "csp-violation".to_owned();
+    }
+    "(unknown)".to_owned()
+}
+
+/// Pull the most-deeply-relevant URL from the body — first
+/// `"url":"X"` (Reporting-API), then `document-uri":"X"`
+/// (legacy CSP).
+fn extract_url(body: &str) -> Option<String> {
+    for needle in &["\"url\":\"", "\"document-uri\":\""] {
+        if let Some(idx) = body.find(needle) {
+            let rest = &body[idx + needle.len()..];
+            if let Some(end) = rest.find('"') {
+                return Some(rest[..end].to_owned());
+            }
+        }
+    }
+    None
+}
+
+/// Pick the top-count URL from a kind's url_counts map.
+fn top_url(counts: &std::collections::HashMap<String, u64>) -> Option<String> {
+    counts
+        .iter()
+        .max_by_key(|&(_, c)| *c)
+        .map(|(u, _)| u.clone())
+}
+
+/// Format unix-secs as YYYY-MM-DD HH:MM:SSZ. Howard Hinnant's
+/// date.cpp algorithm, mirroring the cycle 70 viewer helper.
+fn report_log_format_unix(ts: i64) -> Option<String> {
+    if ts < 0 {
+        return None;
+    }
+    let secs_per_day: i64 = 86400;
+    let days = ts / secs_per_day;
+    let s_today = ts % secs_per_day;
+    let h = (s_today / 3600) as u32;
+    let m = ((s_today % 3600) / 60) as u32;
+    let s = (s_today % 60) as u32;
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z.rem_euclid(146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let mo = (mp + if mp < 10 { 3 } else { -9_i64 as u64 }) as u32;
+    let year = if mo <= 2 { y + 1 } else { y };
+    Some(format!("{year:04}-{mo:02}-{d:02} {h:02}:{m:02}:{s:02}Z"))
 }
 
 fn cmd_edit_serve(
