@@ -590,6 +590,17 @@ fn main() -> ExitCode {
                 eprintln!("loom backend-stub: i/o error: {e}");
                 ExitCode::from(2)
             }
+            Err(BackendStubError::CapabilityEscape {
+                attempted,
+                confined_root,
+            }) => {
+                eprintln!(
+                    "loom backend-stub: SECURITY: write attempt {} escapes capability scope {}",
+                    attempted.display(),
+                    confined_root.display(),
+                );
+                ExitCode::from(2)
+            }
         },
         Cmd::BackendStubAll {
             backends,
@@ -611,6 +622,17 @@ fn main() -> ExitCode {
             }
             Err(BackendStubError::Io(e)) => {
                 eprintln!("loom backend-stub-all: i/o error: {e}");
+                ExitCode::from(2)
+            }
+            Err(BackendStubError::CapabilityEscape {
+                attempted,
+                confined_root,
+            }) => {
+                eprintln!(
+                    "loom backend-stub-all: SECURITY: write attempt {} escapes capability scope {}",
+                    attempted.display(),
+                    confined_root.display(),
+                );
                 ExitCode::from(2)
             }
             Err(BackendStubError::KeyNotFound(_) | BackendStubError::Conflict(_)) => {
@@ -2030,11 +2052,337 @@ enum BackendStubError {
     CrateNotDir(std::path::PathBuf),
     Toml(String),
     Io(std::io::Error),
+    /// T577: an attempted write or path-resolution escapes the
+    /// capability's confined root.
+    CapabilityEscape {
+        attempted: std::path::PathBuf,
+        confined_root: std::path::PathBuf,
+    },
 }
 
 impl From<std::io::Error> for BackendStubError {
     fn from(e: std::io::Error) -> Self {
         Self::Io(e)
+    }
+}
+
+impl From<CapabilityError> for BackendStubError {
+    fn from(e: CapabilityError) -> Self {
+        match e {
+            CapabilityError::NotADir(p) => Self::CrateNotDir(p),
+            CapabilityError::Io(e) => Self::Io(e),
+            CapabilityError::EscapesScope {
+                attempted,
+                confined_root,
+            } => Self::CapabilityEscape {
+                attempted,
+                confined_root,
+            },
+        }
+    }
+}
+
+// ============================================================
+// T577: capability-based filesystem writes.
+// ============================================================
+//
+// Replaces ambient authority (any `&Path` is writable) with an
+// unforgeable scoped capability. Once a `WriteCapability` exists
+// for a confined root, any operation through it is constrained
+// to that subtree at runtime — even if a caller supplies a
+// malicious relative path like `"../../etc/passwd"`.
+//
+// SECURITY: the construction site (`for_dir`) MUST canonicalize
+// the root once. Subsequent path resolution canonicalizes the
+// joined result and refuses any candidate that doesn't start
+// with the confined root. Symlinks are resolved at canonicalize
+// time so a symlink-out attack is detected.
+//
+// REGRESSION-GUARD: do NOT add a `from_path_unchecked` shortcut.
+// The whole point is that constructors validate; a backdoor
+// erases the guarantee.
+
+/// `WriteCapability` errors.
+#[derive(Debug)]
+pub enum CapabilityError {
+    /// The supplied root is not an existing directory.
+    NotADir(std::path::PathBuf),
+    /// Filesystem error during canonicalization or write.
+    Io(std::io::Error),
+    /// Resolved path escapes the capability's confined root.
+    EscapesScope {
+        /// What the resolver computed before the boundary check.
+        attempted: std::path::PathBuf,
+        /// The capability's canonicalised root.
+        confined_root: std::path::PathBuf,
+    },
+}
+
+impl From<std::io::Error> for CapabilityError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+/// Unforgeable proof that the holder may write within
+/// `confined_root`. Constructed via `for_dir` only.
+///
+/// Layout: a single canonicalized PathBuf. No public fields,
+/// no `Clone` impl that could be used to widen scope (a clone
+/// would carry the same root, which is fine — but no method
+/// extends it).
+#[derive(Debug)]
+pub struct WriteCapability {
+    confined_root: std::path::PathBuf,
+}
+
+impl WriteCapability {
+    /// Construct a capability scoped to `root`. Validates that
+    /// the path exists, is a directory, and canonicalizes it
+    /// (resolving symlinks). The canonicalized root is the
+    /// confinement boundary for all subsequent operations.
+    pub fn for_dir(root: &std::path::Path) -> Result<Self, CapabilityError> {
+        let canonical = root
+            .canonicalize()
+            .map_err(|_| CapabilityError::NotADir(root.to_path_buf()))?;
+        if !canonical.is_dir() {
+            return Err(CapabilityError::NotADir(canonical));
+        }
+        Ok(Self {
+            confined_root: canonical,
+        })
+    }
+
+    /// Borrow the confined root path. Read-only — callers MAY
+    /// inspect but cannot mutate.
+    pub fn root(&self) -> &std::path::Path {
+        &self.confined_root
+    }
+
+    /// Resolve `rel_path` against the confined root and confirm
+    /// the result stays inside. Returns the absolute path on
+    /// success.
+    ///
+    /// SECURITY: canonicalizes the resolved parent to defeat
+    /// `..` traversal AND symlink escapes. If the target file
+    /// doesn't exist yet (the common case for scaffolding), we
+    /// canonicalize the *deepest existing ancestor* and append
+    /// the rest — this still defeats traversal because every
+    /// `..` segment is interpreted at canonicalization time.
+    pub fn resolve(
+        &self,
+        rel_path: &std::path::Path,
+    ) -> Result<std::path::PathBuf, CapabilityError> {
+        let candidate = self.confined_root.join(rel_path);
+        // Walk up until we find an existing ancestor. Collect
+        // the consumed tail components in REVERSE order then
+        // rejoin them in order — this avoids pushing an empty
+        // PathBuf which would silently append a `/` and turn
+        // the resolved path into a directory.
+        let mut deepest = candidate.as_path();
+        let mut tail_segments: Vec<std::ffi::OsString> = Vec::new();
+        let canonical_anchor = loop {
+            match deepest.canonicalize() {
+                Ok(p) => break p,
+                Err(_) => match deepest.parent() {
+                    Some(parent) => {
+                        if let Some(name) = deepest.file_name() {
+                            tail_segments.push(name.to_os_string());
+                        }
+                        deepest = parent;
+                    }
+                    None => {
+                        return Err(CapabilityError::EscapesScope {
+                            attempted: candidate,
+                            confined_root: self.confined_root.clone(),
+                        });
+                    }
+                },
+            }
+        };
+        // Rebuild tail in original order.
+        let mut resolved = canonical_anchor;
+        for seg in tail_segments.into_iter().rev() {
+            resolved.push(seg);
+        }
+        if !resolved.starts_with(&self.confined_root) {
+            return Err(CapabilityError::EscapesScope {
+                attempted: resolved,
+                confined_root: self.confined_root.clone(),
+            });
+        }
+        Ok(resolved)
+    }
+
+    /// Write `contents` to `rel_path` within the confined root.
+    /// Creates parent directories as needed (still confined).
+    pub fn write_file(
+        &self,
+        rel_path: &std::path::Path,
+        contents: &[u8],
+    ) -> Result<std::path::PathBuf, CapabilityError> {
+        let abs = self.resolve(rel_path)?;
+        if let Some(parent) = abs.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&abs, contents)?;
+        Ok(abs)
+    }
+
+    /// Read a file within the confined root. Read-only operations
+    /// also flow through the capability so a future audit can grep
+    /// for every site that touches the filesystem.
+    pub fn read_file(
+        &self,
+        rel_path: &std::path::Path,
+    ) -> Result<Vec<u8>, CapabilityError> {
+        let abs = self.resolve(rel_path)?;
+        Ok(std::fs::read(&abs)?)
+    }
+
+    /// Test whether a relative path resolves to an existing file
+    /// within the confined root.
+    pub fn file_exists(&self, rel_path: &std::path::Path) -> bool {
+        self.resolve(rel_path).map(|p| p.is_file()).unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod write_capability_tests {
+    use super::*;
+
+    fn unique(label: &str) -> std::path::PathBuf {
+        let pid = std::process::id();
+        let n = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("loom-cap-{label}-{pid}-{n}"))
+    }
+
+    #[test]
+    fn for_dir_rejects_nonexistent_path() {
+        let p = unique("nope");
+        let r = WriteCapability::for_dir(&p);
+        assert!(matches!(r, Err(CapabilityError::NotADir(_))));
+    }
+
+    #[test]
+    fn for_dir_rejects_non_directory() {
+        let dir = unique("file");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let f = dir.join("file.txt");
+        std::fs::write(&f, b"x").expect("write");
+        let r = WriteCapability::for_dir(&f);
+        assert!(matches!(r, Err(CapabilityError::NotADir(_))));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_within_root_succeeds() {
+        let dir = unique("ok");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let cap = WriteCapability::for_dir(&dir).expect("cap");
+        let p = cap
+            .write_file(std::path::Path::new("hello.txt"), b"hi")
+            .expect("write");
+        assert!(p.starts_with(&dir.canonicalize().expect("canon")));
+        assert_eq!(std::fs::read(&p).expect("read"), b"hi");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn nested_write_creates_parents() {
+        let dir = unique("nested");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let cap = WriteCapability::for_dir(&dir).expect("cap");
+        cap.write_file(std::path::Path::new("a/b/c/file.rs"), b"x")
+            .expect("write");
+        assert!(dir.join("a/b/c/file.rs").is_file());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn traversal_attempt_rejected() {
+        let dir = unique("traverse");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let cap = WriteCapability::for_dir(&dir).expect("cap");
+        let r = cap.write_file(std::path::Path::new("../../etc/passwd"), b"pwn");
+        assert!(matches!(r, Err(CapabilityError::EscapesScope { .. })));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn deep_traversal_attempt_rejected() {
+        let dir = unique("deeptrav");
+        std::fs::create_dir_all(dir.join("inner")).expect("mkdir");
+        let cap = WriteCapability::for_dir(&dir.join("inner")).expect("cap");
+        // Attempt to escape: ../../../tmp/pwn
+        let r = cap.write_file(
+            std::path::Path::new("../../../../../tmp/pwn"),
+            b"x",
+        );
+        assert!(matches!(r, Err(CapabilityError::EscapesScope { .. })));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn symlink_escape_rejected() {
+        // Build dir/inner/, then create dir/inner/escape symlinking
+        // to /tmp. The capability is rooted at dir/inner; resolving
+        // through the symlink must canonicalize back to /tmp and
+        // be rejected.
+        let dir = unique("symesc");
+        std::fs::create_dir_all(dir.join("inner")).expect("mkdir");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let target = std::env::temp_dir(); // outside dir
+            let link = dir.join("inner").join("escape");
+            symlink(&target, &link).expect("symlink");
+        }
+        let cap = WriteCapability::for_dir(&dir.join("inner")).expect("cap");
+        #[cfg(unix)]
+        {
+            let r = cap.write_file(std::path::Path::new("escape/pwn"), b"x");
+            assert!(matches!(r, Err(CapabilityError::EscapesScope { .. })));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_exists_within_root() {
+        let dir = unique("exists");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let cap = WriteCapability::for_dir(&dir).expect("cap");
+        assert!(!cap.file_exists(std::path::Path::new("nope.txt")));
+        cap.write_file(std::path::Path::new("real.txt"), b"x").expect("write");
+        assert!(cap.file_exists(std::path::Path::new("real.txt")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_within_root_succeeds() {
+        let dir = unique("read");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let cap = WriteCapability::for_dir(&dir).expect("cap");
+        cap.write_file(std::path::Path::new("hello.txt"), b"world")
+            .expect("write");
+        let bytes = cap
+            .read_file(std::path::Path::new("hello.txt"))
+            .expect("read");
+        assert_eq!(bytes, b"world");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_outside_root_rejected() {
+        let dir = unique("readout");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let cap = WriteCapability::for_dir(&dir).expect("cap");
+        let r = cap.read_file(std::path::Path::new("../../etc/passwd"));
+        assert!(matches!(r, Err(CapabilityError::EscapesScope { .. })));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
