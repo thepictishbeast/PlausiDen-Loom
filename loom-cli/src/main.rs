@@ -4041,9 +4041,41 @@ fn serve_edit_form(
         "<title>edit {slug}</title>",
         slug = html_escape(slug)
     ));
-    body.push_str("<style>body{font:16px/1.5 system-ui;max-width:48rem;margin:2rem auto;padding:0 1rem}label{display:block;margin:1rem 0 .25rem;font-weight:600}input,textarea{width:100%;padding:.5rem;font:inherit;border:1px solid #888;border-radius:4px}textarea{min-height:6em}button{margin-top:1.5rem;padding:.6rem 1.2rem;font:inherit;border:0;border-radius:4px;background:#003;color:#fff;cursor:pointer}.preview{margin-top:1rem;font-size:.9em}</style>");
+    // T62 step 5: split-pane layout — editor on the left, live
+    // preview iframe on the right (stacks vertically on narrow
+    // viewports). The iframe reloads automatically after every
+    // POST because the server returns 303 → editor re-renders →
+    // iframe `src` is fetched again.
+    body.push_str(
+        "<style>\
+         body{font:16px/1.5 system-ui;margin:0;padding:0;display:grid;\
+              grid-template-columns:minmax(0,1fr) minmax(0,1fr);\
+              gap:1rem;min-height:100vh}\
+         @media(max-width:60rem){body{grid-template-columns:1fr}}\
+         .editor{padding:1rem 1.5rem;overflow-y:auto;max-height:100vh}\
+         .preview-pane{position:sticky;top:0;height:100vh;display:flex;\
+                       flex-direction:column;border-left:1px solid #ddd;\
+                       background:#f4f4f4}\
+         @media(max-width:60rem){.preview-pane{position:static;height:60vh;\
+                                              border-left:0;border-top:1px solid #ddd}}\
+         .preview-bar{padding:.5rem 1rem;border-bottom:1px solid #ddd;\
+                      font-size:.85em;color:#555;display:flex;\
+                      align-items:center;justify-content:space-between}\
+         .preview-bar a{color:#003;text-decoration:none}\
+         .preview-frame{flex:1;border:0;width:100%;background:#fff}\
+         label{display:block;margin:1rem 0 .25rem;font-weight:600}\
+         input,textarea,select{width:100%;padding:.5rem;font:inherit;\
+                              border:1px solid #888;border-radius:4px;\
+                              box-sizing:border-box}\
+         textarea{min-height:4em}\
+         button[type=\"submit\"]{margin-top:1.5rem;padding:.6rem 1.2rem;\
+                                font:inherit;border:0;border-radius:4px;\
+                                background:#003;color:#fff;cursor:pointer}\
+         </style>"
+    );
+    body.push_str("<div class=\"editor\">");
     body.push_str(&format!(
-        "<p><a href=\"/\">&larr; all pages</a> · <a href=\"/preview/{}.html\">view rendered</a></p>",
+        "<p><a href=\"/\">&larr; all pages</a> · <a href=\"/preview/{}.html\" target=\"_blank\">open preview in new tab</a></p>",
         html_escape(slug)
     ));
     body.push_str(&format!("<h1>edit: {}</h1>", html_escape(slug)));
@@ -4282,6 +4314,20 @@ fn serve_edit_form(
          <p style=\"color:#888;font-size:.85em;margin-top:.5rem\">\
            Adds a section with default values. Edit it inline above after save.\
          </p>",
+        slug = html_escape(slug),
+    ));
+
+    // Close the editor pane + open the live-preview pane.
+    body.push_str("</div>");
+    body.push_str(&format!(
+        "<aside class=\"preview-pane\" aria-label=\"Live preview\">\
+         <div class=\"preview-bar\">\
+           <strong>Live preview</strong>\
+           <a href=\"/preview/{slug}.html\" target=\"_blank\" rel=\"noopener\">open ↗</a>\
+         </div>\
+         <iframe class=\"preview-frame\" src=\"/preview/{slug}.html\" \
+                 title=\"Rendered preview of {slug}\"></iframe>\
+         </aside>",
         slug = html_escape(slug),
     ));
 
