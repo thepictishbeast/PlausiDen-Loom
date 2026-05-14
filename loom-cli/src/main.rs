@@ -4436,28 +4436,26 @@ fn cmd_report_tail(
     let log_path = dir.join("violations.jsonl");
     let want_color = atty_stdout();
 
+    // T76 cycle 76: helpers refactored to module-level
+    // (`report_log_field`, `report_log_classify`,
+    // `report_log_format_unix`) so report-tail and
+    // report-stats share one code path. Same JSON walker,
+    // same date formatter, same classifier — guaranteed
+    // consistent output across the two operator commands.
+    //
     // Pretty-print one parsed JSONL line. Lines that don't
     // match the expected shape are still printed verbatim so
     // an operator can spot legitimate corruption.
     fn print_one(line: &str, want_color: bool) {
-        let ts = field_or(line, "ts", "?");
-        let endpoint = field_or(line, "endpoint", "?");
-        let body = field_or(line, "body", "");
-        // Try to extract a `"type":"X"` from the body field
-        // (Reporting-API reports include type; legacy CSP
-        // reports don't but have `violated-directive`).
-        let kind = if let Some(t) = body_type(&body) {
-            t
-        } else if body.contains("violated-directive") {
-            "csp-violation".to_owned()
-        } else {
-            "(unknown)".to_owned()
-        };
+        let ts = report_log_field(line, "ts").unwrap_or_else(|| "?".to_owned());
+        let endpoint = report_log_field(line, "endpoint").unwrap_or_else(|| "?".to_owned());
+        let body = report_log_field(line, "body").unwrap_or_default();
+        let kind = report_log_classify(&body);
         let preview: String = body.chars().take(140).collect();
         let ts_human = ts
             .parse::<i64>()
             .ok()
-            .and_then(format_unix_secs)
+            .and_then(report_log_format_unix)
             .unwrap_or_else(|| ts.clone());
         let dim = if want_color { "\x1b[2m" } else { "" };
         let reset = if want_color { "\x1b[0m" } else { "" };
@@ -4476,93 +4474,6 @@ fn cmd_report_tail(
         println!(
             "{dim}{ts_human}{reset}  {kind_col}{kind:<16}{reset}  {dim}[{endpoint}]{reset}  {preview}"
         );
-    }
-
-    // Helper: extract a string-valued top-level JSON field
-    // by name. Hand-rolled to avoid pulling serde_json into
-    // the CLI's audit surface for one tiny job. Falls back
-    // to `default` on parse failure.
-    fn field_or(line: &str, key: &str, default: &str) -> String {
-        let needle = format!("\"{key}\":");
-        let Some(start) = line.find(&needle) else {
-            return default.to_owned();
-        };
-        let rest = &line[start + needle.len()..];
-        if let Some(stripped) = rest.strip_prefix('"') {
-            let mut out = String::new();
-            let mut escape = false;
-            for ch in stripped.chars() {
-                if escape {
-                    match ch {
-                        'n' => out.push('\n'),
-                        'r' => out.push('\r'),
-                        't' => out.push('\t'),
-                        '"' => out.push('"'),
-                        '\\' => out.push('\\'),
-                        other => {
-                            out.push('\\');
-                            out.push(other);
-                        }
-                    }
-                    escape = false;
-                } else if ch == '\\' {
-                    escape = true;
-                } else if ch == '"' {
-                    break;
-                } else {
-                    out.push(ch);
-                }
-            }
-            out
-        } else {
-            // Numeric / boolean — take up to , } whitespace.
-            rest.chars()
-                .take_while(|c| !matches!(c, ',' | '}' | ' ' | '\t' | '\n'))
-                .collect()
-        }
-    }
-
-    fn body_type(body: &str) -> Option<String> {
-        // Look for `"type":"X"` inside the body field's stored
-        // string. The body is double-escaped at this point
-        // (it was JSON-encoded inside the JSONL line), so look
-        // for the literal `"type":"X"` substring without
-        // re-decoding.
-        let needle = "\"type\":\"";
-        let idx = body.find(needle)?;
-        let rest = &body[idx + needle.len()..];
-        let end = rest.find('"')?;
-        Some(rest[..end].to_owned())
-    }
-
-    fn format_unix_secs(ts: i64) -> Option<String> {
-        // Minimal "YYYY-MM-DD HH:MM:SSZ" formatter without
-        // pulling chrono into the CLI. Uses the seconds-since-
-        // epoch fixed-point arithmetic from RFC 3339 §A.6.
-        if ts < 0 {
-            return None;
-        }
-        let secs_per_day: i64 = 86400;
-        let days_since_epoch = ts / secs_per_day;
-        let secs_today = ts % secs_per_day;
-        let h = (secs_today / 3600) as u32;
-        let m = ((secs_today % 3600) / 60) as u32;
-        let s = (secs_today % 60) as u32;
-        // 1970-01-01 was a Thursday; convert days_since_epoch
-        // to YMD via Howard Hinnant's date.cpp algorithm.
-        let z = days_since_epoch + 719468;
-        let era = z.div_euclid(146097);
-        let doe = z.rem_euclid(146097) as u64;
-        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-        let y = yoe as i64 + era * 400;
-        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-        let mp = (5 * doy + 2) / 153;
-        let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-        let mo = (mp + if mp < 10 { 3 } else { -9_i64 as u64 }) as u32;
-        let year = if mo <= 2 { y + 1 } else { y };
-        Some(format!(
-            "{year:04}-{mo:02}-{d:02} {h:02}:{m:02}:{s:02}Z"
-        ))
     }
 
     fn atty_stdout() -> bool {
