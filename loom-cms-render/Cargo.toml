@@ -13,6 +13,13 @@ maud = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 schemars = "0.8"
+# T70b: page_shell needs sha256 hashes for CSP-pinning the
+# base-theme inline <style> block. Same versions loom-cli was
+# already pulling — moving the helper into the render layer
+# rather than the CLI layer so Forge inherits the same
+# dual-theme + a11y defaults via `loom_cms_render::page_shell`.
+sha2 = "0.10"
+base64 = "0.22"
 
 [dev-dependencies]
 serde_json = { workspace = true }

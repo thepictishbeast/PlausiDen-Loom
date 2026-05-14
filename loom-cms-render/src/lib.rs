@@ -2135,6 +2135,283 @@ pub fn cms_page_schema() -> serde_json::Value {
     serde_json::to_value(&schema).expect("CmsPage schema serializes")
 }
 
+// ============================================================
+// T70b: page-shell (moved from loom-cli so Forge can call it
+// directly via the public API and inherit the same WCAG-AA
+// dual-theme + a11y defaults Loom-rendered pages already enjoy).
+// ============================================================
+
+/// Inline style block always emitted by `page_shell`. Carries
+/// light + dark colour tokens, focus-visible outlines, skip-link
+/// styling, and `prefers-reduced-motion` honour. CSP-pinned by
+/// sha256.
+///
+/// Both palettes verified WCAG 2.1 AA in loom-cli's
+/// `base_theme_meets_wcag_aa_in_both_modes` test.
+pub const BASE_THEME_CSS: &str = ":root{\
+--loom-bg:#fff;--loom-fg:#111;--loom-muted:#5a5a5a;\
+--loom-accent:#003;--loom-border:#dcdcdc;\
+--loom-link:#003;--loom-link-hover:#06f;--loom-focus:#06f;\
+--loom-radius:4px;\
+--loom-font-stack:system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif;\
+--loom-mono-stack:ui-monospace,SFMono-Regular,\"Cascadia Mono\",monospace}\
+@media (prefers-color-scheme:dark){:root{\
+--loom-bg:#111417;--loom-fg:#f0f2f5;--loom-muted:#9aa1aa;\
+--loom-accent:#9ec1ff;--loom-border:#2a2f36;\
+--loom-link:#9ec1ff;--loom-link-hover:#c2d8ff;--loom-focus:#9ec1ff}}\
+html{background:var(--loom-bg);color:var(--loom-fg);\
+font-family:var(--loom-font-stack);line-height:1.5}\
+body{margin:0}\
+a{color:var(--loom-link)}\
+a:hover,a:focus{color:var(--loom-link-hover)}\
+:focus-visible{outline:2px solid var(--loom-focus);outline-offset:2px;border-radius:var(--loom-radius)}\
+.loom-skip{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}\
+.loom-skip:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;\
+background:var(--loom-bg);color:var(--loom-fg);border:2px solid var(--loom-focus);\
+border-radius:var(--loom-radius);z-index:1000}\
+header.loom-page-header{padding:1rem;border-bottom:1px solid var(--loom-border)}\
+footer.loom-page-footer{padding:1rem;border-top:1px solid var(--loom-border);\
+color:var(--loom-muted);margin-top:2rem}\
+nav.loom-page-nav{display:flex;gap:1rem;align-items:center;flex-wrap:wrap}\
+nav.loom-page-nav a{text-decoration:none;color:var(--loom-fg)}\
+nav.loom-page-nav a:hover{color:var(--loom-link-hover)}\
+.loom-page-title{margin:.5rem 0 0;font-weight:600}\
+main#content{padding:1rem;max-width:60rem;margin:0 auto}\
+@media (prefers-reduced-motion:reduce){\
+*,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;\
+transition-duration:.001ms !important;scroll-behavior:auto !important}}";
+
+/// Fixed onload event handler for the deferred stylesheet link
+/// when `critical_css` is supplied. Hashed at build time + pinned
+/// in CSP `script-src 'unsafe-hashes' 'sha256-…'`.
+pub const DEFER_ONLOAD_JS: &str = "this.media='all';this.removeAttribute('onload')";
+
+/// Compute the CSP `'sha256-<base64>'` source-list value for a
+/// given inline block (script or style). Same construction
+/// browsers use for hash-pinning.
+#[must_use]
+pub fn csp_sha256(bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    use sha2::Digest as _;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    let b64 = base64::engine::general_purpose::STANDARD.encode(digest);
+    format!("sha256-{b64}")
+}
+
+/// Escape a text node (HTML body text or `<title>` content).
+#[must_use]
+pub fn escape_html_text(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            '&' => "&amp;".to_owned(),
+            '<' => "&lt;".to_owned(),
+            '>' => "&gt;".to_owned(),
+            other => other.to_string(),
+        })
+        .collect()
+}
+
+/// Escape a value going inside a double-quoted attribute.
+#[must_use]
+pub fn escape_html_attr(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            '&' => "&amp;".to_owned(),
+            '<' => "&lt;".to_owned(),
+            '>' => "&gt;".to_owned(),
+            '"' => "&quot;".to_owned(),
+            '\'' => "&#39;".to_owned(),
+            other => other.to_string(),
+        })
+        .collect()
+}
+
+/// Render the `<nav>`'s `<a>` children for a page's primary
+/// nav-links. `aria-current="page"` for the link marked `current`.
+/// Unsafe hrefs render as `#invalid-nav-link` placeholders carrying
+/// `data-invalid="true"` so the build's audit phase can flag the
+/// page WITHOUT leaking the bad URL into a real anchor.
+#[must_use]
+pub fn render_nav_links(links: &[CmsNavLink]) -> String {
+    let mut out = String::new();
+    for link in links {
+        let label = escape_html_text(&link.label);
+        let href_safe = loom_components::composer::is_safe_url(&link.href);
+        let href = if href_safe {
+            escape_html_attr(&link.href)
+        } else {
+            "#invalid-nav-link".to_owned()
+        };
+        let invalid_attr = if href_safe { "" } else { " data-invalid=\"true\"" };
+        let backend = escape_html_attr(&link.data_backend);
+        let current = if link.current { " aria-current=\"page\"" } else { "" };
+        out.push_str(&format!(
+            "<a class=\"loom-page-nav__link\" href=\"{href}\"{invalid_attr} data-backend=\"{backend}\"{current}>{label}</a>"
+        ));
+    }
+    out
+}
+
+/// Wrap rendered body markup in the smallest valid HTML5 page
+/// shell that satisfies WCAG 2.1 AA (ISO/IEC 40500), declares
+/// dual-theme support (`<meta name="color-scheme">`), and
+/// pins every inline style block in CSP via sha256 (never
+/// `unsafe-inline`).
+///
+/// Always emits the `BASE_THEME_CSS` block regardless of
+/// `critical_css`. If `critical_css` is supplied, it ALSO
+/// emits a deferred-load `<link>` for the `css_href` stylesheet
+/// (with a hashed `onload=` handler) so the user's larger
+/// stylesheet doesn't block first paint.
+#[must_use]
+pub fn page_shell(
+    page: &CmsPage,
+    css_href: &str,
+    body: &str,
+    critical_css: Option<&str>,
+) -> String {
+    let title = escape_html_text(&page.title);
+    let description = escape_html_text(&page.description);
+    let path = escape_html_attr(&page.path);
+    let css = escape_html_attr(css_href);
+    let nav_links = render_nav_links(&page.nav_links);
+    let base_theme_hash = csp_sha256(BASE_THEME_CSS.as_bytes());
+    let base_theme_block = format!("<style>{BASE_THEME_CSS}</style>\n  ");
+    #[allow(clippy::option_if_let_else)]
+    let (extra_style_block, css_link, csp) = if let Some(crit) = critical_css {
+        let style_hash = csp_sha256(crit.as_bytes());
+        let onload_hash = csp_sha256(DEFER_ONLOAD_JS.as_bytes());
+        let extra_block = format!("<style>{crit}</style>\n  ");
+        let css_link = format!(
+            "<link rel=\"stylesheet\" href=\"{css}\" media=\"print\" onload=\"{DEFER_ONLOAD_JS}\">\n  <noscript><link rel=\"stylesheet\" href=\"{css}\"></noscript>"
+        );
+        let csp = format!(
+            "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}' '{style_hash}'; script-src 'self' 'unsafe-hashes' '{onload_hash}'; frame-ancestors 'none'"
+        );
+        (extra_block, css_link, csp)
+    } else {
+        let css_link = format!("<link rel=\"stylesheet\" href=\"{css}\">");
+        let csp = format!(
+            "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}'; script-src 'self'; frame-ancestors 'none'"
+        );
+        (String::new(), css_link, csp)
+    };
+    let style_block = format!("{base_theme_block}{extra_style_block}");
+    format!(
+        "<!doctype html>\n\
+<html lang=\"en\">\n\
+<head>\n\
+  <meta charset=\"utf-8\">\n\
+  <meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">\n\
+  <meta http-equiv=\"X-Content-Type-Options\" content=\"nosniff\">\n\
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
+  <meta name=\"color-scheme\" content=\"light dark\">\n\
+  <title>{title}</title>\n\
+  <meta name=\"description\" content=\"{description}\">\n\
+  <link rel=\"canonical\" href=\"{path}\">\n\
+  {style_block}{css_link}\n\
+</head>\n\
+<body>\n\
+  <a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n\
+  <header class=\"loom-page-header\">\n\
+    <nav class=\"loom-page-nav\" aria-label=\"Primary\">\n\
+      <a class=\"loom-page-brand\" href=\"/\" data-loom-rich-link=\"true\">SkillShots</a>{nav_links}\n\
+    </nav>\n\
+    <h1 class=\"loom-page-title\">{title}</h1>\n\
+  </header>\n\
+  <main id=\"content\">\n\
+{body}\n\
+  </main>\n\
+  <footer class=\"loom-page-footer\">\n\
+  </footer>\n\
+</body>\n\
+</html>\n"
+    )
+}
+
+#[cfg(test)]
+mod page_shell_tests {
+    use super::*;
+
+    fn empty_page() -> CmsPage {
+        CmsPage {
+            schema: None,
+            title: "T".into(),
+            description: "D".into(),
+            path: "/".into(),
+            nav_links: vec![],
+            sections: vec![],
+        }
+    }
+
+    #[test]
+    fn always_emits_base_theme_block_csp_pinned() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
+        let hash = csp_sha256(BASE_THEME_CSS.as_bytes());
+        assert!(s.contains(&hash), "base-theme hash must appear in CSP");
+        assert!(!s.contains("'unsafe-inline'"));
+        assert!(s.contains("<style>"));
+        assert!(s.contains("--loom-bg"));
+    }
+
+    #[test]
+    fn emits_dual_theme_media_query() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
+        assert!(s.contains("prefers-color-scheme:dark"));
+    }
+
+    #[test]
+    fn emits_color_scheme_meta_and_main_landmark() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
+        assert!(s.contains(r#"<meta name="color-scheme" content="light dark">"#));
+        assert!(s.contains(r#"<main id="content">"#));
+    }
+
+    #[test]
+    fn honours_prefers_reduced_motion() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
+        assert!(s.contains("prefers-reduced-motion:reduce"));
+    }
+
+    #[test]
+    fn emits_skip_link_visible_on_focus() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
+        assert!(s.contains("<a class=\"loom-skip\" href=\"#content\">"));
+        assert!(s.contains(".loom-skip:focus"));
+    }
+
+    #[test]
+    fn pins_critical_css_with_separate_hash_when_supplied() {
+        let crit = "h1{color:red}";
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", Some(crit));
+        assert!(s.contains(&csp_sha256(BASE_THEME_CSS.as_bytes())));
+        assert!(s.contains(&csp_sha256(crit.as_bytes())));
+        assert!(s.contains(&csp_sha256(DEFER_ONLOAD_JS.as_bytes())));
+        assert!(s.contains("'unsafe-hashes'"));
+        assert!(!s.contains("'unsafe-inline'"));
+    }
+
+    #[test]
+    fn body_landed_inside_main() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "<p>hello</p>", None);
+        let main_open = s.find("<main").expect("main");
+        let main_close = s.find("</main>").expect("/main");
+        let inside = &s[main_open..main_close];
+        assert!(inside.contains("<p>hello</p>"), "body must land inside <main>");
+    }
+
+    #[test]
+    fn escapes_title_to_prevent_xss() {
+        let mut p = empty_page();
+        p.title = "<script>alert(1)</script>".into();
+        let s = page_shell(&p, "/loom-skin.css", "", None);
+        assert!(!s.contains("<script>alert(1)</script>"));
+        assert!(s.contains("&lt;script&gt;"));
+    }
+}
+
 #[cfg(test)]
 mod schema_tests {
     use super::*;
