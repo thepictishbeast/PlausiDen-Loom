@@ -6137,6 +6137,99 @@ else{form.submit();}\
 }\
 }\
 });\
+var slug=(location.pathname||'/').replace(/^\\/+/,'').split(/[\\/?#]/)[0]||'__root__';\
+var DRAFT_KEY='loom-draft:'+slug;\
+var DRAFT_TTL_MS=7*24*60*60*1000;\
+function readDraft(){\
+try{var raw=localStorage.getItem(DRAFT_KEY);if(!raw)return null;\
+var obj=JSON.parse(raw);\
+if(!obj||typeof obj.savedAt!=='number'||!obj.fields)return null;\
+if(Date.now()-obj.savedAt>DRAFT_TTL_MS){localStorage.removeItem(DRAFT_KEY);return null;}\
+return obj;}catch(_){return null;}\
+}\
+function snapshotForm(){\
+var form=findEditorForm();if(!form)return null;\
+var out={};\
+var nodes=form.querySelectorAll('input,textarea,select');\
+for(var i=0;i<nodes.length;i++){\
+var n=nodes[i];\
+if(!n.name)continue;\
+if(n.type==='hidden'||n.type==='submit'||n.type==='button')continue;\
+if(n.type==='checkbox'||n.type==='radio'){out[n.name]=n.checked?'1':'';}\
+else{out[n.name]=n.value;}\
+}\
+return out;\
+}\
+function writeDraft(){\
+var fields=snapshotForm();\
+if(!fields)return;\
+try{localStorage.setItem(DRAFT_KEY,JSON.stringify({savedAt:Date.now(),fields:fields}));}\
+catch(_){}\
+}\
+function clearDraft(){try{localStorage.removeItem(DRAFT_KEY);}catch(_){}}\
+var draftTimer=null;\
+document.addEventListener('input',function(e){\
+var t=e.target;if(!t)return;\
+var ed=document.querySelector('.editor');\
+if(!ed||!ed.contains(t))return;\
+if(t.tagName!=='INPUT'&&t.tagName!=='TEXTAREA'&&t.tagName!=='SELECT')return;\
+if(draftTimer)clearTimeout(draftTimer);\
+draftTimer=setTimeout(writeDraft,500);\
+},true);\
+document.addEventListener('submit',function(){clearDraft();},true);\
+function restoreDraft(fields){\
+var form=findEditorForm();if(!form)return 0;\
+var n=0;\
+for(var name in fields){\
+if(!Object.prototype.hasOwnProperty.call(fields,name))continue;\
+var inputs=form.querySelectorAll('[name=\"'+name.replace(/\"/g,'\\\\\"')+'\"]');\
+for(var i=0;i<inputs.length;i++){\
+var node=inputs[i];\
+if(node.type==='checkbox'||node.type==='radio'){node.checked=fields[name]==='1';}\
+else{node.value=fields[name];}\
+n++;\
+}\
+}\
+setDirty(true);\
+return n;\
+}\
+function relTime(savedAt){\
+var s=Math.floor((Date.now()-savedAt)/1000);\
+if(s<60)return s+'s ago';\
+if(s<3600)return Math.floor(s/60)+'m ago';\
+if(s<86400)return Math.floor(s/3600)+'h ago';\
+return Math.floor(s/86400)+'d ago';\
+}\
+function showDraftBanner(draft){\
+var ed=document.querySelector('.editor');if(!ed)return;\
+var banner=document.createElement('div');\
+banner.setAttribute('role','status');\
+banner.setAttribute('aria-live','polite');\
+banner.style.cssText='padding:.75rem 1rem;margin:0 0 1rem;background:#fff3cd;border:1px solid #f0c36d;border-radius:6px;display:flex;align-items:center;gap:1rem;flex-wrap:wrap';\
+var fieldCount=Object.keys(draft.fields).length;\
+var msg=document.createElement('div');\
+msg.style.flex='1';\
+msg.appendChild(document.createTextNode('Unsaved draft from '+relTime(draft.savedAt)+' \\u2014 '+fieldCount+' field(s) staged in your browser.'));\
+banner.appendChild(msg);\
+var restoreBtn=document.createElement('button');\
+restoreBtn.type='button';\
+restoreBtn.textContent='Restore';\
+restoreBtn.style.cssText='padding:.5rem 1rem;border:0;border-radius:4px;background:#003;color:#fff;cursor:pointer;min-height:44px';\
+restoreBtn.addEventListener('click',function(){\
+var n=restoreDraft(draft.fields);\
+banner.parentNode.removeChild(banner);\
+});\
+banner.appendChild(restoreBtn);\
+var discardBtn=document.createElement('button');\
+discardBtn.type='button';\
+discardBtn.textContent='Discard';\
+discardBtn.style.cssText='padding:.5rem 1rem;border:1px solid #888;border-radius:4px;background:#f4f4f4;color:#222;cursor:pointer;min-height:44px';\
+discardBtn.addEventListener('click',function(){clearDraft();banner.parentNode.removeChild(banner);});\
+banner.appendChild(discardBtn);\
+ed.insertBefore(banner,ed.firstChild);\
+}\
+var draft=readDraft();\
+if(draft)showDraftBanner(draft);\
 })();";
     let skip_link_hash = loom_cms_render::csp_sha256(SKIP_LINK_CSS.as_bytes());
     let edit_page_hash = loom_cms_render::csp_sha256(EDIT_PAGE_CSS.as_bytes());
