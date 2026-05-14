@@ -84,7 +84,10 @@ enum DeployAction {
         /// the OS-level SSH config the operator already has.
         #[arg(long)]
         ssh_host: Option<String>,
-        /// SSH user. Defaults to `$USER` if not set.
+        /// SSH user. When omitted, the underlying ssh client picks
+        /// it up from `~/.ssh/config` (User directive) or `$USER`
+        /// — Loom does not pre-resolve it, so per-host config in
+        /// `~/.ssh/config` keeps working.
         #[arg(long)]
         ssh_user: Option<String>,
         /// SSH port. Defaults to 22.
@@ -11712,6 +11715,48 @@ fn cmd_deploy_publish(
             from.display()
         )));
     }
+    // SECURITY: validate untrusted user-supplied strings BEFORE
+    // any side-effects. In remote mode, --to / --ssh-host /
+    // --ssh-user all flow into a shell-quoted swap script over
+    // ssh — we don't trust shell metachars to round-trip through
+    // single quotes. Failing here means we never touch the local
+    // cache or the network.
+    // SUPERSOCIETY: a malicious config file pointing --to at a
+    // path with `;rm -rf /` would otherwise execute on the deploy
+    // target. Refuse early.
+    if let Some(r) = remote {
+        let to_str = to.to_string_lossy();
+        let path_safe = to_str.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-')
+        });
+        if !path_safe || to_str.contains("..") {
+            return Err(std::io::Error::other(format!(
+                "remote --to path {to_str:?} contains characters that aren't allowed in a deploy target \
+                 (allowed: A-Z a-z 0-9 / . _ -; no `..`); refuse for shell-injection safety"
+            )));
+        }
+        if r.host.is_empty()
+            || !r.host.chars().all(|c| {
+                c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')
+            })
+        {
+            return Err(std::io::Error::other(format!(
+                "ssh-host {:?} contains characters that aren't a hostname (A-Z a-z 0-9 . - _)",
+                r.host
+            )));
+        }
+        if let Some(u) = &r.user {
+            if u.is_empty()
+                || !u.chars().all(|c| {
+                    c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')
+                })
+            {
+                return Err(std::io::Error::other(format!(
+                    "ssh-user {u:?} contains characters that aren't a unix user (A-Z a-z 0-9 . - _)"
+                )));
+            }
+        }
+    }
     // Derive site name.
     let site_name = name
         .map(str::to_owned)
@@ -11741,12 +11786,39 @@ fn cmd_deploy_publish(
 
     // T47b: choose local staging dir.
     //   * Local-only: stage directly under `to` (existing behaviour).
-    //   * Remote: stage under `to` (treated as local cache) AND then
-    //     rsync to the remote `to` path. We use the same `to` path
-    //     locally as the cache so re-runs are idempotent + the
-    //     existing rollback flow keeps working for the local cache.
-    std::fs::create_dir_all(to)?;
-    let bundle_dir = to.join(&bundle_subdir);
+    //   * Remote: `to` is the path ON THE REMOTE host — it almost
+    //     never exists on the publisher's filesystem (and an
+    //     unprivileged dev box can't `mkdir -p /var/www/...`).
+    //     Stage in the user-cache dir keyed by host + sanitized
+    //     remote path so re-runs to the same target stay idempotent.
+    let local_stage_dir: std::path::PathBuf = if let Some(r) = remote {
+        let cache_root = dirs_next::cache_dir()
+            .unwrap_or_else(|| std::env::temp_dir())
+            .join("loom")
+            .join("deploy-staging");
+        // Sanitize the remote path into one filesystem-safe segment.
+        // `/var/www/site` → `var-www-site`. Drops anything that
+        // wouldn't survive a path component on FAT/HFS/ext4 — collisions
+        // are fine; we still bundle by content-hash inside the dir.
+        let to_seg: String = to
+            .to_string_lossy()
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect::<String>()
+            .trim_matches('-')
+            .to_owned();
+        cache_root.join(&r.host).join(&to_seg)
+    } else {
+        to.to_path_buf()
+    };
+    std::fs::create_dir_all(&local_stage_dir)?;
+    let bundle_dir = local_stage_dir.join(&bundle_subdir);
     if bundle_dir.exists() && remote.is_none() {
         println!(
             "loom deploy publish: identical bundle already at {} — no-op",
@@ -11797,53 +11869,10 @@ fn cmd_deploy_publish(
 
     // T47b remote path: rsync the bundle to the host + ssh-swap
     // the symlink. We treat `to` as the path ON THE REMOTE here.
+    // (Inputs validated up top; safe by here.)
     let remote = remote.expect("remote checked above");
     let remote_to = to;
     let remote_bundle = remote_to.join(&bundle_subdir);
-
-    // SECURITY: --to is user-controlled and gets embedded inside
-    // a shell-quoted swap script over ssh. We don't trust shell
-    // metachars to round-trip through single-quotes (a literal `'`
-    // in the path closes the quote and re-opens injection). Reject
-    // anything outside an allow-list of POSIX-portable characters
-    // BEFORE constructing the script. This also rejects the
-    // `host:path` form rsync would otherwise parse as remote.
-    // SUPERSOCIETY: a malicious config file pointing --to at a
-    // path with `;rm -rf /` would otherwise root the deploy
-    // target. Refuse early.
-    let to_str = remote_to.to_string_lossy();
-    let path_safe = to_str.chars().all(|c| {
-        c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-')
-    });
-    if !path_safe || to_str.contains("..") {
-        return Err(std::io::Error::other(format!(
-            "remote --to path {to_str:?} contains characters that aren't allowed in a deploy target \
-             (allowed: A-Z a-z 0-9 / . _ -; no `..`); refuse for shell-injection safety"
-        )));
-    }
-    // Same constraint for the host (it lands in the ssh + rsync
-    // arg vector — argv-safe but worth catching nonsense early).
-    if remote.host.is_empty()
-        || !remote.host.chars().all(|c| {
-            c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')
-        })
-    {
-        return Err(std::io::Error::other(format!(
-            "ssh-host {:?} contains characters that aren't a hostname (A-Z a-z 0-9 . - _)",
-            remote.host
-        )));
-    }
-    if let Some(u) = &remote.user {
-        if u.is_empty()
-            || !u.chars().all(|c| {
-                c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')
-            })
-        {
-            return Err(std::io::Error::other(format!(
-                "ssh-user {u:?} contains characters that aren't a unix user (A-Z a-z 0-9 . - _)"
-            )));
-        }
-    }
 
     // 1. Make sure the remote target dir exists.
     let mkdir_status = std::process::Command::new("ssh")
@@ -11897,6 +11926,14 @@ fn cmd_deploy_publish(
     // The shell snippet is constructed carefully — we shell-quote
     // the bundle name (alphanumeric + `-` from the sha hex, so
     // safe by construction; doctrine still says quote).
+    //
+    // PORTABILITY: `mv -T` (--no-target-directory) is GNU coreutils.
+    // BSD/macOS `mv` lacks it. We assume Linux deploy targets here
+    // (typical: Hetzner / Vultr / DO). Falling back to `mv current.tmp.$$ current`
+    // would race when `current` is a symlink to a directory: BSD mv
+    // would put current.tmp.$$ INSIDE the resolved dir. The error
+    // message in the !success branch points the operator at the
+    // recovery `ln -sfn` so a portability gap is recoverable.
     let remote_to_str = remote_to.display().to_string();
     let swap_script = format!(
         "set -eu; \
@@ -12264,6 +12301,36 @@ mod deploy_tests {
             port: 22,
         };
         assert!(cmd_deploy_publish(&src, &dst, Some("site"), Some(&r)).is_err());
+        let _ = std::fs::remove_dir_all(&src);
+    }
+
+    // T47b — REGRESSION-GUARD: in remote mode the publisher must
+    // NOT try to mkdir the *remote* `--to` path locally. A typical
+    // operator invokes `--to /var/www/site` from a laptop where
+    // they can't write `/var/www/...`. Bug caught by code review
+    // 2026-05-14: original draft did `create_dir_all(to)` upfront,
+    // which would EACCES on every dev box.
+    #[test]
+    fn remote_publish_does_not_create_remote_to_locally() {
+        let src = unique_tmp("remote-cache-src");
+        seed_source(&src);
+        let fake_remote_to = unique_tmp("definitely-not-mine");
+        // Sanity: the path doesn't exist before the call.
+        assert!(!fake_remote_to.exists());
+        let r = RemoteDeployTarget {
+            host: "this-host-does-not-resolve.invalid".into(),
+            user: None,
+            port: 22,
+        };
+        // The publish will FAIL at the ssh step (host won't resolve),
+        // but it must NOT have created the remote `--to` path locally
+        // before failing. That's the bug.
+        let _ = cmd_deploy_publish(&src, &fake_remote_to, Some("site"), Some(&r));
+        assert!(
+            !fake_remote_to.exists(),
+            "remote mode must not mkdir the remote --to path on the publisher; \
+             it created {fake_remote_to:?}"
+        );
         let _ = std::fs::remove_dir_all(&src);
     }
 
