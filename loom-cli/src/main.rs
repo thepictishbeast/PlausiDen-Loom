@@ -5438,6 +5438,14 @@ if(!window.confirm(msg)){e.preventDefault();e.stopImmediatePropagation();}\
     let skip_link_hash = loom_cms_render::csp_sha256(SKIP_LINK_CSS.as_bytes());
     let edit_page_hash = loom_cms_render::csp_sha256(EDIT_PAGE_CSS.as_bytes());
     let edit_script_hash = loom_cms_render::csp_sha256(EDIT_PAGE_JS.as_bytes());
+    // SUPERSOCIETY cycle 57: Trusted Types directive. The inline
+    // editor script does not call DOM sinks (no innerHTML, no
+    // document.write, no createContextualFragment etc — it uses
+    // addEventListener, scrollIntoView, and .style setter
+    // writes which are not sinks). So `require-trusted-types-
+    // for 'script'` is safe to add: it costs nothing yet
+    // blocks any future code that introduces a sink without an
+    // explicit Trusted Types conversion.
     let csp = format!(
         "default-src 'self'; \
          img-src 'self' data:; \
@@ -5447,7 +5455,9 @@ if(!window.confirm(msg)){e.preventDefault();e.stopImmediatePropagation();}\
          connect-src 'self'; \
          frame-ancestors 'self'; \
          base-uri 'self'; \
-         form-action 'self'"
+         form-action 'self'; \
+         require-trusted-types-for 'script'; \
+         trusted-types loom-editor"
     );
 
     let mut body = String::new();
