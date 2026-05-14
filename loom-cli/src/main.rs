@@ -2432,17 +2432,22 @@ fn cmd_backend_stub(
         .to_owned();
 
     let file_stem = validated.module_name();
+    // T577 / T59: every write to <crate_dir>/... flows through a
+    // capability constructed once at the boundary. `cap.resolve`
+    // canonicalises + asserts confinement, so a future caller
+    // can't inject a malicious relative path that escapes the
+    // crate root. Pre-existing top-of-fn `is_dir` check stays as
+    // a UX-friendly early error; capability is the SECURITY
+    // gate.
+    let cap = WriteCapability::for_dir(crate_dir)?;
     let rel_path = format!("src/handlers/{file_stem}.rs");
-    let abs_path = crate_dir.join(&rel_path);
+    let abs_path = cap.resolve(std::path::Path::new(&rel_path))?;
     if abs_path.exists() && !force {
         return Err(BackendStubError::Conflict(abs_path));
     }
-    if let Some(parent) = abs_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(
-        &abs_path,
-        render_handler_stub(key, &method, &path, &purpose),
+    cap.write_file(
+        std::path::Path::new(&rel_path),
+        render_handler_stub(key, &method, &path, &purpose).as_bytes(),
     )?;
 
     // Update backends.toml: impl_files = [rel_path].
@@ -2451,13 +2456,10 @@ fn cmd_backend_stub(
     entry.insert("impl_files", toml_edit::value(new_array));
     std::fs::write(backends_path, doc.to_string())?;
 
-    // T22: keep src/handlers/mod.rs in sync. Without this the
-    // newly-scaffolded file lives on disk but the crate's module
-    // tree never sees it — `cargo check` is happy, `cargo test`
-    // misses the placeholder tests, and the backend silently
-    // stays unwired even though the file exists. Idempotent +
-    // sort-preserving so re-running the same key does nothing.
-    let mod_changed = register_handler_module(crate_dir, &file_stem)?;
+    // T22: keep src/handlers/mod.rs in sync. Routed through the
+    // capability per T59 so the same path-confinement rules
+    // apply to the mod.rs write as to the handler file.
+    let mod_changed = register_handler_module(&cap, &file_stem)?;
     if mod_changed {
         println!(
             "  ok     handlers/mod.rs += {file_stem:?}",
@@ -2487,18 +2489,23 @@ fn cmd_backend_stub(
 /// order, and the resulting mod.rs would change line order on every
 /// re-run, polluting `git diff`. Stable sort is the contract.
 fn register_handler_module(
-    crate_dir: &std::path::Path,
+    cap: &WriteCapability,
     module_name: &str,
-) -> Result<bool, std::io::Error> {
-    let mod_rs = crate_dir.join("src/handlers/mod.rs");
-    if let Some(parent) = mod_rs.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
+) -> Result<bool, BackendStubError> {
+    let mod_rel = std::path::Path::new("src/handlers/mod.rs");
     let mod_decl = format!("pub mod {module_name};");
 
-    let (header_lines, mut module_names) = match std::fs::read_to_string(&mod_rs) {
-        Ok(raw) => parse_handler_mod_rs(&raw),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (
+    // T59: read THROUGH the capability so the path is boundary-
+    // checked. None on read failure that isn't NotFound.
+    let existing = match cap.read_file(mod_rel) {
+        Ok(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
+        Err(CapabilityError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e.into()),
+    };
+
+    let (header_lines, mut module_names) = match existing {
+        Some(raw) => parse_handler_mod_rs(&raw),
+        None => (
             vec![
                 "//! Handler module list. Each entry corresponds to one".to_owned(),
                 "//! [backends.X] section in backends.toml (key dashes →".to_owned(),
@@ -2507,7 +2514,6 @@ fn register_handler_module(
             ],
             Vec::new(),
         ),
-        Err(e) => return Err(e),
     };
 
     if module_names.iter().any(|m| m == module_name) {
@@ -2530,9 +2536,9 @@ fn register_handler_module(
         out.push_str(name);
         out.push_str(";\n");
     }
-    let _ = mod_decl; // silence dead-code lint when the macro form is removed
+    let _ = mod_decl;
 
-    std::fs::write(&mod_rs, out)?;
+    cap.write_file(mod_rel, out.as_bytes())?;
     Ok(true)
 }
 
@@ -2813,7 +2819,7 @@ impl_files = []
         let dir = unique("reg-mod-create");
         std::fs::create_dir_all(&dir).expect("mkdir");
         let changed =
-            register_handler_module(&dir, "sign_in").expect("ok");
+            register_handler_module(&WriteCapability::for_dir(&dir).expect("cap"), "sign_in").expect("ok");
         assert!(changed);
         let body =
             std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
@@ -2832,7 +2838,7 @@ impl_files = []
         )
         .expect("seed");
         let changed =
-            register_handler_module(&dir, "delta").expect("ok");
+            register_handler_module(&WriteCapability::for_dir(&dir).expect("cap"), "delta").expect("ok");
         assert!(changed);
         let body =
             std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
@@ -2854,7 +2860,7 @@ impl_files = []
             "//! header\n\npub mod sign_in;\n",
         )
         .expect("seed");
-        let r1 = register_handler_module(&dir, "sign_in").expect("first");
+        let r1 = register_handler_module(&WriteCapability::for_dir(&dir).expect("cap"), "sign_in").expect("first");
         assert!(!r1, "second declaration of same module must be a no-op");
         let body =
             std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
@@ -2878,7 +2884,7 @@ impl_files = []
             format!("{initial_header}\n\npub mod existing;\n"),
         )
         .expect("seed");
-        register_handler_module(&dir, "added").expect("ok");
+        register_handler_module(&WriteCapability::for_dir(&dir).expect("cap"), "added").expect("ok");
         let body =
             std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
         assert!(body.starts_with(initial_header));
@@ -3001,6 +3007,23 @@ impl_files = []
         assert!(!dir.join("src/handlers/Sign_In.rs").exists());
         assert!(!dir.join("src/handlers/sign_in.rs").exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // T59: end-to-end proof that the WriteCapability integration
+    // refuses a crate_dir that doesn't exist. Pre-existing
+    // `is_dir` check at the top of cmd_backend_stub catches the
+    // simple case; this proves the capability layer ALSO catches
+    // it (defense in depth).
+    #[test]
+    fn cmd_backend_stub_refuses_nonexistent_crate_dir() {
+        let (backends, _) = fixture();
+        let bogus = std::env::temp_dir().join("loom-cap-int-nonexistent-zzz");
+        let _ = std::fs::remove_dir_all(&bogus);
+        let r = cmd_backend_stub("sign-in", &backends, &bogus, false);
+        assert!(
+            matches!(r, Err(BackendStubError::CrateNotDir(_))),
+            "expected CrateNotDir, got {r:?}"
+        );
     }
 
     // ---- T19: cmd_backend_stub_all ----
