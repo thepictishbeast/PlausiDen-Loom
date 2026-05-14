@@ -226,6 +226,48 @@ fn collector_body_cap_silently_truncates_oversized_payloads() {
 }
 
 #[test]
+fn collector_rate_limits_after_100_reports_per_min_same_ip() {
+    // T76 cycle 69: an attacker spamming the collector should
+    // see every request return 204 (per W3C spec — no retry-
+    // storm), but only the first ~100 reports actually land
+    // in the JSONL log. The cap is per-IP/minute.
+    let g = spawn_server();
+    let body = br#"{"csp-report":{"document-uri":"https://test.example/"}}"#;
+    // Fire 150 requests in tight succession from the same
+    // (loopback) IP. All should return 204.
+    let mut sent = 0usize;
+    for _ in 0..150 {
+        let (status, _) = post(g.port, "/csp-report", "application/csp-report", body);
+        assert_eq!(status, 204, "every request must return 204 (spec)");
+        sent += 1;
+    }
+    assert_eq!(sent, 150);
+
+    // Read the JSONL log; expect at most RATE_LIMIT_PER_MIN
+    // (100) lines + a small margin for the prior tests'
+    // contamination is impossible because each test gets its
+    // own fixture directory.
+    let log = g.fixture.join("reports").join("violations.jsonl");
+    for _ in 0..20 {
+        if log.exists() && std::fs::metadata(&log).map(|m| m.len() > 0).unwrap_or(false) {
+            break;
+        }
+        sleep(Duration::from_millis(50));
+    }
+    let contents = std::fs::read_to_string(&log)
+        .expect("violations.jsonl exists after burst");
+    let lines = contents.lines().count();
+    assert!(
+        lines <= 100,
+        "rate limit caps at 100 reports/min; saw {lines} lines",
+    );
+    assert!(
+        lines >= 90,
+        "rate limit should let through ~100 lines; only saw {lines} — limiter too aggressive?",
+    );
+}
+
+#[test]
 fn collector_endpoints_unauthenticated() {
     // The collector MUST be reachable without a session cookie —
     // browsers can't carry session credentials on report POSTs

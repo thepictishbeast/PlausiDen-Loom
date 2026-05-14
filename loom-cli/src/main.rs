@@ -6396,12 +6396,108 @@ fn respond_html(
 /// error) MUST still return 204 — the browser shouldn't see
 /// a 5xx and retry-storm. The error is logged to stderr for
 /// the operator and the report is silently dropped.
+/// SUPERSOCIETY cycle 69: per-IP sliding-window rate limit on
+/// the report collector.
+///
+/// Without it, an attacker can POST 100k reports/sec at
+/// 64 KiB each → 6 GiB/sec of JSONL → fills the disk, drowns
+/// real reports in noise, gets the operator paged.
+///
+/// Implementation:
+/// - In-memory Map<ip-string, VecDeque<unix-second>>.
+/// - On each report, push the current second, drop entries
+///   older than 60 seconds.
+/// - If the deque has more than RATE_LIMIT_PER_MIN entries,
+///   drop the report silently (still return 204 per W3C —
+///   browsers must not retry-storm). One stderr log per IP
+///   per minute notifies the operator.
+/// - Map capped at RATE_LIMIT_IPS distinct keys; oldest IP
+///   evicted on overflow (LRU-ish) to defend against
+///   IP-spray attacks that try to OOM the bucket map.
+const RATE_LIMIT_PER_MIN: usize = 100;
+const RATE_LIMIT_IPS: usize = 1024;
+
+#[derive(Default)]
+struct RateLimiterEntry {
+    hits: std::collections::VecDeque<u64>,
+    /// Last unix-second this IP was warned about being over
+    /// the limit. Used to throttle the stderr warning to once
+    /// per minute per IP.
+    last_warn: u64,
+}
+
+/// SUPERSOCIETY cycle 69: report-collector rate-limit bucket.
+/// Process-global Mutex<Map> — collector POSTs are infrequent
+/// in practice (browsers send a handful per page load), so
+/// contention on the mutex is irrelevant. The cost model:
+/// O(1) amortised insert + drop-old per request.
+static REPORT_RATE_LIMITER: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, RateLimiterEntry>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// Check + record. Returns true if the request is within
+/// budget (should be written to log), false if rate-limited
+/// (drop the report; still return 204 to the client).
+fn rate_limit_admit(ip: &str, now: u64) -> bool {
+    let mut map = match REPORT_RATE_LIMITER.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    // LRU-ish overflow: if the map is full and we're seeing a
+    // new IP, evict the entry with the oldest most-recent hit.
+    // O(N) on overflow only.
+    if !map.contains_key(ip) && map.len() >= RATE_LIMIT_IPS {
+        let oldest = map
+            .iter()
+            .min_by_key(|(_, v)| v.hits.back().copied().unwrap_or(0))
+            .map(|(k, _)| k.clone());
+        if let Some(k) = oldest {
+            map.remove(&k);
+        }
+    }
+    let entry = map.entry(ip.to_owned()).or_default();
+    // Drop hits older than 60 seconds.
+    while let Some(&front) = entry.hits.front() {
+        if now.saturating_sub(front) >= 60 {
+            entry.hits.pop_front();
+        } else {
+            break;
+        }
+    }
+    if entry.hits.len() >= RATE_LIMIT_PER_MIN {
+        // Throttle the warning: once per minute per IP. The
+        // log shouldn't itself become a DoS vector.
+        if now.saturating_sub(entry.last_warn) >= 60 {
+            eprintln!(
+                "[loom report-collector] rate-limited {ip}: {} reports in last 60s (cap {RATE_LIMIT_PER_MIN})",
+                entry.hits.len(),
+            );
+            entry.last_warn = now;
+        }
+        return false;
+    }
+    entry.hits.push_back(now);
+    true
+}
+
 fn handle_security_report(
     mut request: tiny_http::Request,
     cms_root: &std::path::Path,
     endpoint: &str,
 ) -> std::io::Result<()> {
     const MAX_BODY: usize = 64 * 1024;
+    // tiny_http exposes the peer address on the request.
+    // Strip the port and use the IP as the rate-limit key.
+    let ip = request
+        .remote_addr()
+        .map(|a| a.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_owned());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let admit = rate_limit_admit(&ip, now);
+
     let content_type = request
         .headers()
         .iter()
@@ -6415,53 +6511,58 @@ fn handle_security_report(
         let mut limited = std::io::Read::take(reader, MAX_BODY as u64);
         let _ = limited.read_to_string(&mut body);
     }
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    // Compose the JSONL line. We hand-build the JSON instead of
-    // pulling in serde_json so this stays trivially auditable.
-    // Body is opaque (could be malformed JSON, could be empty)
-    // — store it as a JSON string field with proper escaping.
-    let escaped_body = body
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t");
-    let escaped_ct = content_type
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"");
-    let line = format!(
-        "{{\"ts\":{timestamp},\"endpoint\":\"{endpoint}\",\"content_type\":\"{escaped_ct}\",\"body\":\"{escaped_body}\"}}\n"
-    );
-    // reports/ lives as a SIBLING of cms_root so an operator's
-    // editing context is separate from the violation log. If
-    // cms_root has no parent, fall back to `./reports`.
-    let reports_dir = match cms_root.parent() {
-        Some(p) => p.join("reports"),
-        None => std::path::PathBuf::from("reports"),
-    };
-    let _ = std::fs::create_dir_all(&reports_dir);
-    let log_path = reports_dir.join("violations.jsonl");
-    use std::io::Write as _;
-    match std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-    {
-        Ok(mut f) => {
-            if let Err(e) = f.write_all(line.as_bytes()) {
-                eprintln!("[loom report-collector] write failed: {e}");
+
+    if admit {
+        // Compose the JSONL line. We hand-build the JSON
+        // instead of pulling in serde_json so this stays
+        // trivially auditable. Body is opaque (could be
+        // malformed JSON, could be empty) — store it as a
+        // JSON string field with proper escaping.
+        let escaped_body = body
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n")
+            .replace('\r', "\\r")
+            .replace('\t', "\\t");
+        let escaped_ct = content_type
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"");
+        let line = format!(
+            "{{\"ts\":{now},\"endpoint\":\"{endpoint}\",\"content_type\":\"{escaped_ct}\",\"body\":\"{escaped_body}\"}}\n"
+        );
+        // reports/ lives as a SIBLING of cms_root so an
+        // operator's editing context is separate from the
+        // violation log. If cms_root has no parent, fall back
+        // to `./reports`.
+        let reports_dir = match cms_root.parent() {
+            Some(p) => p.join("reports"),
+            None => std::path::PathBuf::from("reports"),
+        };
+        let _ = std::fs::create_dir_all(&reports_dir);
+        let log_path = reports_dir.join("violations.jsonl");
+        use std::io::Write as _;
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            Ok(mut f) => {
+                if let Err(e) = f.write_all(line.as_bytes()) {
+                    eprintln!("[loom report-collector] write failed: {e}");
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "[loom report-collector] open {} failed: {e}",
+                    log_path.display()
+                );
             }
         }
-        Err(e) => {
-            eprintln!(
-                "[loom report-collector] open {} failed: {e}",
-                log_path.display()
-            );
-        }
     }
+    // Always 204 — even when rate-limited. The W3C spec
+    // requires this: a 4xx would trigger browsers to retry-
+    // storm, amplifying the DoS. Rate-limit visibility is via
+    // the stderr log line, not the response.
     let resp = tiny_http::Response::empty(204);
     request.respond(resp)?;
     Ok(())
