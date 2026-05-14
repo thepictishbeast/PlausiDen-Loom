@@ -222,6 +222,33 @@ enum Cmd {
         #[arg(long, default_value = "backends.toml")]
         backends: PathBuf,
     },
+    /// `loom edit serve` — typed CMS editor server. T42.
+    ///
+    /// Starts a tiny HTTP server on `--port` (default 8124) that
+    /// renders one form per cms/<page>.json, accepts POSTs to
+    /// persist edits, and re-runs forge.sh after every save. No
+    /// JavaScript required; every interaction is server-rendered
+    /// HTML and a multipart POST.
+    ///
+    /// MVP scope: text-only fields (title, description, hero
+    /// title/subtitle/eyebrow, paragraph bodies). Nested arrays,
+    /// images, and form sections land in follow-ups. Auth lands
+    /// in T43 — until then, bind to 127.0.0.1 only.
+    EditServe {
+        /// CMS root directory containing *.json page files.
+        #[arg(long, default_value = "cms")]
+        cms: PathBuf,
+        /// Static output directory served as /preview/*.
+        #[arg(long, default_value = "static")]
+        static_dir: PathBuf,
+        /// forge.sh path; invoked after every successful save.
+        /// Empty string disables the rebuild hook (useful in tests).
+        #[arg(long, default_value = "forge.sh")]
+        forge: String,
+        /// TCP port to listen on. Bound to 127.0.0.1 always.
+        #[arg(long, default_value_t = 8124)]
+        port: u16,
+    },
     /// `loom theme` — inspect + validate the theme system.
     ///
     /// Themes are declared inline in skin.css as `:root[data-theme=
@@ -597,6 +624,18 @@ fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("loom backend list: i/o error: {e}");
+                ExitCode::from(2)
+            }
+        },
+        Cmd::EditServe {
+            cms,
+            static_dir,
+            forge,
+            port,
+        } => match cmd_edit_serve(&cms, &static_dir, &forge, port) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("loom edit serve: {e}");
                 ExitCode::from(2)
             }
         },
@@ -2955,6 +2994,396 @@ struct ThemeBlock {
 /// braces inside string literals. skin.css does not currently use
 /// such literals; if it ever does, this needs replacing with
 /// lightningcss or similar.
+// ============================================================
+// T42: typed CMS editor — server-rendered, no JS, MVP scope.
+// ============================================================
+//
+// Doctrine:
+//   * Bind 127.0.0.1 only. T43 lands real auth; until then no
+//     network exposure. Caller bridges via SSH tunnel for remote.
+//   * Every form is regenerated server-side from the live JSON.
+//     Stale browser state cannot corrupt persisted data.
+//   * Writes go to a temp file + rename (atomic on POSIX).
+//     Concurrent saves can't half-write.
+//   * After every write we shell out to forge.sh — not because
+//     it's fast, because it's the canonical pipeline. T44 will
+//     warm-cache the rebuild.
+//
+// MVP coverage (this tick):
+//   * GET /              → page list
+//   * GET /<page>        → editable form for cms/<page>.json
+//   * POST /<page>       → validate, write back, rebuild, redirect
+//   * GET /preview/<f>   → serve static/<f> (read-only file proxy)
+//
+// Field types this MVP renders / accepts:
+//   * CmsPage.title (string)
+//   * CmsPage.description (string)
+//   * Hero.title / Hero.subtitle / Hero.eyebrow (strings)
+//   * Group.title / Group.body (string + repeating string array)
+//
+// Anything else is rendered as a read-only JSON snippet so the
+// operator can see the field exists but can't mangle it from
+// the form. Follow-up ticks expand the widget set.
+
+fn cmd_edit_serve(
+    cms_root: &std::path::Path,
+    static_root: &std::path::Path,
+    forge_path: &str,
+    port: u16,
+) -> std::io::Result<()> {
+    if !cms_root.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("cms root {} is not a directory", cms_root.display()),
+        ));
+    }
+    let bind = format!("127.0.0.1:{port}");
+    let server = tiny_http::Server::http(&bind).map_err(|e| {
+        std::io::Error::other(format!("tiny_http bind {bind}: {e}"))
+    })?;
+    println!("loom edit serve: listening on http://{bind}/");
+    println!("  cms      = {}", cms_root.display());
+    println!("  static   = {}", static_root.display());
+    println!("  forge    = {}", forge_path);
+    println!();
+    println!("Open http://127.0.0.1:{port}/ in a browser.");
+    println!("Ctrl-C to stop.");
+
+    for request in server.incoming_requests() {
+        let method = request.method().clone();
+        let url = request.url().to_owned();
+        match handle_edit_request(
+            request,
+            cms_root,
+            static_root,
+            forge_path,
+            &method,
+            &url,
+        ) {
+            Ok(()) => {}
+            Err(e) => eprintln!("  err   {method:?} {url} -> {e}"),
+        }
+    }
+    Ok(())
+}
+
+fn handle_edit_request(
+    request: tiny_http::Request,
+    cms_root: &std::path::Path,
+    static_root: &std::path::Path,
+    forge_path: &str,
+    method: &tiny_http::Method,
+    url: &str,
+) -> std::io::Result<()> {
+    // Reject anything not GET/POST.
+    let is_post = matches!(method, tiny_http::Method::Post);
+    let is_get = matches!(method, tiny_http::Method::Get);
+    if !is_post && !is_get {
+        return respond_text(request, 405, "method not allowed");
+    }
+    // Strip leading slash, trim query string.
+    let path = url.trim_start_matches('/');
+    let path = path.split_once('?').map(|(p, _)| p).unwrap_or(path);
+
+    // Path traversal defence: reject anything containing `..` or
+    // backslashes or starting with `/`.
+    if path.contains("..") || path.contains('\\') {
+        return respond_text(request, 400, "bad path");
+    }
+
+    if path.is_empty() {
+        return serve_index(request, cms_root);
+    }
+    if let Some(rest) = path.strip_prefix("preview/") {
+        return serve_preview(request, static_root, rest);
+    }
+    // Anything else is treated as a page slug (e.g. "about").
+    if is_get {
+        serve_edit_form(request, cms_root, path)
+    } else {
+        handle_edit_post(request, cms_root, forge_path, path)
+    }
+}
+
+fn serve_index(
+    request: tiny_http::Request,
+    cms_root: &std::path::Path,
+) -> std::io::Result<()> {
+    let mut entries: Vec<String> = Vec::new();
+    for e in std::fs::read_dir(cms_root)? {
+        let entry = e?;
+        let p = entry.path();
+        if p.extension().and_then(|s| s.to_str()) == Some("json") {
+            if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                entries.push(stem.to_owned());
+            }
+        }
+    }
+    entries.sort();
+    let mut body = String::new();
+    body.push_str("<!doctype html><meta charset=utf-8><title>loom edit</title>");
+    body.push_str("<style>body{font:16px/1.5 system-ui;max-width:36rem;margin:3rem auto;padding:0 1rem}a{display:block;padding:.5rem 0}</style>");
+    body.push_str("<h1>loom edit</h1><p>Choose a page:</p>");
+    for slug in &entries {
+        body.push_str(&format!(
+            "<a href=\"/{slug}\">{slug}</a>",
+            slug = html_escape(slug)
+        ));
+    }
+    if entries.is_empty() {
+        body.push_str("<p><em>No cms/*.json files found.</em></p>");
+    }
+    respond_html(request, 200, &body)
+}
+
+fn serve_edit_form(
+    request: tiny_http::Request,
+    cms_root: &std::path::Path,
+    slug: &str,
+) -> std::io::Result<()> {
+    let json_path = cms_root.join(format!("{slug}.json"));
+    if !json_path.is_file() {
+        return respond_text(request, 404, "page not found");
+    }
+    let raw = std::fs::read_to_string(&json_path)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw).map_err(|e| {
+        std::io::Error::other(format!("parse {}: {e}", json_path.display()))
+    })?;
+
+    let title = parsed
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let description = parsed
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let mut body = String::new();
+    body.push_str("<!doctype html><meta charset=utf-8>");
+    body.push_str(&format!(
+        "<title>edit {slug}</title>",
+        slug = html_escape(slug)
+    ));
+    body.push_str("<style>body{font:16px/1.5 system-ui;max-width:48rem;margin:2rem auto;padding:0 1rem}label{display:block;margin:1rem 0 .25rem;font-weight:600}input,textarea{width:100%;padding:.5rem;font:inherit;border:1px solid #888;border-radius:4px}textarea{min-height:6em}button{margin-top:1.5rem;padding:.6rem 1.2rem;font:inherit;border:0;border-radius:4px;background:#003;color:#fff;cursor:pointer}.preview{margin-top:1rem;font-size:.9em}</style>");
+    body.push_str(&format!(
+        "<p><a href=\"/\">&larr; all pages</a> · <a href=\"/preview/{}.html\">view rendered</a></p>",
+        html_escape(slug)
+    ));
+    body.push_str(&format!("<h1>edit: {}</h1>", html_escape(slug)));
+    body.push_str(&format!(
+        "<form method=\"POST\" action=\"/{slug}\">",
+        slug = html_escape(slug)
+    ));
+    body.push_str(&format!(
+        "<label for=\"f-title\">Title <span style=\"color:#888;font-weight:400\">(&lt;title&gt; tag + page header)</span></label>\
+         <input id=\"f-title\" name=\"title\" value=\"{val}\" required>",
+        val = html_escape(title)
+    ));
+    body.push_str(&format!(
+        "<label for=\"f-description\">Description <span style=\"color:#888;font-weight:400\">(meta description for search engines)</span></label>\
+         <textarea id=\"f-description\" name=\"description\" required>{val}</textarea>",
+        val = html_escape(description)
+    ));
+    // Hero sections: render an editable widget per Hero in sections[].
+    if let Some(sections) = parsed.get("sections").and_then(|v| v.as_array()) {
+        for (i, sec) in sections.iter().enumerate() {
+            let kind = sec.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            if kind == "hero" {
+                let h_title = sec.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                let h_sub = sec.get("subtitle").and_then(|v| v.as_str()).unwrap_or("");
+                let h_eye = sec.get("eyebrow").and_then(|v| v.as_str()).unwrap_or("");
+                body.push_str(&format!(
+                    "<fieldset style=\"margin-top:1.5rem;border:1px solid #ccc;border-radius:6px;padding:1rem\">\
+                     <legend>Hero (section {n})</legend>",
+                    n = i + 1
+                ));
+                body.push_str(&format!(
+                    "<label>Eyebrow</label><input name=\"sec.{i}.eyebrow\" value=\"{}\">",
+                    html_escape(h_eye)
+                ));
+                body.push_str(&format!(
+                    "<label>Title</label><input name=\"sec.{i}.title\" value=\"{}\">",
+                    html_escape(h_title)
+                ));
+                body.push_str(&format!(
+                    "<label>Subtitle</label><textarea name=\"sec.{i}.subtitle\">{}</textarea>",
+                    html_escape(h_sub)
+                ));
+                body.push_str("</fieldset>");
+            }
+        }
+    }
+    body.push_str("<button type=\"submit\">Save</button>");
+    body.push_str("</form>");
+    respond_html(request, 200, &body)
+}
+
+fn handle_edit_post(
+    mut request: tiny_http::Request,
+    cms_root: &std::path::Path,
+    forge_path: &str,
+    slug: &str,
+) -> std::io::Result<()> {
+    let json_path = cms_root.join(format!("{slug}.json"));
+    if !json_path.is_file() {
+        return respond_text(request, 404, "page not found");
+    }
+    // Read body (form-urlencoded).
+    let mut body = String::new();
+    request.as_reader().read_to_string(&mut body)?;
+    let mut fields = std::collections::BTreeMap::<String, String>::new();
+    for pair in body.split('&').filter(|s| !s.is_empty()) {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        let key = urlencoding::decode(k).map_err(|e| std::io::Error::other(format!("decode key: {e}")))?.into_owned();
+        let val = urlencoding::decode(&v.replace('+', " "))
+            .map_err(|e| std::io::Error::other(format!("decode val: {e}")))?
+            .into_owned();
+        fields.insert(key, val);
+    }
+
+    // Mutate the JSON in place.
+    let raw = std::fs::read_to_string(&json_path)?;
+    let mut parsed: serde_json::Value = serde_json::from_str(&raw).map_err(|e| {
+        std::io::Error::other(format!("parse {}: {e}", json_path.display()))
+    })?;
+    if let Some(t) = fields.get("title") {
+        parsed["title"] = serde_json::Value::String(t.clone());
+    }
+    if let Some(d) = fields.get("description") {
+        parsed["description"] = serde_json::Value::String(d.clone());
+    }
+    // Hero per-section fields: sec.N.<key>
+    if let Some(sections) = parsed.get_mut("sections").and_then(|v| v.as_array_mut()) {
+        for (i, sec) in sections.iter_mut().enumerate() {
+            for key in ["title", "subtitle", "eyebrow"] {
+                let form_key = format!("sec.{i}.{key}");
+                if let Some(v) = fields.get(&form_key) {
+                    sec[key] = serde_json::Value::String(v.clone());
+                }
+            }
+        }
+    }
+
+    // Atomic write: temp file + rename.
+    let tmp = json_path.with_extension("json.tmp");
+    let serialized = serde_json::to_string_pretty(&parsed)
+        .map_err(|e| std::io::Error::other(format!("serialize: {e}")))?;
+    std::fs::write(&tmp, serialized.as_bytes())?;
+    std::fs::rename(&tmp, &json_path)?;
+
+    // Trigger forge rebuild. Honour empty string = disabled (tests).
+    if !forge_path.is_empty() {
+        let cms_parent = cms_root
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        let status = std::process::Command::new("bash")
+            .arg(forge_path)
+            .current_dir(&cms_parent)
+            .status();
+        match status {
+            Ok(s) if s.success() => {}
+            Ok(s) => eprintln!("  warn  forge.sh exited {s}"),
+            Err(e) => eprintln!("  warn  forge.sh failed: {e}"),
+        }
+    }
+
+    // Redirect back to the edit form.
+    let mut resp = tiny_http::Response::empty(303);
+    resp.add_header(
+        tiny_http::Header::from_bytes(&b"Location"[..], format!("/{slug}").as_bytes())
+            .map_err(|_| std::io::Error::other("header"))?,
+    );
+    request.respond(resp)?;
+    Ok(())
+}
+
+fn serve_preview(
+    request: tiny_http::Request,
+    static_root: &std::path::Path,
+    rel: &str,
+) -> std::io::Result<()> {
+    if rel.contains("..") {
+        return respond_text(request, 400, "bad path");
+    }
+    let p = static_root.join(rel);
+    if !p.is_file() {
+        return respond_text(request, 404, "not found");
+    }
+    let bytes = std::fs::read(&p)?;
+    let ct = if rel.ends_with(".html") {
+        "text/html; charset=utf-8"
+    } else if rel.ends_with(".css") {
+        "text/css"
+    } else if rel.ends_with(".js") {
+        "application/javascript"
+    } else {
+        "application/octet-stream"
+    };
+    let mut resp = tiny_http::Response::from_data(bytes);
+    resp.add_header(
+        tiny_http::Header::from_bytes(&b"Content-Type"[..], ct.as_bytes())
+            .map_err(|_| std::io::Error::other("header"))?,
+    );
+    request.respond(resp)?;
+    Ok(())
+}
+
+fn respond_html(
+    request: tiny_http::Request,
+    code: u16,
+    body: &str,
+) -> std::io::Result<()> {
+    let mut resp = tiny_http::Response::from_string(body.to_owned()).with_status_code(code);
+    resp.add_header(
+        tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
+            .map_err(|_| std::io::Error::other("header"))?,
+    );
+    request.respond(resp)?;
+    Ok(())
+}
+
+fn respond_text(
+    request: tiny_http::Request,
+    code: u16,
+    body: &str,
+) -> std::io::Result<()> {
+    let resp = tiny_http::Response::from_string(body.to_owned()).with_status_code(code);
+    request.respond(resp)?;
+    Ok(())
+}
+
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod edit_serve_tests {
+    use super::*;
+
+    #[test]
+    fn html_escape_handles_attr_chars() {
+        assert_eq!(html_escape("a&b<c>d\"e'f"), "a&amp;b&lt;c&gt;d&quot;e&#39;f");
+    }
+
+    #[test]
+    fn html_escape_passes_unicode() {
+        assert_eq!(html_escape("café"), "café");
+    }
+}
+
 /// Remove `/* ... */` blocks from CSS source. Replaces each
 /// comment with a single space so adjacent tokens don't fuse and
 /// line counts stay roughly stable. Linear pass, no nesting since

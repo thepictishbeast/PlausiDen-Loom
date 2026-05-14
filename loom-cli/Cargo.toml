@@ -22,6 +22,14 @@ sha2 = "0.10"
 base64 = "0.22"
 toml = "0.8"
 toml_edit = "0.22"
+# T42: tiny http server for the typed CMS editor. Single-threaded,
+# blocking, stdlib-shaped — fits the "no JS, no async runtime,
+# server-rendered forms" doctrine. ~3k LOC, maintained, no transitive
+# bloat. Production deploy fronts it with nginx.
+tiny_http = "0.12"
+# T42: parse multipart/form-urlencoded POST bodies. Lighter than a
+# full async multipart crate.
+urlencoding = "2"
 
 [lints]
 workspace = true

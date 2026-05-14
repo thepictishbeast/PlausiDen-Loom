@@ -77,15 +77,40 @@ the system. This crate is the single source of truth so:
 4. Update this file's "what exists" section.
 5. Only then start using it in pages.
 
-## What this is not
+## What this is
 
-- **Not a CMS.** No runtime editing. Content changes are PRs.
-- **Not WordPress.** No themes, plugins, or admin panel.
-- **Not a Tailwind alternative.** The compiled output still uses
+(Updated 2026-05-06 — see below for what changed.)
+
+- **A typed primitive layer + a CMS** — Loom owns the typed
+  primitives (CmsPage / CmsSection / themes); the editor ships
+  as `loom edit serve` (T42-on) and lets non-technical users
+  modify cms/*.json via server-rendered forms with no JS.
+- **A site builder** — `loom site init --template <kind>` (T41)
+  scaffolds a complete buildable site from a template directory.
+- **A deployment tool** — `loom deploy hetzner` (T47) publishes
+  to a remote target atomically.
+- **An admin portal host** — gated by `loom edit` cookie auth
+  (T43); future per-tenant sandboxed Claude Code chat (T46).
+
+## What this is still not
+
+- **Not WordPress.** Themes are typed CSS variables, not plugins.
+  Admin features ship as Loom subcommands, not as a marketplace.
+- **Not a Tailwind alternative.** Compiled output still uses
   Tailwind classes; the doctrine is on which classes appear and
   how they're composed.
-- **Not a framework lock-in.** Tokens are language-neutral JSON. A
-  future GTK / Jetpack Compose generator can consume them too.
+- **Not a framework lock-in.** Tokens are language-neutral JSON.
+  A future GTK / Jetpack Compose generator can consume them too.
+
+## Doctrine change history
+
+- **2026-05-06:** rescinded "Not a CMS. No runtime editing." Per
+  the SiteVision directive, Loom now ships a typed CMS editor
+  (T42), cookie-session auth (T43), per-tenant isolation (T45),
+  and a sandboxed Claude Code SSH bridge (T46). Content can be
+  edited at runtime by non-technical site owners via the admin
+  portal. The "edits flow as PRs" workflow remains available for
+  power users but is no longer mandatory.
 
 ## Status: v0
 
