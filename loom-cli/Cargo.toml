@@ -31,5 +31,11 @@ tiny_http = "0.12"
 # full async multipart crate.
 urlencoding = "2"
 
+[dev-dependencies]
+# T29: property-based tests on the contrast math + parser.
+# AVP-2 Tier 6 mandates proptest for any module that ingests
+# arbitrary input.
+proptest = "1"
+
 [lints]
 workspace = true

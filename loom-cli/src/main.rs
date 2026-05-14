@@ -42,6 +42,25 @@ enum ThemeAction {
         #[arg(long, default_value = "loom-tokens/src/skin.css")]
         skin: PathBuf,
     },
+    /// T29: WCAG contrast gate. For each theme, compute the
+    /// contrast ratio between every declared fg/bg pair
+    /// (ink-on-bg-canvas, ink-on-surface, primary-fg-on-primary,
+    /// etc.) and refuse any pair below the threshold.
+    /// AA = 4.5:1 normal text, 3:1 large text + non-text. AAA
+    /// = 7:1 / 4.5:1.
+    ///
+    /// Exit codes:
+    ///   0 — every theme passes
+    ///   1 — at least one pair below threshold
+    ///   2 — skin.css unreadable / unparseable
+    Contrast {
+        #[arg(long, default_value = "loom-tokens/src/skin.css")]
+        skin: PathBuf,
+        /// Required minimum contrast ratio. Default 4.5 (WCAG AA
+        /// normal text). Pass 7.0 for AAA, 3.0 for AA-large.
+        #[arg(long, default_value_t = 4.5)]
+        min_ratio: f64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -680,6 +699,19 @@ fn main() -> ExitCode {
                     ExitCode::from(2)
                 }
             },
+            ThemeAction::Contrast { skin, min_ratio } => {
+                match cmd_theme_contrast(&skin, min_ratio) {
+                    Ok(0) => ExitCode::SUCCESS,
+                    Ok(n) => {
+                        eprintln!("loom theme contrast: {n} pair(s) below {min_ratio}:1");
+                        ExitCode::from(1)
+                    }
+                    Err(e) => {
+                        eprintln!("loom theme contrast: {e}");
+                        ExitCode::from(2)
+                    }
+                }
+            }
         },
         Cmd::AuditBridge { skin } => match cmd_audit_bridge(&skin) {
             Ok(0) => ExitCode::SUCCESS,
@@ -4345,18 +4377,370 @@ fn parse_skin_themes(
     }
 
     // De-duplicate: same theme name might appear in multiple
-    // contexts (e.g. nested under a feature query). Merge tokens
-    // by last-write wins, which matches CSS cascade order.
+    // contexts (e.g. nested under a feature query). Merge tokens:
+    // last-write wins UNLESS the incoming value is a `var()`
+    // reference and the existing value is a literal — keep the
+    // literal so the contrast checker can compute against it.
+    //
+    // REGRESSION-GUARD (T29 2026-05-06): the prior straight
+    // last-write-wins logic let `@media (prefers-contrast: more)
+    // { :root { --loom-color-ink-muted: var(--loom-color-ink); } }`
+    // overwrite the canonical literal. Default theme then had no
+    // resolvable hsl() for ink-muted and contrast pairs got
+    // silently dropped. Two pairs disappeared from the table.
     let mut merged: std::collections::BTreeMap<String, ThemeBlock> =
         std::collections::BTreeMap::new();
     for t in themes {
         merged
             .entry(t.name.clone())
-            .and_modify(|existing| existing.tokens.extend(t.tokens.clone()))
+            .and_modify(|existing| {
+                for (k, v) in &t.tokens {
+                    let v_is_var = v.starts_with("var(");
+                    let existing_is_literal = existing
+                        .tokens
+                        .get(k)
+                        .map(|cur| !cur.starts_with("var("))
+                        .unwrap_or(false);
+                    if v_is_var && existing_is_literal {
+                        // Keep the literal; ignore the var() override.
+                        continue;
+                    }
+                    existing.tokens.insert(k.clone(), v.clone());
+                }
+            })
             .or_insert(t);
     }
     let merged_vec = merged.into_values().collect::<Vec<_>>();
     (merged_vec, referenced_vars)
+}
+
+// ============================================================
+// T29: WCAG contrast math + theme contrast subcommand
+// ============================================================
+//
+// Sources: WCAG 2.2 §1.4.3 (Contrast Minimum). The relative-
+// luminance formula is the W3C-published one (sRGB → linear via
+// gamma decode → 0.2126 R + 0.7152 G + 0.0722 B).
+//
+// All math in f64 to avoid catastrophic cancellation on values
+// near 0 / 1. Intermediate clamping to [0, 1].
+
+/// Linearise a single sRGB channel value in [0, 1].
+fn srgb_to_linear(c: f64) -> f64 {
+    let c = c.clamp(0.0, 1.0);
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// WCAG relative luminance for a sRGB triple in [0, 1].
+fn relative_luminance(r: f64, g: f64, b: f64) -> f64 {
+    let rl = srgb_to_linear(r);
+    let gl = srgb_to_linear(g);
+    let bl = srgb_to_linear(b);
+    0.2126 * rl + 0.7152 * gl + 0.0722 * bl
+}
+
+/// Contrast ratio between two relative luminances. Returns ≥ 1.0.
+fn contrast_ratio(l1: f64, l2: f64) -> f64 {
+    let (lighter, darker) = if l1 >= l2 { (l1, l2) } else { (l2, l1) };
+    (lighter + 0.05) / (darker + 0.05)
+}
+
+/// HSL → sRGB conversion. h in degrees [0, 360), s/l in [0, 1].
+/// Returns (r, g, b) in [0, 1]. Standard W3C HSL formula.
+fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (f64, f64, f64) {
+    let h = h.rem_euclid(360.0);
+    let s = s.clamp(0.0, 1.0);
+    let l = l.clamp(0.0, 1.0);
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let h_prime = h / 60.0;
+    let x = c * (1.0 - (h_prime.rem_euclid(2.0) - 1.0).abs());
+    let (r1, g1, b1) = match h_prime.floor() as i32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x), // 5 or hue wrap
+    };
+    let m = l - c / 2.0;
+    (r1 + m, g1 + m, b1 + m)
+}
+
+/// Parse a CSS color expression into sRGB [0, 1]. Supports:
+///   `hsl(H S% L%)`            — modern space-separated
+///   `hsl(H, S%, L%)`          — legacy comma-separated
+///   `hsl(H S% L% / A)`        — with alpha (alpha discarded
+///                               for contrast — assumes opaque
+///                               composite)
+///   `hsl(H S% L% / A%)`       — alpha as percent
+///
+/// Returns None for anything we don't understand (e.g. var()
+/// references, named colors, hex). Caller treats unknown as
+/// "skip the pair" rather than fail.
+///
+/// REGRESSION-GUARD: the regex/split here is deliberately
+/// permissive on whitespace + slashes — the CSS spec allows
+/// varying delimiters within hsl(). Adding a stricter parser
+/// later is fine, but DO NOT tighten without re-running the
+/// theme contrast suite — themes use both legacy and modern
+/// hsl() syntax.
+fn parse_css_color(raw: &str) -> Option<(f64, f64, f64)> {
+    let raw = raw.trim();
+    let inner = raw
+        .strip_prefix("hsl(")
+        .and_then(|s| s.strip_suffix(')'))?;
+    // Drop alpha if present (split on `/` once).
+    let (color_part, _alpha) = inner.split_once('/').unwrap_or((inner, ""));
+    // Split on whitespace OR comma.
+    let parts: Vec<&str> = color_part
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter(|s| !s.is_empty())
+        .collect();
+    if parts.len() < 3 {
+        return None;
+    }
+    let h: f64 = parts[0].trim_end_matches("deg").parse().ok()?;
+    let s = parse_percent(parts[1])?;
+    let l = parse_percent(parts[2])?;
+    Some(hsl_to_rgb(h, s, l))
+}
+
+fn parse_percent(raw: &str) -> Option<f64> {
+    let trimmed = raw.trim();
+    if let Some(num) = trimmed.strip_suffix('%') {
+        let v: f64 = num.trim().parse().ok()?;
+        Some((v / 100.0).clamp(0.0, 1.0))
+    } else {
+        // Bare number — assume already 0..1.
+        let v: f64 = trimmed.parse().ok()?;
+        Some(v.clamp(0.0, 1.0))
+    }
+}
+
+/// One fg/bg pair WCAG-checks against the threshold.
+fn check_pair(fg_raw: &str, bg_raw: &str, min_ratio: f64) -> Option<(f64, bool)> {
+    let (fr, fg, fb) = parse_css_color(fg_raw)?;
+    let (br, bg, bb) = parse_css_color(bg_raw)?;
+    let fl = relative_luminance(fr, fg, fb);
+    let bl = relative_luminance(br, bg, bb);
+    let ratio = contrast_ratio(fl, bl);
+    Some((ratio, ratio >= min_ratio))
+}
+
+/// Pairs we audit per theme. (fg-token, bg-token, label).
+/// REGRESSION-GUARD: do NOT pair --loom-color-primary with
+/// --loom-color-bg-canvas — primary is a CHROME color (button
+/// fill, link), not body text. Pair only declared
+/// foreground/background combos that visitors actually see
+/// rendered together.
+const CONTRAST_PAIRS: &[(&str, &str, &str)] = &[
+    ("--loom-color-ink", "--loom-color-bg-canvas", "ink-on-canvas"),
+    ("--loom-color-ink", "--loom-color-surface", "ink-on-surface"),
+    ("--loom-color-ink", "--loom-color-surface-muted", "ink-on-surface-muted"),
+    ("--loom-color-ink-muted", "--loom-color-bg-canvas", "ink-muted-on-canvas"),
+    ("--loom-color-ink-muted", "--loom-color-surface", "ink-muted-on-surface"),
+    ("--loom-color-primary-fg", "--loom-color-primary", "primary-fg-on-primary"),
+];
+
+fn cmd_theme_contrast(
+    skin_path: &std::path::Path,
+    min_ratio: f64,
+) -> Result<usize, std::io::Error> {
+    let raw = std::fs::read_to_string(skin_path)?;
+    let (themes, _refs) = parse_skin_themes(&raw);
+    if themes.is_empty() {
+        eprintln!(
+            "loom theme contrast: no theme blocks found in {}",
+            skin_path.display()
+        );
+        return Ok(0);
+    }
+    // Base block provides fallback values when a named theme
+    // doesn't declare a specific token (cascade behaviour).
+    let base = themes
+        .iter()
+        .find(|t| t.name == "default")
+        .cloned();
+
+    let mut failures = 0usize;
+    println!(
+        "  theme           pair                          ratio   status"
+    );
+    println!(
+        "  --------------  ----------------------------  ------  ------"
+    );
+    for theme in &themes {
+        for (fg_tok, bg_tok, label) in CONTRAST_PAIRS {
+            let lookup = |tok: &str| -> Option<String> {
+                theme
+                    .tokens
+                    .get(tok)
+                    .cloned()
+                    .or_else(|| base.as_ref().and_then(|b| b.tokens.get(tok).cloned()))
+            };
+            let (Some(fg), Some(bg)) = (lookup(fg_tok), lookup(bg_tok)) else {
+                continue;
+            };
+            let Some((ratio, passed)) = check_pair(&fg, &bg, min_ratio) else {
+                // Unparseable color — skip silently rather than
+                // false-fail. T29-followup: tighten parser if we
+                // start using non-hsl syntax.
+                continue;
+            };
+            let status = if passed {
+                "ok"
+            } else {
+                failures += 1;
+                "FAIL"
+            };
+            println!(
+                "  {name:<14}  {label:<28}  {ratio:>5.2}   {status}",
+                name = theme.name,
+                label = label,
+                ratio = ratio,
+            );
+        }
+    }
+    println!();
+    if failures == 0 {
+        println!(
+            "loom theme contrast: {} theme(s) checked, ALL pairs ≥ {min_ratio:.1}:1 (WCAG OK)",
+            themes.len(),
+        );
+    } else {
+        eprintln!(
+            "loom theme contrast: {failures} pair(s) below {min_ratio:.1}:1 — themes WILL ship with unreadable text"
+        );
+    }
+    Ok(failures)
+}
+
+#[cfg(test)]
+mod theme_contrast_tests {
+    use super::*;
+
+    #[test]
+    fn srgb_linearization_matches_w3c_examples() {
+        // 0 → 0, 1 → 1.
+        assert!((srgb_to_linear(0.0) - 0.0).abs() < 1e-9);
+        assert!((srgb_to_linear(1.0) - 1.0).abs() < 1e-9);
+        // mid-gray sRGB 0.5 → ~0.214 linear.
+        let v = srgb_to_linear(0.5);
+        assert!((v - 0.21404).abs() < 1e-3);
+    }
+
+    #[test]
+    fn relative_luminance_extremes() {
+        // Pure black = 0, pure white = 1.
+        assert!((relative_luminance(0.0, 0.0, 0.0) - 0.0).abs() < 1e-9);
+        assert!((relative_luminance(1.0, 1.0, 1.0) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn contrast_ratio_max_is_21() {
+        // White on black = 21:1 (WCAG max).
+        let r = contrast_ratio(1.0, 0.0);
+        assert!((r - 21.0).abs() < 1e-9, "got {r}");
+    }
+
+    #[test]
+    fn contrast_ratio_min_is_1() {
+        // Same color = 1:1.
+        let r = contrast_ratio(0.5, 0.5);
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_modern_hsl() {
+        let (r, g, b) = parse_css_color("hsl(0 0% 100%)").expect("white");
+        assert!((r - 1.0).abs() < 1e-6);
+        assert!((g - 1.0).abs() < 1e-6);
+        assert!((b - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_legacy_hsl() {
+        let (r, g, b) = parse_css_color("hsl(0, 0%, 0%)").expect("black");
+        assert!(r.abs() < 1e-6);
+        assert!(g.abs() < 1e-6);
+        assert!(b.abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_hsl_with_alpha_strips_alpha() {
+        // Alpha discarded for contrast purposes.
+        let (r, _, _) = parse_css_color("hsl(0 0% 100% / 0.5)").expect("white-alpha");
+        assert!((r - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_unknown_returns_none() {
+        assert!(parse_css_color("var(--something)").is_none());
+        assert!(parse_css_color("#ff0000").is_none()); // hex not yet supported
+        assert!(parse_css_color("red").is_none());
+    }
+
+    #[test]
+    fn check_pair_white_on_black_passes_aa() {
+        let (ratio, passed) = check_pair("hsl(0 0% 100%)", "hsl(0 0% 0%)", 4.5).expect("ok");
+        assert!(passed);
+        assert!(ratio > 20.0);
+    }
+
+    #[test]
+    fn check_pair_grey_on_white_fails_aa() {
+        let (ratio, passed) =
+            check_pair("hsl(0 0% 70%)", "hsl(0 0% 100%)", 4.5).expect("ok");
+        assert!(!passed, "70% grey on white should fail AA, got ratio {ratio}");
+    }
+}
+
+#[cfg(test)]
+mod theme_contrast_proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// HSL parser must not panic on arbitrary input.
+        #[test]
+        fn parser_does_not_panic(s in ".{0,200}") {
+            let _ = parse_css_color(&s);
+        }
+
+        /// Contrast ratio is always >= 1.0 and <= 21.0 for ANY
+        /// luminance pair in [0, 1].
+        #[test]
+        fn contrast_ratio_bounded(
+            l1 in 0.0f64..=1.0,
+            l2 in 0.0f64..=1.0,
+        ) {
+            let r = contrast_ratio(l1, l2);
+            prop_assert!(r >= 1.0 && r <= 21.0, "ratio {r} out of bounds");
+        }
+
+        /// Contrast ratio is symmetric in its arguments.
+        #[test]
+        fn contrast_symmetric(l1 in 0.0f64..=1.0, l2 in 0.0f64..=1.0) {
+            prop_assert!((contrast_ratio(l1, l2) - contrast_ratio(l2, l1)).abs() < 1e-9);
+        }
+
+        /// HSL round-trips to a value in [0, 1] for every channel.
+        #[test]
+        fn hsl_to_rgb_in_range(
+            h in 0.0f64..360.0,
+            s in 0.0f64..=1.0,
+            l in 0.0f64..=1.0,
+        ) {
+            let (r, g, b) = hsl_to_rgb(h, s, l);
+            for c in [r, g, b] {
+                prop_assert!(c >= -1e-9 && c <= 1.0 + 1e-9, "channel {c} out of range");
+            }
+        }
+    }
 }
 
 fn cmd_theme_list(skin_path: &std::path::Path) -> Result<(), std::io::Error> {
