@@ -5984,6 +5984,25 @@ fn serve_edit_form(
                                 font:inherit;border:0;border-radius:4px;\
                                 background:#003;color:#fff;cursor:pointer}\
          .editor fieldset button{padding:.5rem .9rem}";
+    // SUPERSOCIETY cycle 79: editor-pane keyboard shortcut +
+    // unsaved-changes warning. Two real-content-editor UX
+    // wins on top of the cycle 54+62 click-bridge:
+    //
+    //   * Cmd-S / Ctrl-S triggers the form's save submit.
+    //     Real editors expect this; mouse-only-save is a
+    //     productivity wall.
+    //   * `beforeunload` warning on dirty form. Without it,
+    //     a stray browser back-button or tab-close silently
+    //     loses the operator's typing. Triggered by ANY
+    //     change to inputs/textareas/selects within the
+    //     editor pane; cleared by submit (the redirect after
+    //     POST naturally clears the dirty flag because the
+    //     page reloads with fresh state).
+    //
+    // Both extensions live within the existing CSP-pinned
+    // EDIT_PAGE_JS. The hash regenerates automatically per
+    // cycle 54's hash-pinning machinery, so no manual CSP
+    // update is needed.
     const EDIT_PAGE_JS: &str = "(function(){\
 var origin=location.origin;\
 window.addEventListener('message',function(e){\
@@ -6008,6 +6027,39 @@ if(!btn)return;\
 var msg=btn.getAttribute('data-loom-confirm')||'Confirm?';\
 if(!window.confirm(msg)){e.preventDefault();e.stopImmediatePropagation();}\
 },true);\
+var dirty=false;\
+var origTitle=document.title;\
+function findEditorForm(){\
+var ed=document.querySelector('.editor');\
+return ed?ed.querySelector('form'):null;\
+}\
+function setDirty(d){\
+if(d===dirty)return;\
+dirty=d;\
+document.title=(dirty?'\\u25CF ':'')+origTitle;\
+}\
+document.addEventListener('input',function(e){\
+var t=e.target;\
+if(!t)return;\
+var ed=document.querySelector('.editor');\
+if(ed&&ed.contains(t)&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT')){\
+setDirty(true);\
+}\
+},true);\
+document.addEventListener('submit',function(){setDirty(false);},true);\
+window.addEventListener('beforeunload',function(e){\
+if(dirty){e.preventDefault();e.returnValue='Unsaved changes';return 'Unsaved changes';}\
+});\
+document.addEventListener('keydown',function(e){\
+if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey&&e.key==='s'){\
+var form=findEditorForm();\
+if(form){\
+e.preventDefault();\
+if(typeof form.requestSubmit==='function'){form.requestSubmit();}\
+else{form.submit();}\
+}\
+}\
+});\
 })();";
     let skip_link_hash = loom_cms_render::csp_sha256(SKIP_LINK_CSS.as_bytes());
     let edit_page_hash = loom_cms_render::csp_sha256(EDIT_PAGE_CSS.as_bytes());
