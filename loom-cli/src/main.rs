@@ -8839,6 +8839,8 @@ mod import_tests {
 
 const BUNDLED_TEMPLATES: &[(&str, &str)] = &[
     ("basic", "single landing page + about page; minimal forge.toml"),
+    ("portfolio", "hero + project grid + about + contact; freelancer / designer / photographer"),
+    ("blog", "feed of posts + about + per-post pages; writer / personal site"),
 ];
 
 const TEMPLATE_BASIC: &[(&str, &str)] = &[
@@ -8962,9 +8964,559 @@ mode = "poc"
 fn resolve_template(name: &str) -> Result<&'static [(&'static str, &'static str)], Vec<&'static str>> {
     match name {
         "basic" => Ok(TEMPLATE_BASIC),
+        "portfolio" => Ok(TEMPLATE_PORTFOLIO),
+        "blog" => Ok(TEMPLATE_BLOG),
         _ => Err(BUNDLED_TEMPLATES.iter().map(|(n, _)| *n).collect()),
     }
 }
+
+/// T48b: portfolio template — freelancer / designer / photographer
+/// landing page. Five pages: home (hero + featured projects),
+/// projects (grid), about (bio + skills), contact (form + links),
+/// uses (tools / stack).
+///
+/// Schema: every CmsSection field must round-trip through
+/// `loom_cms_render::CmsPage` (deny_unknown_fields). Verified by
+/// `bundled_template_portfolio_cms_files_parse` test.
+const TEMPLATE_PORTFOLIO: &[(&str, &str)] = &[
+    (
+        "README.md",
+        r#"# {{SITE_NAME}} — portfolio site
+
+Built with Loom + Forge from the `portfolio` template.
+
+## Pages
+
+- `cms/index.json`    — landing (hero + featured projects)
+- `cms/projects.json` — full project grid
+- `cms/about.json`    — bio + skills
+- `cms/contact.json`  — contact form + links
+- `cms/uses.json`     — tools / stack you work with
+
+## Edit content
+
+```
+loom edit-serve --cms cms --static-dir static --forge ''
+```
+
+Then visit http://127.0.0.1:8124/ in a browser.
+
+## Build the site
+
+```
+cargo run --release -p forge-cli
+```
+"#,
+    ),
+    (
+        "forge.toml",
+        r#"# Forge build configuration for {{SITE_NAME}}.
+mode = "poc"
+"#,
+    ),
+    (
+        "cms/index.json",
+        r#"{
+  "$schema": "../cms-schema.json",
+  "title": "{{SITE_NAME}}",
+  "description": "Portfolio of {{SITE_NAME}}.",
+  "path": "/",
+  "sections": [
+    {
+      "kind": "hero",
+      "eyebrow": "Portfolio",
+      "title": "{{SITE_NAME}}",
+      "lede": "Independent designer / engineer / maker. Currently available for project work.",
+      "cta": null
+    },
+    {
+      "kind": "group",
+      "title": "Featured work",
+      "body": [
+        "Edit this section in the loom editor to feature your top three projects.",
+        "Each item should be a single sentence describing what you built and the outcome.",
+        "Link to the full case-study from the projects page."
+      ]
+    },
+    {
+      "kind": "paragraph",
+      "text": "Want the full list? See the projects page."
+    }
+  ]
+}
+"#,
+    ),
+    (
+        "cms/projects.json",
+        r#"{
+  "$schema": "../cms-schema.json",
+  "title": "Projects",
+  "description": "Selected work by {{SITE_NAME}}.",
+  "path": "/projects.html",
+  "sections": [
+    {
+      "kind": "hero",
+      "eyebrow": "Selected work",
+      "title": "Projects",
+      "lede": "Recent project highlights. Tap a project for the case-study.",
+      "cta": null
+    },
+    {
+      "kind": "group",
+      "title": "Project one",
+      "body": [
+        "What you built (one sentence).",
+        "Outcome / impact (one sentence).",
+        "Tools / stack used."
+      ]
+    },
+    {
+      "kind": "group",
+      "title": "Project two",
+      "body": [
+        "What you built (one sentence).",
+        "Outcome / impact (one sentence).",
+        "Tools / stack used."
+      ]
+    },
+    {
+      "kind": "group",
+      "title": "Project three",
+      "body": [
+        "What you built (one sentence).",
+        "Outcome / impact (one sentence).",
+        "Tools / stack used."
+      ]
+    }
+  ]
+}
+"#,
+    ),
+    (
+        "cms/about.json",
+        r#"{
+  "$schema": "../cms-schema.json",
+  "title": "About",
+  "description": "About {{SITE_NAME}}.",
+  "path": "/about.html",
+  "sections": [
+    {
+      "kind": "hero",
+      "eyebrow": "About",
+      "title": "About {{SITE_NAME}}",
+      "lede": "Short bio. One paragraph on who you are and what you do.",
+      "cta": null
+    },
+    {
+      "kind": "group",
+      "title": "Skills",
+      "body": [
+        "Skill area one.",
+        "Skill area two.",
+        "Skill area three."
+      ]
+    },
+    {
+      "kind": "paragraph",
+      "text": "Outside of work I enjoy [hobby]. Find me on [link] or write at [email]."
+    }
+  ]
+}
+"#,
+    ),
+    (
+        "cms/contact.json",
+        r#"{
+  "$schema": "../cms-schema.json",
+  "title": "Contact",
+  "description": "Get in touch with {{SITE_NAME}}.",
+  "path": "/contact.html",
+  "sections": [
+    {
+      "kind": "hero",
+      "eyebrow": "Get in touch",
+      "title": "Contact",
+      "lede": "Available for project work. Replies within 48 hours.",
+      "cta": null
+    },
+    {
+      "kind": "paragraph",
+      "text": "Email: hello@example.com"
+    },
+    {
+      "kind": "paragraph",
+      "text": "Project enquiries: please include a one-paragraph project brief, your timeline, and budget range."
+    },
+    {
+      "kind": "banner",
+      "tone": "info",
+      "text": "Currently booking projects starting in 4-6 weeks."
+    }
+  ]
+}
+"#,
+    ),
+    (
+        "cms/uses.json",
+        r#"{
+  "$schema": "../cms-schema.json",
+  "title": "Uses",
+  "description": "Tools + stack {{SITE_NAME}} uses.",
+  "path": "/uses.html",
+  "sections": [
+    {
+      "kind": "hero",
+      "eyebrow": "Stack",
+      "title": "Uses",
+      "lede": "What's on my desk. Updated when something changes.",
+      "cta": null
+    },
+    {
+      "kind": "group",
+      "title": "Hardware",
+      "body": [
+        "Laptop: ...",
+        "Display: ...",
+        "Keyboard: ..."
+      ]
+    },
+    {
+      "kind": "group",
+      "title": "Software",
+      "body": [
+        "Editor: ...",
+        "Terminal: ...",
+        "Design: ..."
+      ]
+    }
+  ]
+}
+"#,
+    ),
+    (
+        "backends.toml",
+        r#"# Backend declarations for {{SITE_NAME}}.
+"#,
+    ),
+    (
+        ".gitignore",
+        r#"/target
+/reports/build-*.json
+/reports/debug-*.log
+/reports/attest-key.b64
+/static/*.gz
+/static/*.br
+"#,
+    ),
+];
+
+/// T48b: blog template — writer / personal-site landing.
+/// Six pages: home (latest posts), posts (full feed), about,
+/// archive (by year), contact, plus three sample posts.
+const TEMPLATE_BLOG: &[(&str, &str)] = &[
+    (
+        "README.md",
+        r#"# {{SITE_NAME}} — blog
+
+Built with Loom + Forge from the `blog` template.
+
+## Pages
+
+- `cms/index.json`    — landing (latest posts + tagline)
+- `cms/posts.json`    — full feed
+- `cms/about.json`    — about page
+- `cms/archive.json`  — archive by year
+- `cms/contact.json`  — contact info
+- `cms/post-2026-05-14-welcome.json` — first post (sample)
+- `cms/post-2026-05-15-on-writing.json` — second post (sample)
+- `cms/post-2026-05-16-tools.json` — third post (sample)
+
+## Edit content
+
+```
+loom edit-serve --cms cms --static-dir static --forge ''
+```
+
+## Build the site
+
+```
+cargo run --release -p forge-cli
+```
+"#,
+    ),
+    (
+        "forge.toml",
+        r#"# Forge build configuration for {{SITE_NAME}}.
+mode = "poc"
+"#,
+    ),
+    (
+        "cms/index.json",
+        r#"{
+  "$schema": "../cms-schema.json",
+  "title": "{{SITE_NAME}}",
+  "description": "Writing by {{SITE_NAME}}.",
+  "path": "/",
+  "sections": [
+    {
+      "kind": "hero",
+      "eyebrow": "Blog",
+      "title": "{{SITE_NAME}}",
+      "lede": "Notes on what I'm thinking about. Updated regularly.",
+      "cta": null
+    },
+    {
+      "kind": "heading",
+      "level": 2,
+      "text": "Latest posts"
+    },
+    {
+      "kind": "paragraph",
+      "text": "2026-05-16 — On the tools I'm using right now."
+    },
+    {
+      "kind": "paragraph",
+      "text": "2026-05-15 — Why I write more than I publish."
+    },
+    {
+      "kind": "paragraph",
+      "text": "2026-05-14 — Welcome — what this blog is about."
+    },
+    {
+      "kind": "paragraph",
+      "text": "See the full feed on the posts page."
+    }
+  ]
+}
+"#,
+    ),
+    (
+        "cms/posts.json",
+        r#"{
+  "$schema": "../cms-schema.json",
+  "title": "Posts",
+  "description": "All posts by {{SITE_NAME}}.",
+  "path": "/posts.html",
+  "sections": [
+    {
+      "kind": "hero",
+      "eyebrow": "All posts",
+      "title": "Posts",
+      "lede": "Reverse chronological. Most recent first.",
+      "cta": null
+    },
+    {
+      "kind": "paragraph",
+      "text": "2026-05-16 — On the tools I'm using right now."
+    },
+    {
+      "kind": "paragraph",
+      "text": "2026-05-15 — Why I write more than I publish."
+    },
+    {
+      "kind": "paragraph",
+      "text": "2026-05-14 — Welcome — what this blog is about."
+    }
+  ]
+}
+"#,
+    ),
+    (
+        "cms/about.json",
+        r#"{
+  "$schema": "../cms-schema.json",
+  "title": "About",
+  "description": "About {{SITE_NAME}}.",
+  "path": "/about.html",
+  "sections": [
+    {
+      "kind": "hero",
+      "eyebrow": "About",
+      "title": "About {{SITE_NAME}}",
+      "lede": "Who I am and why this site exists.",
+      "cta": null
+    },
+    {
+      "kind": "paragraph",
+      "text": "Replace this paragraph with your bio. One paragraph is plenty."
+    },
+    {
+      "kind": "paragraph",
+      "text": "Email: hello@example.com"
+    }
+  ]
+}
+"#,
+    ),
+    (
+        "cms/archive.json",
+        r#"{
+  "$schema": "../cms-schema.json",
+  "title": "Archive",
+  "description": "Archive of every post on {{SITE_NAME}}.",
+  "path": "/archive.html",
+  "sections": [
+    {
+      "kind": "hero",
+      "eyebrow": "Archive",
+      "title": "Archive",
+      "lede": "Every post, grouped by year.",
+      "cta": null
+    },
+    {
+      "kind": "heading",
+      "level": 2,
+      "text": "2026"
+    },
+    {
+      "kind": "paragraph",
+      "text": "2026-05-16 — On the tools I'm using right now."
+    },
+    {
+      "kind": "paragraph",
+      "text": "2026-05-15 — Why I write more than I publish."
+    },
+    {
+      "kind": "paragraph",
+      "text": "2026-05-14 — Welcome — what this blog is about."
+    }
+  ]
+}
+"#,
+    ),
+    (
+        "cms/contact.json",
+        r#"{
+  "$schema": "../cms-schema.json",
+  "title": "Contact",
+  "description": "Get in touch with {{SITE_NAME}}.",
+  "path": "/contact.html",
+  "sections": [
+    {
+      "kind": "hero",
+      "eyebrow": "Contact",
+      "title": "Get in touch",
+      "lede": "Email is the best way to reach me.",
+      "cta": null
+    },
+    {
+      "kind": "paragraph",
+      "text": "Email: hello@example.com"
+    },
+    {
+      "kind": "paragraph",
+      "text": "I read everything; replies within a week."
+    }
+  ]
+}
+"#,
+    ),
+    (
+        "cms/post-2026-05-14-welcome.json",
+        r#"{
+  "$schema": "../cms-schema.json",
+  "title": "Welcome — what this blog is about",
+  "description": "First post.",
+  "path": "/post-2026-05-14-welcome.html",
+  "sections": [
+    {
+      "kind": "hero",
+      "eyebrow": "2026-05-14",
+      "title": "Welcome — what this blog is about",
+      "lede": "First post. What you can expect.",
+      "cta": null
+    },
+    {
+      "kind": "paragraph",
+      "text": "This blog is for [topic]. I'll be writing about [angle] roughly [cadence]."
+    },
+    {
+      "kind": "paragraph",
+      "text": "Some posts will be short, some long. The only rule: if I have nothing useful to say I won't post."
+    },
+    {
+      "kind": "heading",
+      "level": 2,
+      "text": "What I won't do"
+    },
+    {
+      "kind": "paragraph",
+      "text": "No tracking, no third-party fonts, no analytics. Just text + images."
+    }
+  ]
+}
+"#,
+    ),
+    (
+        "cms/post-2026-05-15-on-writing.json",
+        r#"{
+  "$schema": "../cms-schema.json",
+  "title": "Why I write more than I publish",
+  "description": "Second post.",
+  "path": "/post-2026-05-15-on-writing.html",
+  "sections": [
+    {
+      "kind": "hero",
+      "eyebrow": "2026-05-15",
+      "title": "Why I write more than I publish",
+      "lede": "On the ratio between drafts and shipped posts.",
+      "cta": null
+    },
+    {
+      "kind": "paragraph",
+      "text": "Replace this with your second post."
+    }
+  ]
+}
+"#,
+    ),
+    (
+        "cms/post-2026-05-16-tools.json",
+        r#"{
+  "$schema": "../cms-schema.json",
+  "title": "On the tools I'm using right now",
+  "description": "Third post.",
+  "path": "/post-2026-05-16-tools.html",
+  "sections": [
+    {
+      "kind": "hero",
+      "eyebrow": "2026-05-16",
+      "title": "On the tools I'm using right now",
+      "lede": "Editor / writing app / publishing flow.",
+      "cta": null
+    },
+    {
+      "kind": "paragraph",
+      "text": "Editor: ..."
+    },
+    {
+      "kind": "paragraph",
+      "text": "Writing app: ..."
+    },
+    {
+      "kind": "paragraph",
+      "text": "Publishing: Loom + Forge."
+    }
+  ]
+}
+"#,
+    ),
+    (
+        "backends.toml",
+        r#"# Backend declarations for {{SITE_NAME}}.
+"#,
+    ),
+    (
+        ".gitignore",
+        r#"/target
+/reports/build-*.json
+/reports/debug-*.log
+/reports/attest-key.b64
+/static/*.gz
+/static/*.br
+"#,
+    ),
+];
 
 /// Substitute {{SITE_NAME}} → site_name in a template body.
 /// Title-case the substitution so 'mom' renders as 'Mom'.
@@ -10940,6 +11492,54 @@ mod editor_schema_tests {
                 r.err()
             );
         }
+    }
+
+    /// T48b: every cms/*.json in TEMPLATE_PORTFOLIO must round-trip
+    /// through CmsPage::deserialize. Catches schema drift before
+    /// `loom site init <name> --template portfolio` ever ships a
+    /// broken file to a Mom-class user.
+    #[test]
+    fn bundled_template_portfolio_cms_files_parse() {
+        for (name, body) in TEMPLATE_PORTFOLIO {
+            if !name.starts_with("cms/") || !name.ends_with(".json") {
+                continue;
+            }
+            let resolved = body.replace("{{SITE_NAME}}", "TestSite");
+            let r: Result<loom_cms_render::CmsPage, _> = serde_json::from_str(&resolved);
+            assert!(
+                r.is_ok(),
+                "TEMPLATE_PORTFOLIO[{name}] failed CmsPage parse:\n{resolved}\nerr: {:?}",
+                r.err()
+            );
+        }
+    }
+
+    /// T48b: same for TEMPLATE_BLOG.
+    #[test]
+    fn bundled_template_blog_cms_files_parse() {
+        for (name, body) in TEMPLATE_BLOG {
+            if !name.starts_with("cms/") || !name.ends_with(".json") {
+                continue;
+            }
+            let resolved = body.replace("{{SITE_NAME}}", "TestSite");
+            let r: Result<loom_cms_render::CmsPage, _> = serde_json::from_str(&resolved);
+            assert!(
+                r.is_ok(),
+                "TEMPLATE_BLOG[{name}] failed CmsPage parse:\n{resolved}\nerr: {:?}",
+                r.err()
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_template_finds_all_three() {
+        assert!(resolve_template("basic").is_ok());
+        assert!(resolve_template("portfolio").is_ok());
+        assert!(resolve_template("blog").is_ok());
+        let err = resolve_template("nonexistent").unwrap_err();
+        assert!(err.contains(&"basic"));
+        assert!(err.contains(&"portfolio"));
+        assert!(err.contains(&"blog"));
     }
 
     fn empty_cms_page() -> loom_cms_render::CmsPage {
