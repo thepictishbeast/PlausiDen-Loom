@@ -1727,6 +1727,17 @@ fn page_shell(
         let csp = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'".to_owned();
         (String::new(), css_link, csp)
     };
+    // ISO + a11y defaults (per user directive 2026-05-13):
+    //   * `<html lang="en">` — ISO 639-1
+    //   * `<meta name="color-scheme" content="light dark">` —
+    //     declares dual-theme support so the browser uses sane
+    //     form/scrollbar defaults until the CSS layer applies
+    //     `prefers-color-scheme`. T48c lands the actual CSS.
+    //   * `<main id="content">` — semantic landmark + skip-link
+    //     target in one element. Replaces the prior `<div>`.
+    //   * Implicit landmark roles on <header> and <footer>
+    //     (redundant `role="banner"` / `role="contentinfo"`
+    //     dropped — fewer axe-reportable warnings).
     format!(
         "<!doctype html>\n\
 <html lang=\"en\">\n\
@@ -1735,6 +1746,7 @@ fn page_shell(
   <meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">\n\
   <meta http-equiv=\"X-Content-Type-Options\" content=\"nosniff\">\n\
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
+  <meta name=\"color-scheme\" content=\"light dark\">\n\
   <title>{title}</title>\n\
   <meta name=\"description\" content=\"{description}\">\n\
   <link rel=\"canonical\" href=\"{path}\">\n\
@@ -1742,16 +1754,16 @@ fn page_shell(
 </head>\n\
 <body>\n\
   <a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n\
-  <header class=\"loom-page-header\" role=\"banner\">\n\
+  <header class=\"loom-page-header\">\n\
     <nav class=\"loom-page-nav\" aria-label=\"Primary\">\n\
       <a class=\"loom-page-brand\" href=\"/\" data-loom-rich-link=\"true\">SkillShots</a>{nav_links}\n\
     </nav>\n\
     <h1 class=\"loom-page-title\">{title}</h1>\n\
   </header>\n\
-  <div id=\"content\">\n\
+  <main id=\"content\">\n\
 {body}\n\
-  </div>\n\
-  <footer class=\"loom-page-footer\" role=\"contentinfo\">\n\
+  </main>\n\
+  <footer class=\"loom-page-footer\">\n\
     <small>SkillShots — voted skill battles.</small>\n\
   </footer>\n\
 </body>\n\
@@ -1871,16 +1883,20 @@ mod cms_render_tests {
 
     #[test]
     fn shell_emits_header_landmark() {
+        // <header> at the top level IS the implicit `banner`
+        // landmark — explicit `role="banner"` is redundant and
+        // axe flags it (aria-allowed-role). Test the element,
+        // not the role.
         let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
         assert!(s.contains("<header "), "missing <header>: {s}");
-        assert!(s.contains(r#"role="banner""#));
     }
 
     #[test]
     fn shell_emits_footer_landmark() {
+        // <footer> at the top level IS the implicit `contentinfo`
+        // landmark — explicit role="contentinfo" is redundant.
         let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
         assert!(s.contains("<footer "), "missing <footer>: {s}");
-        assert!(s.contains(r#"role="contentinfo""#));
     }
 
     #[test]
@@ -9018,6 +9034,10 @@ mode = "poc"
     ),
     (
         "cms/index.json",
+        // SCHEMA: hero.lede (NOT subtitle), paragraph.text (NOT
+        // body). Group's body[] array is correct — that's the
+        // renderer's actual field name. T65 lined the editor up
+        // with the renderer; this template was missed in T65.
         r#"{
   "$schema": "../cms-schema.json",
   "title": "{{SITE_NAME}}",
@@ -9028,7 +9048,7 @@ mode = "poc"
       "kind": "hero",
       "eyebrow": "Welcome to",
       "title": "{{SITE_NAME}}",
-      "subtitle": "Edit this subtitle in the loom editor.",
+      "lede": "Edit this lede in the loom editor.",
       "cta": null
     },
     {
@@ -9055,12 +9075,12 @@ mode = "poc"
       "kind": "hero",
       "eyebrow": "About",
       "title": "About {{SITE_NAME}}",
-      "subtitle": "Who we are and why we built this.",
+      "lede": "Who we are and why we built this.",
       "cta": null
     },
     {
       "kind": "paragraph",
-      "body": "Write your about copy here."
+      "text": "Write your about copy here."
     }
   ]
 }
@@ -11055,6 +11075,82 @@ mod editor_schema_tests {
             obj.remove("body");
         }
         assert_parses("scrubbed paragraph", sec);
+    }
+
+    /// REGRESSION-GUARD: every cms/*.json embedded in
+    /// TEMPLATE_BASIC must parse cleanly through CmsPage.
+    /// The 2026-05-13 audit caught hero.subtitle / paragraph.body
+    /// stale field names that made `loom site init basic`
+    /// produce a site that 500'd on first render.
+    #[test]
+    fn bundled_template_basic_cms_files_parse() {
+        for (name, body) in TEMPLATE_BASIC {
+            if !name.starts_with("cms/") || !name.ends_with(".json") {
+                continue;
+            }
+            // Templates substitute {{SITE_NAME}} at scaffold time;
+            // for the parse test, swap in a literal so the JSON
+            // is parseable on its own.
+            let resolved = body.replace("{{SITE_NAME}}", "TestSite");
+            let r: Result<loom_cms_render::CmsPage, _> = serde_json::from_str(&resolved);
+            assert!(
+                r.is_ok(),
+                "TEMPLATE_BASIC[{name}] failed CmsPage parse:\n{resolved}\nerr: {:?}",
+                r.err()
+            );
+        }
+    }
+
+    /// User directive 2026-05-13: pages must declare dual-theme
+    /// support so the browser uses sane form/scrollbar defaults
+    /// in dark mode while we wire in the actual `prefers-color-
+    /// scheme` CSS.
+    #[test]
+    fn page_shell_emits_color_scheme_meta() {
+        let s = page_shell(
+            &loom_cms_render::CmsPage {
+                schema: None,
+                title: "T".into(),
+                description: "D".into(),
+                path: "/".into(),
+                nav_links: vec![],
+                sections: vec![],
+            },
+            "/loom-skin.css",
+            "",
+            None,
+        );
+        assert!(
+            s.contains("name=\"color-scheme\""),
+            "page-shell must declare color-scheme meta:\n{s}"
+        );
+        assert!(s.contains("light dark"));
+    }
+
+    /// User directive 2026-05-13: semantic HTML. Skip-link target
+    /// is now `<main id="content">`, not `<div id="content">`.
+    #[test]
+    fn page_shell_emits_main_landmark() {
+        let s = page_shell(
+            &loom_cms_render::CmsPage {
+                schema: None,
+                title: "T".into(),
+                description: "D".into(),
+                path: "/".into(),
+                nav_links: vec![],
+                sections: vec![],
+            },
+            "/loom-skin.css",
+            "",
+            None,
+        );
+        assert!(
+            s.contains("<main id=\"content\">"),
+            "page-shell must use <main> landmark:\n{s}"
+        );
+        // Redundant role= dropped.
+        assert!(!s.contains("role=\"banner\""));
+        assert!(!s.contains("role=\"contentinfo\""));
     }
 
     #[test]
