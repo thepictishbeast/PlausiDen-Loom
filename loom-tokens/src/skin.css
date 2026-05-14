@@ -429,7 +429,16 @@
    * desktop. The fix is targeted to chrome elements (brand + nav)
    * rather than dropping the gating entirely — body content can
    * still trust the gating on desktop without dropping density. */
+  /* REGRESSION-GUARD cycle 58: rendered HTML uses BEM class
+   * `.loom-page-nav__link` (loom-cms-render lib.rs:2671).
+   * Pre-cycle-58 the rule selectors said `.loom-page-nav-link`
+   * (kebab-case) which silently never matched — every
+   * SkillShots header nav link rendered at 24×24 px instead of
+   * the 44×44 floor. The crawler --no-baseline run surfaced 7
+   * frozen tap-target warns. Both selectors are kept now so
+   * the rule applies to either future class form. */
   .loom-page-brand,
+  .loom-page-nav__link,
   .loom-page-nav-link {
     display: inline-flex;
     align-items: center;
@@ -445,6 +454,7 @@
    * elements need to remain detectable under any focus-trigger
    * path. */
   .loom-page-brand:focus,
+  .loom-page-nav__link:focus,
   .loom-page-nav-link:focus {
     outline: var(--loom-stroke-strong) solid var(--loom-color-primary);
     outline-offset: var(--loom-stroke-thin);
