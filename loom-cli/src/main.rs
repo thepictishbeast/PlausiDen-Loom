@@ -697,6 +697,12 @@ enum Cmd {
         /// emits a normal blocking link to `--css-href`.
         #[arg(long)]
         critical_css: Option<PathBuf>,
+        /// T37 v3: bake an explicit theme into the rendered HTML
+        /// via `<html data-theme="<name>">`. Closed allow-list:
+        /// "light" or "dark". Without this flag the rendered
+        /// page falls back to OS-driven `prefers-color-scheme`.
+        #[arg(long)]
+        theme: Option<String>,
     },
 }
 
@@ -1116,7 +1122,14 @@ fn main() -> ExitCode {
             out,
             css_href,
             critical_css,
-        } => match cmd_cms_render(&input, &out, &css_href, critical_css.as_deref()) {
+            theme,
+        } => match cmd_cms_render(
+            &input,
+            &out,
+            &css_href,
+            critical_css.as_deref(),
+            theme.as_deref(),
+        ) {
             Ok(()) => ExitCode::SUCCESS,
             Err(CmsRenderError::Schema(e)) => {
                 eprintln!("loom cms-render: schema error: {e}");
@@ -1617,16 +1630,18 @@ fn cmd_cms_render(
     out: &str,
     css_href: &str,
     critical_css_path: Option<&std::path::Path>,
+    theme: Option<&str>,
 ) -> Result<(), CmsRenderError> {
     let raw = std::fs::read_to_string(input)?;
     let page: loom_cms_render::CmsPage = serde_json::from_str(&raw)?;
     let body = loom_cms_render::render_page(&page);
     let critical_css = critical_css_path.map(std::fs::read_to_string).transpose()?;
-    let shell = page_shell(
+    let shell = loom_cms_render::page_shell_themed(
         &page,
         css_href,
         &body.into_string(),
         critical_css.as_deref(),
+        theme,
     );
     if out == "-" {
         print!("{shell}");
@@ -1781,7 +1796,7 @@ mod cms_render_tests {
             }"#,
         )
         .expect("write input");
-        cmd_cms_render(&input, output.to_str().unwrap(), "/loom-skin.css", None).expect("renders");
+        cmd_cms_render(&input, output.to_str().unwrap(), "/loom-skin.css", None, None).expect("renders");
         let html = std::fs::read_to_string(&output).expect("read output");
         assert!(html.contains("<title>Demo</title>"));
         assert!(html.contains("Welcome"));
@@ -1951,7 +1966,7 @@ mod cms_render_tests {
             }"#,
         )
         .expect("write");
-        let r = cmd_cms_render(&input, "-", "/loom-skin.css", None);
+        let r = cmd_cms_render(&input, "-", "/loom-skin.css", None, None);
         assert!(matches!(r, Err(CmsRenderError::Schema(_))));
         let _ = std::fs::remove_file(&input);
     }
