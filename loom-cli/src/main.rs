@@ -4497,7 +4497,10 @@ fn handle_edit_request(
 /// link, every forge admin nav.
 fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
     let mut body = String::new();
-    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\"><title>loom — tutorial</title><style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style><body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
+    // REGRESSION-GUARD cycle 53: page-specific <style> moved
+    // BEFORE <body> so it lives in head context, not inside
+    // <main>. Same restructuring as serve_uploads_gallery.
+    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\"><title>loom — tutorial</title><style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style>");
     body.push_str(
         "<style>\
          body{font:16px/1.65 system-ui;max-width:42rem;margin:2rem auto;padding:0 1rem;color:#222}\
@@ -4514,6 +4517,7 @@ fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
          nav.tut{display:flex;gap:1rem;margin-bottom:1rem;font-size:.9em}\
          </style>"
     );
+    body.push_str("<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
     body.push_str(
         "<nav class=\"tut\"><a href=\"/\">← back to pages</a> · <a href=\"/forge\">forge admin</a></nav>\
          <h1>loom — tutorial</h1>\
@@ -4784,8 +4788,12 @@ fn serve_index(
     }
     entries.sort();
     let mut body = String::new();
-    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\"><title>loom edit</title><style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style><body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
+    // REGRESSION-GUARD cycle 53: page-specific <style> moved
+    // BEFORE <body> so it lives in head context, not inside
+    // <main>. Same restructuring as serve_uploads_gallery.
+    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\"><title>loom edit</title><style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style>");
     body.push_str("<style>body{font:16px/1.5 system-ui;max-width:36rem;margin:3rem auto;padding:0 1rem}a{display:block;padding:.5rem 0}</style>");
+    body.push_str("<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
     body.push_str(
         "<p style=\"margin:0 0 1rem;font-size:.9em\">\
          <a href=\"/tutorial\">📖 Tutorial</a> · \
@@ -5304,7 +5312,12 @@ fn serve_edit_form(
         "<title>edit {slug}</title>",
         slug = html_escape(slug)
     ));
-    body.push_str("<style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style><body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
+    // REGRESSION-GUARD cycle 53: skip-link + page-specific
+    // <style> both moved BEFORE <body> so neither lives inside
+    // the <main> landmark. Avoids overflow.text-clipped strict
+    // from the crawler that treats <style> text content as
+    // overflowing inside main.
+    body.push_str("<style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style>");
     // T62 step 5: split-pane layout — editor on the left, live
     // preview iframe on the right (stacks vertically on narrow
     // viewports). The iframe reloads automatically after every
@@ -5337,6 +5350,7 @@ fn serve_edit_form(
                                 background:#003;color:#fff;cursor:pointer}\
          </style>"
     );
+    body.push_str("<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
     body.push_str("<div class=\"editor\">");
     body.push_str(&format!(
         "<p><a href=\"/\">&larr; all pages</a> · \
@@ -11412,8 +11426,16 @@ fn serve_uploads_gallery(
         Vec::new()
     };
     entries.sort();
+    // REGRESSION-GUARD cycle 53: the page-specific <style> block
+    // was previously pushed AFTER `<main id=main>` opened, which
+    // put it INSIDE the main landmark. The crawler's
+    // `overflow.text-clipped` strict was flagging the style text
+    // as overflowing content because <style> is text-content per
+    // the HTML5 parser. Restructured so the head ends after the
+    // page-specific <style>, and `<body><main>` opens cleanly
+    // with no style text inside.
     let mut body = String::new();
-    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\"><title>uploads</title><style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style><body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
+    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\"><title>uploads</title><style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style>");
     body.push_str(
         "<style>\
          body{font:16px/1.5 system-ui;max-width:48rem;margin:2rem auto;padding:0 1rem}\
@@ -11424,11 +11446,13 @@ fn serve_uploads_gallery(
          .grid img{max-width:100%;height:120px;object-fit:cover;border-radius:4px;display:block}\
          .grid figcaption{font:.75em monospace;color:#666;margin-top:.25rem;\
                          word-break:break-all;max-height:3.6em;overflow:hidden}\
-         input[type=file]{padding:.5rem;border:1px dashed #888;border-radius:4px;width:100%}\
+         input[type=file]{padding:.5rem;border:1px dashed #888;border-radius:4px;width:100%;\
+                          box-sizing:border-box}\
          button{margin-top:1rem;padding:.5rem 1rem;font:inherit;border:0;border-radius:4px;\
                 background:#003;color:#fff;cursor:pointer}\
          </style>"
     );
+    body.push_str("<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
     body.push_str(
         "<p><a href=\"/\">← all pages</a> · <a href=\"/tutorial\">📖 tutorial</a></p>\
          <h1>uploads</h1>"
