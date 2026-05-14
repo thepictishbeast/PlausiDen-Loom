@@ -3626,10 +3626,29 @@ fn handle_edit_request(
     if path == "forge/audit" && is_get {
         return serve_forge_audit(request, cms_root);
     }
-    // T62: section-add path. Format: <slug>/add-section
+    // T62: section-mutation paths. Format:
+    //   <slug>/add-section
+    //   <slug>/sections/<N>/up | down | delete
     if is_post {
         if let Some(slug) = path.strip_suffix("/add-section") {
             return handle_add_section(request, cms_root, forge_path, slug);
+        }
+        for op in &["up", "down", "delete"] {
+            let suffix = format!("/{op}");
+            if let Some(rest) = path.strip_suffix(suffix.as_str()) {
+                if let Some((slug_plus_section, idx_str)) = rest.rsplit_once("/sections/") {
+                    if let Ok(idx) = idx_str.parse::<usize>() {
+                        return handle_section_op(
+                            request,
+                            cms_root,
+                            forge_path,
+                            slug_plus_section,
+                            idx,
+                            op,
+                        );
+                    }
+                }
+            }
         }
     }
     // Anything else is treated as a page slug (e.g. "about").
@@ -4004,19 +4023,24 @@ fn serve_edit_form(
          <textarea id=\"f-description\" name=\"description\" required>{val}</textarea>",
         val = html_escape(description)
     ));
-    // Hero sections: render an editable widget per Hero in sections[].
+    // Section editor widgets. Hero is fully editable; other kinds
+    // render with reorder/delete controls only (inline field
+    // editors land in T62 step 4). Reorder + delete buttons use
+    // formaction= to override the main form's POST target.
     if let Some(sections) = parsed.get("sections").and_then(|v| v.as_array()) {
+        let total = sections.len();
         for (i, sec) in sections.iter().enumerate() {
             let kind = sec.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            body.push_str(&format!(
+                "<fieldset style=\"margin-top:1.5rem;border:1px solid #ccc;border-radius:6px;padding:1rem\">\
+                 <legend>{kind_label} (section {n})</legend>",
+                kind_label = html_escape(&capitalise(kind)),
+                n = i + 1,
+            ));
             if kind == "hero" {
                 let h_title = sec.get("title").and_then(|v| v.as_str()).unwrap_or("");
                 let h_sub = sec.get("subtitle").and_then(|v| v.as_str()).unwrap_or("");
                 let h_eye = sec.get("eyebrow").and_then(|v| v.as_str()).unwrap_or("");
-                body.push_str(&format!(
-                    "<fieldset style=\"margin-top:1.5rem;border:1px solid #ccc;border-radius:6px;padding:1rem\">\
-                     <legend>Hero (section {n})</legend>",
-                    n = i + 1
-                ));
                 body.push_str(&format!(
                     "<label>Eyebrow</label><input name=\"sec.{i}.eyebrow\" value=\"{}\">",
                     html_escape(h_eye)
@@ -4029,8 +4053,59 @@ fn serve_edit_form(
                     "<label>Subtitle</label><textarea name=\"sec.{i}.subtitle\">{}</textarea>",
                     html_escape(h_sub)
                 ));
-                body.push_str("</fieldset>");
+            } else {
+                // Non-hero sections preview as JSON until step 4
+                // lands typed editors per kind.
+                let preview = serde_json::to_string(sec).unwrap_or_default();
+                let short = if preview.len() > 200 {
+                    format!("{}…", &preview[..199])
+                } else {
+                    preview
+                };
+                body.push_str(&format!(
+                    "<p style=\"color:#888;font-size:.85em;margin:.25rem 0\">\
+                     <code>{}</code></p>",
+                    html_escape(&short)
+                ));
             }
+            // T62 step 2: per-section reorder + delete controls.
+            // `formaction` overrides the main form's action; the
+            // main form's `required` validators don't fire because
+            // `formnovalidate` is set.
+            body.push_str("<div style=\"margin-top:.75rem;display:flex;gap:.5rem;align-items:center\">");
+            if i > 0 {
+                body.push_str(&format!(
+                    "<button type=\"submit\" formaction=\"/{slug}/sections/{i}/up\" \
+                       formmethod=\"post\" formnovalidate \
+                       style=\"padding:.3rem .7rem;font:inherit;border:1px solid #888;\
+                              border-radius:4px;background:#f4f4f4;cursor:pointer\">\
+                       ↑ Move up</button>",
+                    slug = html_escape(slug),
+                ));
+            }
+            if i + 1 < total {
+                body.push_str(&format!(
+                    "<button type=\"submit\" formaction=\"/{slug}/sections/{i}/down\" \
+                       formmethod=\"post\" formnovalidate \
+                       style=\"padding:.3rem .7rem;font:inherit;border:1px solid #888;\
+                              border-radius:4px;background:#f4f4f4;cursor:pointer\">\
+                       ↓ Move down</button>",
+                    slug = html_escape(slug),
+                ));
+            }
+            body.push_str(&format!(
+                "<button type=\"submit\" formaction=\"/{slug}/sections/{i}/delete\" \
+                   formmethod=\"post\" formnovalidate \
+                   style=\"padding:.3rem .7rem;font:inherit;border:1px solid #b00020;\
+                          border-radius:4px;background:#fee;color:#b00020;cursor:pointer;\
+                          margin-left:auto\" \
+                   onclick=\"return confirm('Delete section {n}? This can be undone by re-creating it.')\">\
+                   Delete</button>",
+                slug = html_escape(slug),
+                n = i + 1,
+            ));
+            body.push_str("</div>");
+            body.push_str("</fieldset>");
         }
     }
     body.push_str("<button type=\"submit\">Save</button>");
@@ -4351,6 +4426,97 @@ fn respond_text(
     body: &str,
 ) -> std::io::Result<()> {
     let resp = tiny_http::Response::from_string(body.to_owned()).with_status_code(code);
+    request.respond(resp)?;
+    Ok(())
+}
+
+/// Title-case helper for section-kind legends.
+fn capitalise(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut first = true;
+    for c in s.chars() {
+        if first {
+            for u in c.to_uppercase() {
+                out.push(u);
+            }
+            first = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// T62 step 2: per-section reorder + delete.
+fn handle_section_op(
+    request: tiny_http::Request,
+    cms_root: &std::path::Path,
+    forge_path: &str,
+    slug: &str,
+    idx: usize,
+    op: &str,
+) -> std::io::Result<()> {
+    let cap = match WriteCapability::for_dir(cms_root) {
+        Ok(c) => c,
+        Err(_) => return respond_text(request, 500, "cms root unreadable"),
+    };
+    let rel = std::path::PathBuf::from(format!("{slug}.json"));
+    if !cap.file_exists(&rel) {
+        return respond_text(request, 404, "page not found");
+    }
+    let raw_bytes = cap.read_file(&rel).map_err(|_| std::io::Error::other("read"))?;
+    let raw = String::from_utf8(raw_bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
+    let mut parsed: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| std::io::Error::other(format!("parse: {e}")))?;
+
+    {
+        let Some(sections) = parsed.get_mut("sections").and_then(|v| v.as_array_mut()) else {
+            return respond_text(request, 400, "page has no sections array");
+        };
+        if idx >= sections.len() {
+            return respond_text(request, 400, "section index out of range");
+        }
+        match op {
+            "up" => {
+                if idx == 0 {
+                    return respond_text(request, 400, "already at top");
+                }
+                sections.swap(idx, idx - 1);
+            }
+            "down" => {
+                if idx + 1 >= sections.len() {
+                    return respond_text(request, 400, "already at bottom");
+                }
+                sections.swap(idx, idx + 1);
+            }
+            "delete" => {
+                sections.remove(idx);
+            }
+            _ => return respond_text(request, 400, "unknown op"),
+        }
+    }
+
+    let serialized = serde_json::to_string_pretty(&parsed)
+        .map_err(|e| std::io::Error::other(format!("serialize: {e}")))?;
+    cap.write_atomic(&rel, serialized.as_bytes())
+        .map_err(|_| std::io::Error::other("write"))?;
+
+    if !forge_path.is_empty() {
+        let cms_parent = cms_root
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        let _ = std::process::Command::new("bash")
+            .arg(forge_path)
+            .current_dir(&cms_parent)
+            .status();
+    }
+
+    let mut resp = tiny_http::Response::empty(303);
+    resp.add_header(
+        tiny_http::Header::from_bytes(&b"Location"[..], format!("/{slug}").as_bytes())
+            .map_err(|_| std::io::Error::other("header"))?,
+    );
     request.respond(resp)?;
     Ok(())
 }
