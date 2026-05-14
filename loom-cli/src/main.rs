@@ -5149,6 +5149,14 @@ fn handle_edit_request(
                 }
             }
         }
+        // T76 cycle 85: drag-drop reorder atomic endpoint.
+        // POST /<slug>/sections/reorder with form fields
+        //   from=<source-index>  to=<target-index>
+        // The handler splices the JSON array; one client-
+        // side drop = one server round-trip = one redirect.
+        if let Some(slug) = path.strip_suffix("/sections/reorder") {
+            return handle_section_reorder(request, cms_root, forge_path, slug);
+        }
     }
     // Anything else is treated as a page slug (e.g. "about").
     if is_get {
@@ -6250,6 +6258,57 @@ ed.insertBefore(banner,ed.firstChild);\
 }\
 var draft=readDraft();\
 if(draft)showDraftBanner(draft);\
+var dragFrom=null;\
+document.addEventListener('dragstart',function(e){\
+var fs=e.target&&e.target.closest&&e.target.closest('fieldset[data-sec-index]');\
+if(!fs)return;\
+dragFrom=parseInt(fs.getAttribute('data-sec-index'),10);\
+if(isNaN(dragFrom)){dragFrom=null;return;}\
+fs.style.opacity='0.4';\
+if(e.dataTransfer){e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',String(dragFrom));}catch(_){}}\
+});\
+document.addEventListener('dragend',function(e){\
+var fs=e.target&&e.target.closest&&e.target.closest('fieldset[data-sec-index]');\
+if(fs)fs.style.opacity='';\
+dragFrom=null;\
+});\
+document.addEventListener('dragover',function(e){\
+if(dragFrom===null)return;\
+var fs=e.target&&e.target.closest&&e.target.closest('fieldset[data-sec-index]');\
+if(!fs)return;\
+e.preventDefault();\
+if(e.dataTransfer)e.dataTransfer.dropEffect='move';\
+fs.style.outline='2px dashed #06f';\
+fs.style.outlineOffset='2px';\
+});\
+document.addEventListener('dragleave',function(e){\
+var fs=e.target&&e.target.closest&&e.target.closest('fieldset[data-sec-index]');\
+if(fs){fs.style.outline='';fs.style.outlineOffset='';}\
+});\
+document.addEventListener('drop',function(e){\
+if(dragFrom===null)return;\
+var fs=e.target&&e.target.closest&&e.target.closest('fieldset[data-sec-index]');\
+if(!fs)return;\
+e.preventDefault();\
+fs.style.outline='';fs.style.outlineOffset='';\
+var to=parseInt(fs.getAttribute('data-sec-index'),10);\
+if(isNaN(to)||to===dragFrom){dragFrom=null;return;}\
+var pathParts=location.pathname.split('/');\
+var slug=pathParts[pathParts.length-1]||pathParts[pathParts.length-2]||'';\
+if(!slug){dragFrom=null;return;}\
+var form=document.createElement('form');\
+form.method='POST';\
+form.action='/'+encodeURIComponent(slug)+'/sections/reorder';\
+var fromInput=document.createElement('input');\
+fromInput.type='hidden';fromInput.name='from';fromInput.value=String(dragFrom);\
+form.appendChild(fromInput);\
+var toInput=document.createElement('input');\
+toInput.type='hidden';toInput.name='to';toInput.value=String(to);\
+form.appendChild(toInput);\
+document.body.appendChild(form);\
+clearDraft();\
+form.submit();\
+});\
 })();";
     let skip_link_hash = loom_cms_render::csp_sha256(SKIP_LINK_CSS.as_bytes());
     let edit_page_hash = loom_cms_render::csp_sha256(EDIT_PAGE_CSS.as_bytes());
@@ -6335,9 +6394,16 @@ if(draft)showDraftBanner(draft);\
             // T62 step 9: stable id so the click-to-edit overlay
             // can scrollIntoView + focus the right fieldset when
             // the iframe postMessages a section index.
+            // T76 cycle 85: each section fieldset is HTML5
+            // `draggable=true` with a visible `⋮⋮` drag
+            // handle. The cycle 79+82 EDIT_PAGE_JS binds
+            // dragstart/dragover/drop to compute the target
+            // index and POST to /<slug>/sections/reorder.
+            // `data-sec-index` is the stable index the server
+            // expects.
             body.push_str(&format!(
-                "<fieldset id=\"sec-edit-{i}\" style=\"margin-top:1.5rem;border:1px solid #ccc;border-radius:6px;padding:1rem;scroll-margin-top:1rem\">\
-                 <legend>{kind_label} (section {n})</legend>",
+                "<fieldset id=\"sec-edit-{i}\" draggable=\"true\" data-sec-index=\"{i}\" style=\"margin-top:1.5rem;border:1px solid #ccc;border-radius:6px;padding:1rem;scroll-margin-top:1rem\">\
+                 <legend><span class=\"loom-drag-handle\" aria-hidden=\"true\" title=\"Drag to reorder\" style=\"display:inline-block;cursor:grab;color:#595959;margin-right:.5rem;user-select:none;font-weight:700\">\u{22EE}\u{22EE}</span>{kind_label} (section {n})</legend>",
                 kind_label = html_escape(&capitalise(kind)),
                 n = i + 1,
             ));
@@ -8563,6 +8629,111 @@ fn capitalise(s: &str) -> String {
         }
     }
     out
+}
+
+/// T76 cycle 85: drag-drop reorder — atomic move of a
+/// section from index `from` to index `to`.
+///
+/// Form body (urlencoded):
+///   from=<source-index>
+///   to=<target-index>
+///
+/// Both indices are validated against the current array
+/// length. Out-of-range indices return 400 silently. The
+/// server-side JSON manipulation is a single
+/// `Vec::remove(from) + Vec::insert(to, …)` so the result
+/// is deterministic regardless of relative order.
+///
+/// Routes through the same cycle 60 WriteCapability +
+/// cycle 80 save_cms_revision pipeline. Returns 303 to the
+/// edit form on success; browser reload shows the new
+/// order.
+fn handle_section_reorder(
+    mut request: tiny_http::Request,
+    cms_root: &std::path::Path,
+    forge_path: &str,
+    slug: &str,
+) -> std::io::Result<()> {
+    let cap = match WriteCapability::for_dir(cms_root) {
+        Ok(c) => c,
+        Err(_) => return respond_text(request, 500, "cms root unreadable"),
+    };
+    let rel = std::path::PathBuf::from(format!("{slug}.json"));
+    if !cap.file_exists(&rel) {
+        return respond_text(request, 404, "page not found");
+    }
+    // Parse form body.
+    let mut body = String::new();
+    use std::io::Read as _;
+    request.as_reader().read_to_string(&mut body)?;
+    let mut from: Option<usize> = None;
+    let mut to: Option<usize> = None;
+    for pair in body.split('&').filter(|s| !s.is_empty()) {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        match k {
+            "from" => from = v.parse().ok(),
+            "to" => to = v.parse().ok(),
+            _ => {}
+        }
+    }
+    let (from, to) = match (from, to) {
+        (Some(f), Some(t)) => (f, t),
+        _ => return respond_text(request, 400, "missing from/to"),
+    };
+    if from == to {
+        // No-op; redirect immediately.
+        let mut resp = tiny_http::Response::empty(303);
+        resp.add_header(
+            tiny_http::Header::from_bytes(&b"Location"[..], format!("/{slug}").as_bytes())
+                .map_err(|_| std::io::Error::other("header"))?,
+        );
+        request.respond(resp)?;
+        return Ok(());
+    }
+
+    // Load, splice, write.
+    let raw_bytes = cap.read_file(&rel).map_err(|_| std::io::Error::other("read"))?;
+    let raw = String::from_utf8(raw_bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
+    let mut parsed: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| std::io::Error::other(format!("parse: {e}")))?;
+    let sections = match parsed.get_mut("sections").and_then(|v| v.as_array_mut()) {
+        Some(arr) => arr,
+        None => return respond_text(request, 400, "no sections array"),
+    };
+    let n = sections.len();
+    if from >= n || to >= n {
+        return respond_text(
+            request,
+            400,
+            &format!("from {from} or to {to} out of range (n={n})"),
+        );
+    }
+    let moved = sections.remove(from);
+    sections.insert(to, moved);
+
+    // Cycle 80: snapshot before overwrite.
+    save_cms_revision(cms_root, slug, &raw);
+    let serialized = serde_json::to_string_pretty(&parsed)
+        .map_err(|e| std::io::Error::other(format!("serialize: {e}")))?;
+    cap.write_atomic(&rel, serialized.as_bytes())
+        .map_err(|_| std::io::Error::other("write"))?;
+    if !forge_path.is_empty() {
+        let cms_parent = cms_root
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        let _ = std::process::Command::new("bash")
+            .arg(forge_path)
+            .current_dir(&cms_parent)
+            .status();
+    }
+    let mut resp = tiny_http::Response::empty(303);
+    resp.add_header(
+        tiny_http::Header::from_bytes(&b"Location"[..], format!("/{slug}").as_bytes())
+            .map_err(|_| std::io::Error::other("header"))?,
+    );
+    request.respond(resp)?;
+    Ok(())
 }
 
 /// T62 step 2: per-section reorder + delete.
