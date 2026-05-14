@@ -212,6 +212,29 @@ enum Cmd {
         #[arg(long, default_value = "https://next.plausiden.com/")]
         url: String,
     },
+    /// T34: emit a self-contained HTML page rendering every
+    /// CmsSection variant + named state into a single grid.
+    /// One output per theme (auto / light / dark) so visual
+    /// review covers the full cascade.
+    ///
+    /// Use cases:
+    ///   * Designer review — every primitive + variant on one
+    ///     page; spot inconsistency at a glance.
+    ///   * Visual-regression baseline — Crawler / phase_visual_diff
+    ///     screenshots the matrix; subsequent runs diff against it.
+    ///   * AI-agent oracle — when an agent edits a Loom primitive,
+    ///     re-render the matrix; pixel-diff catches regressions
+    ///     no test can.
+    ///
+    /// Writes 3 files: `<out>/state-matrix-auto.html`,
+    /// `<out>/state-matrix-light.html`, `<out>/state-matrix-dark.html`.
+    StateMatrix {
+        /// Output directory. Created if missing. Defaults to
+        /// `./state-matrix/` so it doesn't clobber a real
+        /// `static/` build.
+        #[arg(long, default_value = "./state-matrix")]
+        out: PathBuf,
+    },
     /// Scaffold a new page view from a sanctioned template. Emits
     /// a stub `<root>/src/views/<name>.rs` composed entirely from
     /// Loom primitives, plus the `pub mod <name>;` line for
@@ -740,6 +763,13 @@ fn main() -> ExitCode {
             Err(e) => {
                 eprintln!("loom audit: {e:#}");
                 ExitCode::from(1)
+            }
+        },
+        Cmd::StateMatrix { out } => match cmd_state_matrix(&out) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("loom state-matrix: {e:#}");
+                ExitCode::from(2)
             }
         },
         Cmd::New {
@@ -1650,6 +1680,212 @@ fn doctor_attest_key_path() -> Option<std::path::PathBuf> {
         return Some(std::path::PathBuf::from(p));
     }
     dirs_next::config_dir().map(|d| d.join("loom").join("attest-key.b64"))
+}
+
+/// T34: emit the component state-matrix HTML files. Renders one
+/// representative instance of every CmsSection variant + named
+/// state into a single page, then emits one file per theme so
+/// visual review covers the full cascade.
+///
+/// Layout: each section in the page is an instance of a
+/// CmsSection variant; the page-shell wraps them with a section
+/// header above each ("Heading H2", "Banner: warn", etc.) so a
+/// reviewer can scan the grid without parsing source.
+fn cmd_state_matrix(out: &std::path::Path) -> Result<()> {
+    use loom_cms_render::{CmsBannerTone, CmsPage, CmsSection, HeadingLevel};
+    std::fs::create_dir_all(out)
+        .map_err(|e| anyhow::anyhow!("create out dir {}: {e}", out.display()))?;
+    let cap = WriteCapability::for_dir(out)
+        .map_err(|_| anyhow::anyhow!("scope capability to {}", out.display()))?;
+    let page = build_state_matrix_page();
+    let body = loom_cms_render::render_page(&page).into_string();
+    let mut written = 0usize;
+    for theme in [None, Some("light"), Some("dark")] {
+        let html = loom_cms_render::page_shell_themed(
+            &page,
+            "/loom-skin.css",
+            &body,
+            None,
+            theme,
+        );
+        let label = theme.unwrap_or("auto");
+        let rel = std::path::PathBuf::from(format!("state-matrix-{label}.html"));
+        cap.write_file(&rel, html.as_bytes())
+            .map_err(|_| anyhow::anyhow!("write state-matrix-{label}.html"))?;
+        written += 1;
+    }
+    println!("loom state-matrix:");
+    println!("  ok  rendered {} CmsSection variant(s)", page.sections.len());
+    println!("  ok  {written} HTML file(s) written to {}/", out.display());
+    println!("       state-matrix-auto.html   (OS prefers-color-scheme)");
+    println!("       state-matrix-light.html  (explicit light)");
+    println!("       state-matrix-dark.html   (explicit dark)");
+    println!();
+    println!("Open in a browser, or feed into PlausiDen-Crawler for");
+    println!("visual-regression / pixel-diff against a baseline.");
+    Ok(())
+}
+
+/// Build the canonical CmsPage that exercises every variant +
+/// named state. Adding a new CmsSection variant SHOULD extend
+/// this page so every shipped state stays visible to designer
+/// review + visual-regression.
+fn build_state_matrix_page() -> loom_cms_render::CmsPage {
+    use loom_cms_render::{
+        CmsBannerTone, CmsCard, CmsNavLink, CmsPage, CmsPanel, CmsPanelBody,
+        CmsSection, HeadingLevel, HeroCta,
+    };
+    CmsPage {
+        schema: None,
+        title: "Loom state matrix".into(),
+        description: "Every CmsSection variant + named state, on one page.".into(),
+        path: "/state-matrix".into(),
+        nav_links: vec![
+            CmsNavLink {
+                label: "Home".into(),
+                href: "/".into(),
+                data_backend: "list-pages".into(),
+                current: true,
+            },
+            CmsNavLink {
+                label: "Other".into(),
+                href: "/other.html".into(),
+                data_backend: "list-pages".into(),
+                current: false,
+            },
+        ],
+        sections: vec![
+            // Heading — every level h2..h6.
+            CmsSection::Heading {
+                level: HeadingLevel::H2,
+                text: "Heading H2 — top-level section".into(),
+            },
+            CmsSection::Heading {
+                level: HeadingLevel::H3,
+                text: "Heading H3 — subsection".into(),
+            },
+            CmsSection::Heading {
+                level: HeadingLevel::H4,
+                text: "Heading H4".into(),
+            },
+            CmsSection::Heading {
+                level: HeadingLevel::H5,
+                text: "Heading H5".into(),
+            },
+            CmsSection::Heading {
+                level: HeadingLevel::H6,
+                text: "Heading H6 — deepest content heading".into(),
+            },
+            // Paragraph — single + with longer prose.
+            CmsSection::Paragraph {
+                text: "Paragraph — short prose. Tests body typography, line-height, max-width.".into(),
+            },
+            CmsSection::Paragraph {
+                text: "Paragraph — longer prose to test line-length wrapping. \
+                       Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do \
+                       eiusmod tempor incididunt ut labore et dolore magna aliqua. \
+                       Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.".into(),
+            },
+            // Hero — minimal + full (eyebrow + lede + cta).
+            CmsSection::Hero {
+                eyebrow: None,
+                title: "Hero — minimal".into(),
+                lede: None,
+                cta: None,
+            },
+            CmsSection::Hero {
+                eyebrow: Some("Eyebrow tag".into()),
+                title: "Hero — full".into(),
+                lede: Some("Lede paragraph — sets the scene. Longer than a tagline, shorter than a paragraph.".into()),
+                cta: Some(HeroCta {
+                    label: "Primary action".into(),
+                    href: "/cta-target".into(),
+                    data_backend: "cta-target".into(),
+                }),
+            },
+            // Group — heading + N body paragraphs.
+            CmsSection::Group {
+                title: "Group — heading + body paragraphs".into(),
+                body: vec![
+                    "First paragraph in the group.".into(),
+                    "Second paragraph — tests vertical rhythm + spacing.".into(),
+                    "Third paragraph — multiple paragraphs in one group should stack cleanly.".into(),
+                ],
+            },
+            // Banner — every tone.
+            CmsSection::Banner {
+                tone: CmsBannerTone::Info,
+                text: "Banner (info) — neutral notice. Maintenance window, schedule change.".into(),
+                dismissible: false,
+                id: None,
+            },
+            CmsSection::Banner {
+                tone: CmsBannerTone::Success,
+                text: "Banner (success) — confirmation. Saved, published, deployed.".into(),
+                dismissible: false,
+                id: None,
+            },
+            CmsSection::Banner {
+                tone: CmsBannerTone::Warn,
+                text: "Banner (warn) — actionable warning. Approaching budget, voting closes soon.".into(),
+                dismissible: true,
+                id: Some("matrix-warn-demo".into()),
+            },
+            CmsSection::Banner {
+                tone: CmsBannerTone::Danger,
+                text: "Banner (danger) — error / critical alert. Failed deploy, signature mismatch.".into(),
+                dismissible: false,
+                id: None,
+            },
+            // CardFeed — small list + stat-bearing cards.
+            CmsSection::CardFeed {
+                heading: Some("CardFeed — sample feed".into()),
+                items: vec![
+                    CmsCard {
+                        avatar: loom_cms_render::CmsAvatar::None,
+                        title: "Card 1 — minimal".into(),
+                        host: None,
+                        stats: vec![],
+                        href: "/card-1".into(),
+                        data_backend: "card-target".into(),
+                        tag: None,
+                    },
+                    CmsCard {
+                        avatar: loom_cms_render::CmsAvatar::None,
+                        title: "Card 2 — with host".into(),
+                        host: Some("Host name".into()),
+                        stats: vec![],
+                        href: "/card-2".into(),
+                        data_backend: "card-target".into(),
+                        tag: Some("featured".into()),
+                    },
+                ],
+            },
+            // Sidebar — single panel for the matrix; a real page
+            // would have N panels.
+            CmsSection::Sidebar {
+                label: Some("Side panels".into()),
+                panels: vec![CmsPanel {
+                    title: "Panel heading".into(),
+                    body: CmsPanelBody::Text {
+                        paragraphs: vec![
+                            "Sidebar panel body — single paragraph.".into(),
+                        ],
+                    },
+                }],
+            },
+            // Heading marker for the matrix end so reviewers know
+            // they've seen the full set.
+            CmsSection::Heading {
+                level: HeadingLevel::H2,
+                text: "End of state matrix".into(),
+            },
+            CmsSection::Paragraph {
+                text: "Every CmsSection variant + every named state should appear above. \
+                       If you see a variant missing, extend `build_state_matrix_page` in loom-cli.".into(),
+            },
+        ],
+    }
 }
 
 /// Emit a crawler-shaped JSON journey to stdout (or the given path).
