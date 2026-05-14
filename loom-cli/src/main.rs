@@ -7047,6 +7047,31 @@ fn revisions_show(cms: &std::path::Path, slug: &str, index: usize) -> Result<()>
     Ok(())
 }
 
+/// SUPERSOCIETY cycle 87: JSON-aware semantic diff for the
+/// revisions subcommand.
+///
+/// The cycle 81 line-set diff was honest about its bluntness
+/// but produced operator noise on common patterns: a single
+/// edit to a Hero title pretty-printed-its-way through the
+/// JSON formatter would emit ~3 lines of "-foo +bar" because
+/// the pretty-printer's brace placement differed line-by-line.
+///
+/// The cycle 87 diff parses both files via serde_json, walks
+/// the two structures recursively, and emits ONE output line
+/// per actual field-level difference, keyed by JSON-pointer
+/// path (RFC 6901):
+///
+///   --- about.bak.<ts>.json (revision 3)
+///   +++ about.json (active)
+///   - /title: "Old"
+///   + /title: "New"
+///   + /sections/2: {"kind":"paragraph","text":"appended"}
+///   - /sections/1/lede: "Removed lede"
+///
+/// Falls back to the cycle 81 line-set diff when either file
+/// doesn't parse as JSON — preserves the existing contract
+/// for any future revision file that holds non-JSON content
+/// (or partial JSON, or hand-edited corrupted state).
 fn revisions_diff(cms: &std::path::Path, slug: &str, index: usize) -> Result<()> {
     let rev_path = revisions_pick(cms, slug, index)?;
     let active_path = cms.join(format!("{slug}.json"));
@@ -7054,20 +7079,34 @@ fn revisions_diff(cms: &std::path::Path, slug: &str, index: usize) -> Result<()>
         .map_err(|e| anyhow::anyhow!("read {}: {e}", rev_path.display()))?;
     let active = std::fs::read_to_string(&active_path)
         .unwrap_or_default();
-    // Hand-rolled unified diff. Line-oriented, no external
-    // dep. Matches `diff -u` shape closely enough for an
-    // operator-readable output. NOT a minimal-edit-script
-    // diff (that requires Myers); this is a naive "show
-    // every removed line then every added line" form, which
-    // is honest about its own bluntness. Adequate for CMS
-    // file restores where blocks of edits are typical.
-    let rev_lines: Vec<&str> = revision.lines().collect();
-    let act_lines: Vec<&str> = active.lines().collect();
+
     println!("--- {} (revision {})", rev_path.display(), index);
     println!("+++ {} (active)", active_path.display());
-    // Compute line-set membership for cheap "removed/added"
-    // classification. Multiplicity isn't preserved — operator
-    // gets a coarse view that captures the gist.
+
+    // Try the JSON-aware path first.
+    if let (Ok(rev), Ok(act)) = (
+        serde_json::from_str::<serde_json::Value>(&revision),
+        serde_json::from_str::<serde_json::Value>(&active),
+    ) {
+        let mut diffs: Vec<String> = Vec::new();
+        json_walk_diff(&rev, &act, "", &mut diffs);
+        if diffs.is_empty() {
+            println!("(no semantic differences — revision == active)");
+        } else {
+            for line in &diffs {
+                println!("{line}");
+            }
+        }
+        return Ok(());
+    }
+
+    // Fall back to cycle 81's line-set diff for non-JSON
+    // files. Same shape, same bluntness, same disclaimer.
+    eprintln!(
+        "[revisions diff] one side didn't parse as JSON; falling back to line-set diff",
+    );
+    let rev_lines: Vec<&str> = revision.lines().collect();
+    let act_lines: Vec<&str> = active.lines().collect();
     let rev_set: std::collections::HashSet<&str> = rev_lines.iter().copied().collect();
     let act_set: std::collections::HashSet<&str> = act_lines.iter().copied().collect();
     let mut shown = 0;
@@ -7087,6 +7126,94 @@ fn revisions_diff(cms: &std::path::Path, slug: &str, index: usize) -> Result<()>
         println!("(no line-level differences — revision == active)");
     }
     Ok(())
+}
+
+/// Walk two `serde_json::Value`s in tandem, emitting diff
+/// lines for every field-level difference. `path` is a
+/// JSON-pointer-ish path (`/sections/0/title`); the empty
+/// string is the document root.
+///
+/// Output convention (matches the existing `---`/`+++`/
+/// `-`/`+` shape):
+///   `- <path>: <old>`   field present in revision, not in active OR changed
+///   `+ <path>: <new>`   field present in active, not in revision OR changed
+///
+/// Objects diff recursively. Arrays diff position-by-position
+/// (the operator's mental model of CMS sections is index-
+/// keyed). Scalar leaves emit one pair of `-`/`+` on
+/// mismatch.
+fn json_walk_diff(
+    rev: &serde_json::Value,
+    act: &serde_json::Value,
+    path: &str,
+    out: &mut Vec<String>,
+) {
+    if rev == act {
+        return;
+    }
+    use serde_json::Value::{Array, Object};
+    match (rev, act) {
+        (Object(r), Object(a)) => {
+            // Stable key order: union of both, sorted, for
+            // deterministic output regardless of map iteration.
+            let mut keys: std::collections::BTreeSet<&::std::string::String> = std::collections::BTreeSet::new();
+            for k in r.keys() {
+                keys.insert(k);
+            }
+            for k in a.keys() {
+                keys.insert(k);
+            }
+            for key in keys {
+                let child_path = format!("{path}/{key}");
+                match (r.get(key), a.get(key)) {
+                    (Some(rv), Some(av)) => json_walk_diff(rv, av, &child_path, out),
+                    (Some(rv), None) => {
+                        out.push(format!("- {}: {}", child_path, json_compact(rv)));
+                    }
+                    (None, Some(av)) => {
+                        out.push(format!("+ {}: {}", child_path, json_compact(av)));
+                    }
+                    (None, None) => {}
+                }
+            }
+        }
+        (Array(r), Array(a)) => {
+            let max_len = r.len().max(a.len());
+            for i in 0..max_len {
+                let child_path = format!("{path}/{i}");
+                match (r.get(i), a.get(i)) {
+                    (Some(rv), Some(av)) => json_walk_diff(rv, av, &child_path, out),
+                    (Some(rv), None) => {
+                        out.push(format!("- {}: {}", child_path, json_compact(rv)));
+                    }
+                    (None, Some(av)) => {
+                        out.push(format!("+ {}: {}", child_path, json_compact(av)));
+                    }
+                    (None, None) => {}
+                }
+            }
+        }
+        _ => {
+            // Scalars or mismatched types — leaf-level diff.
+            let p = if path.is_empty() { "/" } else { path };
+            out.push(format!("- {}: {}", p, json_compact(rev)));
+            out.push(format!("+ {}: {}", p, json_compact(act)));
+        }
+    }
+}
+
+/// Compact-encode a JSON value to a single line, truncating
+/// long strings so the diff stays readable in a terminal.
+fn json_compact(v: &serde_json::Value) -> String {
+    let raw = serde_json::to_string(v).unwrap_or_else(|_| String::from("?"));
+    if raw.len() > 160 {
+        let mut out = String::with_capacity(164);
+        out.push_str(&raw.chars().take(157).collect::<String>());
+        out.push_str("...");
+        out
+    } else {
+        raw
+    }
 }
 
 fn revisions_restore(cms: &std::path::Path, slug: &str, index: usize) -> Result<()> {

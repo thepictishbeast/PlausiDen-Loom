@@ -110,6 +110,61 @@ fn revisions_diff_shows_minus_revision_plus_active() {
 }
 
 #[test]
+fn revisions_diff_json_aware_emits_path_keyed_output() {
+    // T76 cycle 87: when both files parse as JSON, the diff
+    // walks them structurally and emits one line per
+    // field-level difference, keyed by JSON-pointer path.
+    let f = fixture("diff-json");
+    let cms = f.join("cms");
+    write(&cms.join("home.json"), r#"{
+  "title": "Active title",
+  "sections": [
+    {"kind": "paragraph", "text": "B"},
+    {"kind": "paragraph", "text": "C"}
+  ]
+}"#);
+    write(&cms.join("home.bak.1700000100.0.json"), r#"{
+  "title": "Revision title",
+  "sections": [
+    {"kind": "paragraph", "text": "A"},
+    {"kind": "paragraph", "text": "B"}
+  ]
+}"#);
+
+    let (status, out, _) = run(&cms, &["diff", "home", "1"]);
+    assert_eq!(status, 0);
+    // Title diff present with path keys.
+    assert!(out.contains("- /title: \"Revision title\""),
+        "expected `- /title: \"Revision title\"`:\n{out}");
+    assert!(out.contains("+ /title: \"Active title\""),
+        "expected `+ /title: \"Active title\"`:\n{out}");
+    // Section text changes are path-keyed.
+    assert!(out.contains("/sections/0/text"),
+        "expected /sections/0/text in output:\n{out}");
+    // No "(no semantic differences)" footer when diffs exist.
+    assert!(!out.contains("no semantic differences"),
+        "should not claim no-diff when diffs exist:\n{out}");
+
+    let _ = std::fs::remove_dir_all(&f);
+}
+
+#[test]
+fn revisions_diff_json_aware_identical_files_emits_no_diff() {
+    let f = fixture("diff-identical");
+    let cms = f.join("cms");
+    let content = r#"{"title":"same","sections":[]}"#;
+    write(&cms.join("home.json"), content);
+    write(&cms.join("home.bak.1700000100.0.json"), content);
+
+    let (status, out, _) = run(&cms, &["diff", "home", "1"]);
+    assert_eq!(status, 0);
+    assert!(out.contains("no semantic differences"),
+        "identical files should report no semantic differences:\n{out}");
+
+    let _ = std::fs::remove_dir_all(&f);
+}
+
+#[test]
 fn revisions_restore_replaces_active_and_snapshots_prior() {
     let f = fixture("restore");
     let cms = f.join("cms");
