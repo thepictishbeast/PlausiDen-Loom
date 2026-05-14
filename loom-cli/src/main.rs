@@ -3097,6 +3097,22 @@ fn handle_edit_request(
     if let Some(rest) = path.strip_prefix("preview/") {
         return serve_preview(request, static_root, rest);
     }
+    // T50: forge admin dashboard. Same server, same auth scope.
+    if path == "forge" && is_get {
+        return serve_forge_dashboard(request, cms_root, static_root);
+    }
+    if path == "forge/build" && is_post {
+        return handle_forge_build(request, cms_root, forge_path);
+    }
+    if path == "forge/themes" && is_get {
+        return serve_forge_themes(request, static_root);
+    }
+    if path == "forge/backends" && is_get {
+        return serve_forge_backends(request, cms_root);
+    }
+    if path == "forge/audit" && is_get {
+        return serve_forge_audit(request, cms_root);
+    }
     // Anything else is treated as a page slug (e.g. "about").
     if is_get {
         serve_edit_form(request, cms_root, path)
@@ -3133,7 +3149,291 @@ fn serve_index(
     if entries.is_empty() {
         body.push_str("<p><em>No cms/*.json files found.</em></p>");
     }
+    body.push_str("<hr><p><a href=\"/forge\">forge admin →</a></p>");
     respond_html(request, 200, &body)
+}
+
+// ============================================================
+// T50: forge admin dashboard — same auth scope as /<page> edit
+// pages; same server-rendered no-JS forms; reads forge state
+// from the filesystem.
+// ============================================================
+
+fn forge_admin_shell(title: &str, body_inner: &str) -> String {
+    let mut out = String::new();
+    out.push_str("<!doctype html><meta charset=utf-8>");
+    out.push_str(&format!("<title>forge · {}</title>", html_escape(title)));
+    out.push_str("<style>body{font:16px/1.5 system-ui;max-width:64rem;margin:2rem auto;padding:0 1rem}nav.t50{display:flex;gap:1rem;margin-bottom:2rem;padding-bottom:1rem;border-bottom:1px solid #ccc}nav.t50 a{color:#003;text-decoration:none;font-weight:600}nav.t50 a.cur{color:#000;border-bottom:2px solid #003;padding-bottom:.25rem}h1{margin-top:0}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{padding:.5rem;text-align:left;border-bottom:1px solid #eee;font-variant-numeric:tabular-nums}.muted{color:#888}.ok{color:#0a7d2c}.bad{color:#b00020}.warn{color:#a87000}button{padding:.6rem 1.2rem;font:inherit;border:0;border-radius:4px;background:#003;color:#fff;cursor:pointer}.card{padding:1rem 1.5rem;border:1px solid #ddd;border-radius:8px;margin:1rem 0;background:#fafafa}.card h2{margin-top:0;font-size:1.1em}</style>");
+    out.push_str("<nav class=\"t50\"><a href=\"/\">← pages</a>");
+    let cur = title;
+    for (label, href) in [
+        ("Dashboard", "/forge"),
+        ("Build", "/forge"),
+        ("Themes", "/forge/themes"),
+        ("Backends", "/forge/backends"),
+        ("Audit", "/forge/audit"),
+    ] {
+        let is_cur = (cur == "dashboard" && href == "/forge")
+            || (cur == "themes" && href == "/forge/themes")
+            || (cur == "backends" && href == "/forge/backends")
+            || (cur == "audit" && href == "/forge/audit");
+        let cls = if is_cur { " class=\"cur\"" } else { "" };
+        let _ = label;
+        out.push_str(&format!(
+            "<a href=\"{href}\"{cls}>{label}</a>",
+            href = html_escape(href),
+            cls = cls,
+            label = html_escape(label),
+        ));
+    }
+    out.push_str("</nav>");
+    out.push_str(body_inner);
+    out
+}
+
+/// `GET /forge` — dashboard. Reads reports/latest.json and renders
+/// summary counts + last-build timestamp. Includes a Build button
+/// that POSTs to /forge/build.
+fn serve_forge_dashboard(
+    request: tiny_http::Request,
+    cms_root: &std::path::Path,
+    _static_root: &std::path::Path,
+) -> std::io::Result<()> {
+    let site_root = cms_root.parent().unwrap_or(std::path::Path::new("."));
+    let latest = site_root.join("reports/latest.json");
+    let mut body = String::new();
+    body.push_str("<h1>forge — dashboard</h1>");
+
+    if latest.is_file() {
+        let raw = std::fs::read_to_string(&latest).unwrap_or_default();
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::Value::Null);
+        let strict = parsed
+            .get("strict_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let warns = parsed
+            .get("warn_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let mode = parsed
+            .get("mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        let started = parsed
+            .get("started")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        let strict_cls = if strict == 0 { "ok" } else { "bad" };
+        let warn_cls = if warns == 0 { "ok" } else { "warn" };
+        body.push_str(&format!(
+            "<div class=\"card\"><h2>Last build</h2>\
+             <table>\
+             <tr><th>Mode</th><td>{mode}</td></tr>\
+             <tr><th>Started</th><td><span class=\"muted\">{started}</span></td></tr>\
+             <tr><th>Strict findings</th><td><span class=\"{strict_cls}\">{strict}</span></td></tr>\
+             <tr><th>Warn findings</th><td><span class=\"{warn_cls}\">{warns}</span></td></tr>\
+             </table></div>",
+            mode = html_escape(mode),
+            started = html_escape(started),
+            strict_cls = strict_cls,
+            warn_cls = warn_cls,
+        ));
+    } else {
+        body.push_str(
+            "<p class=\"muted\">No build report at <code>reports/latest.json</code> yet. Run a build to populate.</p>"
+        );
+    }
+
+    body.push_str(
+        "<form method=\"POST\" action=\"/forge/build\">\
+         <button type=\"submit\">Run forge build now</button>\
+         </form>\
+         <p class=\"muted\">Builds the site, runs every phase including the crawler audit. Refresh after a few seconds.</p>"
+    );
+
+    let html = forge_admin_shell("dashboard", &body);
+    respond_html(request, 200, &html)
+}
+
+/// `POST /forge/build` — shell out to forge.sh, redirect.
+fn handle_forge_build(
+    request: tiny_http::Request,
+    cms_root: &std::path::Path,
+    forge_path: &str,
+) -> std::io::Result<()> {
+    let site_root = cms_root.parent().unwrap_or(std::path::Path::new("."));
+    if forge_path.is_empty() {
+        return respond_text(request, 503, "forge disabled in this session");
+    }
+    let status = std::process::Command::new("bash")
+        .arg(forge_path)
+        .current_dir(site_root)
+        .status();
+    let _ = status; // Surfaced via the dashboard reload.
+    let mut resp = tiny_http::Response::empty(303);
+    resp.add_header(
+        tiny_http::Header::from_bytes(&b"Location"[..], &b"/forge"[..])
+            .map_err(|_| std::io::Error::other("header"))?,
+    );
+    request.respond(resp)?;
+    Ok(())
+}
+
+/// `GET /forge/themes` — parse the skin.css path the editor knows
+/// about (static/loom.css preferred). Renders a table of themes
+/// with token counts. Apply-button is hidden until T29 lands real
+/// contrast-pinned swap; doctrine: never let a click ship an
+/// unaudited theme.
+fn serve_forge_themes(
+    request: tiny_http::Request,
+    static_root: &std::path::Path,
+) -> std::io::Result<()> {
+    let skin = static_root.join("loom.css");
+    let mut body = String::new();
+    body.push_str("<h1>themes</h1>");
+    if !skin.is_file() {
+        body.push_str(&format!(
+            "<p class=\"muted\">No skin at <code>{}</code>.</p>",
+            html_escape(&skin.display().to_string())
+        ));
+        let html = forge_admin_shell("themes", &body);
+        return respond_html(request, 200, &html);
+    }
+    let raw = std::fs::read_to_string(&skin)?;
+    let (themes, refs) = parse_skin_themes(&raw);
+    body.push_str(&format!(
+        "<p class=\"muted\">{} theme(s), {} unique <code>var(--loom-color-*)</code> reference(s).</p>",
+        themes.len(),
+        refs.len()
+    ));
+    body.push_str("<table><tr><th>Theme</th><th>Tokens</th><th>Sample (--loom-color-bg-canvas)</th></tr>");
+    for t in &themes {
+        let sample = t
+            .tokens
+            .get("--loom-color-bg-canvas")
+            .or_else(|| t.tokens.get("--loom-color-primary"))
+            .cloned()
+            .unwrap_or_default();
+        body.push_str(&format!(
+            "<tr><td><strong>{name}</strong></td><td>{n}</td><td><code>{sample}</code></td></tr>",
+            name = html_escape(&t.name),
+            n = t.tokens.len(),
+            sample = html_escape(&sample),
+        ));
+    }
+    body.push_str("</table>");
+    body.push_str(
+        "<p class=\"muted\">Apply-button lands with T29 (contrast-pinned themes). Until then, change <code>&lt;html data-theme=\"X\"&gt;</code> in your CMS or skin source.</p>"
+    );
+    let html = forge_admin_shell("themes", &body);
+    respond_html(request, 200, &html)
+}
+
+/// `GET /forge/backends` — render backend coverage. Reuses
+/// backends.toml directly (sibling of cms/).
+fn serve_forge_backends(
+    request: tiny_http::Request,
+    cms_root: &std::path::Path,
+) -> std::io::Result<()> {
+    let site_root = cms_root.parent().unwrap_or(std::path::Path::new("."));
+    let backends_path = site_root.join("backends.toml");
+    let mut body = String::new();
+    body.push_str("<h1>backends</h1>");
+    if !backends_path.is_file() {
+        body.push_str("<p class=\"muted\">No backends.toml in site root.</p>");
+        let html = forge_admin_shell("backends", &body);
+        return respond_html(request, 200, &html);
+    }
+    let raw = std::fs::read_to_string(&backends_path)?;
+    let value: toml::Value = toml::from_str(&raw)
+        .map_err(|e| std::io::Error::other(format!("backends.toml: {e}")))?;
+    let backends = match value.get("backends").and_then(|v| v.as_table()) {
+        Some(t) => t,
+        None => {
+            body.push_str("<p class=\"muted\">No [backends] section.</p>");
+            let html = forge_admin_shell("backends", &body);
+            return respond_html(request, 200, &html);
+        }
+    };
+    let mut rows: Vec<(String, BackendStatus, String, String)> = Vec::new();
+    for (k, v) in backends {
+        let Some(t) = v.as_table() else { continue };
+        let Ok(key) = BackendKey::new(k) else { continue };
+        let method = t.get("method").and_then(|v| v.as_str()).unwrap_or("?").to_owned();
+        let purpose = t.get("purpose").and_then(|v| v.as_str()).unwrap_or("").to_owned();
+        let impl_files: Vec<String> = t
+            .get("impl_files")
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+            .unwrap_or_default();
+        let status = BackendStatus::from_impl_files(impl_files);
+        rows.push((key.as_str().to_owned(), status, method, purpose));
+    }
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    let total = rows.len();
+    let stubs = rows.iter().filter(|r| r.1.is_stub()).count();
+    body.push_str(&format!(
+        "<p class=\"muted\">{total} declared, {impls} implemented ({pct}%), {stubs} stub.</p>",
+        impls = total - stubs,
+        pct = if total > 0 { (total - stubs) * 100 / total } else { 0 },
+    ));
+    body.push_str("<table><tr><th>Key</th><th>Method</th><th>Status</th><th>Purpose</th></tr>");
+    for (k, s, m, p) in &rows {
+        let cls = if s.is_stub() { "warn" } else { "ok" };
+        body.push_str(&format!(
+            "<tr><td><code>{k}</code></td><td>{m}</td><td><span class=\"{cls}\">{lab}</span></td><td>{p}</td></tr>",
+            k = html_escape(k),
+            m = html_escape(m),
+            cls = cls,
+            lab = s.label(),
+            p = html_escape(p),
+        ));
+    }
+    body.push_str("</table>");
+    let html = forge_admin_shell("backends", &body);
+    respond_html(request, 200, &html)
+}
+
+/// `GET /forge/audit` — latest crawler positive-signal snapshot.
+fn serve_forge_audit(
+    request: tiny_http::Request,
+    cms_root: &std::path::Path,
+) -> std::io::Result<()> {
+    let site_root = cms_root.parent().unwrap_or(std::path::Path::new("."));
+    let mut body = String::new();
+    body.push_str("<h1>audit</h1>");
+
+    // Latest forge report includes whether crawl passed.
+    let latest = site_root.join("reports/latest.json");
+    if latest.is_file() {
+        let raw = std::fs::read_to_string(&latest).unwrap_or_default();
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::Value::Null);
+        let phases = parsed.get("phases").and_then(|v| v.as_array());
+        if let Some(phases) = phases {
+            if let Some(crawl) = phases.iter().find(|p| {
+                p.get("name").and_then(|v| v.as_str()) == Some("crawl")
+            }) {
+                let findings = crawl
+                    .get("findings")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.len())
+                    .unwrap_or(0);
+                body.push_str(&format!(
+                    "<div class=\"card\"><h2>Last crawl phase</h2>\
+                     <p>Findings: <strong>{findings}</strong></p>\
+                     </div>"
+                ));
+            }
+        }
+    }
+
+    body.push_str(
+        "<p class=\"muted\">The crawler runs as part of every <code>forge.sh</code> invocation (T49). \
+         Trigger a fresh build from the dashboard to refresh.</p>"
+    );
+
+    let html = forge_admin_shell("audit", &body);
+    respond_html(request, 200, &html)
 }
 
 fn serve_edit_form(
