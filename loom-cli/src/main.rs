@@ -3632,12 +3632,12 @@ fn handle_edit_request(
     }
     // T62: section-mutation paths. Format:
     //   <slug>/add-section
-    //   <slug>/sections/<N>/up | down | delete
+    //   <slug>/sections/<N>/up | down | delete | add-paragraph
     if is_post {
         if let Some(slug) = path.strip_suffix("/add-section") {
             return handle_add_section(request, cms_root, forge_path, slug);
         }
-        for op in &["up", "down", "delete"] {
+        for op in &["up", "down", "delete", "add-paragraph"] {
             let suffix = format!("/{op}");
             if let Some(rest) = path.strip_suffix(suffix.as_str()) {
                 if let Some((slug_plus_section, idx_str)) = rest.rsplit_once("/sections/") {
@@ -4075,36 +4075,145 @@ fn serve_edit_form(
                 kind_label = html_escape(&capitalise(kind)),
                 n = i + 1,
             ));
-            if kind == "hero" {
-                let h_title = sec.get("title").and_then(|v| v.as_str()).unwrap_or("");
-                let h_sub = sec.get("subtitle").and_then(|v| v.as_str()).unwrap_or("");
-                let h_eye = sec.get("eyebrow").and_then(|v| v.as_str()).unwrap_or("");
-                body.push_str(&format!(
-                    "<label>Eyebrow</label><input name=\"sec.{i}.eyebrow\" value=\"{}\">",
-                    html_escape(h_eye)
-                ));
-                body.push_str(&format!(
-                    "<label>Title</label><input name=\"sec.{i}.title\" value=\"{}\">",
-                    html_escape(h_title)
-                ));
-                body.push_str(&format!(
-                    "<label>Subtitle</label><textarea name=\"sec.{i}.subtitle\">{}</textarea>",
-                    html_escape(h_sub)
-                ));
-            } else {
-                // Non-hero sections preview as JSON until step 4
-                // lands typed editors per kind.
-                let preview = serde_json::to_string(sec).unwrap_or_default();
-                let short = if preview.len() > 200 {
-                    format!("{}…", &preview[..199])
-                } else {
-                    preview
-                };
-                body.push_str(&format!(
-                    "<p style=\"color:#888;font-size:.85em;margin:.25rem 0\">\
-                     <code>{}</code></p>",
-                    html_escape(&short)
-                ));
+            // T62 step 4: typed editors per CmsSection variant.
+            // Field names follow `sec.<i>.<field>` so the existing
+            // POST handler can read them; arrays use
+            // `sec.<i>.<field>.<n>` for stable indexing.
+            match kind {
+                "hero" => {
+                    let h_title = sec.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                    let h_sub = sec.get("subtitle").and_then(|v| v.as_str()).unwrap_or("");
+                    let h_eye = sec.get("eyebrow").and_then(|v| v.as_str()).unwrap_or("");
+                    body.push_str(&format!(
+                        "<label>Eyebrow</label><input name=\"sec.{i}.eyebrow\" value=\"{}\">",
+                        html_escape(h_eye)
+                    ));
+                    body.push_str(&format!(
+                        "<label>Title</label><input name=\"sec.{i}.title\" value=\"{}\">",
+                        html_escape(h_title)
+                    ));
+                    body.push_str(&format!(
+                        "<label>Subtitle</label><textarea name=\"sec.{i}.subtitle\">{}</textarea>",
+                        html_escape(h_sub)
+                    ));
+                }
+                "paragraph" => {
+                    let pbody = sec.get("body").and_then(|v| v.as_str()).unwrap_or("");
+                    body.push_str(&format!(
+                        "<label>Body</label>\
+                         <textarea name=\"sec.{i}.body\" rows=\"4\" required>{}</textarea>",
+                        html_escape(pbody)
+                    ));
+                }
+                "heading" => {
+                    let level = sec.get("level").and_then(|v| v.as_u64()).unwrap_or(2);
+                    let text = sec.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                    body.push_str(&format!(
+                        "<label>Level</label>\
+                         <select name=\"sec.{i}.level\" \
+                                 style=\"width:6rem;padding:.5rem;font:inherit;\
+                                        border:1px solid #888;border-radius:4px\">"
+                    ));
+                    for lvl in 1..=6u64 {
+                        let sel = if lvl == level { " selected" } else { "" };
+                        body.push_str(&format!(
+                            "<option value=\"{lvl}\"{sel}>H{lvl}</option>"
+                        ));
+                    }
+                    body.push_str("</select>");
+                    body.push_str(&format!(
+                        "<label>Text</label><input name=\"sec.{i}.text\" value=\"{}\" required>",
+                        html_escape(text)
+                    ));
+                }
+                "banner" => {
+                    let tone = sec.get("tone").and_then(|v| v.as_str()).unwrap_or("info");
+                    let title_v = sec.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                    let body_v = sec.get("body").and_then(|v| v.as_str()).unwrap_or("");
+                    body.push_str(&format!(
+                        "<label>Tone</label>\
+                         <select name=\"sec.{i}.tone\" \
+                                 style=\"width:8rem;padding:.5rem;font:inherit;\
+                                        border:1px solid #888;border-radius:4px\">"
+                    ));
+                    for opt in ["info", "success", "warn", "danger"] {
+                        let sel = if opt == tone { " selected" } else { "" };
+                        body.push_str(&format!(
+                            "<option value=\"{opt}\"{sel}>{opt}</option>"
+                        ));
+                    }
+                    body.push_str("</select>");
+                    body.push_str(&format!(
+                        "<label>Title</label><input name=\"sec.{i}.title\" value=\"{}\">",
+                        html_escape(title_v)
+                    ));
+                    body.push_str(&format!(
+                        "<label>Body</label><textarea name=\"sec.{i}.body\" rows=\"3\">{}</textarea>",
+                        html_escape(body_v)
+                    ));
+                }
+                "group" => {
+                    let g_title = sec.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                    body.push_str(&format!(
+                        "<label>Title</label><input name=\"sec.{i}.title\" value=\"{}\" required>",
+                        html_escape(g_title)
+                    ));
+                    body.push_str("<label>Body paragraphs</label>");
+                    let body_arr = sec.get("body").and_then(|v| v.as_array());
+                    let count = body_arr.map(Vec::len).unwrap_or(0);
+                    if let Some(arr) = body_arr {
+                        for (n, para) in arr.iter().enumerate() {
+                            let s = para.as_str().unwrap_or("");
+                            body.push_str(&format!(
+                                "<textarea name=\"sec.{i}.body.{n}\" rows=\"2\" \
+                                  style=\"margin-bottom:.5rem\">{}</textarea>",
+                                html_escape(s)
+                            ));
+                        }
+                    }
+                    if count == 0 {
+                        body.push_str(
+                            "<p style=\"color:#888;font-size:.85em;margin:0\">\
+                             (no body paragraphs — append below to add one)</p>",
+                        );
+                    }
+                    // Hidden marker so POST knows how many body
+                    // paragraphs the form rendered.
+                    body.push_str(&format!(
+                        "<input type=\"hidden\" name=\"sec.{i}.body.__count\" value=\"{count}\">"
+                    ));
+                    // Inline form OUTSIDE the main form (via
+                    // formaction) for "+ paragraph". Using the
+                    // existing /add-section route would create a
+                    // whole new section; we want to extend THIS
+                    // group. New endpoint: add-paragraph.
+                    body.push_str(&format!(
+                        "<button type=\"submit\" formaction=\"/{slug}/sections/{i}/add-paragraph\" \
+                          formmethod=\"post\" formnovalidate \
+                          style=\"padding:.3rem .7rem;font:inherit;border:1px solid #888;\
+                                 border-radius:4px;background:#f4f4f4;cursor:pointer;\
+                                 margin-top:.25rem\">+ paragraph</button>",
+                        slug = html_escape(slug),
+                    ));
+                }
+                _ => {
+                    // Unknown kind — fall back to JSON preview
+                    // so the operator can SEE there's a section
+                    // forge couldn't render an editor for.
+                    let preview = serde_json::to_string(sec).unwrap_or_default();
+                    let short = if preview.len() > 200 {
+                        format!("{}…", &preview[..199])
+                    } else {
+                        preview
+                    };
+                    body.push_str(&format!(
+                        "<p style=\"color:#a87000;font-size:.85em;margin:.25rem 0\">\
+                         <strong>No editor for kind '{}'.</strong> Raw JSON:<br>\
+                         <code>{}</code></p>",
+                        html_escape(kind),
+                        html_escape(&short)
+                    ));
+                }
             }
             // T62 step 2: per-section reorder + delete controls.
             // `formaction` overrides the main form's action; the
@@ -4358,14 +4467,77 @@ fn handle_edit_post(
     if let Some(d) = fields.get("description") {
         parsed["description"] = serde_json::Value::String(d.clone());
     }
-    // Hero per-section fields: sec.N.<key>
+    // T62 step 4: typed per-kind field handling. Field names
+    // follow `sec.<i>.<field>` (scalars) or `sec.<i>.<field>.<n>`
+    // (arrays). The match below mirrors the GET-side editor.
     if let Some(sections) = parsed.get_mut("sections").and_then(|v| v.as_array_mut()) {
         for (i, sec) in sections.iter_mut().enumerate() {
-            for key in ["title", "subtitle", "eyebrow"] {
-                let form_key = format!("sec.{i}.{key}");
-                if let Some(v) = fields.get(&form_key) {
-                    sec[key] = serde_json::Value::String(v.clone());
+            let kind = sec.get("kind").and_then(|v| v.as_str()).unwrap_or("").to_owned();
+            match kind.as_str() {
+                "hero" => {
+                    for key in ["title", "subtitle", "eyebrow"] {
+                        if let Some(v) = fields.get(&format!("sec.{i}.{key}")) {
+                            sec[key] = serde_json::Value::String(v.clone());
+                        }
+                    }
                 }
+                "paragraph" => {
+                    if let Some(v) = fields.get(&format!("sec.{i}.body")) {
+                        sec["body"] = serde_json::Value::String(v.clone());
+                    }
+                }
+                "heading" => {
+                    if let Some(v) = fields.get(&format!("sec.{i}.text")) {
+                        sec["text"] = serde_json::Value::String(v.clone());
+                    }
+                    if let Some(v) = fields.get(&format!("sec.{i}.level")) {
+                        // SECURITY: clamp to 1..=6 — anything else
+                        // would emit invalid HTML (<h7> doesn't exist).
+                        let lvl: u64 = v.parse().unwrap_or(2).clamp(1, 6);
+                        sec["level"] = serde_json::Value::from(lvl);
+                    }
+                }
+                "banner" => {
+                    if let Some(v) = fields.get(&format!("sec.{i}.tone")) {
+                        // SECURITY: only allow the declared tone enum.
+                        let tone = if ["info", "success", "warn", "danger"].contains(&v.as_str()) {
+                            v.clone()
+                        } else {
+                            "info".to_owned()
+                        };
+                        sec["tone"] = serde_json::Value::String(tone);
+                    }
+                    for key in ["title", "body"] {
+                        if let Some(v) = fields.get(&format!("sec.{i}.{key}")) {
+                            sec[key] = serde_json::Value::String(v.clone());
+                        }
+                    }
+                }
+                "group" => {
+                    if let Some(v) = fields.get(&format!("sec.{i}.title")) {
+                        sec["title"] = serde_json::Value::String(v.clone());
+                    }
+                    // body is an array of paragraphs. The form
+                    // ships a hidden __count + sec.N.body.0,
+                    // sec.N.body.1, ... entries. Walk by index
+                    // so empty paragraphs are preserved positionally.
+                    let count: usize = fields
+                        .get(&format!("sec.{i}.body.__count"))
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(0);
+                    let mut paragraphs = Vec::<serde_json::Value>::with_capacity(count);
+                    for n in 0..count {
+                        let v = fields
+                            .get(&format!("sec.{i}.body.{n}"))
+                            .cloned()
+                            .unwrap_or_default();
+                        paragraphs.push(serde_json::Value::String(v));
+                    }
+                    if !paragraphs.is_empty() {
+                        sec["body"] = serde_json::Value::Array(paragraphs);
+                    }
+                }
+                _ => {} // unknown kind — leave untouched
             }
         }
     }
@@ -4681,6 +4853,33 @@ fn handle_section_op(
             }
             "delete" => {
                 sections.remove(idx);
+            }
+            "add-paragraph" => {
+                // Group-only: append an empty paragraph to the
+                // body[] array. Safe-guard: only operates when
+                // sec.kind == "group" AND sec.body is an array.
+                let sec = &mut sections[idx];
+                let kind = sec
+                    .get("kind")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_owned();
+                if kind != "group" {
+                    return respond_text(
+                        request,
+                        400,
+                        "add-paragraph only works on group sections",
+                    );
+                }
+                let arr = sec.get_mut("body").and_then(|v| v.as_array_mut());
+                match arr {
+                    Some(a) => a.push(serde_json::Value::String(String::new())),
+                    None => {
+                        sec["body"] = serde_json::Value::Array(vec![
+                            serde_json::Value::String(String::new()),
+                        ]);
+                    }
+                }
             }
             _ => return respond_text(request, 400, "unknown op"),
         }
