@@ -1752,8 +1752,27 @@ fn cmd_state_matrix(out: &std::path::Path) -> Result<()> {
     cap.write_file(std::path::Path::new("loom-skin.css"), skin_css.as_bytes())
         .map_err(|_| anyhow::anyhow!("write loom-skin.css"))?;
     for theme in [None, Some("light"), Some("dark")] {
+        let label = theme.unwrap_or("auto");
+        // REGRESSION-GUARD cycle 62: each theme variant gets its own
+        // title + description so the Crawler's crossPageTitle and
+        // crossPageMetaDescription detectors don't flag the trio
+        // as duplicate. Each file IS a distinct page (different
+        // theme, different visual output); the metadata should
+        // reflect that. The CmsPage is otherwise identical so the
+        // section grid stays consistent across theme snapshots.
+        let mut themed_page = page.clone();
+        let theme_label_display = match theme {
+            Some("light") => "Light theme",
+            Some("dark") => "Dark theme",
+            _ => "Auto (OS preference)",
+        };
+        themed_page.title = format!("{} — {}", page.title, theme_label_display);
+        themed_page.description = format!(
+            "{} Variant: {}.",
+            page.description, theme_label_display,
+        );
         let html = loom_cms_render::page_shell_themed(
-            &page,
+            &themed_page,
             // Use the relative path so the file works from `file://`
             // URLs (designers email these around) AND from
             // `python3 -m http.server` (PlausiDen-Crawler audits).
@@ -1765,7 +1784,6 @@ fn cmd_state_matrix(out: &std::path::Path) -> Result<()> {
             None,
             theme,
         );
-        let label = theme.unwrap_or("auto");
         let rel = std::path::PathBuf::from(format!("state-matrix-{label}.html"));
         cap.write_file(&rel, html.as_bytes())
             .map_err(|_| anyhow::anyhow!("write state-matrix-{label}.html"))?;
