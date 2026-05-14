@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo test)",
+      "Bash(cargo test -p *)",
+      "Bash(cargo check*)",
+      "Bash(cargo clippy*)",
+      "Bash(cargo build*)",
+      "Bash(/home/user/cargo-target/release/loom lint*)"
+    ]
+  }
+}

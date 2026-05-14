@@ -1740,10 +1740,27 @@ fn cmd_state_matrix(out: &std::path::Path) -> Result<()> {
     let page = build_state_matrix_page();
     let body = loom_cms_render::render_page(&page).into_string();
     let mut written = 0usize;
+    // T34/cycle-38 fix: page_shell_themed emits a `<link
+    // rel="stylesheet" href="loom-skin.css">` tag. Without the
+    // sibling CSS file, every state-matrix-*.html load 404s and
+    // PlausiDen-Crawler grades the output Grade C with reliability=F
+    // (6 strict console-errors + 10 strict failed-requests across
+    // the 3 themes). Emit loom-skin.css alongside the HTML so the
+    // matrix is self-contained and a designer/agent can open
+    // state-matrix-light.html directly without spinning up a server.
+    let skin_css = loom_tokens::tokens_css();
+    cap.write_file(std::path::Path::new("loom-skin.css"), skin_css.as_bytes())
+        .map_err(|_| anyhow::anyhow!("write loom-skin.css"))?;
     for theme in [None, Some("light"), Some("dark")] {
         let html = loom_cms_render::page_shell_themed(
             &page,
-            "/loom-skin.css",
+            // Use the relative path so the file works from `file://`
+            // URLs (designers email these around) AND from
+            // `python3 -m http.server` (PlausiDen-Crawler audits).
+            // The previous "/loom-skin.css" absolute path worked
+            // ONLY when served from the document root, which the
+            // state-matrix never is.
+            "loom-skin.css",
             &body,
             None,
             theme,
@@ -1756,6 +1773,7 @@ fn cmd_state_matrix(out: &std::path::Path) -> Result<()> {
     }
     println!("loom state-matrix:");
     println!("  ok  rendered {} CmsSection variant(s)", page.sections.len());
+    println!("  ok  loom-skin.css written ({} bytes)", skin_css.len());
     println!("  ok  {written} HTML file(s) written to {}/", out.display());
     println!("       state-matrix-auto.html   (OS prefers-color-scheme)");
     println!("       state-matrix-light.html  (explicit light)");
