@@ -5616,7 +5616,7 @@ fn serve_edit_form(
             "<form method=\"POST\" action=\"/theme\" style=\"margin:0;display:inline\">\
              <input type=\"hidden\" name=\"back\" value=\"{back}\">\
              <button type=\"submit\" name=\"theme\" value=\"{val}\"{active_attr} \
-                     style=\"padding:.15rem .4rem;border-radius:3px;border:0;\
+                     style=\"min-width:32px;min-height:24px;padding:.25rem .6rem;border-radius:3px;border:0;\
                             color:inherit;font:inherit;cursor:pointer;\
                             background:rgba(255,255,255,.1)\">{label}</button>\
              </form>",
@@ -5635,7 +5635,7 @@ fn serve_edit_form(
              {light_btn}{dark_btn}{auto_btn}\
            </span>\
            <a href=\"/preview/{slug}.html\" target=\"_blank\" rel=\"noopener\" \
-              style=\"margin-left:auto\">open ↗</a>\
+              style=\"margin-left:auto;display:inline-flex;align-items:center;min-height:24px;padding:.25rem .5rem\">open ↗</a>\
          </div>\
          <iframe class=\"preview-frame\" src=\"/preview-edit/{slug}.html{iframe_src_qs}\" \
                  title=\"Rendered preview of {slug} (click any section to jump to its editor)\"></iframe>\
