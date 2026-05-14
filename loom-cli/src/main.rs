@@ -5323,7 +5323,7 @@ fn serve_edit_form(
          @media(max-width:60rem){.preview-pane{position:static;height:60vh;\
                                               border-left:0;border-top:1px solid #ddd}}\
          .preview-bar{padding:.5rem 1rem;border-bottom:1px solid #ddd;\
-                      font-size:.85em;color:#555;display:flex;\
+                      font-size:.85em;color:#595959;display:flex;\
                       align-items:center;justify-content:space-between}\
          .preview-bar a{color:#003;text-decoration:none}\
          .preview-frame{flex:1;border:0;width:100%;background:#fff}\
