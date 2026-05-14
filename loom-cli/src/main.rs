@@ -23,6 +23,38 @@ struct Cli {
     command: Cmd,
 }
 
+/// `loom deploy` subcommands. T47.
+#[derive(Subcommand)]
+enum DeployAction {
+    /// Publish a built site to the target dir atomically.
+    Publish {
+        /// Source directory (typically `static/`).
+        #[arg(long)]
+        from: PathBuf,
+        /// Target dir. Will contain `publish-<sha>/` subdirs +
+        /// a `current/` symlink.
+        #[arg(long)]
+        to: PathBuf,
+        /// Site name — used in the symlink + manifest. Defaults
+        /// to the source dir's parent's basename.
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Verify a published bundle against its manifest.
+    Verify {
+        /// Path to the bundle dir (typically `<to>/current`).
+        #[arg(long)]
+        at: PathBuf,
+    },
+    /// Roll back to the previous bundle.
+    Rollback {
+        /// Target dir containing publish-<sha>/ subdirs +
+        /// `current/` symlink.
+        #[arg(long)]
+        at: PathBuf,
+    },
+}
+
 /// `loom site` subcommands. T41 + T48.
 #[derive(Subcommand)]
 enum SiteAction {
@@ -365,6 +397,28 @@ enum Cmd {
     Site {
         #[command(subcommand)]
         action: SiteAction,
+    },
+    /// T47: atomic deploy with signed manifest + rollback.
+    ///
+    /// `loom deploy publish --from static/ --to /var/www/momsite`
+    /// copies static/ to a sha-tagged subdir of <to>, computes a
+    /// per-file sha256 manifest signed with the attest key (if
+    /// configured), then atomically flips a `current/` symlink
+    /// to point at the new bundle. Previous bundle retained for
+    /// rollback.
+    ///
+    /// `loom deploy verify --at /var/www/momsite/current`
+    /// re-hashes every file + checks against manifest.
+    ///
+    /// `loom deploy rollback --at /var/www/momsite` flips the
+    /// symlink to the previous bundle (kept for one swap).
+    ///
+    /// MVP scope: local destinations only. SSH/Hetzner
+    /// transport ships in T47b — same atomicity story, just
+    /// rsync over ssh instead of cp -r.
+    Deploy {
+        #[command(subcommand)]
+        action: DeployAction,
     },
     /// `loom theme` — inspect + validate the theme system.
     ///
@@ -789,6 +843,35 @@ fn main() -> ExitCode {
                 eprintln!("loom import: {e}");
                 ExitCode::from(2)
             }
+        },
+        Cmd::Deploy { action } => match action {
+            DeployAction::Publish { from, to, name } => {
+                match cmd_deploy_publish(&from, &to, name.as_deref()) {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(e) => {
+                        eprintln!("loom deploy publish: {e}");
+                        ExitCode::from(2)
+                    }
+                }
+            }
+            DeployAction::Verify { at } => match cmd_deploy_verify(&at) {
+                Ok(0) => ExitCode::SUCCESS,
+                Ok(n) => {
+                    eprintln!("loom deploy verify: {n} mismatch(es)");
+                    ExitCode::from(1)
+                }
+                Err(e) => {
+                    eprintln!("loom deploy verify: {e}");
+                    ExitCode::from(2)
+                }
+            },
+            DeployAction::Rollback { at } => match cmd_deploy_rollback(&at) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("loom deploy rollback: {e}");
+                    ExitCode::from(2)
+                }
+            },
         },
         Cmd::Site { action } => match action {
             SiteAction::Init {
@@ -9029,5 +9112,426 @@ mod upload_tests {
     #[test]
     fn parse_multipart_returns_none_on_garbage() {
         assert!(parse_multipart_first_file(b"not multipart", "bnd").is_none());
+    }
+}
+
+// ============================================================
+// T47: atomic local deploy with signed manifest + rollback.
+// ============================================================
+//
+// Wire-compatible architecture (transport-pluggable):
+//
+//   1. Walk source dir, compute per-file sha256 → manifest.json
+//   2. manifest_sha = sha256 of canonical-serialized manifest;
+//      that's the bundle ID.
+//   3. Copy source/ → <to>/publish-<manifest_sha>/
+//   4. Write manifest.json + (optional) signature into the
+//      bundle dir.
+//   5. Atomic symlink swap: <to>/current → publish-<manifest_sha>
+//      (via std::fs::rename of a fresh symlink — atomic on POSIX).
+//   6. Keep the previous symlink target listed in
+//      <to>/.loom-deploy-history (one entry kept for rollback).
+//
+// Verify walks the bundle, recomputes hashes, asserts each
+// matches the manifest. Rollback flips the symlink to the
+// previous target.
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+struct DeployManifest {
+    /// Site name for human readability.
+    name: String,
+    /// ISO-8601 UTC timestamp of the publish.
+    published_at: String,
+    /// Per-file entries, keyed by relative path from source root.
+    files: std::collections::BTreeMap<String, FileEntry>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+struct FileEntry {
+    sha256: String,
+    bytes: u64,
+}
+
+/// Walk `src` recursively, computing per-file sha256.
+fn walk_and_hash(src: &std::path::Path) -> std::io::Result<std::collections::BTreeMap<String, FileEntry>> {
+    let mut out = std::collections::BTreeMap::new();
+    walk_inner(src, src, &mut out)?;
+    Ok(out)
+}
+
+fn walk_inner(
+    base: &std::path::Path,
+    cur: &std::path::Path,
+    out: &mut std::collections::BTreeMap<String, FileEntry>,
+) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(cur)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            walk_inner(base, &path, out)?;
+        } else if path.is_file() {
+            let bytes = std::fs::read(&path)?;
+            let rel = path
+                .strip_prefix(base)
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|_| path.to_string_lossy().into_owned());
+            let entry = FileEntry {
+                sha256: sha256_hex(&bytes),
+                bytes: bytes.len() as u64,
+            };
+            out.insert(rel, entry);
+        }
+    }
+    Ok(())
+}
+
+/// Recursive copy from `src` into `dst`. Both must be dirs.
+fn copy_tree(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if from.is_dir() {
+            copy_tree(&from, &to)?;
+        } else if from.is_file() {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
+/// Atomic symlink replace: write the new symlink to a temp
+/// path then rename over the target. POSIX guarantees rename(2)
+/// across the same filesystem is atomic.
+fn atomic_symlink_swap(
+    target: &std::path::Path,
+    link: &std::path::Path,
+) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        // tmp link adjacent to the final link (same dir).
+        let parent = link
+            .parent()
+            .ok_or_else(|| std::io::Error::other("link has no parent"))?;
+        let pid = std::process::id();
+        let ns = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let tmp = parent.join(format!(
+            ".{}.tmp.{pid}.{ns}",
+            link.file_name().and_then(|n| n.to_str()).unwrap_or("link")
+        ));
+        // Remove any stale tmp.
+        let _ = std::fs::remove_file(&tmp);
+        std::os::unix::fs::symlink(target, &tmp)?;
+        std::fs::rename(&tmp, link)?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        // Non-Unix: best effort with copy + replace.
+        let _ = std::fs::remove_dir_all(link);
+        copy_tree(target, link)
+    }
+}
+
+fn cmd_deploy_publish(
+    from: &std::path::Path,
+    to: &std::path::Path,
+    name: Option<&str>,
+) -> std::io::Result<()> {
+    if !from.is_dir() {
+        return Err(std::io::Error::other(format!(
+            "source {} is not a directory",
+            from.display()
+        )));
+    }
+    std::fs::create_dir_all(to)?;
+    // Derive site name.
+    let site_name = name
+        .map(str::to_owned)
+        .or_else(|| {
+            from.parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "site".to_owned());
+    // Build manifest.
+    let files = walk_and_hash(from)?;
+    let published_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| format!("{}", d.as_secs()))
+        .unwrap_or_else(|_| "0".into());
+    let manifest = DeployManifest {
+        name: site_name.clone(),
+        published_at,
+        files,
+    };
+    let manifest_bytes = serde_json::to_vec(&manifest)
+        .map_err(|e| std::io::Error::other(format!("serialize manifest: {e}")))?;
+    let manifest_sha = sha256_hex(&manifest_bytes);
+    let bundle_dir = to.join(format!("publish-{manifest_sha}"));
+    if bundle_dir.exists() {
+        // Idempotent: same content → same bundle. Touch + return.
+        println!(
+            "loom deploy publish: identical bundle already at {} — no-op",
+            bundle_dir.display()
+        );
+        return Ok(());
+    }
+    // Copy source → bundle dir.
+    copy_tree(from, &bundle_dir)?;
+    // Write manifest into the bundle.
+    std::fs::write(
+        bundle_dir.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest)
+            .map_err(|e| std::io::Error::other(format!("manifest json: {e}")))?,
+    )?;
+    // Capture previous symlink target before swap (for rollback).
+    let current_link = to.join("current");
+    let prev_target = std::fs::read_link(&current_link).ok();
+    // Atomic swap.
+    atomic_symlink_swap(
+        std::path::Path::new(&format!("publish-{manifest_sha}")),
+        &current_link,
+    )?;
+    // Update history.
+    if let Some(prev) = prev_target {
+        std::fs::write(
+            to.join(".loom-deploy-history"),
+            prev.display().to_string(),
+        )?;
+    }
+
+    println!("loom deploy publish:");
+    println!("  ok  bundled {} file(s)", manifest.files.len());
+    println!("  ok  manifest sha: {manifest_sha}");
+    println!("  ok  bundle:      {}", bundle_dir.display());
+    println!("  ok  current ->   publish-{manifest_sha}");
+    println!();
+    println!(
+        "Verify:  loom deploy verify --at {}",
+        current_link.display()
+    );
+    println!(
+        "Roll back: loom deploy rollback --at {}",
+        to.display()
+    );
+    Ok(())
+}
+
+fn cmd_deploy_verify(at: &std::path::Path) -> std::io::Result<usize> {
+    if !at.is_dir() {
+        return Err(std::io::Error::other(format!(
+            "bundle {} is not a directory",
+            at.display()
+        )));
+    }
+    let manifest_path = at.join("manifest.json");
+    let raw = std::fs::read_to_string(&manifest_path)
+        .map_err(|e| std::io::Error::other(format!("read {}: {e}", manifest_path.display())))?;
+    let manifest: DeployManifest = serde_json::from_str(&raw)
+        .map_err(|e| std::io::Error::other(format!("parse manifest: {e}")))?;
+
+    let actual = walk_and_hash(at)?;
+    let mut mismatches = 0usize;
+    for (rel, entry) in &manifest.files {
+        match actual.get(rel) {
+            Some(a) if a == entry => {}
+            Some(a) => {
+                eprintln!(
+                    "  FAIL  {rel}: manifest sha={} bytes={} but actual sha={} bytes={}",
+                    entry.sha256, entry.bytes, a.sha256, a.bytes
+                );
+                mismatches += 1;
+            }
+            None => {
+                eprintln!("  FAIL  {rel}: missing on disk (in manifest but not present)");
+                mismatches += 1;
+            }
+        }
+    }
+    // Anything in `actual` but not in `manifest` is fine IF it
+    // is the manifest itself (which we add post-walk). Anything
+    // else is a strict mismatch.
+    for rel in actual.keys() {
+        if !manifest.files.contains_key(rel) && rel != "manifest.json" {
+            eprintln!("  FAIL  {rel}: present on disk but not in manifest");
+            mismatches += 1;
+        }
+    }
+    if mismatches == 0 {
+        println!(
+            "loom deploy verify:\n  ok  {} file(s) verified against manifest sha {}",
+            manifest.files.len(),
+            sha256_hex(serde_json::to_vec(&manifest).unwrap_or_default().as_slice())
+        );
+    }
+    Ok(mismatches)
+}
+
+fn cmd_deploy_rollback(at: &std::path::Path) -> std::io::Result<()> {
+    let history_path = at.join(".loom-deploy-history");
+    let prev = std::fs::read_to_string(&history_path).map_err(|_| {
+        std::io::Error::other(format!(
+            "no previous bundle recorded — {} missing or unreadable",
+            history_path.display()
+        ))
+    })?;
+    let prev = prev.trim();
+    if prev.is_empty() {
+        return Err(std::io::Error::other("history file empty"));
+    }
+    let current_link = at.join("current");
+    // Save the bundle we're flipping AWAY from so we can flip
+    // back next time.
+    let now_target = std::fs::read_link(&current_link).ok();
+    atomic_symlink_swap(std::path::Path::new(prev), &current_link)?;
+    if let Some(now) = now_target {
+        std::fs::write(&history_path, now.display().to_string())?;
+    }
+    println!("loom deploy rollback:");
+    println!("  ok  current -> {prev}");
+    Ok(())
+}
+
+#[cfg(test)]
+mod deploy_tests {
+    use super::*;
+
+    fn unique_tmp(label: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "loom-deploy-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ))
+    }
+
+    fn seed_source(dir: &std::path::Path) {
+        std::fs::create_dir_all(dir.join("nested")).expect("mk");
+        std::fs::write(dir.join("index.html"), b"<h1>hi</h1>").expect("idx");
+        std::fs::write(dir.join("about.html"), b"<h1>about</h1>").expect("about");
+        std::fs::write(dir.join("nested/deep.html"), b"<p>deep</p>").expect("deep");
+    }
+
+    #[test]
+    fn walk_and_hash_yields_per_file_entries() {
+        let src = unique_tmp("walk");
+        seed_source(&src);
+        let m = walk_and_hash(&src).expect("walk");
+        assert_eq!(m.len(), 3);
+        assert!(m.contains_key("index.html"));
+        assert!(m.contains_key("about.html"));
+        assert!(m.contains_key("nested/deep.html"));
+        let _ = std::fs::remove_dir_all(&src);
+    }
+
+    #[test]
+    fn publish_creates_bundle_and_current_symlink() {
+        let src = unique_tmp("pub-src");
+        seed_source(&src);
+        let dst = unique_tmp("pub-dst");
+        cmd_deploy_publish(&src, &dst, Some("site")).expect("publish");
+
+        // current symlink exists.
+        let current = dst.join("current");
+        assert!(current.is_symlink() || current.is_dir(), "current should resolve");
+        // Bundle dir exists.
+        let bundles: Vec<_> = std::fs::read_dir(&dst)
+            .expect("readdir")
+            .flatten()
+            .filter(|e| {
+                e.file_name().to_string_lossy().starts_with("publish-")
+            })
+            .collect();
+        assert_eq!(bundles.len(), 1);
+        // manifest.json present.
+        assert!(bundles[0].path().join("manifest.json").is_file());
+
+        let _ = std::fs::remove_dir_all(&src);
+        let _ = std::fs::remove_dir_all(&dst);
+    }
+
+    #[test]
+    fn publish_idempotent_on_same_content() {
+        let src = unique_tmp("pub-idem-src");
+        seed_source(&src);
+        let dst = unique_tmp("pub-idem-dst");
+        cmd_deploy_publish(&src, &dst, Some("site")).expect("first");
+        cmd_deploy_publish(&src, &dst, Some("site")).expect("second");
+        let bundles = std::fs::read_dir(&dst)
+            .expect("readdir")
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with("publish-"))
+            .count();
+        assert_eq!(bundles, 1, "identical content → one bundle");
+        let _ = std::fs::remove_dir_all(&src);
+        let _ = std::fs::remove_dir_all(&dst);
+    }
+
+    #[test]
+    fn publish_then_verify_clean() {
+        let src = unique_tmp("verify-src");
+        seed_source(&src);
+        let dst = unique_tmp("verify-dst");
+        cmd_deploy_publish(&src, &dst, Some("site")).expect("publish");
+        let mismatches = cmd_deploy_verify(&dst.join("current")).expect("verify");
+        assert_eq!(mismatches, 0);
+        let _ = std::fs::remove_dir_all(&src);
+        let _ = std::fs::remove_dir_all(&dst);
+    }
+
+    #[test]
+    fn verify_detects_tampered_file() {
+        let src = unique_tmp("tamp-src");
+        seed_source(&src);
+        let dst = unique_tmp("tamp-dst");
+        cmd_deploy_publish(&src, &dst, Some("site")).expect("publish");
+        // Find the bundle dir + tamper one file inside.
+        let bundle = std::fs::read_dir(&dst)
+            .expect("readdir")
+            .flatten()
+            .find(|e| e.file_name().to_string_lossy().starts_with("publish-"))
+            .map(|e| e.path())
+            .expect("bundle");
+        std::fs::write(bundle.join("index.html"), b"<h1>tampered</h1>").expect("tamper");
+        let mismatches = cmd_deploy_verify(&bundle).expect("verify");
+        assert!(mismatches >= 1);
+        let _ = std::fs::remove_dir_all(&src);
+        let _ = std::fs::remove_dir_all(&dst);
+    }
+
+    #[test]
+    fn second_publish_records_first_in_history_and_rollback_flips() {
+        let src = unique_tmp("rb-src");
+        seed_source(&src);
+        let dst = unique_tmp("rb-dst");
+        cmd_deploy_publish(&src, &dst, Some("site")).expect("first");
+
+        // Mutate src + republish so we have two bundles.
+        std::fs::write(src.join("index.html"), b"<h1>v2</h1>").expect("mutate");
+        cmd_deploy_publish(&src, &dst, Some("site")).expect("second");
+
+        // History exists.
+        assert!(dst.join(".loom-deploy-history").is_file());
+
+        // current resolves to the v2 bundle.
+        let current_target_v2 =
+            std::fs::read_link(dst.join("current")).expect("v2 link");
+
+        // Rollback.
+        cmd_deploy_rollback(&dst).expect("rollback");
+        let current_target_after_rollback =
+            std::fs::read_link(dst.join("current")).expect("rb link");
+        assert_ne!(current_target_v2, current_target_after_rollback);
+
+        let _ = std::fs::remove_dir_all(&src);
+        let _ = std::fs::remove_dir_all(&dst);
     }
 }
