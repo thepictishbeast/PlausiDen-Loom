@@ -4515,6 +4515,9 @@ fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
          .step b{color:#003}\
          a{color:#003}\
          nav.tut{display:flex;gap:1rem;margin-bottom:1rem;font-size:.9em}\
+         nav.tut a{display:inline-flex;align-items:center;min-height:44px;padding:0 .75rem;\
+                   border-radius:4px}\
+         nav.tut a:hover,nav.tut a:focus-visible{background:#f4f4f4;outline:2px solid #003;outline-offset:2px}\
          </style>"
     );
     body.push_str("<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
@@ -4792,7 +4795,18 @@ fn serve_index(
     // BEFORE <body> so it lives in head context, not inside
     // <main>. Same restructuring as serve_uploads_gallery.
     body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\"><title>loom edit</title><style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style>");
-    body.push_str("<style>body{font:16px/1.5 system-ui;max-width:36rem;margin:3rem auto;padding:0 1rem}a{display:block;padding:.5rem 0}</style>");
+    // REGRESSION-GUARD cycle 55: tap-target heights ≥44px on
+    // every interactive element. WCAG 2.1 SC 2.5.5 (AAA). The
+    // index page is the operator's daily landing — bigger
+    // targets reduce thumb-mis-tap on touch devices.
+    body.push_str(
+        "<style>\
+         body{font:16px/1.5 system-ui;max-width:36rem;margin:3rem auto;padding:0 1rem}\
+         a{display:flex;align-items:center;min-height:44px;padding:.5rem 0;text-decoration:underline;color:#003}\
+         a:hover,a:focus-visible{background:#f4f4f4;text-decoration:none;outline:2px solid #003;outline-offset:2px}\
+         input,select,textarea,button{min-height:44px;font:inherit;box-sizing:border-box}\
+         </style>"
+    );
     body.push_str("<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
     body.push_str(
         "<p style=\"margin:0 0 1rem;font-size:.9em\">\
@@ -5316,6 +5330,11 @@ fn serve_edit_form(
     // policy until the policy is regenerated alongside — the
     // tests below pin the hashes to catch drift.
     const SKIP_LINK_CSS: &str = ".loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}";
+    // REGRESSION-GUARD cycle 55: ≥44px target heights across
+    // every interactive element. Includes editor pane buttons
+    // (Move-up / Move-down / Delete / Append / Save), theme-
+    // picker mini-buttons in the preview bar, and the preview-
+    // bar "open ↗" link.
     const EDIT_PAGE_CSS: &str =
          "body{font:16px/1.5 system-ui;margin:0;padding:0;display:grid;\
               grid-template-columns:minmax(0,1fr) minmax(0,1fr);\
@@ -5329,17 +5348,26 @@ fn serve_edit_form(
                                               border-left:0;border-top:1px solid #ddd}}\
          .preview-bar{padding:.5rem 1rem;border-bottom:1px solid #ddd;\
                       font-size:.85em;color:#595959;display:flex;\
-                      align-items:center;justify-content:space-between}\
-         .preview-bar a{color:#003;text-decoration:none}\
+                      align-items:center;justify-content:space-between;\
+                      flex-wrap:wrap;gap:.25rem}\
+         .preview-bar a{color:#003;text-decoration:none;display:inline-flex;\
+                        align-items:center;min-height:44px;padding:0 .5rem;\
+                        border-radius:4px}\
+         .preview-bar a:hover,.preview-bar a:focus-visible{background:rgba(0,0,0,.05);\
+                                                          outline:2px solid #003;outline-offset:2px}\
+         .preview-bar .theme-picker button{min-height:44px;min-width:44px;\
+                                           padding:.5rem .75rem}\
          .preview-frame{flex:1;border:0;width:100%;background:#fff}\
          label{display:block;margin:1rem 0 .25rem;font-weight:600}\
          input,textarea,select{width:100%;padding:.5rem;font:inherit;\
                               border:1px solid #888;border-radius:4px;\
-                              box-sizing:border-box}\
-         textarea{min-height:4em}\
+                              box-sizing:border-box;min-height:44px}\
+         textarea{min-height:5em}\
+         button{min-height:44px;font:inherit}\
          button[type=\"submit\"]{margin-top:1.5rem;padding:.6rem 1.2rem;\
                                 font:inherit;border:0;border-radius:4px;\
-                                background:#003;color:#fff;cursor:pointer}";
+                                background:#003;color:#fff;cursor:pointer}\
+         .editor fieldset button{padding:.5rem .9rem}";
     const EDIT_PAGE_JS: &str = "(function(){\
 var origin=location.origin;\
 window.addEventListener('message',function(e){\
@@ -5656,7 +5684,8 @@ if(!window.confirm(msg)){e.preventDefault();e.stopImmediatePropagation();}\
          <h2 style=\"margin-top:1.5rem;font-size:1.1em\">Add a section</h2>\
          <form method=\"POST\" action=\"/{slug}/add-section\" \
                style=\"display:flex;gap:.5rem;align-items:center;flex-wrap:wrap\">\
-         <label for=\"new-section-kind\" style=\"display:inline;margin:0\">Kind:</label>\
+         <label for=\"new-section-kind\" style=\"display:inline;margin:0\">Kind \
+                <span aria-hidden=\"true\" style=\"color:#b00020\">*</span>:</label>\
          <select id=\"new-section-kind\" name=\"kind\" required \
                  style=\"padding:.5rem;font:inherit;border:1px solid #888;border-radius:4px\">\
            <option value=\"hero\">Hero (eyebrow + title + subtitle)</option>\
@@ -5697,13 +5726,16 @@ if(!window.confirm(msg)){e.preventDefault();e.stopImmediatePropagation();}\
         if Some(t) == preview_theme { " aria-current=\"true\"" } else { "" }
     };
     let back_path = format!("/{slug}", slug = html_escape(slug));
+    // REGRESSION-GUARD cycle 55: theme-picker buttons inherit
+    // the .theme-picker button rule from EDIT_PAGE_CSS for ≥44px
+    // tap targets. The inline styling here is residual for the
+    // background/border treatment — sizing now comes from CSS.
     let theme_btn = |val: &str, label: &str, active_attr: &str| -> String {
         format!(
             "<form method=\"POST\" action=\"/theme\" style=\"margin:0;display:inline\">\
              <input type=\"hidden\" name=\"back\" value=\"{back}\">\
              <button type=\"submit\" name=\"theme\" value=\"{val}\"{active_attr} \
-                     style=\"min-width:32px;min-height:24px;padding:.25rem .6rem;border-radius:3px;border:0;\
-                            color:inherit;font:inherit;cursor:pointer;\
+                     style=\"border-radius:3px;border:0;color:inherit;cursor:pointer;\
                             background:rgba(255,255,255,.1)\">{label}</button>\
              </form>",
             back = back_path,
@@ -5721,7 +5753,7 @@ if(!window.confirm(msg)){e.preventDefault();e.stopImmediatePropagation();}\
              {light_btn}{dark_btn}{auto_btn}\
            </span>\
            <a href=\"/preview/{slug}.html\" target=\"_blank\" rel=\"noopener\" \
-              style=\"margin-left:auto;display:inline-flex;align-items:center;min-height:24px;padding:.25rem .5rem\">open ↗</a>\
+              style=\"margin-left:auto\">open ↗</a>\
          </div>\
          <iframe class=\"preview-frame\" src=\"/preview-edit/{slug}.html{iframe_src_qs}\" \
                  title=\"Rendered preview of {slug} (click any section to jump to its editor)\"></iframe>\
@@ -11494,10 +11526,14 @@ fn serve_uploads_gallery(
          .grid img{max-width:100%;height:120px;object-fit:cover;border-radius:4px;display:block}\
          .grid figcaption{font:.75em monospace;color:#666;margin-top:.25rem;\
                          word-break:break-all;max-height:3.6em;overflow:hidden}\
-         input[type=file]{padding:.5rem;border:1px dashed #888;border-radius:4px;width:100%;\
-                          box-sizing:border-box}\
-         button{margin-top:1rem;padding:.5rem 1rem;font:inherit;border:0;border-radius:4px;\
-                background:#003;color:#fff;cursor:pointer}\
+         /* cycle 55: ≥44px tap targets on file input + Upload button. */\
+         input[type=file]{padding:.75rem;border:1px dashed #888;border-radius:4px;width:100%;\
+                          box-sizing:border-box;min-height:44px}\
+         button{margin-top:1rem;padding:.75rem 1rem;font:inherit;border:0;border-radius:4px;\
+                background:#003;color:#fff;cursor:pointer;min-height:44px}\
+         a{display:inline-flex;align-items:center;min-height:44px;padding:0 .25rem;\
+           border-radius:4px}\
+         a:hover,a:focus-visible{background:#f4f4f4;outline:2px solid #003;outline-offset:2px}\
          </style>"
     );
     body.push_str("<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
@@ -11508,7 +11544,8 @@ fn serve_uploads_gallery(
     body.push_str(
         "<form method=\"POST\" action=\"/upload-image\" enctype=\"multipart/form-data\">\
          <label for=\"f\" style=\"display:block;font-weight:600;margin-bottom:.5rem\">\
-           Upload an image (JPEG / PNG / GIF / WebP, ≤ 10 MiB):\
+           Upload an image (JPEG / PNG / GIF / WebP, ≤ 10 MiB) \
+           <span aria-hidden=\"true\" style=\"color:#b00020\">*</span>\
          </label>\
          <input id=\"f\" type=\"file\" name=\"file\" accept=\"image/jpeg,image/png,image/gif,image/webp\" required>\
          <button type=\"submit\">Upload</button>\
