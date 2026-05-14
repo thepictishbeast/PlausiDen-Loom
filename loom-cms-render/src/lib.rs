@@ -2545,6 +2545,22 @@ transition-duration:.001ms !important;scroll-behavior:auto !important}}";
 /// in CSP `script-src 'unsafe-hashes' 'sha256-…'`.
 pub const DEFER_ONLOAD_JS: &str = "this.media='all';this.removeAttribute('onload')";
 
+/// T76 (Crawler dogfood 2026-05-14): every page emits a default
+/// inline-SVG favicon so browser tabs / bookmarks / history don't
+/// render the generic globe glyph. Inline data URL means there's
+/// no separate /favicon.ico to deploy or 404 on — every Loom site
+/// gets a working icon out of the box.
+///
+/// Sites that want their own favicon should override this by
+/// emitting an additional `<link rel="icon">` AFTER the page_shell
+/// — browsers honor the last matching rel="icon" per type. Future
+/// page_shell variant could accept a `favicon_override: Option<&str>`.
+///
+/// The SVG renders a soft-square Loom mark in the brand accent
+/// colour. Width=height=16, viewBox 0 0 16 16, single path with a
+/// border radius so it reads cleanly at favicon size.
+pub const DEFAULT_FAVICON_LINK: &str = "<link rel=\"icon\" href=\"data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2016%2016%27%3E%3Crect%20width%3D%2716%27%20height%3D%2716%27%20rx%3D%273%27%20fill%3D%27%23111827%27%2F%3E%3Cpath%20d%3D%27M4%204h2v8H4zM10%204h2v8h-2zM6.5%208h3v1.5h-3z%27%20fill%3D%27%23f8fafc%27%2F%3E%3C%2Fsvg%3E\" type=\"image/svg+xml\">";
+
 /// Compute the CSP `'sha256-<base64>'` source-list value for a
 /// given inline block (script or style). Same construction
 /// browsers use for hash-pinning.
@@ -2704,6 +2720,7 @@ pub fn page_shell_themed(
   <title>{title}</title>\n\
   <meta name=\"description\" content=\"{description}\">\n\
   <link rel=\"canonical\" href=\"{path}\">\n\
+  {DEFAULT_FAVICON_LINK}\n\
   {style_block}{css_link}\n\
 </head>\n\
 <body>\n\
@@ -2823,6 +2840,25 @@ mod page_shell_tests {
         let a = page_shell(&empty_page(), "/loom-skin.css", "", None);
         let b = page_shell_themed(&empty_page(), "/loom-skin.css", "", None, None);
         assert_eq!(a, b, "page_shell(...) must equal page_shell_themed(..., None)");
+    }
+
+    // T76 (Crawler dogfood 2026-05-14): every page emits a default
+    // favicon link via DEFAULT_FAVICON_LINK. Closes
+    // favicon.missing-link at the source — SkillShots audit
+    // pre-fix produced 7 warns (one per page); post-fix produces 0.
+    #[test]
+    fn page_shell_emits_default_favicon_link() {
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
+        assert!(
+            s.contains("rel=\"icon\""),
+            "page_shell must emit a <link rel=\"icon\"> (default favicon)"
+        );
+        // It should be an inline data:image/svg+xml URL — no separate
+        // /favicon.ico file required to deploy.
+        assert!(
+            s.contains("data:image/svg+xml"),
+            "default favicon should be an inline SVG data URL (not /favicon.ico)"
+        );
     }
 
     #[test]
