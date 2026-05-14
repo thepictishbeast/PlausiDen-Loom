@@ -4810,7 +4810,7 @@ fn serve_index(
          <h2 style=\"font-size:1.05em;margin:1rem 0 .5rem\">Create a new page</h2>\
          <form method=\"POST\" action=\"/new-page\" style=\"display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end\">\
          <div style=\"flex:1;min-width:14rem\">\
-           <label for=\"new-slug\" style=\"display:block;font-weight:600;font-size:.9em\">Slug</label>\
+           <label for=\"new-slug\" style=\"display:block;font-weight:600;font-size:.9em\">Slug <span aria-hidden=\"true\" style=\"color:#b00020\">*</span><span class=\"visually-hidden\" style=\"position:absolute;left:-9999px\"> required</span></label>\
            <input id=\"new-slug\" name=\"slug\" required pattern=\"[a-z][a-z0-9-]*\" \
                   placeholder=\"about\" \
                   title=\"lowercase letters, digits, dashes; must start with a letter\" \
@@ -5350,12 +5350,12 @@ fn serve_edit_form(
         slug = html_escape(slug)
     ));
     body.push_str(&format!(
-        "<label for=\"f-title\">Title <span style=\"color:#595959;font-weight:400\">(&lt;title&gt; tag + page header)</span></label>\
+        "<label for=\"f-title\">Title <span aria-hidden=\"true\" style=\"color:#b00020\">*</span> <span style=\"color:#595959;font-weight:400\">(&lt;title&gt; tag + page header)</span></label>\
          <input id=\"f-title\" name=\"title\" value=\"{val}\" required>",
         val = html_escape(title)
     ));
     body.push_str(&format!(
-        "<label for=\"f-description\">Description <span style=\"color:#595959;font-weight:400\">(meta description for search engines)</span></label>\
+        "<label for=\"f-description\">Description <span aria-hidden=\"true\" style=\"color:#b00020\">*</span> <span style=\"color:#595959;font-weight:400\">(meta description for search engines)</span></label>\
          <textarea id=\"f-description\" name=\"description\" required>{val}</textarea>",
         val = html_escape(description)
     ));
