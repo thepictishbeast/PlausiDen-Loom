@@ -3626,6 +3626,10 @@ fn handle_edit_request(
     if path == "forge/audit" && is_get {
         return serve_forge_audit(request, cms_root);
     }
+    // T62 step 3: new-page POST.
+    if is_post && path == "new-page" {
+        return handle_new_page(request, cms_root, forge_path);
+    }
     // T62: section-mutation paths. Format:
     //   <slug>/add-section
     //   <slug>/sections/<N>/up | down | delete
@@ -3687,6 +3691,40 @@ fn serve_index(
     if entries.is_empty() {
         body.push_str("<p><em>No cms/*.json files found.</em></p>");
     }
+
+    // T62 step 3: new-page form. Operator can now build sites
+    // from scratch — no JSON file needs to pre-exist.
+    body.push_str(
+        "<hr style=\"margin-top:2rem\">\
+         <h2 style=\"font-size:1.05em;margin:1rem 0 .5rem\">Create a new page</h2>\
+         <form method=\"POST\" action=\"/new-page\" style=\"display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end\">\
+         <div style=\"flex:1;min-width:14rem\">\
+           <label for=\"new-slug\" style=\"display:block;font-weight:600;font-size:.9em\">Slug</label>\
+           <input id=\"new-slug\" name=\"slug\" required pattern=\"[a-z][a-z0-9-]*\" \
+                  placeholder=\"about\" \
+                  title=\"lowercase letters, digits, dashes; must start with a letter\" \
+                  style=\"width:100%;padding:.5rem;font:inherit;border:1px solid #888;border-radius:4px\">\
+         </div>\
+         <div style=\"flex:1;min-width:14rem\">\
+           <label for=\"new-template\" style=\"display:block;font-weight:600;font-size:.9em\">Template</label>\
+           <select id=\"new-template\" name=\"template\" \
+                   style=\"width:100%;padding:.5rem;font:inherit;border:1px solid #888;border-radius:4px\">\
+             <option value=\"blank\">Blank — title + description, no sections</option>\
+             <option value=\"landing\">Landing — hero + 3 group sections</option>\
+             <option value=\"about\">About — hero + paragraph</option>\
+             <option value=\"contact\">Contact — heading + paragraph</option>\
+           </select>\
+         </div>\
+         <button type=\"submit\" \
+                 style=\"padding:.5rem 1rem;font:inherit;border:0;border-radius:4px;\
+                        background:#003;color:#fff;cursor:pointer\">Create</button>\
+         </form>\
+         <p style=\"color:#888;font-size:.85em;margin-top:.5rem\">\
+           Slug becomes the filename (cms/&lt;slug&gt;.json) and the URL path \
+           (/&lt;slug&gt;.html). Edit the new page inline after creation.\
+         </p>"
+    );
+
     body.push_str("<hr><p><a href=\"/forge\">forge admin →</a></p>");
     respond_html(request, 200, &body)
 }
@@ -4426,6 +4464,158 @@ fn respond_text(
     body: &str,
 ) -> std::io::Result<()> {
     let resp = tiny_http::Response::from_string(body.to_owned()).with_status_code(code);
+    request.respond(resp)?;
+    Ok(())
+}
+
+/// T62 step 3: validated slug name. Same character class as
+/// BackendKey but for CMS file names.
+///
+/// SECURITY: rejects path traversal, shell metachars, dots,
+/// uppercase, and any non-ASCII. Constructor is the only way
+/// in.
+#[derive(Debug, Clone)]
+struct SlugName(String);
+
+impl SlugName {
+    fn new(s: &str) -> Result<Self, &'static str> {
+        if s.is_empty() {
+            return Err("slug must not be empty");
+        }
+        if s.len() > 80 {
+            return Err("slug too long (max 80 chars)");
+        }
+        let mut chars = s.chars();
+        let first = chars.next().unwrap_or('?');
+        if !first.is_ascii_lowercase() {
+            return Err("slug must start with lowercase a-z");
+        }
+        for c in chars {
+            if !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+                return Err("slug may only contain a-z, 0-9, dash");
+            }
+        }
+        Ok(Self(s.to_owned()))
+    }
+
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// T62 step 3: create a new cms/<slug>.json from a template +
+/// redirect to the editor.
+fn handle_new_page(
+    mut request: tiny_http::Request,
+    cms_root: &std::path::Path,
+    forge_path: &str,
+) -> std::io::Result<()> {
+    let cap = match WriteCapability::for_dir(cms_root) {
+        Ok(c) => c,
+        Err(_) => return respond_text(request, 500, "cms root unreadable"),
+    };
+
+    let mut body = String::new();
+    request.as_reader().read_to_string(&mut body)?;
+    let mut fields = std::collections::BTreeMap::<String, String>::new();
+    for pair in body.split('&').filter(|s| !s.is_empty()) {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        let key = urlencoding::decode(k)
+            .map_err(|e| std::io::Error::other(format!("decode key: {e}")))?
+            .into_owned();
+        let val = urlencoding::decode(&v.replace('+', " "))
+            .map_err(|e| std::io::Error::other(format!("decode val: {e}")))?
+            .into_owned();
+        fields.insert(key, val);
+    }
+    let raw_slug = fields.get("slug").cloned().unwrap_or_default();
+    let template = fields
+        .get("template")
+        .cloned()
+        .unwrap_or_else(|| "blank".to_owned());
+
+    let slug = match SlugName::new(&raw_slug) {
+        Ok(s) => s,
+        Err(why) => {
+            return respond_text(request, 400, &format!("invalid slug: {why}"));
+        }
+    };
+
+    let rel = std::path::PathBuf::from(format!("{}.json", slug.as_str()));
+    if cap.file_exists(&rel) {
+        return respond_text(request, 409, "page already exists; pick a different slug");
+    }
+
+    // Build the page JSON from the template.
+    let title = capitalise(slug.as_str());
+    let path_attr = format!("/{}.html", slug.as_str());
+    let page = match template.as_str() {
+        "blank" => serde_json::json!({
+            "$schema": "../cms-schema.json",
+            "title": title,
+            "description": format!("{} page.", title),
+            "path": path_attr,
+            "sections": [],
+        }),
+        "landing" => serde_json::json!({
+            "$schema": "../cms-schema.json",
+            "title": title,
+            "description": format!("{}", title),
+            "path": path_attr,
+            "sections": [
+                {"kind":"hero","eyebrow":"Welcome","title":title,"subtitle":"Edit this subtitle.","cta":null},
+                {"kind":"group","title":"What we do","body":["Edit this paragraph.","Add another."]},
+                {"kind":"group","title":"How it works","body":["Step one.","Step two."]},
+                {"kind":"group","title":"Why us","body":["Reason one.","Reason two."]},
+            ],
+        }),
+        "about" => serde_json::json!({
+            "$schema": "../cms-schema.json",
+            "title": title,
+            "description": format!("About {}", title),
+            "path": path_attr,
+            "sections": [
+                {"kind":"hero","eyebrow":"About","title":title,"subtitle":"Who we are.","cta":null},
+                {"kind":"paragraph","body":"Write your about copy here."},
+            ],
+        }),
+        "contact" => serde_json::json!({
+            "$schema": "../cms-schema.json",
+            "title": title,
+            "description": format!("Contact {}", title),
+            "path": path_attr,
+            "sections": [
+                {"kind":"heading","level":1,"text":title},
+                {"kind":"paragraph","body":"Reach us at email@example.com."},
+            ],
+        }),
+        _ => return respond_text(request, 400, "unknown template"),
+    };
+
+    let serialized = serde_json::to_string_pretty(&page)
+        .map_err(|e| std::io::Error::other(format!("serialize: {e}")))?;
+    cap.write_atomic(&rel, serialized.as_bytes())
+        .map_err(|_| std::io::Error::other("write"))?;
+
+    if !forge_path.is_empty() {
+        let cms_parent = cms_root
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        let _ = std::process::Command::new("bash")
+            .arg(forge_path)
+            .current_dir(&cms_parent)
+            .status();
+    }
+
+    let mut resp = tiny_http::Response::empty(303);
+    resp.add_header(
+        tiny_http::Header::from_bytes(
+            &b"Location"[..],
+            format!("/{}", slug.as_str()).as_bytes(),
+        )
+        .map_err(|_| std::io::Error::other("header"))?,
+    );
     request.respond(resp)?;
     Ok(())
 }
