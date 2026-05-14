@@ -30,6 +30,21 @@ tiny_http = "0.12"
 # T42: parse multipart/form-urlencoded POST bodies. Lighter than a
 # full async multipart crate.
 urlencoding = "2"
+# T43: Argon2id password hashing — OWASP-recommended, memory-hard,
+# GPU-resistant. RustCrypto, audited.
+argon2 = "0.5"
+# T43: HMAC-SHA256 for stateless signed session cookies. RustCrypto.
+hmac = "0.12"
+# T43: constant-time secret comparison.
+subtle = "2"
+# T43: persist auth secrets + session signing key to disk via a
+# directory we can lock down to mode 0700. dirs-next chosen over
+# dirs (latter unmaintained); 50 LOC of platform glue.
+dirs-next = "2"
+# T43: OS RNG for salts + HMAC keys.
+rand_core = { version = "0.6", features = ["std", "getrandom"] }
+# T43: TOML serializer with serde for auth.toml.
+serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 # T29: property-based tests on the contrast math + parser.

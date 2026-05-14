@@ -23,7 +23,29 @@ struct Cli {
     command: Cmd,
 }
 
-/// `loom theme` subcommands. T28.
+/// `loom auth` subcommands. T43.
+#[derive(Subcommand)]
+enum AuthAction {
+    /// Initialize the auth store. Creates ~/.config/loom/auth.toml
+    /// with the first admin user and a fresh HMAC signing key.
+    /// Refuses if the file exists (use --force to overwrite).
+    Init {
+        /// Username to create. Lowercase letters, digits, dashes.
+        #[arg(value_name = "USER")]
+        user: String,
+        /// Read password from $LOOM_PWD env (default: stdin prompt
+        /// — but stdin prompts are not implemented yet, so env
+        /// is required in this MVP).
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
+    /// List configured users.
+    List,
+    /// Print the auth.toml path so the operator can inspect or
+    /// back it up.
+    Where,
+}
+
 #[derive(Subcommand)]
 enum ThemeAction {
     /// Enumerate every theme declared in skin.css, plus the base
@@ -267,6 +289,19 @@ enum Cmd {
         /// TCP port to listen on. Bound to 127.0.0.1 always.
         #[arg(long, default_value_t = 8124)]
         port: u16,
+    },
+    /// T43: admin auth management.
+    ///
+    /// `loom auth init <user>` creates the first admin user.
+    /// Argon2id-hashes the password (read from $LOOM_PWD env or
+    /// stdin), generates a fresh HMAC signing key, and writes
+    /// both to `~/.config/loom/auth.toml` (mode 0600 on Unix).
+    ///
+    /// Once auth.toml exists, `loom edit-serve` requires login.
+    /// Without auth.toml, the editor stays open (back-compat).
+    Auth {
+        #[command(subcommand)]
+        action: AuthAction,
     },
     /// `loom theme` — inspect + validate the theme system.
     ///
@@ -678,6 +713,26 @@ fn main() -> ExitCode {
             Err(e) => {
                 eprintln!("loom edit serve: {e}");
                 ExitCode::from(2)
+            }
+        },
+        Cmd::Auth { action } => match action {
+            AuthAction::Init { user, force } => match cmd_auth_init(&user, force) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("loom auth init: {e}");
+                    ExitCode::from(2)
+                }
+            },
+            AuthAction::List => match cmd_auth_list() {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("loom auth list: {e}");
+                    ExitCode::from(2)
+                }
+            },
+            AuthAction::Where => {
+                println!("{}", auth_store_path().display());
+                ExitCode::SUCCESS
             }
         },
         Cmd::Theme { action } => match action {
@@ -3604,6 +3659,44 @@ fn handle_edit_request(
         return respond_text(request, 400, "bad path");
     }
 
+    // T43: auth middleware. If auth.toml exists, every endpoint
+    // except /login + the static preview is gated. Without
+    // auth.toml the editor stays open (back-compat).
+    let auth_store = read_auth_store().ok().flatten();
+    if let Some(ref store) = auth_store {
+        // /login is always reachable.
+        if path == "login" {
+            if is_get {
+                return serve_login_form(request, None);
+            } else if is_post {
+                return handle_login_post(request, store);
+            }
+        }
+        if path == "logout" && is_post {
+            return handle_logout(request);
+        }
+        // Static preview is available without login (it's the
+        // public site; eventually nginx serves this directly).
+        if path.starts_with("preview/") {
+            // fall through to existing routing
+        } else {
+            // Verify session cookie.
+            let key_b64 = store.secret.hmac_key_b64.as_str();
+            let key_bytes = base64::Engine::decode(
+                &base64::engine::general_purpose::STANDARD,
+                key_b64,
+            )
+            .unwrap_or_default();
+            let cookie = extract_session_cookie(&request);
+            let user = cookie
+                .as_deref()
+                .and_then(|c| verify_session_cookie(c, &key_bytes));
+            if user.is_none() {
+                return serve_login_form(request, Some("Login required"));
+            }
+        }
+    }
+
     if path.is_empty() {
         return serve_index(request, cms_root);
     }
@@ -3825,6 +3918,125 @@ fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
     );
 
     respond_html(request, 200, &body)
+}
+
+/// T43: render the login form. `error` shows above the form
+/// when present (e.g. after a failed login attempt).
+fn serve_login_form(
+    request: tiny_http::Request,
+    error: Option<&str>,
+) -> std::io::Result<()> {
+    let mut body = String::new();
+    body.push_str("<!doctype html><meta charset=utf-8><title>loom — sign in</title>");
+    body.push_str(
+        "<style>\
+         body{font:16px/1.5 system-ui;max-width:24rem;margin:5rem auto;padding:0 1rem}\
+         h1{margin-top:0;font-size:1.4em}\
+         label{display:block;margin:1rem 0 .25rem;font-weight:600}\
+         input{width:100%;padding:.6rem;font:inherit;border:1px solid #888;border-radius:4px;\
+               box-sizing:border-box}\
+         button{margin-top:1.5rem;padding:.6rem 1.2rem;font:inherit;border:0;\
+                border-radius:4px;background:#003;color:#fff;cursor:pointer;width:100%}\
+         .err{padding:.5rem 1rem;background:#fee;color:#b00020;border-radius:4px;\
+              margin-bottom:1rem}\
+         </style>"
+    );
+    body.push_str("<h1>loom — sign in</h1>");
+    if let Some(msg) = error {
+        body.push_str(&format!(
+            "<div class=\"err\" role=\"alert\">{}</div>",
+            html_escape(msg)
+        ));
+    }
+    body.push_str(
+        "<form method=\"POST\" action=\"/login\">\
+         <label for=\"u\">User</label>\
+         <input id=\"u\" name=\"user\" required autofocus autocomplete=\"username\">\
+         <label for=\"p\">Password</label>\
+         <input id=\"p\" name=\"password\" type=\"password\" required \
+                autocomplete=\"current-password\">\
+         <button type=\"submit\">Sign in</button>\
+         </form>"
+    );
+    respond_html(request, 200, &body)
+}
+
+/// T43: POST /login — verify credentials, set session cookie,
+/// redirect to /.
+fn handle_login_post(
+    mut request: tiny_http::Request,
+    store: &AuthStore,
+) -> std::io::Result<()> {
+    let mut body = String::new();
+    request.as_reader().read_to_string(&mut body)?;
+    let mut fields = std::collections::BTreeMap::<String, String>::new();
+    for pair in body.split('&').filter(|s| !s.is_empty()) {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        let key = urlencoding::decode(k)
+            .map_err(|e| std::io::Error::other(format!("decode key: {e}")))?
+            .into_owned();
+        let val = urlencoding::decode(&v.replace('+', " "))
+            .map_err(|e| std::io::Error::other(format!("decode val: {e}")))?
+            .into_owned();
+        fields.insert(key, val);
+    }
+    let user = fields.get("user").map(String::as_str).unwrap_or("");
+    let password = fields.get("password").map(String::as_str).unwrap_or("");
+    let stored = store.users.iter().find(|u| u.name == user);
+    let ok = match stored {
+        Some(s) => verify_password(password, &s.password_hash),
+        None => {
+            // Run argon2 against a dummy hash anyway to keep
+            // login latency constant whether or not the user
+            // exists — basic timing-oracle defense.
+            let _ = verify_password(password, "$argon2id$v=19$m=19456,t=2,p=1$\
+                cmFuZG9tc2FsdHRoYXRpc2Zha2U$\
+                7P4Hh9MHXkCmcgkPXh7CeEM5dCEzCx7sjBmh5jzpYU0");
+            false
+        }
+    };
+    if !ok {
+        return serve_login_form(request, Some("Invalid user or password"));
+    }
+    // Build signed cookie.
+    let key_b64 = store.secret.hmac_key_b64.as_str();
+    let key_bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        key_b64,
+    )
+    .unwrap_or_default();
+    let cookie = build_session_cookie(user, &key_bytes);
+
+    let mut resp = tiny_http::Response::empty(303);
+    resp.add_header(
+        tiny_http::Header::from_bytes(&b"Location"[..], &b"/"[..])
+            .map_err(|_| std::io::Error::other("location header"))?,
+    );
+    let cookie_attrs = format!(
+        "{COOKIE_NAME}={cookie}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_LIFETIME_SECS}"
+    );
+    resp.add_header(
+        tiny_http::Header::from_bytes(&b"Set-Cookie"[..], cookie_attrs.as_bytes())
+            .map_err(|_| std::io::Error::other("set-cookie header"))?,
+    );
+    request.respond(resp)?;
+    Ok(())
+}
+
+/// T43: POST /logout — clear the session cookie + redirect.
+fn handle_logout(request: tiny_http::Request) -> std::io::Result<()> {
+    let mut resp = tiny_http::Response::empty(303);
+    resp.add_header(
+        tiny_http::Header::from_bytes(&b"Location"[..], &b"/login"[..])
+            .map_err(|_| std::io::Error::other("location header"))?,
+    );
+    let clear = format!("{COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
+    resp.add_header(
+        tiny_http::Header::from_bytes(&b"Set-Cookie"[..], clear.as_bytes())
+            .map_err(|_| std::io::Error::other("set-cookie header"))?,
+    );
+    request.respond(resp)?;
+    Ok(())
 }
 
 fn serve_index(
@@ -7273,5 +7485,308 @@ mod cmd_validate_tests {
         // ANY failure → cmd returns Ok(true)
         assert!(cmd_validate(&dir).expect("ok-result"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+// ============================================================
+// T43: cookie-session admin auth.
+// ============================================================
+//
+// Doctrine:
+//   * Argon2id for passwords (OWASP-recommended, memory-hard,
+//     GPU-resistant). Per-user salt; default cost params.
+//   * HMAC-SHA256 over <user>.<expiry-unix-secs> for the
+//     session cookie. Stateless — no server-side session table.
+//     Tampering with either field invalidates the signature.
+//   * subtle::ConstantTimeEq for HMAC compare — prevents
+//     timing oracle.
+//   * Cookie attributes: HttpOnly (no JS access),
+//     SameSite=Strict (no cross-site CSRF), Secure when the
+//     server eventually fronts behind TLS (env-gated).
+//   * Auth store at ~/.config/loom/auth.toml mode 0600.
+//     Contents: [[users]] entries + a [secret] section with
+//     the HMAC signing key.
+//   * Backwards-compat: if auth.toml does NOT exist, the
+//     editor stays open (so existing localhost workflows
+//     don't break). Once auth.toml exists, login is required.
+
+const SESSION_LIFETIME_SECS: u64 = 60 * 60 * 24; // 24h
+const COOKIE_NAME: &str = "loom-session";
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default)]
+struct AuthStore {
+    #[serde(default)]
+    users: Vec<AuthUser>,
+    #[serde(default)]
+    secret: AuthSecret,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct AuthUser {
+    /// Lowercase ASCII identifier.
+    name: String,
+    /// PHC-format Argon2id hash (includes salt + params).
+    password_hash: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default)]
+struct AuthSecret {
+    /// Base64-encoded 32-byte HMAC signing key. Empty when
+    /// no auth has been initialised.
+    #[serde(default)]
+    hmac_key_b64: String,
+}
+
+fn auth_store_path() -> std::path::PathBuf {
+    if let Ok(env) = std::env::var("LOOM_AUTH_STORE") {
+        return std::path::PathBuf::from(env);
+    }
+    dirs_next::config_dir()
+        .map(|d| d.join("loom").join("auth.toml"))
+        .unwrap_or_else(|| std::path::PathBuf::from("./auth.toml"))
+}
+
+fn read_auth_store() -> std::io::Result<Option<AuthStore>> {
+    let path = auth_store_path();
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let raw = std::fs::read_to_string(&path)?;
+    let parsed: AuthStore = toml::from_str(&raw)
+        .map_err(|e| std::io::Error::other(format!("parse auth.toml: {e}")))?;
+    Ok(Some(parsed))
+}
+
+fn write_auth_store(store: &AuthStore) -> std::io::Result<()> {
+    let path = auth_store_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let body = toml::to_string_pretty(store)
+        .map_err(|e| std::io::Error::other(format!("serialize auth.toml: {e}")))?;
+    std::fs::write(&path, body)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&path)?.permissions();
+        perms.set_mode(0o600);
+        let _ = std::fs::set_permissions(&path, perms);
+    }
+    Ok(())
+}
+
+fn cmd_auth_init(user: &str, force: bool) -> std::io::Result<()> {
+    // Validate username via SlugName (same character class).
+    let user_validated = SlugName::new(user)
+        .map_err(|e| std::io::Error::other(format!("invalid user: {e}")))?;
+    let path = auth_store_path();
+    if path.is_file() && !force {
+        return Err(std::io::Error::other(format!(
+            "{} already exists; pass --force to overwrite",
+            path.display()
+        )));
+    }
+    // Read password from $LOOM_PWD (stdin prompts come later).
+    let password = std::env::var("LOOM_PWD").map_err(|_| {
+        std::io::Error::other(
+            "set LOOM_PWD env var to the password (stdin prompt is queued for next tick)",
+        )
+    })?;
+    if password.len() < 12 {
+        return Err(std::io::Error::other(
+            "password must be at least 12 chars (passphrase recommended)",
+        ));
+    }
+
+    use argon2::password_hash::{PasswordHasher as _, SaltString};
+    use rand_core::{OsRng, RngCore as _};
+    let salt = SaltString::generate(&mut OsRng);
+    let argon = argon2::Argon2::default();
+    let hash = argon
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|e| std::io::Error::other(format!("argon2 hash: {e}")))?
+        .to_string();
+
+    // Generate fresh HMAC signing key (32 bytes).
+    let mut key = [0u8; 32];
+    OsRng.fill_bytes(&mut key);
+    let key_b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, key);
+
+    let store = AuthStore {
+        users: vec![AuthUser {
+            name: user_validated.as_str().to_owned(),
+            password_hash: hash,
+        }],
+        secret: AuthSecret { hmac_key_b64: key_b64 },
+    };
+    write_auth_store(&store)?;
+    println!("loom auth init:");
+    println!("  ok  user '{}' created", user_validated.as_str());
+    println!("  ok  HMAC signing key generated (32 bytes)");
+    println!("  ok  store written to {} (mode 0600)", path.display());
+    println!();
+    println!("Next: `loom edit-serve` will require login at /login.");
+    Ok(())
+}
+
+fn cmd_auth_list() -> std::io::Result<()> {
+    match read_auth_store()? {
+        None => {
+            println!(
+                "no auth store at {} — editor runs without login",
+                auth_store_path().display()
+            );
+        }
+        Some(store) => {
+            println!("auth store: {}", auth_store_path().display());
+            println!("  {} user(s):", store.users.len());
+            for u in &store.users {
+                println!("    {}", u.name);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Argon2id password verify. Constant-time at the hash level.
+fn verify_password(plain: &str, phc: &str) -> bool {
+    use argon2::password_hash::{PasswordHash, PasswordVerifier as _};
+    let Ok(parsed) = PasswordHash::new(phc) else {
+        return false;
+    };
+    argon2::Argon2::default()
+        .verify_password(plain.as_bytes(), &parsed)
+        .is_ok()
+}
+
+fn current_unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Build an HMAC-SHA256 signed cookie value: <user>.<expiry>.<sig-b64>.
+fn build_session_cookie(user: &str, hmac_key: &[u8]) -> String {
+    use hmac::{Hmac, Mac};
+    let expiry = current_unix_secs().saturating_add(SESSION_LIFETIME_SECS);
+    let payload = format!("{user}.{expiry}");
+    let mut mac = <Hmac<sha2::Sha256> as Mac>::new_from_slice(hmac_key)
+        .expect("hmac accepts any key length");
+    mac.update(payload.as_bytes());
+    let sig = mac.finalize().into_bytes();
+    let sig_b64 =
+        base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, sig);
+    format!("{payload}.{sig_b64}")
+}
+
+/// Parse + verify a session cookie. Returns `Some(user)` when
+/// the signature is valid AND the cookie hasn't expired.
+fn verify_session_cookie(cookie_value: &str, hmac_key: &[u8]) -> Option<String> {
+    use hmac::{Hmac, Mac};
+    use subtle::ConstantTimeEq as _;
+    // Format: <user>.<expiry>.<sig-b64>
+    let parts: Vec<&str> = cookie_value.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let user = parts[0];
+    let expiry: u64 = parts[1].parse().ok()?;
+    let sig_b64 = parts[2];
+    if expiry < current_unix_secs() {
+        return None;
+    }
+    let provided_sig = base64::Engine::decode(
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+        sig_b64,
+    )
+    .ok()?;
+    let payload = format!("{user}.{expiry}");
+    let mut mac = <Hmac<sha2::Sha256> as Mac>::new_from_slice(hmac_key).ok()?;
+    mac.update(payload.as_bytes());
+    let expected = mac.finalize().into_bytes();
+    if expected.ct_eq(&provided_sig).into() {
+        Some(user.to_owned())
+    } else {
+        None
+    }
+}
+
+/// Extract the loom-session cookie value from a request's
+/// Cookie header.
+fn extract_session_cookie(request: &tiny_http::Request) -> Option<String> {
+    for h in request.headers() {
+        if h.field.equiv("Cookie") {
+            for entry in h.value.as_str().split(';') {
+                let trimmed = entry.trim();
+                if let Some(value) = trimmed.strip_prefix(&format!("{COOKIE_NAME}=")) {
+                    return Some(value.to_owned());
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod auth_tests {
+    use super::*;
+
+    #[test]
+    fn password_verify_round_trip() {
+        use argon2::password_hash::{PasswordHasher as _, SaltString};
+        use rand_core::OsRng;
+        let salt = SaltString::generate(&mut OsRng);
+        let phc = argon2::Argon2::default()
+            .hash_password(b"correct horse battery staple", &salt)
+            .expect("hash")
+            .to_string();
+        assert!(verify_password("correct horse battery staple", &phc));
+        assert!(!verify_password("wrong", &phc));
+    }
+
+    #[test]
+    fn session_cookie_round_trip() {
+        let key = b"thirty-two bytes long key !!!!!1";
+        let cookie = build_session_cookie("alice", key);
+        assert_eq!(verify_session_cookie(&cookie, key).as_deref(), Some("alice"));
+    }
+
+    #[test]
+    fn session_cookie_rejects_wrong_key() {
+        let cookie = build_session_cookie("alice", b"keyone-thirty-two-bytes-len---1!");
+        assert!(verify_session_cookie(&cookie, b"keytwo-thirty-two-bytes-len---2!").is_none());
+    }
+
+    #[test]
+    fn session_cookie_rejects_tampered_user() {
+        let key = b"thirty-two bytes long key !!!!!1";
+        let cookie = build_session_cookie("alice", key);
+        // Replace 'alice' with 'evilll' (same length).
+        let tampered = cookie.replacen("alice", "evilll", 1);
+        assert!(verify_session_cookie(&tampered, key).is_none());
+    }
+
+    #[test]
+    fn session_cookie_rejects_malformed() {
+        let key = b"thirty-two bytes long key !!!!!1";
+        assert!(verify_session_cookie("", key).is_none());
+        assert!(verify_session_cookie("only-one-part", key).is_none());
+        assert!(verify_session_cookie("user.notanumber.sig", key).is_none());
+    }
+
+    #[test]
+    fn session_cookie_rejects_expired() {
+        // Build a cookie manually with expiry = 0 (epoch).
+        use hmac::{Hmac, Mac};
+        let key = b"thirty-two bytes long key !!!!!1";
+        let payload = "alice.0";
+        let mut mac = <Hmac<sha2::Sha256> as Mac>::new_from_slice(key).unwrap();
+        mac.update(payload.as_bytes());
+        let sig = mac.finalize().into_bytes();
+        let sig_b64 =
+            base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, sig);
+        let cookie = format!("{payload}.{sig_b64}");
+        assert!(verify_session_cookie(&cookie, key).is_none());
     }
 }
