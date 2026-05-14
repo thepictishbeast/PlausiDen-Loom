@@ -1671,6 +1671,60 @@ fn csp_sha256(bytes: &[u8]) -> String {
 /// Hashed at build time + pinned in CSP `script-src`.
 const DEFER_ONLOAD_JS: &str = "this.media='all';this.removeAttribute('onload')";
 
+/// T48c v2: dual-theme + accessibility baseline that ships with
+/// every Loom-rendered page, even before any user-supplied
+/// stylesheet loads. CSP-pinned via sha256 — never `unsafe-inline`.
+///
+/// What this gives every site by default:
+///   * Light + dark colour tokens, switched via
+///     `@media (prefers-color-scheme: dark)`. Both palettes
+///     verified against WCAG 2.1 AA (4.5:1 contrast for normal
+///     text). The ISO/IEC 40500 contract Mom can demand.
+///   * `<meta name="color-scheme" content="light dark">` already
+///     emitted in <head> so the browser uses the matching default
+///     form / scrollbar / canvas colours from first paint.
+///   * `:focus-visible` outline so keyboard users always see
+///     the focused element.
+///   * Skip-link styling — invisible until focused, then
+///     positioned visibly at the top-left.
+///   * `prefers-reduced-motion` honoured globally — anyone with
+///     vestibular sensitivity opts out of all transitions.
+///
+/// Tokens are CSS custom properties (`--loom-*`) so user CSS
+/// can theme on top without redefining colour values.
+const BASE_THEME_CSS: &str = ":root{\
+--loom-bg:#fff;--loom-fg:#111;--loom-muted:#5a5a5a;\
+--loom-accent:#003;--loom-border:#dcdcdc;\
+--loom-link:#003;--loom-link-hover:#06f;--loom-focus:#06f;\
+--loom-radius:4px;\
+--loom-font-stack:system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif;\
+--loom-mono-stack:ui-monospace,SFMono-Regular,\"Cascadia Mono\",monospace}\
+@media (prefers-color-scheme:dark){:root{\
+--loom-bg:#111417;--loom-fg:#f0f2f5;--loom-muted:#9aa1aa;\
+--loom-accent:#9ec1ff;--loom-border:#2a2f36;\
+--loom-link:#9ec1ff;--loom-link-hover:#c2d8ff;--loom-focus:#9ec1ff}}\
+html{background:var(--loom-bg);color:var(--loom-fg);\
+font-family:var(--loom-font-stack);line-height:1.5}\
+body{margin:0}\
+a{color:var(--loom-link)}\
+a:hover,a:focus{color:var(--loom-link-hover)}\
+:focus-visible{outline:2px solid var(--loom-focus);outline-offset:2px;border-radius:var(--loom-radius)}\
+.loom-skip{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}\
+.loom-skip:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;\
+background:var(--loom-bg);color:var(--loom-fg);border:2px solid var(--loom-focus);\
+border-radius:var(--loom-radius);z-index:1000}\
+header.loom-page-header{padding:1rem;border-bottom:1px solid var(--loom-border)}\
+footer.loom-page-footer{padding:1rem;border-top:1px solid var(--loom-border);\
+color:var(--loom-muted);margin-top:2rem}\
+nav.loom-page-nav{display:flex;gap:1rem;align-items:center;flex-wrap:wrap}\
+nav.loom-page-nav a{text-decoration:none;color:var(--loom-fg)}\
+nav.loom-page-nav a:hover{color:var(--loom-link-hover)}\
+.loom-page-title{margin:.5rem 0 0;font-weight:600}\
+main#content{padding:1rem;max-width:60rem;margin:0 auto}\
+@media (prefers-reduced-motion:reduce){\
+*,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;\
+transition-duration:.001ms !important;scroll-behavior:auto !important}}";
+
 /// Wrap rendered body markup in the smallest valid HTML5 page
 /// that passes every Loom + forge.sh audit:
 ///
@@ -1703,30 +1757,40 @@ fn page_shell(
     let path = escape_html_attr(&page.path);
     let css = escape_html_attr(css_href);
     let nav_links = render_nav_links(&page.nav_links);
+    // T48c v2: the base theme block is ALWAYS emitted so every
+    // page renders with WCAG-AA contrast, focus-visible outlines,
+    // a working skip link, and `prefers-reduced-motion` honoured —
+    // even before any user-supplied stylesheet loads. Pinned in
+    // CSP via sha256.
+    let base_theme_hash = csp_sha256(BASE_THEME_CSS.as_bytes());
+    let base_theme_block = format!("<style>{BASE_THEME_CSS}</style>\n  ");
     // Nursery's option_if_let_else wants this as a chained
     // map_or_else closure pair, but the bodies are multi-statement
     // and the if-let-else reads cleaner here.
     #[allow(clippy::option_if_let_else)]
-    let (style_block, css_link, csp) = if let Some(crit) = critical_css {
+    let (extra_style_block, css_link, csp) = if let Some(crit) = critical_css {
         let style_hash = csp_sha256(crit.as_bytes());
         let onload_hash = csp_sha256(DEFER_ONLOAD_JS.as_bytes());
-        let style_block = format!("<style>{crit}</style>\n  ");
+        let extra_block = format!("<style>{crit}</style>\n  ");
         let css_link = format!(
             "<link rel=\"stylesheet\" href=\"{css}\" media=\"print\" onload=\"{DEFER_ONLOAD_JS}\">\n  <noscript><link rel=\"stylesheet\" href=\"{css}\"></noscript>"
         );
         // CSP: 'self' for default + img/style/script + the
-        // critical-style hash + the deferred-onload script
-        // hash. 'unsafe-hashes' is required (CSP3) to allow
-        // an inline event handler whose hash is in script-src.
+        // critical-style hash + base-theme hash + deferred-onload
+        // script hash. 'unsafe-hashes' is required (CSP3) to
+        // allow the inline `onload=` event handler.
         let csp = format!(
-            "default-src 'self'; img-src 'self' data:; style-src 'self' '{style_hash}'; script-src 'self' 'unsafe-hashes' '{onload_hash}'; frame-ancestors 'none'"
+            "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}' '{style_hash}'; script-src 'self' 'unsafe-hashes' '{onload_hash}'; frame-ancestors 'none'"
         );
-        (style_block, css_link, csp)
+        (extra_block, css_link, csp)
     } else {
         let css_link = format!("<link rel=\"stylesheet\" href=\"{css}\">");
-        let csp = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'".to_owned();
+        let csp = format!(
+            "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}'; script-src 'self'; frame-ancestors 'none'"
+        );
         (String::new(), css_link, csp)
     };
+    let style_block = format!("{base_theme_block}{extra_style_block}");
     // ISO + a11y defaults (per user directive 2026-05-13):
     //   * `<html lang="en">` — ISO 639-1
     //   * `<meta name="color-scheme" content="light dark">` —
@@ -2049,11 +2113,19 @@ mod cms_render_tests {
     }
 
     #[test]
-    fn shell_without_critical_css_keeps_simple_csp() {
+    fn shell_without_critical_css_still_pins_base_theme() {
+        // T48c v2: the base-theme block is now ALWAYS emitted —
+        // dual-theme + a11y baseline ships on every page. CSP
+        // therefore always carries one sha256 hash (the base
+        // theme), but never grants 'unsafe-inline' / 'unsafe-
+        // hashes'. The user's css_href still loads as a normal
+        // <link>, no defer dance, when there is no per-page
+        // critical CSS.
         let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
-        assert!(!s.contains("sha256-"));
-        assert!(!s.contains("'unsafe-hashes'"));
-        assert!(!s.contains("<style>"));
+        assert!(s.contains("sha256-"), "base-theme should be CSP-pinned");
+        assert!(!s.contains("'unsafe-inline'"), "no unsafe-inline allowed");
+        assert!(!s.contains("'unsafe-hashes'"), "no unsafe-hashes without critical CSS");
+        assert!(s.contains("<style>"), "base-theme <style> block must be present");
         assert!(s.contains(r#"<link rel="stylesheet" href="/loom-skin.css">"#));
     }
 
@@ -11097,6 +11169,125 @@ mod editor_schema_tests {
                 r.is_ok(),
                 "TEMPLATE_BASIC[{name}] failed CmsPage parse:\n{resolved}\nerr: {:?}",
                 r.err()
+            );
+        }
+    }
+
+    fn empty_cms_page() -> loom_cms_render::CmsPage {
+        loom_cms_render::CmsPage {
+            schema: None,
+            title: "T".into(),
+            description: "D".into(),
+            path: "/".into(),
+            nav_links: vec![],
+            sections: vec![],
+        }
+    }
+
+    fn parse_hex(h: &str) -> Option<(f64, f64, f64)> {
+        let h = h.trim_start_matches('#');
+        let bytes = match h.len() {
+            3 => {
+                let r = u8::from_str_radix(&format!("{a}{a}", a = &h[0..1]), 16).ok()?;
+                let g = u8::from_str_radix(&format!("{a}{a}", a = &h[1..2]), 16).ok()?;
+                let b = u8::from_str_radix(&format!("{a}{a}", a = &h[2..3]), 16).ok()?;
+                (r, g, b)
+            }
+            6 => {
+                let r = u8::from_str_radix(&h[0..2], 16).ok()?;
+                let g = u8::from_str_radix(&h[2..4], 16).ok()?;
+                let b = u8::from_str_radix(&h[4..6], 16).ok()?;
+                (r, g, b)
+            }
+            _ => return None,
+        };
+        Some((bytes.0 as f64 / 255.0, bytes.1 as f64 / 255.0, bytes.2 as f64 / 255.0))
+    }
+
+    fn contrast_ratio_hex(fg: &str, bg: &str) -> Option<f64> {
+        let (fr, fg_, fb) = parse_hex(fg)?;
+        let (br, bg_, bb) = parse_hex(bg)?;
+        let l1 = relative_luminance(fr, fg_, fb);
+        let l2 = relative_luminance(br, bg_, bb);
+        Some(contrast_ratio(l1, l2))
+    }
+
+    /// T48c v2: every page ships actual dark-theme CSS via
+    /// `@media (prefers-color-scheme: dark)`, not just the meta
+    /// declaration. The base theme block is always emitted +
+    /// CSP-pinned by sha256 (no `unsafe-inline`).
+    #[test]
+    fn page_shell_emits_dark_theme_media_query() {
+        let s = page_shell(&empty_cms_page(), "/loom-skin.css", "", None);
+        assert!(
+            s.contains("prefers-color-scheme:dark"),
+            "missing dark-mode media query:\n{s}"
+        );
+        assert!(s.contains("--loom-bg"), "missing CSS custom properties");
+    }
+
+    /// T48c v2: vestibular-sensitivity users must always be
+    /// honoured, regardless of which user stylesheet loads.
+    #[test]
+    fn page_shell_honours_prefers_reduced_motion() {
+        let s = page_shell(&empty_cms_page(), "/loom-skin.css", "", None);
+        assert!(
+            s.contains("prefers-reduced-motion:reduce"),
+            "missing reduced-motion media query:\n{s}"
+        );
+    }
+
+    /// T48c v2: the inline base-theme `<style>` block must be
+    /// pinned in CSP via its sha256 hash. Never `unsafe-inline`.
+    #[test]
+    fn page_shell_pins_base_theme_in_csp() {
+        let s = page_shell(&empty_cms_page(), "/loom-skin.css", "", None);
+        let hash = csp_sha256(BASE_THEME_CSS.as_bytes());
+        assert!(
+            s.contains(&hash),
+            "base-theme hash {hash} must appear in CSP:\n{s}"
+        );
+        assert!(
+            !s.contains("'unsafe-inline'"),
+            "page-shell must never grant unsafe-inline"
+        );
+    }
+
+    /// T48c v2: focus-visible outline + skip link styling so
+    /// keyboard users always see where they are.
+    #[test]
+    fn page_shell_styles_focus_and_skip_link() {
+        let s = page_shell(&empty_cms_page(), "/loom-skin.css", "", None);
+        assert!(s.contains(":focus-visible"), "missing :focus-visible rule");
+        assert!(s.contains(".loom-skip:focus"), "skip link must surface on focus");
+    }
+
+    /// T48c v2: every base-theme colour pair MUST clear WCAG
+    /// 2.1 AA contrast (4.5:1 for normal text, 3:1 for large)
+    /// in BOTH light and dark mode. Computed via the same math
+    /// loom-cli's contrast checker uses, so this test catches
+    /// regressions before the runtime audit does.
+    #[test]
+    fn base_theme_meets_wcag_aa_in_both_modes() {
+        // Pairs the user actually reads: (label, fg-hex, bg-hex)
+        //
+        // Light mode pairs.
+        let light = [
+            ("light fg/bg", "#111", "#fff"),
+            ("light muted/bg", "#5a5a5a", "#fff"),
+            ("light link/bg", "#003", "#fff"),
+        ];
+        // Dark mode pairs (CSS values from the @media block).
+        let dark = [
+            ("dark fg/bg", "#f0f2f5", "#111417"),
+            ("dark muted/bg", "#9aa1aa", "#111417"),
+            ("dark link/bg", "#9ec1ff", "#111417"),
+        ];
+        for (label, fg, bg) in light.iter().chain(dark.iter()) {
+            let r = contrast_ratio_hex(fg, bg).expect(label);
+            assert!(
+                r >= 4.5,
+                "{label}: contrast {r:.2}:1 fails WCAG AA (need ≥ 4.5:1)"
             );
         }
     }
