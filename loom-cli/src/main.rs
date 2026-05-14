@@ -3770,9 +3770,10 @@ fn handle_edit_request(
         if path == "logout" && is_post {
             return handle_logout(request);
         }
-        // Static preview is available without login (it's the
-        // public site; eventually nginx serves this directly).
-        if path.starts_with("preview/") {
+        // Static preview + content-addressed uploads are
+        // available without login (public site assets;
+        // eventually nginx serves these directly).
+        if path.starts_with("preview/") || path.starts_with("uploads/") {
             // fall through to existing routing
         } else {
             // Verify session cookie.
@@ -3817,6 +3818,18 @@ fn handle_edit_request(
     // T62 step 3: new-page POST.
     if is_post && path == "new-page" {
         return handle_new_page(request, cms_root, forge_path);
+    }
+    // T62 step 6: image upload + gallery + asset serving.
+    if is_post && path == "upload-image" {
+        return handle_upload_image(request, static_root);
+    }
+    if is_get && path == "uploads" {
+        return serve_uploads_gallery(request, static_root);
+    }
+    if is_get {
+        if let Some(rest) = path.strip_prefix("uploads/") {
+            return serve_upload_file(request, static_root, rest);
+        }
     }
     // T64: tutorial page.
     if is_get && path == "tutorial" {
@@ -4155,6 +4168,7 @@ fn serve_index(
     body.push_str(
         "<p style=\"margin:0 0 1rem;font-size:.9em\">\
          <a href=\"/tutorial\">📖 Tutorial</a> · \
+         <a href=\"/uploads\">🖼 Uploads</a> · \
          <a href=\"/forge\">forge admin →</a></p>"
     );
     body.push_str("<h1>loom edit</h1><p>Choose a page:</p>");
@@ -8556,5 +8570,464 @@ mod site_init_tests {
         let r = cmd_site_init_in(&tmp, "sitex", "nonsuch", false);
         assert!(r.is_err());
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+}
+
+// ============================================================
+// T62 step 6: image upload + content-addressed storage.
+// ============================================================
+//
+// Doctrine:
+//   * **Magic-byte MIME validation** — file extension is
+//     untrusted (operator can rename anything to .jpg).
+//     We sniff the first bytes for the canonical signature of
+//     each accepted format. Anything else is rejected. SVG is
+//     refused outright (XSS vector — embedded <script> + XXE).
+//   * **Content-addressed storage** — sha256(bytes).<ext> is
+//     the filename. Same image uploaded twice = same URL =
+//     dedup for free. Cache-immutable (content-hash URL).
+//   * **Size cap** — 10 MiB. Larger images aren't editor
+//     content; they belong in a separate asset pipeline.
+//   * **WriteCapability scope** — uploads land in
+//     static/uploads/, can never escape.
+//   * **EXIF strip queued** as T62-step-7 — not in this
+//     tick because the image-rs crate adds substantial compile
+//     time + bytes. The privacy concern (EXIF GPS coordinates
+//     in mom's photos) is REAL but deferring is acceptable
+//     because the editor doesn't broadcast uploaded images
+//     until they're explicitly embedded in a CmsSection.
+
+const MAX_UPLOAD_BYTES: usize = 10 * 1024 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AcceptedImage {
+    Jpeg,
+    Png,
+    Gif,
+    Webp,
+}
+
+impl AcceptedImage {
+    fn ext(self) -> &'static str {
+        match self {
+            Self::Jpeg => "jpg",
+            Self::Png => "png",
+            Self::Gif => "gif",
+            Self::Webp => "webp",
+        }
+    }
+    fn content_type(self) -> &'static str {
+        match self {
+            Self::Jpeg => "image/jpeg",
+            Self::Png => "image/png",
+            Self::Gif => "image/gif",
+            Self::Webp => "image/webp",
+        }
+    }
+}
+
+/// Sniff the magic bytes of `bytes` and return the format if
+/// recognised + accepted. SVG, BMP, TIFF, ICO, etc. → None.
+fn sniff_image_format(bytes: &[u8]) -> Option<AcceptedImage> {
+    // JPEG: FF D8 FF
+    if bytes.len() >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF {
+        return Some(AcceptedImage::Jpeg);
+    }
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if bytes.len() >= 8
+        && &bytes[..8] == b"\x89PNG\r\n\x1a\n"
+    {
+        return Some(AcceptedImage::Png);
+    }
+    // GIF: 47 49 46 38 37/39 61
+    if bytes.len() >= 6
+        && &bytes[..4] == b"GIF8"
+        && (bytes[4] == b'7' || bytes[4] == b'9')
+        && bytes[5] == b'a'
+    {
+        return Some(AcceptedImage::Gif);
+    }
+    // WebP: RIFF....WEBP
+    if bytes.len() >= 12
+        && &bytes[..4] == b"RIFF"
+        && &bytes[8..12] == b"WEBP"
+    {
+        return Some(AcceptedImage::Webp);
+    }
+    None
+}
+
+/// Compute lowercase hex sha256 of bytes.
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest as _, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(64);
+    const TAB: &[u8; 16] = b"0123456789abcdef";
+    for b in digest {
+        hex.push(TAB[(b >> 4) as usize] as char);
+        hex.push(TAB[(b & 0x0f) as usize] as char);
+    }
+    hex
+}
+
+/// Extract the binary file body from a multipart/form-data
+/// request body. Returns (filename, bytes).
+///
+/// SECURITY: hand-rolled parser for the single-file case.
+/// Format: --boundary\r\nContent-Disposition: form-data;
+/// name="file"; filename="x"\r\nContent-Type: ...\r\n\r\n
+/// <BYTES>\r\n--boundary--\r\n
+///
+/// Limits: rejects bodies larger than MAX_UPLOAD_BYTES at parse
+/// time. Multi-file uploads silently take only the FIRST file.
+fn parse_multipart_first_file<'a>(
+    body: &'a [u8],
+    boundary: &str,
+) -> Option<(String, &'a [u8])> {
+    let delim = format!("--{boundary}");
+    let delim_b = delim.as_bytes();
+    let start = find_subseq(body, delim_b)? + delim_b.len();
+    let after_first_crlf = body.get(start..)?.iter().position(|b| *b == b'\n')? + start + 1;
+    // Read headers until empty line (\r\n\r\n).
+    let header_end = find_subseq(&body[after_first_crlf..], b"\r\n\r\n")?;
+    let header_block =
+        std::str::from_utf8(&body[after_first_crlf..after_first_crlf + header_end]).ok()?;
+    // Extract filename.
+    let filename = header_block
+        .lines()
+        .find_map(|l| {
+            let lower = l.to_lowercase();
+            if !lower.contains("content-disposition") {
+                return None;
+            }
+            let i = lower.find("filename=\"")? + "filename=\"".len();
+            let rest = &l[i..];
+            let end = rest.find('"')?;
+            Some(rest[..end].to_owned())
+        })?;
+    let body_start = after_first_crlf + header_end + 4;
+    // Find the trailing --boundary delimiter.
+    let trailing_delim = format!("\r\n--{boundary}");
+    let body_end = find_subseq(&body[body_start..], trailing_delim.as_bytes())?;
+    Some((filename, &body[body_start..body_start + body_end]))
+}
+
+fn find_subseq(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || needle.len() > haystack.len() {
+        return None;
+    }
+    haystack
+        .windows(needle.len())
+        .position(|w| w == needle)
+}
+
+fn handle_upload_image(
+    mut request: tiny_http::Request,
+    static_root: &std::path::Path,
+) -> std::io::Result<()> {
+    // Pull the boundary= attribute from the Content-Type header.
+    let content_type = request
+        .headers()
+        .iter()
+        .find(|h| h.field.equiv("Content-Type"))
+        .map(|h| h.value.as_str().to_owned())
+        .unwrap_or_default();
+    let boundary = match content_type.split(';').find_map(|p| {
+        let p = p.trim();
+        p.strip_prefix("boundary=").map(|s| s.trim_matches('"').to_owned())
+    }) {
+        Some(b) => b,
+        None => return respond_text(request, 400, "missing multipart boundary"),
+    };
+
+    // Read body with size cap.
+    let mut body = Vec::with_capacity(64 * 1024);
+    {
+        use std::io::Read as _;
+        let mut chunk = [0u8; 8192];
+        loop {
+            let n = request.as_reader().read(&mut chunk)?;
+            if n == 0 {
+                break;
+            }
+            if body.len() + n > MAX_UPLOAD_BYTES {
+                return respond_text(
+                    request,
+                    413,
+                    &format!("upload exceeds {MAX_UPLOAD_BYTES} bytes"),
+                );
+            }
+            body.extend_from_slice(&chunk[..n]);
+        }
+    }
+
+    let (_orig_filename, file_bytes) = match parse_multipart_first_file(&body, &boundary) {
+        Some(v) => v,
+        None => return respond_text(request, 400, "could not parse multipart body"),
+    };
+
+    let format = match sniff_image_format(file_bytes) {
+        Some(f) => f,
+        None => {
+            return respond_text(
+                request,
+                415,
+                "unsupported image type — only JPEG / PNG / GIF / WebP accepted",
+            );
+        }
+    };
+
+    // Content-addressed filename.
+    let hex = sha256_hex(file_bytes);
+    let rel_path = std::path::PathBuf::from(format!("uploads/{hex}.{}", format.ext()));
+
+    // Scope writes via capability. static/ may not exist yet.
+    std::fs::create_dir_all(static_root)?;
+    let cap = WriteCapability::for_dir(static_root).map_err(|_| {
+        std::io::Error::other(format!("static_root {} unreadable", static_root.display()))
+    })?;
+    let abs = cap
+        .write_file(&rel_path, file_bytes)
+        .map_err(|_| std::io::Error::other("write upload"))?;
+
+    let url = format!("/uploads/{hex}.{}", format.ext());
+    let mut resp = tiny_http::Response::from_string(format!(
+        r#"<!doctype html><meta charset=utf-8><title>upload ok</title>
+<style>body{{font:16px/1.5 system-ui;max-width:36rem;margin:3rem auto;padding:0 1rem}}
+img{{max-width:100%;border:1px solid #ddd;border-radius:6px}}
+code{{background:#f4f4f4;padding:.1em .35em;border-radius:3px}}</style>
+<h1>uploaded</h1>
+<p>Stored at <code>{}</code> ({} bytes, {}).</p>
+<p>URL to embed in a section: <code>{}</code></p>
+<p><img src="{}" alt="just-uploaded image"></p>
+<p><a href="/uploads">← all uploads</a> · <a href="/">all pages</a></p>"#,
+        html_escape(&abs.display().to_string()),
+        file_bytes.len(),
+        format.content_type(),
+        html_escape(&url),
+        html_escape(&url),
+    ))
+    .with_status_code(200);
+    resp.add_header(
+        tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
+            .map_err(|_| std::io::Error::other("header"))?,
+    );
+    request.respond(resp)?;
+    Ok(())
+}
+
+/// GET /uploads — gallery of every previously uploaded image
+/// + a fresh upload form.
+fn serve_uploads_gallery(
+    request: tiny_http::Request,
+    static_root: &std::path::Path,
+) -> std::io::Result<()> {
+    let uploads_dir = static_root.join("uploads");
+    let mut entries: Vec<std::path::PathBuf> = if uploads_dir.is_dir() {
+        std::fs::read_dir(&uploads_dir)?
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_file())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    entries.sort();
+    let mut body = String::new();
+    body.push_str("<!doctype html><meta charset=utf-8><title>uploads</title>");
+    body.push_str(
+        "<style>\
+         body{font:16px/1.5 system-ui;max-width:48rem;margin:2rem auto;padding:0 1rem}\
+         h1{margin-top:0}\
+         .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1rem}\
+         .grid figure{margin:0;padding:.5rem;border:1px solid #ddd;border-radius:6px;\
+                      background:#fafafa}\
+         .grid img{max-width:100%;height:120px;object-fit:cover;border-radius:4px;display:block}\
+         .grid figcaption{font:.75em monospace;color:#666;margin-top:.25rem;\
+                         word-break:break-all;max-height:3.6em;overflow:hidden}\
+         input[type=file]{padding:.5rem;border:1px dashed #888;border-radius:4px;width:100%}\
+         button{margin-top:1rem;padding:.5rem 1rem;font:inherit;border:0;border-radius:4px;\
+                background:#003;color:#fff;cursor:pointer}\
+         </style>"
+    );
+    body.push_str(
+        "<p><a href=\"/\">← all pages</a> · <a href=\"/tutorial\">📖 tutorial</a></p>\
+         <h1>uploads</h1>"
+    );
+    body.push_str(
+        "<form method=\"POST\" action=\"/upload-image\" enctype=\"multipart/form-data\">\
+         <label for=\"f\" style=\"display:block;font-weight:600;margin-bottom:.5rem\">\
+           Upload an image (JPEG / PNG / GIF / WebP, ≤ 10 MiB):\
+         </label>\
+         <input id=\"f\" type=\"file\" name=\"file\" accept=\"image/jpeg,image/png,image/gif,image/webp\" required>\
+         <button type=\"submit\">Upload</button>\
+         </form>"
+    );
+    body.push_str(&format!(
+        "<h2 style=\"font-size:1.1em;margin-top:2rem\">Library — {} image(s)</h2>",
+        entries.len()
+    ));
+    if entries.is_empty() {
+        body.push_str("<p style=\"color:#888\">No uploads yet.</p>");
+    } else {
+        body.push_str("<div class=\"grid\">");
+        for path in &entries {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+            let url = format!("/uploads/{name}");
+            body.push_str(&format!(
+                "<figure><a href=\"{href}\" target=\"_blank\">\
+                 <img src=\"{href}\" alt=\"\"></a>\
+                 <figcaption>{n}</figcaption></figure>",
+                href = html_escape(&url),
+                n = html_escape(name),
+            ));
+        }
+        body.push_str("</div>");
+    }
+    body.push_str(
+        "<p style=\"color:#888;font-size:.85em;margin-top:1.5rem\">\
+         Uploads are content-addressed (sha256 of bytes is the filename) so the same image \
+         uploaded twice yields one stored file. Embed in a CmsSection by editing the JSON \
+         to include the URL.\
+         </p>"
+    );
+    respond_html(request, 200, &body)
+}
+
+/// Extend serve_preview to also serve /uploads/<hash>.<ext>.
+/// (The existing /preview/* handler covers static_root.join(rest)
+/// for HTML; uploads use the same root with /uploads/ prefix
+/// but no /preview/ wrapper. Add a thin handler below.)
+fn serve_upload_file(
+    request: tiny_http::Request,
+    static_root: &std::path::Path,
+    rel: &str,
+) -> std::io::Result<()> {
+    if rel.contains("..") || rel.contains('\\') {
+        return respond_text(request, 400, "bad path");
+    }
+    let p = static_root.join("uploads").join(rel);
+    if !p.is_file() {
+        return respond_text(request, 404, "not found");
+    }
+    let bytes = std::fs::read(&p)?;
+    let ct = if rel.ends_with(".jpg") || rel.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if rel.ends_with(".png") {
+        "image/png"
+    } else if rel.ends_with(".gif") {
+        "image/gif"
+    } else if rel.ends_with(".webp") {
+        "image/webp"
+    } else {
+        "application/octet-stream"
+    };
+    let mut resp = tiny_http::Response::from_data(bytes);
+    resp.add_header(
+        tiny_http::Header::from_bytes(&b"Content-Type"[..], ct.as_bytes())
+            .map_err(|_| std::io::Error::other("header"))?,
+    );
+    // Cache-immutable: content-addressed URL means the bytes
+    // never change for a given hash.
+    resp.add_header(
+        tiny_http::Header::from_bytes(
+            &b"Cache-Control"[..],
+            &b"public, max-age=31536000, immutable"[..],
+        )
+        .map_err(|_| std::io::Error::other("header"))?,
+    );
+    request.respond(resp)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod upload_tests {
+    use super::*;
+
+    #[test]
+    fn sniff_jpeg() {
+        let bytes = b"\xFF\xD8\xFF\xE0\x00\x10JFIF";
+        assert_eq!(sniff_image_format(bytes), Some(AcceptedImage::Jpeg));
+    }
+
+    #[test]
+    fn sniff_png() {
+        let bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR";
+        assert_eq!(sniff_image_format(bytes), Some(AcceptedImage::Png));
+    }
+
+    #[test]
+    fn sniff_gif87a_and_gif89a() {
+        assert_eq!(sniff_image_format(b"GIF87a..."), Some(AcceptedImage::Gif));
+        assert_eq!(sniff_image_format(b"GIF89a..."), Some(AcceptedImage::Gif));
+    }
+
+    #[test]
+    fn sniff_webp() {
+        let bytes = b"RIFF....WEBPVP8 ";
+        assert_eq!(sniff_image_format(bytes), Some(AcceptedImage::Webp));
+    }
+
+    #[test]
+    fn sniff_rejects_svg() {
+        // SVG starts with <?xml or <svg — neither matches any accepted format.
+        assert_eq!(sniff_image_format(b"<?xml version=\"1.0\"?><svg/>"), None);
+        assert_eq!(sniff_image_format(b"<svg xmlns="), None);
+    }
+
+    #[test]
+    fn sniff_rejects_bmp_and_tiff() {
+        assert_eq!(sniff_image_format(b"BM\x00\x00"), None);
+        assert_eq!(sniff_image_format(b"II*\x00"), None); // TIFF little-endian
+        assert_eq!(sniff_image_format(b"MM\x00*"), None); // TIFF big-endian
+    }
+
+    #[test]
+    fn sniff_rejects_too_short_buffers() {
+        assert_eq!(sniff_image_format(b""), None);
+        assert_eq!(sniff_image_format(b"\xFF"), None);
+        assert_eq!(sniff_image_format(b"\xFF\xD8"), None);
+    }
+
+    #[test]
+    fn sniff_rejects_jpeg_with_wrong_third_byte() {
+        // Real JPEG always has 0xFF as third byte after FFD8.
+        assert_eq!(sniff_image_format(b"\xFF\xD8\x00garbage"), None);
+    }
+
+    #[test]
+    fn sha256_hex_is_64_lowercase_hex() {
+        let h = sha256_hex(b"hello");
+        assert_eq!(h.len(), 64);
+        assert!(h.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        // Known sha256("hello").
+        assert_eq!(h, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+    }
+
+    #[test]
+    fn sha256_dedupe_property() {
+        let a = sha256_hex(b"identical");
+        let b = sha256_hex(b"identical");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn parse_multipart_extracts_first_file() {
+        let body = b"--bnd\r\n\
+                     Content-Disposition: form-data; name=\"file\"; filename=\"hi.png\"\r\n\
+                     Content-Type: image/png\r\n\
+                     \r\n\
+                     IMAGE_BYTES_HERE\r\n\
+                     --bnd--\r\n";
+        let (name, bytes) = parse_multipart_first_file(body, "bnd").expect("parse");
+        assert_eq!(name, "hi.png");
+        assert_eq!(bytes, b"IMAGE_BYTES_HERE");
+    }
+
+    #[test]
+    fn parse_multipart_returns_none_on_garbage() {
+        assert!(parse_multipart_first_file(b"not multipart", "bnd").is_none());
     }
 }
