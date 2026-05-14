@@ -4519,6 +4519,10 @@ fn serve_edit_form(
     cms_root: &std::path::Path,
     slug: &str,
 ) -> std::io::Result<()> {
+    // T37 v2: theme picker on the editor page. Reads the same
+    // `?theme=` query param the inline preview uses; the iframe
+    // src below carries it through to /preview-edit/<slug>.html.
+    let preview_theme = parse_theme_query(request.url());
     let json_path = cms_root.join(format!("{slug}.json"));
     if !json_path.is_file() {
         return respond_text(request, 404, "page not found");
@@ -4835,16 +4839,45 @@ fn serve_edit_form(
     // (a normal user-facing render). The parent-side bridge
     // script below listens for postMessages from the iframe and
     // jumps the form to the matching fieldset.
+    // T37 v2: 3-button theme picker. Each link points back at this
+    // editor page with `?theme=light|dark|auto`. The dispatcher
+    // reads the param, the iframe `src` carries it through to
+    // `/preview-edit/<slug>.html?theme=…`. Zero JS — pure links +
+    // server-rendered HTML. Cookie persistence queued for v2.b.
+    let iframe_src_qs = match preview_theme {
+        Some("light") => "?theme=light",
+        Some("dark") => "?theme=dark",
+        _ => "",
+    };
+    let active = |t: &str| -> &'static str {
+        if Some(t) == preview_theme { " aria-current=\"true\"" } else { "" }
+    };
     body.push_str(&format!(
         "<aside class=\"preview-pane\" aria-label=\"Live preview\">\
          <div class=\"preview-bar\">\
            <strong>Live preview · click to edit</strong>\
-           <a href=\"/preview/{slug}.html\" target=\"_blank\" rel=\"noopener\">open ↗</a>\
+           <span class=\"theme-picker\" role=\"group\" aria-label=\"Theme\" \
+                 style=\"margin-left:1rem;display:inline-flex;gap:.25rem;font-size:.85em\">\
+             <a href=\"?theme=light\"{light_active} \
+                style=\"padding:.15rem .4rem;border-radius:3px;text-decoration:none;color:inherit;\
+                       background:rgba(255,255,255,.1)\">Light</a>\
+             <a href=\"?theme=dark\"{dark_active} \
+                style=\"padding:.15rem .4rem;border-radius:3px;text-decoration:none;color:inherit;\
+                       background:rgba(255,255,255,.1)\">Dark</a>\
+             <a href=\"?theme=auto\"{auto_active} \
+                style=\"padding:.15rem .4rem;border-radius:3px;text-decoration:none;color:inherit;\
+                       background:rgba(255,255,255,.1)\">Auto</a>\
+           </span>\
+           <a href=\"/preview/{slug}.html\" target=\"_blank\" rel=\"noopener\" \
+              style=\"margin-left:auto\">open ↗</a>\
          </div>\
-         <iframe class=\"preview-frame\" src=\"/preview-edit/{slug}.html\" \
+         <iframe class=\"preview-frame\" src=\"/preview-edit/{slug}.html{iframe_src_qs}\" \
                  title=\"Rendered preview of {slug} (click any section to jump to its editor)\"></iframe>\
          </aside>",
         slug = html_escape(slug),
+        light_active = active("light"),
+        dark_active = active("dark"),
+        auto_active = if preview_theme.is_none() { " aria-current=\"true\"" } else { "" },
     ));
 
     // Parent-side click-to-edit bridge. Origin-checked so cross-
@@ -5447,18 +5480,31 @@ fn build_edit_preview_html(
     page: &loom_cms_render::CmsPage,
     css_href: &str,
     slug: &str,
+    theme: Option<&str>,
 ) -> String {
     let title = escape_html_text(&page.title);
     let css = escape_html_attr(css_href);
     let slug_attr = escape_html_attr(slug);
     let css_hash = csp_sha256(EDIT_OVERLAY_CSS.as_bytes());
     let js_hash = csp_sha256(EDIT_OVERLAY_JS.as_bytes());
+    // T37 v2: inline loom-cms-render's BASE_THEME_CSS so the
+    // editor preview honours `data-theme="dark|light"` cascade
+    // (the @media (prefers-color-scheme:dark) auto-applies for
+    // operators without an explicit pick). CSP-pinned via sha256.
+    let base_theme_hash = csp_sha256(loom_cms_render::BASE_THEME_CSS.as_bytes());
     let csp = format!(
         "default-src 'self'; img-src 'self' data:; \
-         style-src 'self' '{css_hash}'; \
+         style-src 'self' '{base_theme_hash}' '{css_hash}'; \
          script-src 'self' '{js_hash}'; \
          connect-src 'self'; frame-ancestors 'self'"
     );
+    // T37 v2: data-theme attribute on <html> for explicit picks.
+    // Closed allow-list: "light" | "dark"; anything else dropped
+    // (defence in depth on top of the attribute escape).
+    let theme_attr = match theme {
+        Some(t) if t == "light" || t == "dark" => format!(" data-theme=\"{t}\""),
+        _ => String::new(),
+    };
     let mut sections_html = String::new();
     for (i, sec) in page.sections.iter().enumerate() {
         let inner = render_section_for_edit(sec);
@@ -5466,16 +5512,19 @@ fn build_edit_preview_html(
             "<div class=\"loom-edit-target\" data-edit=\"{i}\">{inner}</div>"
         ));
     }
+    let base_css = loom_cms_render::BASE_THEME_CSS;
     format!(
         "<!doctype html>\n\
-<html lang=\"en\" data-edit-slug=\"{slug_attr}\">\n\
+<html lang=\"en\" data-edit-slug=\"{slug_attr}\"{theme_attr}>\n\
 <head>\n\
   <meta charset=\"utf-8\">\n\
   <meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">\n\
   <meta http-equiv=\"X-Content-Type-Options\" content=\"nosniff\">\n\
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
+  <meta name=\"color-scheme\" content=\"light dark\">\n\
   <title>[edit] {title}</title>\n\
   <link rel=\"stylesheet\" href=\"{css}\">\n\
+  <style>{base_css}</style>\n\
   <style>{EDIT_OVERLAY_CSS}</style>\n\
 </head>\n\
 <body>\n\
@@ -5489,13 +5538,41 @@ fn build_edit_preview_html(
     )
 }
 
+/// T37 v2: parse `?theme=light|dark|auto` from a request URL.
+/// `auto` returns `None` (clear the explicit pick → fall back
+/// to OS preference). Anything else returns `None` (silently
+/// dropped — closed allow-list).
+fn parse_theme_query(url: &str) -> Option<&'static str> {
+    let qs = url.split_once('?').map(|(_, q)| q)?;
+    for pair in qs.split('&') {
+        if let Some(value) = pair.strip_prefix("theme=") {
+            return match value {
+                "light" => Some("light"),
+                "dark" => Some("dark"),
+                _ => None, // includes "auto" and any hostile value
+            };
+        }
+    }
+    None
+}
+
 fn serve_preview_edit(
     request: tiny_http::Request,
     cms_root: &std::path::Path,
     slug_with_html: &str,
 ) -> std::io::Result<()> {
-    // Path component is e.g. `home.html` — strip suffix, then
-    // validate as SlugName.
+    // T37 v2: parse `?theme=` from the request URL. Cookie support
+    // queued for v2.b — the query-param flow is the iframe-friendly
+    // primitive (parent editor sets the param when the picker form
+    // POSTs).
+    let raw_url = request.url().to_owned();
+    let theme = parse_theme_query(&raw_url);
+    // Strip query-string from path before slug validation so
+    // `home.html?theme=dark` → slug `home`.
+    let slug_with_html = slug_with_html
+        .split_once('?')
+        .map(|(p, _)| p)
+        .unwrap_or(slug_with_html);
     let slug_str = slug_with_html.strip_suffix(".html").unwrap_or(slug_with_html);
     let slug = match SlugName::new(slug_str) {
         Ok(s) => s,
@@ -5517,7 +5594,7 @@ fn serve_preview_edit(
             return respond_text(request, 500, &format!("parse cms: {e}"));
         }
     };
-    let html = build_edit_preview_html(&page, "/preview/loom-skin.css", slug.as_str());
+    let html = build_edit_preview_html(&page, "/preview/loom-skin.css", slug.as_str(), theme);
     respond_html(request, 200, &html)
 }
 
@@ -12364,7 +12441,7 @@ mod edit_overlay_tests {
     #[test]
     fn build_edit_preview_html_wraps_each_section_with_data_edit() {
         let page = one_section_page(3);
-        let html = build_edit_preview_html(&page, "/preview/loom-skin.css", "test");
+        let html = build_edit_preview_html(&page, "/preview/loom-skin.css", "test", None);
         assert!(html.contains("data-edit=\"0\""), "missing index 0: {html}");
         assert!(html.contains("data-edit=\"1\""), "missing index 1");
         assert!(html.contains("data-edit=\"2\""), "missing index 2");
@@ -12379,7 +12456,7 @@ mod edit_overlay_tests {
     #[test]
     fn build_edit_preview_html_pins_inline_style_and_script_in_csp() {
         let page = one_section_page(1);
-        let html = build_edit_preview_html(&page, "/preview/loom-skin.css", "test");
+        let html = build_edit_preview_html(&page, "/preview/loom-skin.css", "test", None);
         let css_hash = csp_sha256(EDIT_OVERLAY_CSS.as_bytes());
         let js_hash = csp_sha256(EDIT_OVERLAY_JS.as_bytes());
         assert!(html.contains(&css_hash), "css hash not in CSP: {css_hash}");
@@ -12394,7 +12471,7 @@ mod edit_overlay_tests {
     #[test]
     fn build_edit_preview_html_zero_sections_renders_skeleton() {
         let page = one_section_page(0);
-        let html = build_edit_preview_html(&page, "/preview/loom-skin.css", "test");
+        let html = build_edit_preview_html(&page, "/preview/loom-skin.css", "test", None);
         // Empty sections list ⇒ no data-edit attrs at all.
         assert!(!html.contains("data-edit="), "no sections → no data-edit");
         // But the chrome (banner + script + body) still renders.
@@ -12419,7 +12496,78 @@ mod edit_overlay_tests {
         // ACCESSIBILITY: the rendered preview should still have a
         // main landmark even though it's the edit-mode variant.
         let page = one_section_page(1);
-        let html = build_edit_preview_html(&page, "/preview/loom-skin.css", "test");
+        let html = build_edit_preview_html(&page, "/preview/loom-skin.css", "test", None);
         assert!(html.contains("<main"), "missing <main> landmark");
+    }
+
+    // ---- T37 v2: theme query-string + data-theme attr ----
+
+    #[test]
+    fn build_edit_preview_html_emits_data_theme_when_dark() {
+        let page = one_section_page(1);
+        let html = build_edit_preview_html(&page, "/preview/loom-skin.css", "test", Some("dark"));
+        assert!(html.contains("data-theme=\"dark\""), "missing data-theme=dark");
+    }
+
+    #[test]
+    fn build_edit_preview_html_emits_data_theme_when_light() {
+        let page = one_section_page(1);
+        let html = build_edit_preview_html(&page, "/preview/loom-skin.css", "test", Some("light"));
+        assert!(html.contains("data-theme=\"light\""), "missing data-theme=light");
+    }
+
+    #[test]
+    fn build_edit_preview_html_drops_unknown_theme() {
+        let page = one_section_page(1);
+        for hostile in ["evil", "'><script>", "../etc/passwd", "DARK"] {
+            let html = build_edit_preview_html(
+                &page,
+                "/preview/loom-skin.css",
+                "test",
+                Some(hostile),
+            );
+            // The <html ...> opening tag must not carry a data-theme
+            // attribute for unknown values. (BASE_THEME_CSS itself
+            // contains [data-theme="..."] selectors, so we narrow
+            // the assertion to the html tag specifically.)
+            assert!(
+                !html.contains(&format!("data-theme=\"{hostile}\"")),
+                "hostile theme `{hostile}` must be dropped"
+            );
+        }
+    }
+
+    #[test]
+    fn build_edit_preview_html_inlines_base_theme_css() {
+        // T37 v2 inlines loom_cms_render::BASE_THEME_CSS so the
+        // data-theme attribute actually flips colours.
+        let page = one_section_page(1);
+        let html = build_edit_preview_html(&page, "/preview/loom-skin.css", "test", None);
+        assert!(
+            html.contains("[data-theme=\"dark\"]"),
+            "BASE_THEME_CSS dark rule must be inlined"
+        );
+        assert!(
+            html.contains("[data-theme=\"light\"]"),
+            "BASE_THEME_CSS light rule must be inlined"
+        );
+        // CSP must pin both inline blocks (base-theme + overlay).
+        assert!(html.matches("'sha256-").count() >= 2, "CSP must pin two style blocks + the script");
+    }
+
+    #[test]
+    fn parse_theme_query_accepts_light_and_dark() {
+        assert_eq!(parse_theme_query("/preview-edit/home.html?theme=light"), Some("light"));
+        assert_eq!(parse_theme_query("/preview-edit/home.html?theme=dark"), Some("dark"));
+        assert_eq!(parse_theme_query("/x?a=1&theme=dark&b=2"), Some("dark"));
+    }
+
+    #[test]
+    fn parse_theme_query_rejects_unknown_and_auto() {
+        assert_eq!(parse_theme_query("/x?theme=auto"), None);
+        assert_eq!(parse_theme_query("/x?theme=evil"), None);
+        assert_eq!(parse_theme_query("/x?theme=DARK"), None);
+        assert_eq!(parse_theme_query("/x"), None);
+        assert_eq!(parse_theme_query("/x?other=1"), None);
     }
 }
