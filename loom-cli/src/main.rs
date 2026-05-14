@@ -9783,12 +9783,206 @@ fn strip_image_metadata(format: AcceptedImage, input: &[u8]) -> Result<Vec<u8>, 
     match format {
         AcceptedImage::Jpeg => strip_jpeg_metadata(input),
         AcceptedImage::Png => strip_png_metadata(input),
-        // GIF and WebP strips queued (T62-step-7b). For the
-        // first cut we pass them through unchanged — neither is
-        // a typical EXIF/GPS source from a smartphone camera,
-        // and a half-correct strip is worse than no strip.
-        AcceptedImage::Gif | AcceptedImage::Webp => Ok(input.to_vec()),
+        AcceptedImage::Webp => strip_webp_metadata(input),
+        AcceptedImage::Gif => strip_gif_metadata(input),
     }
+}
+
+/// T62-step-7b: WebP metadata strip.
+///
+/// WebP is a RIFF container. The format:
+///   "RIFF" <4-byte LE size> "WEBP"
+///   then a sequence of chunks, each:
+///     <4-byte ASCII tag> <4-byte LE size> <data, padded to even length>
+///
+/// EXIF metadata lives in chunks tagged "EXIF". XMP metadata lives
+/// in chunks tagged "XMP " (note the trailing space). Both leak
+/// camera serial / GPS / software / timestamp.
+///
+/// We KEEP everything else — VP8 / VP8L / VP8X (extension flags),
+/// ICCP (colour profile, important for fidelity), ANIM / ANMF
+/// (animation), ALPH (alpha plane).
+///
+/// SECURITY: bounds-check every chunk length against remaining
+/// input. A malformed length never reads past the buffer.
+fn strip_webp_metadata(input: &[u8]) -> Result<Vec<u8>, &'static str> {
+    if input.len() < 12
+        || &input[..4] != b"RIFF"
+        || &input[8..12] != b"WEBP"
+    {
+        return Err("not a WebP (bad RIFF/WEBP header)");
+    }
+    let mut out: Vec<u8> = Vec::with_capacity(input.len());
+    out.extend_from_slice(b"RIFF");
+    // Reserve 4 bytes for the file size; we'll patch after we know
+    // the cleaned size.
+    out.extend_from_slice(&[0u8; 4]);
+    out.extend_from_slice(b"WEBP");
+
+    let mut i = 12usize;
+    while i + 8 <= input.len() {
+        let tag = &input[i..i + 4];
+        let chunk_len = u32::from_le_bytes([input[i + 4], input[i + 5], input[i + 6], input[i + 7]])
+            as usize;
+        // RIFF chunks are padded to even length.
+        let padded_len = chunk_len + (chunk_len & 1);
+        let chunk_total = 8 + padded_len;
+        if i + chunk_total > input.len() {
+            return Err("WebP chunk overruns input");
+        }
+        // Drop EXIF / XMP / ICC-with-EXIF-disguise.
+        let drop = matches!(tag, b"EXIF" | b"XMP ");
+        if !drop {
+            out.extend_from_slice(&input[i..i + chunk_total]);
+        }
+        i += chunk_total;
+    }
+    // Patch the RIFF size field to the cleaned-content size
+    // (everything AFTER the 8-byte "RIFF<size>" header).
+    let cleaned_size = (out.len() - 8) as u32;
+    out[4..8].copy_from_slice(&cleaned_size.to_le_bytes());
+    Ok(out)
+}
+
+/// T62-step-7b: GIF metadata strip.
+///
+/// GIF89a structure (a87/89a header difference is only the magic):
+///   header: "GIF87a" or "GIF89a"
+///   logical screen descriptor: 7 bytes
+///   optional global colour table
+///   then a sequence of:
+///     0x21 (extension introducer) followed by:
+///       0xFF — application extension (XMP / Animexts / etc.)
+///       0xFE — comment extension
+///       0xF9 — graphic control extension (KEEP — required)
+///       0x01 — plain-text extension
+///     0x2C (image descriptor — KEEP)
+///     0x3B (trailer — KEEP, marks end)
+///
+/// EXIF data is RARE in GIF (the format predates EXIF), but XMP
+/// can ride along via application-extension blocks (Adobe / Adobe
+/// XMP / etc.). We DROP application extensions tagged with known-
+/// metadata identifiers, and DROP comment extensions (potential
+/// PII).
+fn strip_gif_metadata(input: &[u8]) -> Result<Vec<u8>, &'static str> {
+    if input.len() < 13 {
+        return Err("GIF too short");
+    }
+    let magic = &input[..6];
+    if magic != b"GIF87a" && magic != b"GIF89a" {
+        return Err("not a GIF (bad magic)");
+    }
+    let mut out: Vec<u8> = Vec::with_capacity(input.len());
+    out.extend_from_slice(&input[..6]);
+    // Logical Screen Descriptor (7 bytes).
+    out.extend_from_slice(&input[6..13]);
+    let mut i = 13usize;
+    // Skip + copy global colour table if present.
+    let packed = input[10];
+    let has_global_ct = (packed & 0x80) != 0;
+    if has_global_ct {
+        let size_field = (packed & 0x07) as usize;
+        let table_bytes = 3 * (1 << (size_field + 1));
+        if i + table_bytes > input.len() {
+            return Err("GIF global colour table overruns input");
+        }
+        out.extend_from_slice(&input[i..i + table_bytes]);
+        i += table_bytes;
+    }
+    while i < input.len() {
+        let byte = input[i];
+        match byte {
+            0x21 => {
+                // Extension. Next byte is the label.
+                if i + 1 >= input.len() {
+                    return Err("GIF extension truncated");
+                }
+                let label = input[i + 1];
+                let body_start = i + 2;
+                // Walk sub-blocks until terminator (0x00).
+                let mut j = body_start;
+                while j < input.len() && input[j] != 0 {
+                    let sub_len = input[j] as usize;
+                    if j + 1 + sub_len > input.len() {
+                        return Err("GIF extension sub-block overruns");
+                    }
+                    j += 1 + sub_len;
+                }
+                if j >= input.len() {
+                    return Err("GIF extension missing terminator");
+                }
+                let block_end = j + 1; // include terminator
+                // Drop comment + application extensions (potential
+                // metadata leaks). Keep graphic-control (0xF9 —
+                // required for animation timing) and plain-text
+                // (0x01 — visible content).
+                let drop = matches!(label, 0xFE | 0xFF);
+                if !drop {
+                    out.extend_from_slice(&input[i..block_end]);
+                }
+                i = block_end;
+            }
+            0x2C => {
+                // Image descriptor — copy through to the next
+                // block delimiter. The spec is complex here; for
+                // safety we copy until we see a 0x3B (trailer)
+                // or another 0x21 (extension) or another 0x2C
+                // (next image, in animations) at a sub-block
+                // boundary. Simplest correct approach: walk the
+                // descriptor bytes (10 bytes), optional local
+                // colour table, LZW minimum code size (1 byte),
+                // then sub-blocks until terminator.
+                if i + 10 > input.len() {
+                    return Err("GIF image descriptor truncated");
+                }
+                out.extend_from_slice(&input[i..i + 10]);
+                let local_packed = input[i + 9];
+                let has_local_ct = (local_packed & 0x80) != 0;
+                let mut j = i + 10;
+                if has_local_ct {
+                    let size_field = (local_packed & 0x07) as usize;
+                    let table_bytes = 3 * (1 << (size_field + 1));
+                    if j + table_bytes > input.len() {
+                        return Err("GIF local colour table overruns");
+                    }
+                    out.extend_from_slice(&input[j..j + table_bytes]);
+                    j += table_bytes;
+                }
+                // LZW minimum code size byte.
+                if j >= input.len() {
+                    return Err("GIF image data missing");
+                }
+                out.push(input[j]);
+                j += 1;
+                // Sub-blocks until terminator.
+                while j < input.len() && input[j] != 0 {
+                    let sub_len = input[j] as usize;
+                    if j + 1 + sub_len > input.len() {
+                        return Err("GIF image sub-block overruns");
+                    }
+                    out.extend_from_slice(&input[j..j + 1 + sub_len]);
+                    j += 1 + sub_len;
+                }
+                if j >= input.len() {
+                    return Err("GIF image missing terminator");
+                }
+                out.push(0); // terminator
+                i = j + 1;
+            }
+            0x3B => {
+                // Trailer — end of GIF.
+                out.push(0x3B);
+                return Ok(out);
+            }
+            _ => {
+                // Unknown byte — refuse rather than guess.
+                return Err("GIF unknown block");
+            }
+        }
+    }
+    // Reached EOF without trailer — accept anyway, some decoders
+    // tolerate this.
+    Ok(out)
 }
 
 fn strip_jpeg_metadata(input: &[u8]) -> Result<Vec<u8>, &'static str> {
@@ -11320,14 +11514,187 @@ mod image_strip_tests {
         );
     }
 
+    // ---- T62 step 7b: WebP metadata strip ----
+
+    fn build_webp(chunks: &[(&[u8; 4], &[u8])]) -> Vec<u8> {
+        let mut content: Vec<u8> = Vec::new();
+        content.extend_from_slice(b"WEBP");
+        for (tag, data) in chunks {
+            content.extend_from_slice(*tag);
+            let len = data.len() as u32;
+            content.extend_from_slice(&len.to_le_bytes());
+            content.extend_from_slice(data);
+            // Pad to even length.
+            if data.len() & 1 == 1 {
+                content.push(0);
+            }
+        }
+        let mut out: Vec<u8> = Vec::new();
+        out.extend_from_slice(b"RIFF");
+        let size = (content.len()) as u32;
+        out.extend_from_slice(&size.to_le_bytes());
+        out.extend_from_slice(&content);
+        out
+    }
+
     #[test]
-    fn strip_image_metadata_passes_through_gif_and_webp() {
-        let gif = b"GIF89a\x01\x00\x01\x00\x00\x00\x00\x00";
-        let webp = b"RIFF\x10\x00\x00\x00WEBPVP8 ";
-        let g = strip_image_metadata(AcceptedImage::Gif, gif).expect("gif passes");
-        let w = strip_image_metadata(AcceptedImage::Webp, webp).expect("webp passes");
-        assert_eq!(g, gif);
-        assert_eq!(w, webp);
+    fn webp_strip_drops_exif_chunk() {
+        let original = build_webp(&[
+            (b"VP8X", b"extension flags"),
+            (b"EXIF", b"GPS:lat=1,lng=2,camera=Canon"),
+            (b"VP8L", b"lossless image data"),
+        ]);
+        let cleaned = strip_webp_metadata(&original).expect("strip");
+        assert!(cleaned.windows(b"VP8X".len()).any(|w| w == b"VP8X"), "VP8X must survive");
+        assert!(cleaned.windows(b"VP8L".len()).any(|w| w == b"VP8L"), "VP8L must survive");
+        assert!(
+            !cleaned.windows(b"GPS:lat".len()).any(|w| w == b"GPS:lat"),
+            "EXIF payload must be stripped"
+        );
+    }
+
+    #[test]
+    fn webp_strip_drops_xmp_chunk() {
+        let original = build_webp(&[
+            (b"VP8 ", b"frame data"),
+            (b"XMP ", b"<x:xmpmeta>...secret xmp...</x:xmpmeta>"),
+            (b"ALPH", b"alpha plane"),
+        ]);
+        let cleaned = strip_webp_metadata(&original).expect("strip");
+        assert!(cleaned.windows(b"frame data".len()).any(|w| w == b"frame data"));
+        assert!(cleaned.windows(b"alpha plane".len()).any(|w| w == b"alpha plane"));
+        assert!(
+            !cleaned.windows(b"secret xmp".len()).any(|w| w == b"secret xmp"),
+            "XMP must be stripped"
+        );
+    }
+
+    #[test]
+    fn webp_strip_keeps_iccp_color_profile() {
+        let original = build_webp(&[
+            (b"VP8X", b"flags"),
+            (b"ICCP", b"sRGB IEC61966 ICC profile bytes"),
+            (b"VP8 ", b"frame"),
+        ]);
+        let cleaned = strip_webp_metadata(&original).expect("strip");
+        assert!(
+            cleaned.windows(b"sRGB IEC61966".len()).any(|w| w == b"sRGB IEC61966"),
+            "ICCP color profile must survive"
+        );
+    }
+
+    #[test]
+    fn webp_strip_patches_riff_size_field() {
+        let original = build_webp(&[
+            (b"VP8 ", b"frame"),
+            (b"EXIF", b"junk to be dropped"),
+        ]);
+        let cleaned = strip_webp_metadata(&original).expect("strip");
+        // Cleaned size should match the new content length.
+        let claimed = u32::from_le_bytes([cleaned[4], cleaned[5], cleaned[6], cleaned[7]]) as usize;
+        assert_eq!(claimed + 8, cleaned.len(), "RIFF size field must match cleaned length");
+    }
+
+    #[test]
+    fn webp_strip_rejects_bad_header() {
+        assert!(strip_webp_metadata(b"NOTRIFF").is_err());
+        assert!(strip_webp_metadata(b"RIFF\x00\x00\x00\x00WRONG").is_err());
+        assert!(strip_webp_metadata(b"short").is_err());
+    }
+
+    // ---- T62 step 7b: GIF metadata strip ----
+
+    /// Build a minimal GIF89a: header + LSD + image descriptor +
+    /// LZW data + trailer. No global colour table for simplicity.
+    fn build_minimal_gif_with_extensions(extensions: &[(u8, &[u8])]) -> Vec<u8> {
+        let mut out: Vec<u8> = Vec::new();
+        out.extend_from_slice(b"GIF89a");
+        // LSD: 1x1 image, no global CT.
+        out.extend_from_slice(&[0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]);
+        // Extensions BEFORE the image.
+        for (label, body) in extensions {
+            out.push(0x21);
+            out.push(*label);
+            // One sub-block holding the body.
+            let mut remaining: &[u8] = body;
+            while !remaining.is_empty() {
+                let chunk = remaining.len().min(255);
+                out.push(chunk as u8);
+                out.extend_from_slice(&remaining[..chunk]);
+                remaining = &remaining[chunk..];
+            }
+            out.push(0); // terminator
+        }
+        // Image descriptor (10 bytes): separator, x, y, w, h, packed=0
+        out.extend_from_slice(&[0x2C, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00]);
+        // LZW min code size + 1 sub-block + terminator.
+        out.push(0x02);
+        out.push(0x01); // 1-byte sub-block
+        out.push(0x00); // empty data
+        out.push(0x00); // terminator
+        // Trailer.
+        out.push(0x3B);
+        out
+    }
+
+    #[test]
+    fn gif_strip_drops_comment_extension() {
+        let original = build_minimal_gif_with_extensions(&[
+            (0xFE, b"SECRET COMMENT WITH PII"),
+        ]);
+        let cleaned = strip_gif_metadata(&original).expect("strip");
+        assert!(
+            !cleaned.windows(b"SECRET COMMENT".len()).any(|w| w == b"SECRET COMMENT"),
+            "comment extension must be dropped"
+        );
+        // Trailer must still be there.
+        assert_eq!(cleaned.last().copied(), Some(0x3B));
+    }
+
+    #[test]
+    fn gif_strip_drops_application_extension() {
+        let original = build_minimal_gif_with_extensions(&[
+            (0xFF, b"XMP DataXMP_metadata_here"),
+        ]);
+        let cleaned = strip_gif_metadata(&original).expect("strip");
+        assert!(
+            !cleaned.windows(b"XMP_metadata_here".len()).any(|w| w == b"XMP_metadata_here"),
+            "application extension (XMP) must be dropped"
+        );
+    }
+
+    #[test]
+    fn gif_strip_keeps_graphic_control_extension() {
+        // 0xF9 graphic control is required for animation timing.
+        let original = build_minimal_gif_with_extensions(&[
+            (0xF9, &[0x04, 0x00, 0x0a, 0x00, 0x00]),
+        ]);
+        let cleaned = strip_gif_metadata(&original).expect("strip");
+        // The 0xF9 marker should still appear in the output.
+        assert!(
+            cleaned.windows(2).any(|w| w == [0x21, 0xF9]),
+            "graphic-control extension must survive"
+        );
+    }
+
+    #[test]
+    fn gif_strip_rejects_bad_magic() {
+        assert!(strip_gif_metadata(b"NOT-A-GIF-AT-ALL").is_err());
+        assert!(strip_gif_metadata(b"GIF99x").is_err());
+        assert!(strip_gif_metadata(b"GIF8").is_err());
+    }
+
+    #[test]
+    fn strip_image_metadata_routes_each_format() {
+        // After T62 step 7b every format has its own stripper.
+        // A bad WebP refuses through the strip_image_metadata
+        // dispatcher, not silently passes through.
+        let bad_webp = b"RIFF\x00\x00\x00\x00WRONG-HEADER";
+        let r = strip_image_metadata(AcceptedImage::Webp, bad_webp);
+        assert!(r.is_err(), "bad webp must error, not pass through");
+        let bad_gif = b"NOT-A-GIF-AT-ALL";
+        let r = strip_image_metadata(AcceptedImage::Gif, bad_gif);
+        assert!(r.is_err(), "bad gif must error, not pass through");
     }
 
     proptest::proptest! {
@@ -11338,6 +11705,16 @@ mod image_strip_tests {
         #[test]
         fn jpeg_strip_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..1024)) {
             let _ = strip_jpeg_metadata(&bytes);
+        }
+
+        #[test]
+        fn webp_strip_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..1024)) {
+            let _ = strip_webp_metadata(&bytes);
+        }
+
+        #[test]
+        fn gif_strip_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..1024)) {
+            let _ = strip_gif_metadata(&bytes);
         }
 
         #[test]
