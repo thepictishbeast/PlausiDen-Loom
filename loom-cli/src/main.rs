@@ -3929,6 +3929,10 @@ fn handle_edit_request(
     if let Some(rest) = path.strip_prefix("preview-edit/") {
         return serve_preview_edit(request, cms_root, rest);
     }
+    // T62 step 10: inline-edit POST from the iframe shim.
+    if is_post && path == "inline-edit" {
+        return handle_inline_edit(request, cms_root, forge_path);
+    }
     // T50: forge admin dashboard. Same server, same auth scope.
     if path == "forge" && is_get {
         return serve_forge_dashboard(request, cms_root, static_root);
@@ -5393,45 +5397,182 @@ fn respond_html(
 
 const EDIT_OVERLAY_CSS: &str = "\
 [data-edit]{position:relative;outline:1px dashed transparent;\
+transition:outline-color .12s ease,background-color .12s ease}\
+[data-edit]:hover{outline-color:rgba(255,0,102,.35)}\
+[data-edit].loom-edit-active{outline:2px solid #f06;background-color:rgba(255,0,102,.04)}\
+[data-edit-field]{outline:1px dashed transparent;cursor:text;\
 transition:outline-color .12s ease,background-color .12s ease;\
-cursor:pointer}\
-[data-edit]:hover{outline-color:#f06;background-color:rgba(255,0,102,.04)}\
-[data-edit].loom-edit-active{outline:2px solid #f06;background-color:rgba(255,0,102,.06)}\
+border-radius:2px;padding:1px 2px;margin:-1px -2px;min-height:1.2em;\
+display:inline-block}\
+[data-edit-field]:hover{outline-color:#f06}\
+[data-edit-field]:focus{outline:2px solid #06f;background:#f0f8ff;cursor:text}\
+[data-edit-field][data-saving=\"1\"]{background:#fffbe6}\
+[data-edit-field][data-saved=\"1\"]{background:#e6ffea}\
+[data-edit-field][data-error=\"1\"]{background:#fde6e6;outline-color:#c00}\
 .loom-edit-banner{position:fixed;top:0;left:0;right:0;\
 background:#003;color:#fff;padding:.4rem .8rem;font:13px/1.4 \
 system-ui,sans-serif;z-index:99999;text-align:center}\
+.loom-edit-banner kbd{background:rgba(255,255,255,.15);padding:0 .25em;border-radius:2px}\
 body{padding-top:2rem !important}";
 
 const EDIT_OVERLAY_JS: &str = "\
 (function(){\
 var origin=location.origin;\
-function send(idx){try{parent.postMessage({type:'loom-edit',target:String(idx)},origin);}catch(e){}}\
+var slug=document.documentElement.getAttribute('data-edit-slug')||'';\
+function notifyParent(idx){try{parent.postMessage({type:'loom-edit',target:String(idx)},origin);}catch(e){}}\
+function notifyParentSaved(idx,field){try{parent.postMessage({type:'loom-edit-saved',target:String(idx),field:String(field)},origin);}catch(e){}}\
 function findIdx(el){var t=el&&el.closest?el.closest('[data-edit]'):null;return t?t.getAttribute('data-edit'):null;}\
+function fieldOf(el){return el&&el.getAttribute?el.getAttribute('data-edit-field'):null;}\
+function flash(el,k){el.setAttribute('data-'+k,'1');setTimeout(function(){el.removeAttribute('data-'+k);},900);}\
+function commitField(el){\
+var idx=findIdx(el);var field=fieldOf(el);if(idx===null||!field)return;\
+var val=el.textContent;\
+var orig=el.getAttribute('data-edit-original')||'';\
+if(val===orig){el.contentEditable='false';return;}\
+el.setAttribute('data-saving','1');\
+var fd=new URLSearchParams();fd.set('slug',slug);fd.set('section',idx);fd.set('field',field);fd.set('value',val);\
+fetch('/inline-edit',{method:'POST',headers:{'X-Loom-Inline-Edit':'1','Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},credentials:'same-origin',body:fd.toString()})\
+.then(function(r){return r.text().then(function(t){return{ok:r.ok,body:t};});})\
+.then(function(r){\
+el.removeAttribute('data-saving');\
+if(r.ok){el.textContent=r.body;el.setAttribute('data-edit-original',r.body);flash(el,'saved');notifyParentSaved(idx,field);}\
+else{el.textContent=orig;flash(el,'error');console.warn('inline-edit failed',r.body);}\
+el.contentEditable='false';\
+}).catch(function(e){el.removeAttribute('data-saving');el.textContent=orig;flash(el,'error');el.contentEditable='false';});\
+}\
 document.addEventListener('click',function(e){\
-var idx=findIdx(e.target);\
-if(idx===null)return;\
+var fld=e.target.closest&&e.target.closest('[data-edit-field]');\
+if(fld){\
+e.preventDefault();e.stopPropagation();\
+if(fld.contentEditable!=='true'){\
+fld.setAttribute('data-edit-original',fld.textContent);\
+fld.contentEditable='true';fld.focus();\
+try{var r=document.createRange();r.selectNodeContents(fld);var s=window.getSelection();s.removeAllRanges();s.addRange(r);}catch(_){}}\
+return;}\
+var idx=findIdx(e.target);if(idx===null)return;\
 e.preventDefault();e.stopPropagation();\
 document.querySelectorAll('.loom-edit-active').forEach(function(n){n.classList.remove('loom-edit-active');});\
 var t=e.target.closest('[data-edit]');if(t)t.classList.add('loom-edit-active');\
-send(idx);\
+notifyParent(idx);\
 },true);\
 document.addEventListener('keydown',function(e){\
+var fld=e.target.closest&&e.target.closest('[data-edit-field]');\
+if(fld&&fld.contentEditable==='true'){\
+if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();fld.blur();return;}\
+if(e.key==='Escape'){e.preventDefault();fld.textContent=fld.getAttribute('data-edit-original')||'';fld.contentEditable='false';fld.blur();return;}\
+}\
 if(e.key==='Escape'){document.querySelectorAll('.loom-edit-active').forEach(function(n){n.classList.remove('loom-edit-active');});}\
 });\
+document.addEventListener('blur',function(e){\
+var fld=e.target.closest&&e.target.closest('[data-edit-field]');\
+if(fld&&fld.contentEditable==='true'){commitField(fld);}\
+},true);\
 })();";
+
+/// Render a section for the editor preview iframe, marking each
+/// inline-editable text field with `data-edit-field`. Falls back
+/// to the renderer's standard markup for kinds we don't support
+/// inline editing on yet (CardFeed, Sidebar, Form, Composer) —
+/// the click-to-jump-to-form path still works for those via the
+/// outer `[data-edit]` wrapper.
+fn render_section_for_edit(sec: &loom_cms_render::CmsSection) -> String {
+    use loom_cms_render::CmsSection;
+    match sec {
+        CmsSection::Heading { level, text } => {
+            // Renderer clamps to h2..h6 (h1 is owned by page-shell).
+            let lvl = (*level).clamp(2, 6);
+            format!(
+                "<h{lvl} class=\"loom-heading\" data-loom-level=\"{lvl}\" \
+                 data-edit-field=\"text\">{}</h{lvl}>",
+                escape_html_text(text)
+            )
+        }
+        CmsSection::Paragraph { text } => format!(
+            "<p class=\"loom-prose\" data-edit-field=\"text\">{}</p>",
+            escape_html_text(text)
+        ),
+        CmsSection::Hero { eyebrow, title, lede, cta: _ } => {
+            let mut out = String::from("<section class=\"loom-section-hero\" data-loom-hero>");
+            if let Some(e) = eyebrow.as_deref().filter(|s| !s.is_empty()) {
+                out.push_str(&format!(
+                    "<span class=\"loom-section-hero__eyebrow\" data-edit-field=\"eyebrow\">{}</span>",
+                    escape_html_text(e)
+                ));
+            }
+            out.push_str(&format!(
+                "<h2 class=\"loom-section-hero__title\" data-edit-field=\"title\">{}</h2>",
+                escape_html_text(title)
+            ));
+            if let Some(l) = lede.as_deref().filter(|s| !s.is_empty()) {
+                out.push_str(&format!(
+                    "<p class=\"loom-section-hero__lede\" data-edit-field=\"lede\">{}</p>",
+                    escape_html_text(l)
+                ));
+            }
+            // CTA: not inline-editable in v1 — defer to form.
+            out.push_str("</section>");
+            out
+        }
+        CmsSection::Banner { tone, text, .. } => {
+            // data_attr is pkg-private in loom-cms-render; mirror
+            // the variant→string mapping here. CmsBannerTest has
+            // a unit test in loom-cms-render that pins the same
+            // strings, so any rename surfaces there first.
+            use loom_cms_render::CmsBannerTone;
+            let tone_s = match tone {
+                CmsBannerTone::Info => "info",
+                CmsBannerTone::Warn => "warn",
+                CmsBannerTone::Success => "success",
+                CmsBannerTone::Danger => "danger",
+            };
+            format!(
+                "<aside class=\"loom-banner\" data-tone=\"{}\">\
+                 <p class=\"loom-banner__text\" data-edit-field=\"text\">{}</p>\
+                 </aside>",
+                escape_html_attr(tone_s),
+                escape_html_text(text),
+            )
+        }
+        CmsSection::Group { title, body } => {
+            let mut out = String::from("<section class=\"loom-section-group\">");
+            out.push_str(&format!(
+                "<h2 class=\"loom-section-group__title\" data-edit-field=\"title\">{}</h2>",
+                escape_html_text(title)
+            ));
+            // body paragraphs not inline-editable in v1 (compound
+            // field; T62-step-10b). Render passthrough.
+            for p in body {
+                out.push_str(&format!(
+                    "<p class=\"loom-section-group__body\">{}</p>",
+                    escape_html_text(p)
+                ));
+            }
+            out.push_str("</section>");
+            out
+        }
+        // Fall back to the canonical renderer for kinds we don't
+        // inline-edit yet — click-to-jump-to-form still works via
+        // the outer [data-edit] wrapper.
+        _ => loom_cms_render::render_section(sec).into_string(),
+    }
+}
 
 /// Build the HTML doc for `/preview-edit/<slug>.html`.
 ///
 /// Composition: `<head>` with strict CSP that pins the inline
 /// overlay style + script via sha256 (no `unsafe-inline`); body
 /// is the rendered sections wrapped in `<div data-edit="<i>">`,
-/// followed by the overlay banner and inline overlay script.
+/// each editable text node carrying `data-edit-field="<name>"`.
+/// The slug is published to the iframe via `<html data-edit-slug>`
+/// so the JS shim can address `/inline-edit` for POSTs.
 fn build_edit_preview_html(
     page: &loom_cms_render::CmsPage,
     css_href: &str,
+    slug: &str,
 ) -> String {
     let title = escape_html_text(&page.title);
     let css = escape_html_attr(css_href);
+    let slug_attr = escape_html_attr(slug);
     let css_hash = csp_sha256(EDIT_OVERLAY_CSS.as_bytes());
     let js_hash = csp_sha256(EDIT_OVERLAY_JS.as_bytes());
     let csp = format!(
@@ -5442,17 +5583,14 @@ fn build_edit_preview_html(
     );
     let mut sections_html = String::new();
     for (i, sec) in page.sections.iter().enumerate() {
-        let inner = loom_cms_render::render_section(sec).into_string();
-        // The wrapper carries data-edit. The kebab-class makes
-        // the wrapper itself stylable (the overlay CSS targets
-        // [data-edit] specifically — no name collision).
+        let inner = render_section_for_edit(sec);
         sections_html.push_str(&format!(
             "<div class=\"loom-edit-target\" data-edit=\"{i}\">{inner}</div>"
         ));
     }
     format!(
         "<!doctype html>\n\
-<html lang=\"en\">\n\
+<html lang=\"en\" data-edit-slug=\"{slug_attr}\">\n\
 <head>\n\
   <meta charset=\"utf-8\">\n\
   <meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">\n\
@@ -5464,8 +5602,8 @@ fn build_edit_preview_html(
 </head>\n\
 <body>\n\
   <div class=\"loom-edit-banner\" role=\"status\">\
-   Click any section to jump to its editor. \
-   Press <kbd>Esc</kbd> to clear selection.</div>\n\
+   Click any text to edit it directly. \
+   <kbd>Enter</kbd> saves · <kbd>Esc</kbd> cancels.</div>\n\
   <main id=\"content\">\n{sections_html}\n  </main>\n\
   <script>{EDIT_OVERLAY_JS}</script>\n\
 </body>\n\
@@ -5501,8 +5639,201 @@ fn serve_preview_edit(
             return respond_text(request, 500, &format!("parse cms: {e}"));
         }
     };
-    let html = build_edit_preview_html(&page, "/preview/loom-skin.css");
+    let html = build_edit_preview_html(&page, "/preview/loom-skin.css", slug.as_str());
     respond_html(request, 200, &html)
+}
+
+// ---- T62 step 10: inline-edit POST handler ------------------
+//
+// Per-kind whitelist of editable text fields. Mom can click on a
+// hero title in the iframe, type a new title, hit Enter — the
+// shim POSTs here, we patch the JSON, atomic-write, and return
+// the saved value. Compound fields (group.body[N], sidebar
+// panels, card-feed items) deferred to step 10b.
+//
+// SECURITY:
+//   * SameSite=Strict on the session cookie (T43) blocks cross-
+//     origin browser-driven CSRF;
+//   * `X-Loom-Inline-Edit: 1` header is non-CORS-safe so any
+//     cross-origin POST trips a CORS preflight (which we don't
+//     answer);
+//   * SlugName::new gates the slug; section index parses to
+//     usize and is bounds-checked; field name is matched against
+//     the per-kind whitelist;
+//   * value length is capped (8 KiB — generous for a single
+//     section text field but bounds DoS-via-giant-payload);
+//   * the existing cookie-session auth gates this endpoint when
+//     auth.toml is present.
+//
+// REGRESSION-GUARD: every kind here MUST also be listed in
+// `render_section_for_edit` — if a kind has data-edit-field but
+// not a whitelist arm, the click would 400 silently.
+
+const INLINE_EDIT_MAX_VALUE_BYTES: usize = 8 * 1024;
+const INLINE_EDIT_HEADER: &str = "X-Loom-Inline-Edit";
+
+/// Whitelist of editable fields per section kind. Returns None
+/// if the kind isn't inline-editable yet, or if `field` isn't on
+/// the kind's allow-list.
+fn inline_edit_field_allowed(kind: &str, field: &str) -> bool {
+    matches!(
+        (kind, field),
+        ("heading", "text")
+            | ("paragraph", "text")
+            | ("hero", "title" | "lede" | "eyebrow")
+            | ("banner", "text")
+            | ("group", "title")
+    )
+}
+
+fn handle_inline_edit(
+    mut request: tiny_http::Request,
+    cms_root: &std::path::Path,
+    forge_path: &str,
+) -> std::io::Result<()> {
+    // CSRF defence: require the custom header. A cross-origin
+    // form-POST cannot set custom headers without a CORS
+    // preflight, which we never grant.
+    let has_marker = request
+        .headers()
+        .iter()
+        .any(|h| h.field.equiv(INLINE_EDIT_HEADER));
+    if !has_marker {
+        return respond_text(request, 403, "missing inline-edit marker");
+    }
+
+    let mut body = String::new();
+    {
+        use std::io::Read as _;
+        let mut buf = [0u8; 4096];
+        let mut total = 0usize;
+        loop {
+            let n = request.as_reader().read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            total += n;
+            // Cap on total POST body — value cap is 8KiB, but the
+            // request also carries `slug=` etc. so 32KiB is the
+            // outer ceiling.
+            if total > 32 * 1024 {
+                return respond_text(request, 413, "inline-edit body too large");
+            }
+            body.push_str(std::str::from_utf8(&buf[..n]).unwrap_or(""));
+        }
+    }
+    // application/x-www-form-urlencoded is the only accepted
+    // content-type — the JS shim posts URLSearchParams. This
+    // also keeps the parser surface tiny.
+    let mut fields = std::collections::BTreeMap::<String, String>::new();
+    for pair in body.split('&').filter(|s| !s.is_empty()) {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        let key = match urlencoding::decode(k) {
+            Ok(s) => s.into_owned(),
+            Err(_) => return respond_text(request, 400, "decode key"),
+        };
+        let val = match urlencoding::decode(&v.replace('+', " ")) {
+            Ok(s) => s.into_owned(),
+            Err(_) => return respond_text(request, 400, "decode value"),
+        };
+        fields.insert(key, val);
+    }
+    let slug_str = match fields.get("slug") {
+        Some(s) => s.clone(),
+        None => return respond_text(request, 400, "missing slug"),
+    };
+    let slug = match SlugName::new(&slug_str) {
+        Ok(s) => s,
+        Err(why) => return respond_text(request, 400, why),
+    };
+    let section_idx: usize = match fields.get("section").and_then(|v| v.parse().ok()) {
+        Some(n) => n,
+        None => return respond_text(request, 400, "missing or non-numeric section index"),
+    };
+    let field_name = match fields.get("field") {
+        Some(s) => s.clone(),
+        None => return respond_text(request, 400, "missing field"),
+    };
+    // Field name must itself be on a closed allow-list of
+    // identifiers to keep it out of any wider injection vector
+    // even before the per-kind check.
+    if !field_name
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c == '_')
+        || field_name.is_empty()
+        || field_name.len() > 32
+    {
+        return respond_text(request, 400, "invalid field name");
+    }
+    let value = match fields.get("value") {
+        Some(s) => s.clone(),
+        None => return respond_text(request, 400, "missing value"),
+    };
+    if value.len() > INLINE_EDIT_MAX_VALUE_BYTES {
+        return respond_text(request, 413, "value exceeds inline-edit cap");
+    }
+
+    let cms_path = cms_root.join(format!("{}.json", slug.as_str()));
+    if !cms_path.is_file() {
+        return respond_text(request, 404, "page not found");
+    }
+    let raw = std::fs::read_to_string(&cms_path)?;
+    let mut parsed: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(e) => return respond_text(request, 500, &format!("parse cms: {e}")),
+    };
+    let sections = match parsed
+        .get_mut("sections")
+        .and_then(|v| v.as_array_mut())
+    {
+        Some(a) => a,
+        None => return respond_text(request, 500, "cms has no sections array"),
+    };
+    if section_idx >= sections.len() {
+        return respond_text(request, 400, "section index out of range");
+    }
+    let sec = &mut sections[section_idx];
+    let kind = sec
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_owned();
+    if !inline_edit_field_allowed(&kind, &field_name) {
+        return respond_text(
+            request,
+            400,
+            &format!("field `{field_name}` not editable on kind `{kind}`"),
+        );
+    }
+    sec[&field_name] = serde_json::Value::String(value.clone());
+
+    // Round-trip through CmsPage to fail-closed if the patch
+    // produces an invalid document — better to refuse the save
+    // than silently corrupt the file.
+    let serialised = match serde_json::to_string_pretty(&parsed) {
+        Ok(s) => s,
+        Err(e) => return respond_text(request, 500, &format!("serialise: {e}")),
+    };
+    if let Err(e) = serde_json::from_str::<loom_cms_render::CmsPage>(&serialised) {
+        return respond_text(request, 422, &format!("patched cms invalid: {e}"));
+    }
+
+    // Atomic write via WriteCapability scoped to cms_root.
+    let cap = match WriteCapability::for_dir(cms_root) {
+        Ok(c) => c,
+        Err(_) => return respond_text(request, 500, "cms_root unreadable"),
+    };
+    let rel = std::path::PathBuf::from(format!("{}.json", slug.as_str()));
+    if let Err(_e) = cap.write_atomic(&rel, serialised.as_bytes()) {
+        return respond_text(request, 500, "atomic write failed");
+    }
+
+    // Re-run forge if a path was configured (silent-skip if not).
+    if !forge_path.is_empty() && std::path::Path::new(forge_path).exists() {
+        let _ = std::process::Command::new(forge_path).status();
+    }
+
+    respond_text(request, 200, &value)
 }
 
 fn respond_text(
@@ -10744,6 +11075,114 @@ mod editor_schema_tests {
 }
 
 #[cfg(test)]
+mod inline_edit_tests {
+    //! T62 step 10. Pure-function tests for the inline-edit
+    //! whitelist + the per-kind edit-mode renderer.
+    use super::*;
+
+    #[test]
+    fn whitelist_accepts_supported_kinds() {
+        for (kind, field) in [
+            ("heading", "text"),
+            ("paragraph", "text"),
+            ("hero", "title"),
+            ("hero", "lede"),
+            ("hero", "eyebrow"),
+            ("banner", "text"),
+            ("group", "title"),
+        ] {
+            assert!(
+                inline_edit_field_allowed(kind, field),
+                "kind={kind} field={field} should be allowed"
+            );
+        }
+    }
+
+    #[test]
+    fn whitelist_rejects_unknown_kind() {
+        assert!(!inline_edit_field_allowed("composer", "text"));
+        assert!(!inline_edit_field_allowed("card_feed", "heading"));
+        assert!(!inline_edit_field_allowed("sidebar", "label"));
+    }
+
+    #[test]
+    fn whitelist_rejects_unknown_field_on_supported_kind() {
+        assert!(!inline_edit_field_allowed("hero", "title; DROP TABLE"));
+        assert!(!inline_edit_field_allowed("hero", "../../../etc/passwd"));
+        assert!(!inline_edit_field_allowed("paragraph", "text\nrm -rf /"));
+        assert!(!inline_edit_field_allowed("banner", "tone")); // tone is form-only
+        assert!(!inline_edit_field_allowed("heading", "level")); // level is form-only
+    }
+
+    #[test]
+    fn render_section_for_edit_emits_data_edit_field_per_kind() {
+        use loom_cms_render::CmsSection;
+        let h = render_section_for_edit(&CmsSection::Heading {
+            level: 2,
+            text: "T".into(),
+        });
+        assert!(h.contains("data-edit-field=\"text\""), "heading: {h}");
+
+        let p = render_section_for_edit(&CmsSection::Paragraph { text: "P".into() });
+        assert!(p.contains("data-edit-field=\"text\""), "paragraph: {p}");
+
+        let hero = render_section_for_edit(&CmsSection::Hero {
+            eyebrow: Some("E".into()),
+            title: "T".into(),
+            lede: Some("L".into()),
+            cta: None,
+        });
+        assert!(hero.contains("data-edit-field=\"eyebrow\""), "hero eyebrow");
+        assert!(hero.contains("data-edit-field=\"title\""), "hero title");
+        assert!(hero.contains("data-edit-field=\"lede\""), "hero lede");
+
+        let b = render_section_for_edit(&CmsSection::Banner {
+            tone: loom_cms_render::CmsBannerTone::Warn,
+            text: "B".into(),
+            dismissible: false,
+            id: None,
+        });
+        assert!(b.contains("data-edit-field=\"text\""), "banner: {b}");
+        assert!(b.contains("data-tone=\"warn\""), "banner tone: {b}");
+
+        let g = render_section_for_edit(&CmsSection::Group {
+            title: "G".into(),
+            body: vec!["body1".into()],
+        });
+        assert!(g.contains("data-edit-field=\"title\""), "group: {g}");
+        // Group body paragraphs NOT inline-editable in v1.
+        assert!(!g.contains("data-edit-field=\"body\""));
+    }
+
+    #[test]
+    fn render_section_for_edit_skips_optional_empty_hero_fields() {
+        use loom_cms_render::CmsSection;
+        let hero = render_section_for_edit(&CmsSection::Hero {
+            eyebrow: None,
+            title: "Just a title".into(),
+            lede: Some(String::new()),
+            cta: None,
+        });
+        assert!(hero.contains("data-edit-field=\"title\""));
+        assert!(!hero.contains("data-edit-field=\"eyebrow\""));
+        assert!(!hero.contains("data-edit-field=\"lede\""));
+    }
+
+    #[test]
+    fn render_section_for_edit_escapes_text() {
+        // XSS hardening: a hostile section text payload must not
+        // execute as HTML inside the editor preview.
+        use loom_cms_render::CmsSection;
+        let h = render_section_for_edit(&CmsSection::Heading {
+            level: 2,
+            text: "<script>alert(1)</script>".into(),
+        });
+        assert!(!h.contains("<script>alert(1)</script>"));
+        assert!(h.contains("&lt;script&gt;"));
+    }
+}
+
+#[cfg(test)]
 mod edit_overlay_tests {
     use super::*;
     use loom_cms_render::{CmsPage, CmsSection};
@@ -10768,7 +11207,7 @@ mod edit_overlay_tests {
     #[test]
     fn build_edit_preview_html_wraps_each_section_with_data_edit() {
         let page = one_section_page(3);
-        let html = build_edit_preview_html(&page, "/preview/loom-skin.css");
+        let html = build_edit_preview_html(&page, "/preview/loom-skin.css", "test");
         assert!(html.contains("data-edit=\"0\""), "missing index 0: {html}");
         assert!(html.contains("data-edit=\"1\""), "missing index 1");
         assert!(html.contains("data-edit=\"2\""), "missing index 2");
@@ -10783,7 +11222,7 @@ mod edit_overlay_tests {
     #[test]
     fn build_edit_preview_html_pins_inline_style_and_script_in_csp() {
         let page = one_section_page(1);
-        let html = build_edit_preview_html(&page, "/preview/loom-skin.css");
+        let html = build_edit_preview_html(&page, "/preview/loom-skin.css", "test");
         let css_hash = csp_sha256(EDIT_OVERLAY_CSS.as_bytes());
         let js_hash = csp_sha256(EDIT_OVERLAY_JS.as_bytes());
         assert!(html.contains(&css_hash), "css hash not in CSP: {css_hash}");
@@ -10798,7 +11237,7 @@ mod edit_overlay_tests {
     #[test]
     fn build_edit_preview_html_zero_sections_renders_skeleton() {
         let page = one_section_page(0);
-        let html = build_edit_preview_html(&page, "/preview/loom-skin.css");
+        let html = build_edit_preview_html(&page, "/preview/loom-skin.css", "test");
         // Empty sections list ⇒ no data-edit attrs at all.
         assert!(!html.contains("data-edit="), "no sections → no data-edit");
         // But the chrome (banner + script + body) still renders.
@@ -10823,7 +11262,7 @@ mod edit_overlay_tests {
         // ACCESSIBILITY: the rendered preview should still have a
         // main landmark even though it's the edit-mode variant.
         let page = one_section_page(1);
-        let html = build_edit_preview_html(&page, "/preview/loom-skin.css");
+        let html = build_edit_preview_html(&page, "/preview/loom-skin.css", "test");
         assert!(html.contains("<main"), "missing <main> landmark");
     }
 }
