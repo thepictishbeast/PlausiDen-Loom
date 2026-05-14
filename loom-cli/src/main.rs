@@ -4497,7 +4497,7 @@ fn handle_edit_request(
 /// link, every forge admin nav.
 fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
     let mut body = String::new();
-    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>loom — tutorial</title><body><main>");
+    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>loom — tutorial</title><style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style><body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
     body.push_str(
         "<style>\
          body{font:16px/1.65 system-ui;max-width:42rem;margin:2rem auto;padding:0 1rem;color:#222}\
@@ -4656,7 +4656,7 @@ fn serve_login_form(
     error: Option<&str>,
 ) -> std::io::Result<()> {
     let mut body = String::new();
-    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>loom — sign in</title><body><main>");
+    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>loom — sign in</title><style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style><body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
     body.push_str(
         "<style>\
          body{font:16px/1.5 system-ui;max-width:24rem;margin:5rem auto;padding:0 1rem}\
@@ -4784,7 +4784,7 @@ fn serve_index(
     }
     entries.sort();
     let mut body = String::new();
-    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>loom edit</title><body><main>");
+    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>loom edit</title><style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style><body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
     body.push_str("<style>body{font:16px/1.5 system-ui;max-width:36rem;margin:3rem auto;padding:0 1rem}a{display:block;padding:.5rem 0}</style>");
     body.push_str(
         "<p style=\"margin:0 0 1rem;font-size:.9em\">\
@@ -4998,7 +4998,7 @@ fn forge_admin_shell(title: &str, body_inner: &str) -> String {
     let mut out = String::new();
     out.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\">");
     out.push_str(&format!("<title>forge · {}</title>", html_escape(title)));
-    out.push_str("<style>body{font:16px/1.5 system-ui;max-width:64rem;margin:2rem auto;padding:0 1rem}nav.t50{display:flex;gap:1rem;margin-bottom:2rem;padding-bottom:1rem;border-bottom:1px solid #ccc}nav.t50 a{color:#003;text-decoration:none;font-weight:600}nav.t50 a.cur{color:#000;border-bottom:2px solid #003;padding-bottom:.25rem}h1{margin-top:0}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{padding:.5rem;text-align:left;border-bottom:1px solid #eee;font-variant-numeric:tabular-nums}.muted{color:#595959}.ok{color:#0a7d2c}.bad{color:#b00020}.warn{color:#8a5a00}button{padding:.6rem 1.2rem;font:inherit;border:0;border-radius:4px;background:#003;color:#fff;cursor:pointer}.card{padding:1rem 1.5rem;border:1px solid #ddd;border-radius:8px;margin:1rem 0;background:#fafafa}.card h2{margin-top:0;font-size:1.1em}</style><body><main>");
+    out.push_str("<style>body{font:16px/1.5 system-ui;max-width:64rem;margin:2rem auto;padding:0 1rem}nav.t50{display:flex;gap:1rem;margin-bottom:2rem;padding-bottom:1rem;border-bottom:1px solid #ccc}nav.t50 a{color:#003;text-decoration:none;font-weight:600}nav.t50 a.cur{color:#000;border-bottom:2px solid #003;padding-bottom:.25rem}h1{margin-top:0}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{padding:.5rem;text-align:left;border-bottom:1px solid #eee;font-variant-numeric:tabular-nums}.muted{color:#595959}.ok{color:#0a7d2c}.bad{color:#b00020}.warn{color:#8a5a00}button{padding:.6rem 1.2rem;font:inherit;border:0;border-radius:4px;background:#003;color:#fff;cursor:pointer}.card{padding:1rem 1.5rem;border:1px solid #ddd;border-radius:8px;margin:1rem 0;background:#fafafa}.card h2{margin-top:0;font-size:1.1em}</style><style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style><body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
     out.push_str("<nav class=\"t50\"><a href=\"/\">← pages</a>");
     let cur = title;
     for (label, href) in [
@@ -5304,7 +5304,7 @@ fn serve_edit_form(
         "<title>edit {slug}</title>",
         slug = html_escape(slug)
     ));
-    body.push_str("<body><main>");
+    body.push_str("<style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style><body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
     // T62 step 5: split-pane layout — editor on the left, live
     // preview iframe on the right (stacks vertically on narrow
     // viewports). The iframe reloads automatically after every
@@ -11348,7 +11348,7 @@ fn handle_upload_image(
         )
     };
     let mut resp = tiny_http::Response::from_string(format!(
-        r#"<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>upload ok</title><body><main>
+        r#"<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>upload ok</title><style>.loom-skip-edit{{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}}.loom-skip-edit:focus{{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}}</style><body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>
 <style>body{{font:16px/1.5 system-ui;max-width:36rem;margin:3rem auto;padding:0 1rem}}
 img{{max-width:100%;border:1px solid #ddd;border-radius:6px}}
 code{{background:#f4f4f4;padding:.1em .35em;border-radius:3px}}</style>
@@ -11391,7 +11391,7 @@ fn serve_uploads_gallery(
     };
     entries.sort();
     let mut body = String::new();
-    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>uploads</title><body><main>");
+    body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>uploads</title><style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style><body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
     body.push_str(
         "<style>\
          body{font:16px/1.5 system-ui;max-width:48rem;margin:2rem auto;padding:0 1rem}\
