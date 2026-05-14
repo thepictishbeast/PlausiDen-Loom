@@ -3630,6 +3630,10 @@ fn handle_edit_request(
     if is_post && path == "new-page" {
         return handle_new_page(request, cms_root, forge_path);
     }
+    // T64: tutorial page.
+    if is_get && path == "tutorial" {
+        return serve_tutorial(request);
+    }
     // T62: section-mutation paths. Format:
     //   <slug>/add-section
     //   <slug>/sections/<N>/up | down | delete | add-paragraph
@@ -3663,6 +3667,166 @@ fn handle_edit_request(
     }
 }
 
+/// T64: in-GUI tutorial. Server-rendered, no JS, no client
+/// state. Walks the operator through every feature of the CMS
+/// editor + forge admin GUI in one scrollable doc page.
+///
+/// Linked from: index page header, every editor's "← all pages"
+/// link, every forge admin nav.
+fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
+    let mut body = String::new();
+    body.push_str("<!doctype html><meta charset=utf-8><title>loom — tutorial</title>");
+    body.push_str(
+        "<style>\
+         body{font:16px/1.65 system-ui;max-width:42rem;margin:2rem auto;padding:0 1rem;color:#222}\
+         h1{margin-top:0;font-size:1.6em}\
+         h2{margin-top:2rem;font-size:1.2em;border-bottom:1px solid #ddd;padding-bottom:.25rem}\
+         h3{margin-top:1.5rem;font-size:1em}\
+         code{background:#f4f4f4;padding:.1em .35em;border-radius:3px;font-size:.9em}\
+         kbd{background:#fff;border:1px solid #888;border-bottom-width:2px;\
+             padding:.05em .4em;border-radius:3px;font-size:.85em;font-family:inherit}\
+         .step{padding:.75rem 1rem;background:#f4f4f4;border-left:4px solid #003;\
+               margin:1rem 0;border-radius:0 4px 4px 0}\
+         .step b{color:#003}\
+         a{color:#003}\
+         nav.tut{display:flex;gap:1rem;margin-bottom:1rem;font-size:.9em}\
+         </style>"
+    );
+    body.push_str(
+        "<nav class=\"tut\"><a href=\"/\">← back to pages</a> · <a href=\"/forge\">forge admin</a></nav>\
+         <h1>loom — tutorial</h1>\
+         <p>This guide walks you through everything you can do from the browser. \
+            No code, no terminal, no JSON.</p>"
+    );
+
+    body.push_str(
+        "<h2>1. Create a page</h2>\
+         <p>From the <a href=\"/\">main page list</a>, fill in the \
+            <b>Create a new page</b> form:</p>\
+         <div class=\"step\">\
+           <b>Slug</b> — a short URL-safe name. Lowercase letters, digits, dashes only. \
+           Becomes both the file name (<code>cms/&lt;slug&gt;.json</code>) and the \
+           URL path (<code>/&lt;slug&gt;.html</code>).<br>\
+           <b>Template</b> — pick from <code>blank</code>, <code>landing</code>, \
+           <code>about</code>, or <code>contact</code>. Each starts you with a \
+           sensible structure.\
+         </div>\
+         <p>Click <kbd>Create</kbd>. You'll be redirected to the page's editor.</p>"
+    );
+
+    body.push_str(
+        "<h2>2. Edit content</h2>\
+         <p>The editor is a <b>split pane</b>: forms on the left, live preview on \
+            the right.</p>\
+         <h3>Page-level fields</h3>\
+         <p><b>Title</b> sets the browser tab + page header. <b>Description</b> \
+            becomes the meta description for search engines.</p>\
+         <h3>Sections</h3>\
+         <p>The page is built from <b>sections</b>. Five kinds are available:</p>\
+         <ul>\
+           <li><b>Hero</b> — eyebrow + title + subtitle. Big banner at the top of \
+               a page.</li>\
+           <li><b>Group</b> — a heading + multiple body paragraphs. Click \
+               <kbd>+ paragraph</kbd> to add more.</li>\
+           <li><b>Paragraph</b> — a single block of body text.</li>\
+           <li><b>Heading</b> — pick a level (H1–H6) + text.</li>\
+           <li><b>Banner</b> — a tone-styled callout (info / success / warn / \
+               danger) with title + body.</li>\
+         </ul>\
+         <p>Each section's fields edit inline. Type, then click <kbd>Save</kbd> at \
+            the bottom — the preview reloads automatically.</p>"
+    );
+
+    body.push_str(
+        "<h2>3. Manage sections</h2>\
+         <p>Each section gets three controls in the bottom-right of its panel:</p>\
+         <div class=\"step\">\
+           <b>↑ Move up</b> — swap with the section above (hidden on the first).<br>\
+           <b>↓ Move down</b> — swap with the section below (hidden on the last).<br>\
+           <b>Delete</b> — confirm dialog, then removed.\
+         </div>\
+         <p>To <b>add a new section</b> at the bottom, scroll past the existing \
+            ones to the <b>Add a section</b> form, pick a kind from the dropdown, \
+            and click <kbd>Append</kbd>. The new section appears with default \
+            placeholders you can immediately edit.</p>"
+    );
+
+    body.push_str(
+        "<h2>4. Live preview</h2>\
+         <p>The right pane is an iframe loading the rendered page. After every \
+            save it reloads automatically. Click <kbd>open ↗</kbd> in the preview \
+            bar to break it out into a separate tab — useful for testing on \
+            different screen sizes.</p>"
+    );
+
+    body.push_str(
+        "<h2>5. Forge admin</h2>\
+         <p>Click <a href=\"/forge\">forge admin</a> in any page header to reach \
+            the build dashboard:</p>\
+         <ul>\
+           <li><b>Dashboard</b> — last build summary + a <kbd>Run forge build now</kbd> \
+               button.</li>\
+           <li><b>Themes</b> — list of every theme defined in the design system, \
+               with token counts.</li>\
+           <li><b>Backends</b> — declared backend keys + their implementation status \
+               (STUB or IMPL).</li>\
+           <li><b>Audit</b> — last crawler audit results.</li>\
+         </ul>"
+    );
+
+    body.push_str(
+        "<h2>6. What runs in the background</h2>\
+         <p>Every save you make:</p>\
+         <ol>\
+           <li>Atomically writes <code>cms/&lt;slug&gt;.json</code> via a \
+               <b>capability-bound writer</b> — even malicious slugs can't \
+               escape the cms/ directory.</li>\
+           <li>Triggers the forge build pipeline, which:\
+             <ul>\
+               <li>Validates every CMS file against the typed schema</li>\
+               <li>Renders pages through the typed Loom design system</li>\
+               <li>Audits theme contrast against WCAG AA (4.5:1 minimum)</li>\
+               <li>Audits a11y, CSP, SRI, link-integrity, perf-budget, …</li>\
+               <li>Runs the headless-browser crawler against the rendered pages</li>\
+             </ul>\
+           </li>\
+           <li>Signs the build report with an Ed25519 key and chains it to the \
+               previous report's hash — every build is tamper-evident.</li>\
+         </ol>\
+         <p>If any check fails, the build refuses and the previous version stays \
+            live.</p>"
+    );
+
+    body.push_str(
+        "<h2>7. Common questions</h2>\
+         <h3>Can I undo a delete?</h3>\
+         <p>Not directly — but every build report is kept in <code>reports/</code>. \
+            If you delete by mistake, your previous content is in the most recent \
+            committed snapshot. (Future tick: an undo button.)</p>\
+         <h3>Can I add an image?</h3>\
+         <p>Image uploads are queued for the next tick. For now, edit the JSON \
+            directly via your file system if you need an image right away.</p>\
+         <h3>Can I share editing with another person?</h3>\
+         <p>Multi-user auth is queued (the editor currently binds to 127.0.0.1 \
+            only — local network only). When auth lands, you'll be able to invite \
+            collaborators with role-based scopes.</p>\
+         <h3>What if I break something?</h3>\
+         <p>Forge will refuse to publish a broken page. Your previous published \
+            version stays live until the build passes. Worst case, you can edit \
+            the JSON files in <code>cms/</code> directly with any text editor — \
+            they're plain JSON.</p>"
+    );
+
+    body.push_str(
+        "<h2>That's it</h2>\
+         <p>Go to <a href=\"/\">the main page list</a> and create your first page. \
+            Come back here any time you forget how something works — link is in \
+            every page header.</p>"
+    );
+
+    respond_html(request, 200, &body)
+}
+
 fn serve_index(
     request: tiny_http::Request,
     cms_root: &std::path::Path,
@@ -3681,6 +3845,11 @@ fn serve_index(
     let mut body = String::new();
     body.push_str("<!doctype html><meta charset=utf-8><title>loom edit</title>");
     body.push_str("<style>body{font:16px/1.5 system-ui;max-width:36rem;margin:3rem auto;padding:0 1rem}a{display:block;padding:.5rem 0}</style>");
+    body.push_str(
+        "<p style=\"margin:0 0 1rem;font-size:.9em\">\
+         <a href=\"/tutorial\">📖 Tutorial</a> · \
+         <a href=\"/forge\">forge admin →</a></p>"
+    );
     body.push_str("<h1>loom edit</h1><p>Choose a page:</p>");
     for slug in &entries {
         body.push_str(&format!(
@@ -4075,7 +4244,9 @@ fn serve_edit_form(
     );
     body.push_str("<div class=\"editor\">");
     body.push_str(&format!(
-        "<p><a href=\"/\">&larr; all pages</a> · <a href=\"/preview/{}.html\" target=\"_blank\">open preview in new tab</a></p>",
+        "<p><a href=\"/\">&larr; all pages</a> · \
+         <a href=\"/tutorial\">📖 tutorial</a> · \
+         <a href=\"/preview/{}.html\" target=\"_blank\">open preview in new tab</a></p>",
         html_escape(slug)
     ));
     body.push_str(&format!("<h1>edit: {}</h1>", html_escape(slug)));
