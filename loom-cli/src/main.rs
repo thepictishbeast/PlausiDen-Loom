@@ -3626,6 +3626,12 @@ fn handle_edit_request(
     if path == "forge/audit" && is_get {
         return serve_forge_audit(request, cms_root);
     }
+    // T62: section-add path. Format: <slug>/add-section
+    if is_post {
+        if let Some(slug) = path.strip_suffix("/add-section") {
+            return handle_add_section(request, cms_root, forge_path, slug);
+        }
+    }
     // Anything else is treated as a page slug (e.g. "about").
     if is_get {
         serve_edit_form(request, cms_root, path)
@@ -4029,7 +4035,157 @@ fn serve_edit_form(
     }
     body.push_str("<button type=\"submit\">Save</button>");
     body.push_str("</form>");
+
+    // T62: section composer. Add a new section by picking a
+    // variant kind + submitting. Server-rendered, zero JS,
+    // works without an active session for the existing form.
+    body.push_str(&format!(
+        "<hr style=\"margin-top:2.5rem\">\
+         <h2 style=\"margin-top:1.5rem;font-size:1.1em\">Add a section</h2>\
+         <form method=\"POST\" action=\"/{slug}/add-section\" \
+               style=\"display:flex;gap:.5rem;align-items:center;flex-wrap:wrap\">\
+         <label for=\"new-section-kind\" style=\"display:inline;margin:0\">Kind:</label>\
+         <select id=\"new-section-kind\" name=\"kind\" required \
+                 style=\"padding:.5rem;font:inherit;border:1px solid #888;border-radius:4px\">\
+           <option value=\"hero\">Hero (eyebrow + title + subtitle)</option>\
+           <option value=\"group\">Group (heading + body paragraphs)</option>\
+           <option value=\"paragraph\">Paragraph (single block of text)</option>\
+           <option value=\"heading\">Heading (h2/h3/h4)</option>\
+           <option value=\"banner\">Banner (info/warn/danger)</option>\
+         </select>\
+         <button type=\"submit\" \
+                 style=\"background:#003;color:#fff;padding:.5rem 1rem;border:0;\
+                        border-radius:4px;font:inherit;cursor:pointer\">Append</button>\
+         </form>\
+         <p style=\"color:#888;font-size:.85em;margin-top:.5rem\">\
+           Adds a section with default values. Edit it inline above after save.\
+         </p>",
+        slug = html_escape(slug),
+    ));
+
     respond_html(request, 200, &body)
+}
+
+/// T62: append a new section of the chosen `kind` to
+/// cms/<slug>.json's sections[] array. Defaults are sensible
+/// placeholders the operator edits inline after the redirect.
+///
+/// REGRESSION-GUARD: every kind written here MUST correspond to
+/// a CmsSection variant in loom-cms-render. Adding a new kind
+/// requires updating BOTH the dropdown above AND this match.
+fn handle_add_section(
+    mut request: tiny_http::Request,
+    cms_root: &std::path::Path,
+    forge_path: &str,
+    slug: &str,
+) -> std::io::Result<()> {
+    let cap = match WriteCapability::for_dir(cms_root) {
+        Ok(c) => c,
+        Err(_) => return respond_text(request, 500, "cms root unreadable"),
+    };
+    let rel = std::path::PathBuf::from(format!("{slug}.json"));
+    if !cap.file_exists(&rel) {
+        return respond_text(request, 404, "page not found");
+    }
+
+    // Parse form body.
+    let mut body = String::new();
+    request.as_reader().read_to_string(&mut body)?;
+    let mut fields = std::collections::BTreeMap::<String, String>::new();
+    for pair in body.split('&').filter(|s| !s.is_empty()) {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        let key = urlencoding::decode(k)
+            .map_err(|e| std::io::Error::other(format!("decode key: {e}")))?
+            .into_owned();
+        let val = urlencoding::decode(&v.replace('+', " "))
+            .map_err(|e| std::io::Error::other(format!("decode val: {e}")))?
+            .into_owned();
+        fields.insert(key, val);
+    }
+
+    let kind = fields
+        .get("kind")
+        .map(String::as_str)
+        .unwrap_or("paragraph");
+
+    // Map kind → default section JSON. The shapes mirror
+    // loom-cms-render's CmsSection variants. Future kinds land
+    // by adding a match arm + an option in the dropdown.
+    let new_section = match kind {
+        "hero" => serde_json::json!({
+            "kind": "hero",
+            "eyebrow": "",
+            "title": "New hero section",
+            "subtitle": "Edit this subtitle.",
+            "cta": null,
+        }),
+        "group" => serde_json::json!({
+            "kind": "group",
+            "title": "New group",
+            "body": ["First paragraph.", "Second paragraph."],
+        }),
+        "paragraph" => serde_json::json!({
+            "kind": "paragraph",
+            "body": "Edit this paragraph.",
+        }),
+        "heading" => serde_json::json!({
+            "kind": "heading",
+            "level": 2,
+            "text": "New heading",
+        }),
+        "banner" => serde_json::json!({
+            "kind": "banner",
+            "tone": "info",
+            "title": "Notice",
+            "body": "Edit this banner.",
+        }),
+        _ => return respond_text(request, 400, "unknown section kind"),
+    };
+
+    // Read + mutate + atomic write via capability.
+    let raw_bytes = cap.read_file(&rel).map_err(|e| match e {
+        CapabilityError::Io(i) => i,
+        _ => std::io::Error::other("read failed"),
+    })?;
+    let raw = String::from_utf8(raw_bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
+    let mut parsed: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| std::io::Error::other(format!("parse: {e}")))?;
+    let sections = parsed
+        .get_mut("sections")
+        .and_then(|v| v.as_array_mut());
+    match sections {
+        Some(arr) => arr.push(new_section),
+        None => {
+            parsed["sections"] = serde_json::Value::Array(vec![new_section]);
+        }
+    }
+    let serialized = serde_json::to_string_pretty(&parsed)
+        .map_err(|e| std::io::Error::other(format!("serialize: {e}")))?;
+    cap.write_atomic(&rel, serialized.as_bytes())
+        .map_err(|e| match e {
+            CapabilityError::Io(i) => i,
+            _ => std::io::Error::other("write failed"),
+        })?;
+
+    // Trigger forge rebuild if configured.
+    if !forge_path.is_empty() {
+        let cms_parent = cms_root
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        let _ = std::process::Command::new("bash")
+            .arg(forge_path)
+            .current_dir(&cms_parent)
+            .status();
+    }
+
+    let mut resp = tiny_http::Response::empty(303);
+    resp.add_header(
+        tiny_http::Header::from_bytes(&b"Location"[..], format!("/{slug}").as_bytes())
+            .map_err(|_| std::io::Error::other("header"))?,
+    );
+    request.respond(resp)?;
+    Ok(())
 }
 
 fn handle_edit_post(
