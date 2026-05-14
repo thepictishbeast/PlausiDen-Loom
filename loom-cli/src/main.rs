@@ -6345,6 +6345,21 @@ fn respond_html(
         )
         .map_err(|_| std::io::Error::other("header"))?,
     );
+    // SUPERSOCIETY cycle 65: NEL (Network-Error-Logging, W3C).
+    // Extends the Reporting-API to transport-level failures
+    // (TLS handshake, DNS, TCP RST, HTTP errors). Reports land
+    // at the same collector as CSP violations via the
+    // `default` group. Browser-shipping since Chromium 70.
+    //   max_age:           30 days
+    //   success_fraction:  0   (skip success reports — privacy + bandwidth)
+    //   failure_fraction:  1.0 (every failure reported)
+    resp.add_header(
+        tiny_http::Header::from_bytes(
+            &b"NEL"[..],
+            &b"{\"report_to\":\"default\",\"max_age\":2592000,\"success_fraction\":0.0,\"failure_fraction\":1.0}"[..],
+        )
+        .map_err(|_| std::io::Error::other("header"))?,
+    );
     request.respond(resp)?;
     Ok(())
 }
