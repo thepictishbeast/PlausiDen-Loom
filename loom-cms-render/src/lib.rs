@@ -1057,6 +1057,25 @@ fn render_form(legend: &str, submit: &CmsFormSubmit, steps: &[CmsFormStep]) -> M
     }
 }
 
+/// Render the visible required-field marker (` *`) — but only the
+/// VISIBLE part. Screen readers learn the required state from the
+/// `required` attribute on the input/textarea/select itself, so
+/// the asterisk gets `aria-hidden="true"` to avoid double-announce
+/// ("Challenge title required asterisk").
+///
+/// CSS hook: `.loom-form-field__required` is styled red via
+/// `--loom-color-danger` in skin.css. Closes the
+/// `form.required-no-indicator` finding from the
+/// 2026-05-14 SkillShots dogfood run (Crawler T76) at the source —
+/// every Forge-generated site picks up the indicator automatically.
+fn render_required_marker(required: bool) -> Markup {
+    html! {
+        @if required {
+            span class="loom-form-field__required" aria-hidden="true" { " *" }
+        }
+    }
+}
+
 fn render_form_field(field: &CmsFormField) -> Markup {
     match field {
         // SECURITY/A11Y: every form field carries BOTH `<label for>`
@@ -1076,7 +1095,10 @@ fn render_form_field(field: &CmsFormField) -> Markup {
             required,
         } => html! {
             div class="loom-form-field" {
-                label class="loom-form-field__label" for=(name) { (label) }
+                label class="loom-form-field__label" for=(name) {
+                    (label)
+                    (render_required_marker(*required))
+                }
                 input
                     class="loom-form-field__input"
                     type="text"
@@ -1101,7 +1123,10 @@ fn render_form_field(field: &CmsFormField) -> Markup {
             required,
         } => html! {
             div class="loom-form-field" {
-                label class="loom-form-field__label" for=(name) { (label) }
+                label class="loom-form-field__label" for=(name) {
+                    (label)
+                    (render_required_marker(*required))
+                }
                 textarea
                     class="loom-form-field__textarea"
                     id=(name)
@@ -1124,7 +1149,10 @@ fn render_form_field(field: &CmsFormField) -> Markup {
             required,
         } => html! {
             div class="loom-form-field" {
-                label class="loom-form-field__label" for=(name) { (label) }
+                label class="loom-form-field__label" for=(name) {
+                    (label)
+                    (render_required_marker(*required))
+                }
                 select
                     class="loom-form-field__select"
                     id=(name)
@@ -2103,6 +2131,125 @@ mod tests {
         assert!(html.contains(r#"value="basketball""#));
         assert!(html.contains(">Basketball<"));
         assert!(html.contains(">Parkour<"));
+    }
+
+    // T76 (Crawler dogfood 2026-05-14): required form fields must
+    // render a visible required-marker (`*`) AND remain accessible
+    // (aria-hidden on the marker, `required` attr on the control,
+    // label text intact).
+    #[test]
+    fn required_text_field_renders_visible_marker() {
+        let html = render_to_string(&form_page());
+        // The required Text field's label MUST contain a visible
+        // marker. The form fixture's `Challenge title` is required.
+        let title_label_pos = html
+            .find(">Challenge title")
+            .expect("'Challenge title' label present");
+        let after = &html[title_label_pos..title_label_pos + 200];
+        assert!(
+            after.contains(r#"class="loom-form-field__required""#),
+            "required marker span present after Challenge title label: {after}"
+        );
+        // Marker text is " *".
+        assert!(after.contains(" *"), "marker contains visible '*': {after}");
+        // aria-hidden so screen readers don't double-announce.
+        assert!(
+            after.contains(r#"aria-hidden="true""#),
+            "marker is aria-hidden: {after}"
+        );
+    }
+
+    #[test]
+    fn non_required_text_field_omits_marker() {
+        // simple_form's "rules" textarea has required=false. The
+        // rendered label must NOT carry the marker span.
+        let html = render_to_string(&form_page());
+        let rules_label_pos = html.find(">Rules<").expect("'Rules' label present");
+        let after = &html[rules_label_pos..rules_label_pos + 80];
+        assert!(
+            !after.contains("loom-form-field__required"),
+            "non-required field must NOT render marker: {after}"
+        );
+    }
+
+    #[test]
+    fn required_select_renders_marker() {
+        // Reuse the select test's CmsPage with required=true.
+        let p = CmsPage {
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::Form {
+                legend: "x".to_owned(),
+                submit: CmsFormSubmit {
+                    label: "Go".to_owned(),
+                    secondary_label: None,
+                    action: "/x".to_owned(),
+                    data_backend: "x".to_owned(),
+                },
+                steps: vec![CmsFormStep {
+                    label: "Pick".to_owned(),
+                    state: CmsFormStepState::Current,
+                    fields: vec![CmsFormField::Select {
+                        name: "category".to_owned(),
+                        label: "Category".to_owned(),
+                        hint: None,
+                        options: vec![CmsSelectOption {
+                            value: "a".to_owned(),
+                            label: "A".to_owned(),
+                        }],
+                        required: true,
+                    }],
+                }],
+            }],
+        };
+        let html = render_to_string(&p);
+        let pos = html.find(">Category").expect("Category label");
+        let after = &html[pos..pos + 200];
+        assert!(after.contains(r#"class="loom-form-field__required""#));
+        assert!(after.contains(" *"));
+    }
+
+    #[test]
+    fn required_textarea_renders_marker() {
+        // Build a fresh page with a required Textarea (simple_form's
+        // textarea has required=false).
+        let p = CmsPage {
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::Form {
+                legend: "x".to_owned(),
+                submit: CmsFormSubmit {
+                    label: "Go".to_owned(),
+                    secondary_label: None,
+                    action: "/x".to_owned(),
+                    data_backend: "x".to_owned(),
+                },
+                steps: vec![CmsFormStep {
+                    label: "Bio".to_owned(),
+                    state: CmsFormStepState::Current,
+                    fields: vec![CmsFormField::Textarea {
+                        name: "bio".to_owned(),
+                        label: "Your bio".to_owned(),
+                        hint: None,
+                        placeholder: None,
+                        max_length: None,
+                        rows: 4,
+                        required: true,
+                    }],
+                }],
+            }],
+        };
+        let html = render_to_string(&p);
+        let pos = html.find(">Your bio").expect("Your bio label");
+        let after = &html[pos..pos + 200];
+        assert!(after.contains(r#"class="loom-form-field__required""#));
+        assert!(after.contains(" *"));
     }
 
     #[test]

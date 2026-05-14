@@ -1049,6 +1049,17 @@
     color: var(--loom-color-ink);
     font-weight: 500;
   }
+  /* T76 (Crawler dogfood 2026-05-14): visible required-field
+     marker. Closes form.required-no-indicator at the source —
+     every Forge-generated form picks it up automatically.
+     aria-hidden="true" on the span keeps screen readers from
+     double-announcing ("required" + "asterisk"); the `required`
+     attribute on the input handles AT announcement. */
+  .loom-form-field__required {
+    color: var(--loom-color-danger, currentColor);
+    margin-inline-start: var(--loom-space-1);
+    font-weight: 600;
+  }
   .loom-form-field__input,
   .loom-form-field__textarea,
   .loom-form-field__select {
