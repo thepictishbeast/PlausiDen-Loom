@@ -5390,15 +5390,15 @@ fn serve_edit_form(
                     let h_lede = sec.get("lede").and_then(|v| v.as_str()).unwrap_or("");
                     let h_eye = sec.get("eyebrow").and_then(|v| v.as_str()).unwrap_or("");
                     body.push_str(&format!(
-                        "<label>Eyebrow</label><input name=\"sec.{i}.eyebrow\" value=\"{}\">",
+                        "<label>Eyebrow <input name=\"sec.{i}.eyebrow\" value=\"{}\"></label>",
                         html_escape(h_eye)
                     ));
                     body.push_str(&format!(
-                        "<label>Title</label><input name=\"sec.{i}.title\" value=\"{}\">",
+                        "<label>Title <input name=\"sec.{i}.title\" value=\"{}\"></label>",
                         html_escape(h_title)
                     ));
                     body.push_str(&format!(
-                        "<label>Lede</label><textarea name=\"sec.{i}.lede\">{}</textarea>",
+                        "<label>Lede <textarea name=\"sec.{i}.lede\">{}</textarea></label>",
                         html_escape(h_lede)
                     ));
                 }
@@ -5406,8 +5406,8 @@ fn serve_edit_form(
                     // SCHEMA: renderer's Paragraph variant is `text`.
                     let ptext = sec.get("text").and_then(|v| v.as_str()).unwrap_or("");
                     body.push_str(&format!(
-                        "<label>Text</label>\
-                         <textarea name=\"sec.{i}.text\" rows=\"4\" required>{}</textarea>",
+                        "<label>Text \
+                         <textarea name=\"sec.{i}.text\" rows=\"4\" required>{}</textarea></label>",
                         html_escape(ptext)
                     ));
                 }
@@ -5415,7 +5415,7 @@ fn serve_edit_form(
                     let level = sec.get("level").and_then(|v| v.as_u64()).unwrap_or(2);
                     let text = sec.get("text").and_then(|v| v.as_str()).unwrap_or("");
                     body.push_str(&format!(
-                        "<label>Level</label>\
+                        "<label>Level \
                          <select name=\"sec.{i}.level\" \
                                  style=\"width:6rem;padding:.5rem;font:inherit;\
                                         border:1px solid #888;border-radius:4px\">"
@@ -5426,9 +5426,9 @@ fn serve_edit_form(
                             "<option value=\"{lvl}\"{sel}>H{lvl}</option>"
                         ));
                     }
-                    body.push_str("</select>");
+                    body.push_str("</select></label>");
                     body.push_str(&format!(
-                        "<label>Text</label><input name=\"sec.{i}.text\" value=\"{}\" required>",
+                        "<label>Text <input name=\"sec.{i}.text\" value=\"{}\" required></label>",
                         html_escape(text)
                     ));
                 }
@@ -5439,7 +5439,7 @@ fn serve_edit_form(
                     let tone = sec.get("tone").and_then(|v| v.as_str()).unwrap_or("info");
                     let text_v = sec.get("text").and_then(|v| v.as_str()).unwrap_or("");
                     body.push_str(&format!(
-                        "<label>Tone</label>\
+                        "<label>Tone \
                          <select name=\"sec.{i}.tone\" \
                                  style=\"width:8rem;padding:.5rem;font:inherit;\
                                         border:1px solid #888;border-radius:4px\">"
@@ -5450,28 +5450,38 @@ fn serve_edit_form(
                             "<option value=\"{opt}\"{sel}>{opt}</option>"
                         ));
                     }
-                    body.push_str("</select>");
+                    body.push_str("</select></label>");
                     body.push_str(&format!(
-                        "<label>Text</label><textarea name=\"sec.{i}.text\" rows=\"3\">{}</textarea>",
+                        "<label>Text <textarea name=\"sec.{i}.text\" rows=\"3\">{}</textarea></label>",
                         html_escape(text_v)
                     ));
                 }
                 "group" => {
                     let g_title = sec.get("title").and_then(|v| v.as_str()).unwrap_or("");
                     body.push_str(&format!(
-                        "<label>Title</label><input name=\"sec.{i}.title\" value=\"{}\" required>",
+                        "<label>Title <input name=\"sec.{i}.title\" value=\"{}\" required></label>",
                         html_escape(g_title)
                     ));
-                    body.push_str("<label>Body paragraphs</label>");
+                    // "Body paragraphs" rendered as a section heading
+                    // (not a <label>, which would dangle with no input).
+                    // Each individual textarea below gets its own
+                    // numbered <label> so the form-no-label detector
+                    // and screen readers see a 1:1 association.
+                    body.push_str(
+                        "<p style=\"display:block;margin:1rem 0 .25rem;font-weight:600\">\
+                         Body paragraphs</p>",
+                    );
                     let body_arr = sec.get("body").and_then(|v| v.as_array());
                     let count = body_arr.map(Vec::len).unwrap_or(0);
                     if let Some(arr) = body_arr {
                         for (n, para) in arr.iter().enumerate() {
                             let s = para.as_str().unwrap_or("");
                             body.push_str(&format!(
-                                "<textarea name=\"sec.{i}.body.{n}\" rows=\"2\" \
-                                  style=\"margin-bottom:.5rem\">{}</textarea>",
-                                html_escape(s)
+                                "<label>Paragraph {num} \
+                                  <textarea name=\"sec.{i}.body.{n}\" rows=\"2\" \
+                                    style=\"margin-bottom:.5rem\">{}</textarea></label>",
+                                html_escape(s),
+                                num = n + 1
                             ));
                         }
                     }
