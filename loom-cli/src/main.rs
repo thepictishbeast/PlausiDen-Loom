@@ -159,6 +159,50 @@ enum AuthAction {
     Where,
 }
 
+/// T76 cycle 81: actions for `loom revisions`.
+#[derive(Subcommand)]
+enum RevisionsAction {
+    /// List every backup for a slug, newest first.
+    /// Output: `N  <unix-human>   <bytes>  <filename>`.
+    List {
+        /// CMS root directory (defaults to `cms` in cwd).
+        #[arg(long, default_value = "cms")]
+        cms: PathBuf,
+        /// Slug (without `.json` suffix).
+        slug: String,
+    },
+    /// Print a revision's contents to stdout.
+    /// Index is 1-based; 1 = most-recent backup.
+    Show {
+        #[arg(long, default_value = "cms")]
+        cms: PathBuf,
+        slug: String,
+        /// 1-based revision index (1 = most-recent).
+        #[arg(default_value_t = 1)]
+        index: usize,
+    },
+    /// Unified diff of a revision vs the active file.
+    /// No external `diff` dep; hand-rolled.
+    Diff {
+        #[arg(long, default_value = "cms")]
+        cms: PathBuf,
+        slug: String,
+        #[arg(default_value_t = 1)]
+        index: usize,
+    },
+    /// Atomic restore: snapshot the active file first (so the
+    /// restore is itself reversible), then replace with the
+    /// revision content.
+    Restore {
+        #[arg(long, default_value = "cms")]
+        cms: PathBuf,
+        slug: String,
+        /// 1-based revision index.
+        #[arg(default_value_t = 1)]
+        index: usize,
+    },
+}
+
 #[derive(Subcommand)]
 enum ThemeAction {
     /// Enumerate every theme declared in skin.css, plus the base
@@ -428,6 +472,32 @@ enum Cmd {
         /// TCP port to listen on. Bound to 127.0.0.1 always.
         #[arg(long, default_value_t = 8124)]
         port: u16,
+    },
+    /// T76 cycle 81: inspect + restore CMS revision backups
+    /// created by cycle 80's auto-save snapshot.
+    ///
+    /// Each cycle 80 save writes a sibling
+    /// `<cms-root>/<slug>.bak.<unix_secs>.<nanos>.json`.
+    /// This subcommand lists, diffs, and restores them.
+    ///
+    /// Actions:
+    ///   list <slug>            — print all revisions for a slug
+    ///                             with relative timestamps + size.
+    ///   show <slug> <index>    — print revision content to stdout
+    ///                             (1 = most-recent backup; piped
+    ///                             form makes diffing with the active
+    ///                             file trivial).
+    ///   diff <slug> <index>    — unified diff of revision N vs
+    ///                             the active file. No external `diff`
+    ///                             dep; hand-rolled line-oriented
+    ///                             algorithm.
+    ///   restore <slug> <index> — atomic restore. First takes a
+    ///                             snapshot of the CURRENT file (so
+    ///                             restore is itself reversible), then
+    ///                             replaces it with the revision.
+    Revisions {
+        #[command(subcommand)]
+        action: RevisionsAction,
     },
     /// T76 cycle 72: aggregate the cycle 63 violations.jsonl log
     /// (and its rotated siblings) into per-kind summary stats.
@@ -1032,6 +1102,13 @@ fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("loom report-stats: {e}");
+                ExitCode::from(2)
+            }
+        },
+        Cmd::Revisions { action } => match cmd_revisions(action) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("loom revisions: {e}");
                 ExitCode::from(2)
             }
         },
@@ -6591,6 +6668,198 @@ fn handle_add_section(
             .map_err(|_| std::io::Error::other("header"))?,
     );
     request.respond(resp)?;
+    Ok(())
+}
+
+/// SUPERSOCIETY cycle 81: inspect + restore CMS revision
+/// backups created by cycle 80's auto-snapshot machinery.
+///
+/// Operator UX symmetry with cycle 70's report-tail and
+/// cycle 72's report-stats — same shape (list / show / diff /
+/// restore), same hand-rolled implementation (no external
+/// `diff` dep), same defense-in-depth pattern.
+///
+/// Restore creates ITS OWN backup of the current active file
+/// before overwriting, so a botched restore is itself
+/// reversible — the cycle 80 ladder has no terminal step.
+fn cmd_revisions(action: RevisionsAction) -> Result<()> {
+    match action {
+        RevisionsAction::List { cms, slug } => revisions_list(&cms, &slug),
+        RevisionsAction::Show { cms, slug, index } => revisions_show(&cms, &slug, index),
+        RevisionsAction::Diff { cms, slug, index } => revisions_diff(&cms, &slug, index),
+        RevisionsAction::Restore { cms, slug, index } => revisions_restore(&cms, &slug, index),
+    }
+}
+
+/// Walk the CMS root for `<slug>.bak.<suffix>.json` files,
+/// return them sorted newest-first.
+fn revisions_for(cms: &std::path::Path, slug: &str) -> std::io::Result<Vec<std::path::PathBuf>> {
+    let prefix = format!("{slug}.bak.");
+    let mut out: Vec<std::path::PathBuf> = std::fs::read_dir(cms)?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| s.starts_with(&prefix) && s.ends_with(".json"))
+                .unwrap_or(false)
+        })
+        .collect();
+    // Lexical sort = chronological per the fixed-width
+    // unix-secs.nanos suffix. Reverse so newest is first.
+    out.sort_by(|a, b| b.cmp(a));
+    Ok(out)
+}
+
+/// Format a unix-secs timestamp as YYYY-MM-DD HH:MM:SSZ.
+/// Mirrors `report_log_format_unix` (cycle 70/72/76) — same
+/// algorithm, same output. Module-level so all revision +
+/// report subcommands share one formatter.
+fn revisions_format_unix(ts: i64) -> Option<String> {
+    report_log_format_unix(ts)
+}
+
+/// Extract the unix-secs portion of the bak filename suffix.
+/// `<slug>.bak.<unix_secs>.<nanos>.json` → unix_secs.
+fn revisions_parse_ts(path: &std::path::Path) -> Option<i64> {
+    let name = path.file_name()?.to_str()?;
+    // strip `<slug>.bak.` prefix and `.json` suffix
+    let dot_bak = name.find(".bak.")?;
+    let rest = &name[dot_bak + ".bak.".len()..];
+    let rest = rest.strip_suffix(".json")?;
+    // rest = `<unix_secs>.<nanos>`; take the integer prefix.
+    let dot = rest.find('.')?;
+    rest[..dot].parse().ok()
+}
+
+fn revisions_list(cms: &std::path::Path, slug: &str) -> Result<()> {
+    let revs = revisions_for(cms, slug)
+        .map_err(|e| anyhow::anyhow!("read {}: {e}", cms.display()))?;
+    if revs.is_empty() {
+        println!("loom revisions list: no backups for '{slug}' in {}", cms.display());
+        return Ok(());
+    }
+    println!("{:>3}  {:<22}  {:>8}  {}", "n", "when", "bytes", "filename");
+    for (i, p) in revs.iter().enumerate() {
+        let ts = revisions_parse_ts(p)
+            .and_then(revisions_format_unix)
+            .unwrap_or_else(|| "?".to_owned());
+        let bytes = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+        let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("?");
+        println!("{:>3}  {:<22}  {:>8}  {}", i + 1, ts, bytes, name);
+    }
+    println!();
+    println!(
+        "(use `loom revisions show {slug} N` / `... diff {slug} N` / `... restore {slug} N`)",
+    );
+    Ok(())
+}
+
+/// Resolve a 1-based index into the revisions list.
+fn revisions_pick(
+    cms: &std::path::Path,
+    slug: &str,
+    index: usize,
+) -> Result<std::path::PathBuf> {
+    if index == 0 {
+        return Err(anyhow::anyhow!("revision index is 1-based; 0 is invalid"));
+    }
+    let revs = revisions_for(cms, slug)
+        .map_err(|e| anyhow::anyhow!("read {}: {e}", cms.display()))?;
+    if revs.is_empty() {
+        return Err(anyhow::anyhow!("no backups for '{slug}' in {}", cms.display()));
+    }
+    if index > revs.len() {
+        return Err(anyhow::anyhow!(
+            "revision {index} out of range; {} available (use `loom revisions list {slug}`)",
+            revs.len(),
+        ));
+    }
+    Ok(revs[index - 1].clone())
+}
+
+fn revisions_show(cms: &std::path::Path, slug: &str, index: usize) -> Result<()> {
+    let p = revisions_pick(cms, slug, index)?;
+    let content = std::fs::read_to_string(&p)
+        .map_err(|e| anyhow::anyhow!("read {}: {e}", p.display()))?;
+    print!("{content}");
+    Ok(())
+}
+
+fn revisions_diff(cms: &std::path::Path, slug: &str, index: usize) -> Result<()> {
+    let rev_path = revisions_pick(cms, slug, index)?;
+    let active_path = cms.join(format!("{slug}.json"));
+    let revision = std::fs::read_to_string(&rev_path)
+        .map_err(|e| anyhow::anyhow!("read {}: {e}", rev_path.display()))?;
+    let active = std::fs::read_to_string(&active_path)
+        .unwrap_or_default();
+    // Hand-rolled unified diff. Line-oriented, no external
+    // dep. Matches `diff -u` shape closely enough for an
+    // operator-readable output. NOT a minimal-edit-script
+    // diff (that requires Myers); this is a naive "show
+    // every removed line then every added line" form, which
+    // is honest about its own bluntness. Adequate for CMS
+    // file restores where blocks of edits are typical.
+    let rev_lines: Vec<&str> = revision.lines().collect();
+    let act_lines: Vec<&str> = active.lines().collect();
+    println!("--- {} (revision {})", rev_path.display(), index);
+    println!("+++ {} (active)", active_path.display());
+    // Compute line-set membership for cheap "removed/added"
+    // classification. Multiplicity isn't preserved — operator
+    // gets a coarse view that captures the gist.
+    let rev_set: std::collections::HashSet<&str> = rev_lines.iter().copied().collect();
+    let act_set: std::collections::HashSet<&str> = act_lines.iter().copied().collect();
+    let mut shown = 0;
+    for line in &rev_lines {
+        if !act_set.contains(line) {
+            println!("-{line}");
+            shown += 1;
+        }
+    }
+    for line in &act_lines {
+        if !rev_set.contains(line) {
+            println!("+{line}");
+            shown += 1;
+        }
+    }
+    if shown == 0 {
+        println!("(no line-level differences — revision == active)");
+    }
+    Ok(())
+}
+
+fn revisions_restore(cms: &std::path::Path, slug: &str, index: usize) -> Result<()> {
+    let rev_path = revisions_pick(cms, slug, index)?;
+    let active_path = cms.join(format!("{slug}.json"));
+    let revision = std::fs::read_to_string(&rev_path)
+        .map_err(|e| anyhow::anyhow!("read revision {}: {e}", rev_path.display()))?;
+    // Snapshot the CURRENT active file before overwriting,
+    // so the restore is itself reversible (matches the
+    // cycle 80 doctrine — every overwrite gets a backup).
+    if let Ok(active) = std::fs::read_to_string(&active_path) {
+        save_cms_revision(cms, slug, &active);
+    }
+    // Atomic write: write to a temp file in the same dir,
+    // then rename. Matches the cycle 60 WriteCapability
+    // pattern but without going through the capability —
+    // this command is operator-invoked, not request-driven,
+    // and runs outside the auth surface.
+    let tmp = active_path.with_extension(format!(
+        "json.restore.{}.tmp",
+        std::process::id(),
+    ));
+    std::fs::write(&tmp, &revision)
+        .map_err(|e| anyhow::anyhow!("write tmp {}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, &active_path)
+        .map_err(|e| anyhow::anyhow!("rename {} -> {}: {e}", tmp.display(), active_path.display()))?;
+    println!(
+        "loom revisions restore: '{slug}' restored from revision {index} ({} bytes)",
+        revision.len(),
+    );
+    println!(
+        "(the prior active content was snapshotted as a new backup; \
+         run `loom revisions list {slug}` to confirm)",
+    );
     Ok(())
 }
 
