@@ -2809,6 +2809,7 @@ pub const BASE_THEME_CSS: &str = ":root{\
 --loom-tap-min:44px;--loom-track-tight:-.012em;\
 --loom-stroke-thin:1px;--loom-stroke-strong:2px;\
 --loom-radius-component:10px;--loom-radius-sm:6px;\
+--loom-radius-md:10px;--loom-radius-lg:18px;--loom-radius-xl:24px;--loom-radius-full:9999px;\
 --loom-size-icon-sm:20px;--loom-size-icon-md:24px;\
 --loom-size-avatar-sm:40px;--loom-size-avatar-md:48px;\
 --loom-break-xl:80rem;\
