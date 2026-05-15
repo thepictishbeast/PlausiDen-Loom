@@ -1636,13 +1636,24 @@
   }
   .loom-section-hero__title {
     font-family: var(--loom-font-display);
-    font-size: clamp(var(--loom-font-2xl, 1.5rem), 4.5vw, var(--loom-font-5xl, 3rem));
+    /* T70 cycle 96: clamp floor reduced from 1.5rem to 1.25rem.
+     * REGRESSION-GUARD: prior floor caused .loom-section-hero
+     * to overflow its container on 375px-viewport mobile (the
+     * uiOverflow detector flagged 7 pages). Bound also adds
+     * overflow-wrap:anywhere so a single long word never breaks
+     * the box, regardless of viewport. */
+    font-size: clamp(1.25rem, 5.5vw, var(--loom-font-5xl, 3rem));
     font-weight: 800;
     color: var(--loom-color-ink);
-    line-height: 1.05;
+    line-height: 1.1;
     letter-spacing: -.022em;
     margin: 0;
     text-wrap: balance;
+    overflow-wrap: anywhere;
+    min-width: 0;
+  }
+  .loom-section-hero {
+    min-width: 0;
   }
   .loom-section-hero__lede {
     font-size: var(--loom-font-lg, 1.125rem);
