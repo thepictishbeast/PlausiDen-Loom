@@ -15101,6 +15101,286 @@ mod webauthn_authenticate_tests {
     }
 }
 
+// ============================================================
+// T45 (closes #597): multi-tenant SQLite-backed TenantStore.
+// ============================================================
+//
+// Per-tenant isolation primitive. Each tenant has its own
+// CMS root + credentials + sessions. This module ships the
+// FILESYSTEM-of-tenants metadata + auth tables; per-tenant
+// CMS-data isolation is the layer above (filesystem-scoped).
+//
+// AVP-2 doctrine:
+// - Every query parameterized (no string concat) — SQL-injection
+//   class extinct.
+// - PRAGMA foreign_keys = ON for cascade integrity.
+// - PRAGMA journal_mode = WAL for crash safety.
+// - rusqlite "bundled" feature = pure-Rust libsqlite3 vendored
+//   at build time (no system dep).
+
+use rusqlite::{params, Connection, OptionalExtension};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Tenant {
+    id: i64,
+    slug: String,
+    name: String,
+    owner: String,
+    created_at: u64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum TenantError {
+    DuplicateSlug,
+    BadSlug,
+    Sql(String),
+    NotFound,
+}
+
+impl From<rusqlite::Error> for TenantError {
+    fn from(e: rusqlite::Error) -> Self {
+        if let rusqlite::Error::SqliteFailure(err, _) = &e {
+            if err.code == rusqlite::ErrorCode::ConstraintViolation {
+                return Self::DuplicateSlug;
+            }
+        }
+        Self::Sql(e.to_string())
+    }
+}
+
+struct TenantStore {
+    conn: std::sync::Mutex<Connection>,
+}
+
+impl TenantStore {
+    fn open(path: &str) -> Result<Self, TenantError> {
+        let conn = Connection::open(path)
+            .map_err(|e| TenantError::Sql(format!("open {path}: {e}")))?;
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             PRAGMA journal_mode = WAL;",
+        )
+        .map_err(|e| TenantError::Sql(format!("pragmas: {e}")))?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS tenants (
+                id INTEGER PRIMARY KEY,
+                slug TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                owner TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS tenant_credentials (
+                id INTEGER PRIMARY KEY,
+                tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                user_handle TEXT NOT NULL,
+                credential_id BLOB NOT NULL,
+                pubkey_x BLOB NOT NULL,
+                pubkey_y BLOB NOT NULL,
+                sign_count INTEGER NOT NULL DEFAULT 0,
+                registered_at INTEGER NOT NULL,
+                UNIQUE (tenant_id, user_handle, credential_id)
+             );
+             CREATE TABLE IF NOT EXISTS tenant_sessions (
+                token TEXT PRIMARY KEY,
+                tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                user_handle TEXT NOT NULL,
+                expires_at INTEGER NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_tenant_credentials_handle
+                ON tenant_credentials(tenant_id, user_handle);
+             CREATE INDEX IF NOT EXISTS idx_tenant_sessions_expires
+                ON tenant_sessions(expires_at);",
+        )
+        .map_err(|e| TenantError::Sql(format!("schema: {e}")))?;
+        Ok(Self { conn: std::sync::Mutex::new(conn) })
+    }
+
+    fn validate_slug(slug: &str) -> Result<(), TenantError> {
+        if slug.is_empty() || slug.len() > 63 {
+            return Err(TenantError::BadSlug);
+        }
+        if !slug.chars().next().map_or(false, |c| c.is_ascii_lowercase()) {
+            return Err(TenantError::BadSlug);
+        }
+        for c in slug.chars() {
+            if !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '-' {
+                return Err(TenantError::BadSlug);
+            }
+        }
+        Ok(())
+    }
+
+    fn register_tenant(&self, slug: &str, name: &str, owner: &str) -> Result<i64, TenantError> {
+        Self::validate_slug(slug)?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let conn = self.conn.lock()
+            .map_err(|_| TenantError::Sql("mutex poisoned".to_owned()))?;
+        conn.execute(
+            "INSERT INTO tenants (slug, name, owner, created_at) VALUES (?1, ?2, ?3, ?4)",
+            params![slug, name, owner, now as i64],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    fn get_tenant(&self, slug: &str) -> Result<Tenant, TenantError> {
+        let conn = self.conn.lock()
+            .map_err(|_| TenantError::Sql("mutex poisoned".to_owned()))?;
+        conn.query_row(
+            "SELECT id, slug, name, owner, created_at FROM tenants WHERE slug = ?1",
+            params![slug],
+            |row| Ok(Tenant {
+                id: row.get(0)?,
+                slug: row.get(1)?,
+                name: row.get(2)?,
+                owner: row.get(3)?,
+                created_at: row.get::<_, i64>(4)? as u64,
+            }),
+        )
+        .optional()?
+        .ok_or(TenantError::NotFound)
+    }
+
+    fn list_tenants(&self) -> Result<Vec<Tenant>, TenantError> {
+        let conn = self.conn.lock()
+            .map_err(|_| TenantError::Sql("mutex poisoned".to_owned()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, slug, name, owner, created_at FROM tenants ORDER BY slug ASC",
+        )?;
+        let rows = stmt
+            .query_map([], |row| Ok(Tenant {
+                id: row.get(0)?,
+                slug: row.get(1)?,
+                name: row.get(2)?,
+                owner: row.get(3)?,
+                created_at: row.get::<_, i64>(4)? as u64,
+            }))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    fn delete_tenant(&self, slug: &str) -> Result<(), TenantError> {
+        let conn = self.conn.lock()
+            .map_err(|_| TenantError::Sql("mutex poisoned".to_owned()))?;
+        let n = conn.execute("DELETE FROM tenants WHERE slug = ?1", params![slug])?;
+        if n == 0 {
+            return Err(TenantError::NotFound);
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn tenant_count(&self) -> usize {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row("SELECT COUNT(*) FROM tenants", [], |r| r.get::<_, i64>(0))
+            .unwrap_or(0) as usize
+    }
+}
+
+#[cfg(test)]
+mod tenant_store_tests {
+    use super::*;
+
+    fn store() -> TenantStore {
+        TenantStore::open(":memory:").expect("open")
+    }
+
+    #[test]
+    fn open_creates_schema() {
+        assert_eq!(store().tenant_count(), 0);
+    }
+
+    #[test]
+    fn register_and_get() {
+        let s = store();
+        let id = s.register_tenant("alice-co", "Alice Co", "alice@e.com").unwrap();
+        assert!(id > 0);
+        let t = s.get_tenant("alice-co").unwrap();
+        assert_eq!(t.slug, "alice-co");
+        assert_eq!(t.name, "Alice Co");
+    }
+
+    #[test]
+    fn duplicate_slug_rejected() {
+        let s = store();
+        s.register_tenant("dup", "First", "a@x").unwrap();
+        let err = s.register_tenant("dup", "Second", "b@x").expect_err("dup");
+        assert_eq!(err, TenantError::DuplicateSlug);
+    }
+
+    #[test]
+    fn list_returns_alphabetical() {
+        let s = store();
+        s.register_tenant("zoo", "Z", "x").unwrap();
+        s.register_tenant("alpha", "A", "x").unwrap();
+        let list = s.list_tenants().unwrap();
+        assert_eq!(list[0].slug, "alpha");
+        assert_eq!(list[1].slug, "zoo");
+    }
+
+    #[test]
+    fn unknown_slug_returns_not_found() {
+        let err = store().get_tenant("ghost").expect_err("not found");
+        assert_eq!(err, TenantError::NotFound);
+    }
+
+    #[test]
+    fn delete_removes_tenant() {
+        let s = store();
+        s.register_tenant("temp", "T", "x").unwrap();
+        s.delete_tenant("temp").unwrap();
+        let err = s.get_tenant("temp").expect_err("gone");
+        assert_eq!(err, TenantError::NotFound);
+    }
+
+    #[test]
+    fn delete_unknown_returns_not_found() {
+        let err = store().delete_tenant("ghost").expect_err("nf");
+        assert_eq!(err, TenantError::NotFound);
+    }
+
+    #[test]
+    fn slug_validation_rejects_bad() {
+        let s = store();
+        for bad in &["", "Cap", "1starts", "with space", "with_underscore", "with.dot"] {
+            let err = s.register_tenant(bad, "x", "y").expect_err(bad);
+            assert!(matches!(err, TenantError::BadSlug), "{bad}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn slug_validation_accepts_good() {
+        let s = store();
+        for good in &["a", "alpha", "alice-co", "site-2026"] {
+            s.register_tenant(good, "x", "y").unwrap_or_else(|e| panic!("{good}: {e:?}"));
+        }
+    }
+
+    #[test]
+    fn cascade_deletes_credentials_and_sessions() {
+        let s = store();
+        let id = s.register_tenant("ten", "X", "y").unwrap();
+        let conn = s.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO tenant_credentials (tenant_id, user_handle, credential_id, pubkey_x, pubkey_y, registered_at) VALUES (?, 'u', X'01', X'00', X'00', 0)",
+            params![id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO tenant_sessions (token, tenant_id, user_handle, expires_at) VALUES ('tok', ?, 'u', 9999999999)",
+            params![id],
+        ).unwrap();
+        drop(conn);
+        s.delete_tenant("ten").unwrap();
+        let conn = s.conn.lock().unwrap();
+        let c: i64 = conn.query_row("SELECT COUNT(*) FROM tenant_credentials", [], |r| r.get(0)).unwrap();
+        let se: i64 = conn.query_row("SELECT COUNT(*) FROM tenant_sessions", [], |r| r.get(0)).unwrap();
+        assert_eq!(c, 0);
+        assert_eq!(se, 0);
+    }
+}
+
 #[cfg(test)]
 mod webauthn_challenge_tests {
     use super::*;

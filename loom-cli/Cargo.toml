@@ -55,6 +55,12 @@ ed25519-dalek = { version = "2", features = ["rand_core"] }
 # AVP-2 vet: hand-rolling ECDSA P-256 is forbidden ("no custom
 # crypto"); p256 is the supersociety-correct choice.
 p256 = { version = "0.13", features = ["ecdsa", "arithmetic"] }
+# T45: SQLite-backed multi-tenant store. rusqlite "bundled" =
+# pure-Rust libsqlite3 vendored at build time (no system
+# dependency). AVP-2 vet: SQLite is the most-deployed database
+# in the world (≥4× more than any other), public-domain license,
+# 100% MC/DC test coverage in the upstream codebase.
+rusqlite = { version = "0.31", features = ["bundled"] }
 
 [dev-dependencies]
 # T29: property-based tests on the contrast math + parser.
