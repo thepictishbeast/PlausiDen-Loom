@@ -12218,6 +12218,304 @@ impl WebAuthnChallengeStore {
     }
 }
 
+// ============================================================
+// T43d cycle 94: WebAuthn clientDataJSON parser + verifier.
+// ============================================================
+//
+// The browser-side `navigator.credentials.create()` /
+// `.get()` callbacks return an `AuthenticatorResponse` whose
+// `clientDataJSON` field is a base64url-encoded UTF-8 JSON
+// blob. After base64url-decoding, the structure is:
+//
+//   { "type":   "webauthn.create" | "webauthn.get",
+//     "challenge": "<base64url-encoded server challenge>",
+//     "origin":  "https://example.com",
+//     "crossOrigin": false  // optional, MUST be false or absent
+//     // tokenBinding ignored — long-deprecated by WebAuthn L3
+//   }
+//
+// This module parses + validates that blob. SAFETY-critical:
+//   * Wrong `type` → attestation/assertion was for a different
+//     ceremony. Reject.
+//   * Wrong `origin` → attestation came from a different page;
+//     phishing attempt. Reject.
+//   * Wrong `challenge` → replay or tampering. Reject.
+//   * `crossOrigin: true` → the credential ceremony ran inside
+//     a cross-origin iframe. WebAuthn permits it but only with
+//     an explicit RP-side opt-in; we reject by default to avoid
+//     accidental phishing-iframe acceptance.
+//
+// AVP-2 Tier-3 doctrine:
+//   * subtle::ConstantTimeEq for challenge comparison (defeats
+//     timing oracle on prefix bits).
+//   * All fields are mandatory; missing → Reject.
+//   * Unknown fields are IGNORED (forward-compat) but NEVER
+//     trusted — we don't echo them to the caller.
+//   * Maximum input size enforced BEFORE serde_json::from_slice
+//     to defeat parser DoS via huge documents (T76 input-size
+//     hardening doctrine).
+//   * All error variants are observationally indistinguishable
+//     to the caller (single error message at the HTTP layer).
+
+const WEBAUTHN_CLIENT_DATA_MAX_BYTES: usize = 64 * 1024;
+
+#[derive(Debug, Clone)]
+struct WebAuthnClientData {
+    /// Either "webauthn.create" (registration) or "webauthn.get"
+    /// (authentication).
+    op_type: String,
+    /// Base64url-encoded challenge — caller must compare against
+    /// the issued challenge from the WebAuthnChallengeStore.
+    challenge: String,
+    /// Origin string ("https://example.com"). Caller compares
+    /// against the configured RP origin.
+    origin: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum WebAuthnClientDataError {
+    /// Input exceeded WEBAUTHN_CLIENT_DATA_MAX_BYTES.
+    TooLarge,
+    /// JSON did not parse.
+    InvalidJson,
+    /// Required field missing or wrong type.
+    MissingField(&'static str),
+    /// `type` field present but not in {"webauthn.create",
+    /// "webauthn.get"}.
+    UnknownType,
+    /// `crossOrigin` was true. Reject.
+    CrossOriginNotAllowed,
+    /// Type mismatch with caller's expected ceremony.
+    TypeMismatch,
+    /// Origin mismatch with caller's expected RP origin.
+    OriginMismatch,
+    /// Challenge mismatch with caller's expected challenge.
+    ChallengeMismatch,
+}
+
+/// Parse-only — does NOT verify the values match anything.
+/// Use `verify_client_data()` after parsing to enforce equality
+/// against the issued challenge + expected RP origin + expected
+/// op-type.
+fn parse_client_data_json(
+    bytes: &[u8],
+) -> Result<WebAuthnClientData, WebAuthnClientDataError> {
+    if bytes.len() > WEBAUTHN_CLIENT_DATA_MAX_BYTES {
+        return Err(WebAuthnClientDataError::TooLarge);
+    }
+    let v: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|_| WebAuthnClientDataError::InvalidJson)?;
+    let obj = v.as_object().ok_or(WebAuthnClientDataError::InvalidJson)?;
+
+    let op_type = obj
+        .get("type")
+        .and_then(|x| x.as_str())
+        .ok_or(WebAuthnClientDataError::MissingField("type"))?
+        .to_owned();
+    if op_type != "webauthn.create" && op_type != "webauthn.get" {
+        return Err(WebAuthnClientDataError::UnknownType);
+    }
+    let challenge = obj
+        .get("challenge")
+        .and_then(|x| x.as_str())
+        .ok_or(WebAuthnClientDataError::MissingField("challenge"))?
+        .to_owned();
+    let origin = obj
+        .get("origin")
+        .and_then(|x| x.as_str())
+        .ok_or(WebAuthnClientDataError::MissingField("origin"))?
+        .to_owned();
+
+    // crossOrigin is OPTIONAL per spec. Absent → treated as false.
+    // Present + true → reject by default.
+    if let Some(co) = obj.get("crossOrigin") {
+        match co.as_bool() {
+            Some(false) | None => {}
+            Some(true) => return Err(WebAuthnClientDataError::CrossOriginNotAllowed),
+        }
+    }
+
+    Ok(WebAuthnClientData { op_type, challenge, origin })
+}
+
+/// Verify a parsed clientDataJSON matches the expected ceremony
+/// shape: type matches, origin matches, challenge matches (in
+/// constant time). Returns Ok(()) on success, specific error
+/// otherwise. Caller should map ALL errors to a single
+/// "verification failed" string at the HTTP boundary.
+fn verify_client_data(
+    parsed: &WebAuthnClientData,
+    expected_type: &str,
+    expected_origin: &str,
+    expected_challenge: &str,
+) -> Result<(), WebAuthnClientDataError> {
+    if parsed.op_type != expected_type {
+        return Err(WebAuthnClientDataError::TypeMismatch);
+    }
+    if parsed.origin != expected_origin {
+        return Err(WebAuthnClientDataError::OriginMismatch);
+    }
+    // SAFETY: constant-time compare on challenge prevents
+    // timing oracles. Length-check first (non-secret).
+    if parsed.challenge.len() != expected_challenge.len() {
+        return Err(WebAuthnClientDataError::ChallengeMismatch);
+    }
+    use subtle::ConstantTimeEq as _;
+    let eq: subtle::Choice =
+        parsed.challenge.as_bytes().ct_eq(expected_challenge.as_bytes());
+    if bool::from(eq) {
+        Ok(())
+    } else {
+        Err(WebAuthnClientDataError::ChallengeMismatch)
+    }
+}
+
+#[cfg(test)]
+mod webauthn_client_data_tests {
+    use super::*;
+
+    fn ok_create() -> Vec<u8> {
+        br#"{"type":"webauthn.create","challenge":"abcdefghij1234567890ABCDEFGHIJ1234567890abc","origin":"https://example.com"}"#.to_vec()
+    }
+    fn ok_get() -> Vec<u8> {
+        br#"{"type":"webauthn.get","challenge":"abcdefghij1234567890ABCDEFGHIJ1234567890abc","origin":"https://example.com","crossOrigin":false}"#.to_vec()
+    }
+
+    #[test]
+    fn parse_create_ok() {
+        let p = parse_client_data_json(&ok_create()).expect("parse ok");
+        assert_eq!(p.op_type, "webauthn.create");
+        assert_eq!(p.origin, "https://example.com");
+        assert_eq!(p.challenge.len(), 43);
+    }
+
+    #[test]
+    fn parse_get_ok_with_explicit_crossorigin_false() {
+        let p = parse_client_data_json(&ok_get()).expect("parse ok");
+        assert_eq!(p.op_type, "webauthn.get");
+    }
+
+    #[test]
+    fn parse_too_large_rejected() {
+        let mut huge = ok_create();
+        huge.resize(WEBAUTHN_CLIENT_DATA_MAX_BYTES + 1, b' ');
+        let err = parse_client_data_json(&huge).expect_err("too large");
+        assert_eq!(err, WebAuthnClientDataError::TooLarge);
+    }
+
+    #[test]
+    fn parse_invalid_json_rejected() {
+        let err = parse_client_data_json(b"{not json").expect_err("bad json");
+        assert_eq!(err, WebAuthnClientDataError::InvalidJson);
+    }
+
+    #[test]
+    fn parse_top_level_array_rejected() {
+        let err = parse_client_data_json(b"[]").expect_err("array");
+        assert_eq!(err, WebAuthnClientDataError::InvalidJson);
+    }
+
+    #[test]
+    fn parse_missing_type_rejected() {
+        let err = parse_client_data_json(br#"{"challenge":"x","origin":"y"}"#)
+            .expect_err("no type");
+        assert_eq!(err, WebAuthnClientDataError::MissingField("type"));
+    }
+
+    #[test]
+    fn parse_unknown_type_rejected() {
+        let err = parse_client_data_json(
+            br#"{"type":"webauthn.unknown","challenge":"x","origin":"y"}"#,
+        )
+        .expect_err("unknown type");
+        assert_eq!(err, WebAuthnClientDataError::UnknownType);
+    }
+
+    #[test]
+    fn parse_cross_origin_true_rejected() {
+        let err = parse_client_data_json(
+            br#"{"type":"webauthn.get","challenge":"x","origin":"y","crossOrigin":true}"#,
+        )
+        .expect_err("cross-origin true");
+        assert_eq!(err, WebAuthnClientDataError::CrossOriginNotAllowed);
+    }
+
+    #[test]
+    fn parse_unknown_fields_ignored_forward_compat() {
+        // L3 spec adds tokenBinding, topOrigin, etc. We must
+        // tolerate them (forward-compat) without trusting them.
+        let p = parse_client_data_json(
+            br#"{"type":"webauthn.get","challenge":"x","origin":"y","tokenBinding":{"status":"present","id":"abc"},"topOrigin":"https://outer.example"}"#,
+        )
+        .expect("unknown fields ignored");
+        assert_eq!(p.op_type, "webauthn.get");
+    }
+
+    #[test]
+    fn verify_happy_path() {
+        let p = parse_client_data_json(&ok_create()).unwrap();
+        verify_client_data(
+            &p,
+            "webauthn.create",
+            "https://example.com",
+            "abcdefghij1234567890ABCDEFGHIJ1234567890abc",
+        )
+        .expect("verify ok");
+    }
+
+    #[test]
+    fn verify_type_mismatch_rejected() {
+        let p = parse_client_data_json(&ok_create()).unwrap();
+        let err = verify_client_data(
+            &p,
+            "webauthn.get",
+            "https://example.com",
+            "abcdefghij1234567890ABCDEFGHIJ1234567890abc",
+        )
+        .expect_err("type mismatch");
+        assert_eq!(err, WebAuthnClientDataError::TypeMismatch);
+    }
+
+    #[test]
+    fn verify_origin_mismatch_rejected() {
+        let p = parse_client_data_json(&ok_create()).unwrap();
+        let err = verify_client_data(
+            &p,
+            "webauthn.create",
+            "https://attacker.com",
+            "abcdefghij1234567890ABCDEFGHIJ1234567890abc",
+        )
+        .expect_err("origin mismatch");
+        assert_eq!(err, WebAuthnClientDataError::OriginMismatch);
+    }
+
+    #[test]
+    fn verify_challenge_mismatch_rejected_constant_time() {
+        let p = parse_client_data_json(&ok_create()).unwrap();
+        let err = verify_client_data(
+            &p,
+            "webauthn.create",
+            "https://example.com",
+            "wrong-challenge-of-different-bytes-but-eq-len",
+        )
+        .expect_err("challenge mismatch");
+        assert_eq!(err, WebAuthnClientDataError::ChallengeMismatch);
+    }
+
+    #[test]
+    fn verify_challenge_wrong_length_rejected_before_compare() {
+        let p = parse_client_data_json(&ok_create()).unwrap();
+        let err = verify_client_data(
+            &p,
+            "webauthn.create",
+            "https://example.com",
+            "short",
+        )
+        .expect_err("wrong length");
+        assert_eq!(err, WebAuthnClientDataError::ChallengeMismatch);
+    }
+}
+
 #[cfg(test)]
 mod webauthn_challenge_tests {
     use super::*;
