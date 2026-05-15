@@ -207,6 +207,94 @@
    * keyboard-only-ring UX when :focus-visible is supported. */
   :focus:not(:focus-visible) { outline: none; }
 
+  /* T70c (closes #659): rich focus + hover indicators.
+   * CSS-only patterns showing what's focused/hovered/active.
+   * All prefers-reduced-motion safe (motion clamps to 0).
+   *
+   * Opt-in via data-loom-rich-focus="lift|glow|magnetic":
+   *
+   *   lift:     subtle Y-translate + shadow gain on hover/focus.
+   *   glow:     halo of accent color expands on focus-visible.
+   *   magnetic: pointer-pulled translate via JS-set --mouse-x/-y
+   *             custom props (works as plain hover w/o JS).
+   *
+   * Pure-CSS by default; magnetic variant gracefully degrades if
+   * no JS is provided to set the mouse-position custom props.
+   */
+  [data-loom-rich-focus] {
+    transition:
+      transform var(--loom-transition-fast, 120ms) var(--loom-ease-out, ease),
+      box-shadow var(--loom-transition-fast, 120ms) var(--loom-ease-out, ease),
+      filter var(--loom-transition-fast, 120ms) var(--loom-ease-out, ease);
+  }
+  [data-loom-rich-focus="lift"]:hover,
+  [data-loom-rich-focus="lift"]:focus-visible {
+    transform: translateY(-2px);
+    box-shadow:
+      0 8px 24px color-mix(in oklab, var(--loom-color-ink) 10%, transparent),
+      0 2px 6px color-mix(in oklab, var(--loom-color-ink) 6%, transparent);
+  }
+  [data-loom-rich-focus="glow"]:focus-visible {
+    box-shadow:
+      0 0 0 4px color-mix(in oklab, var(--loom-color-primary) 18%, transparent),
+      0 0 0 1px var(--loom-color-primary);
+    outline: none; /* the glow replaces the ring */
+  }
+  [data-loom-rich-focus="glow"]:hover {
+    filter: brightness(1.05);
+  }
+  [data-loom-rich-focus="magnetic"] {
+    /* JS sets --mouse-x / --mouse-y in 0..1 range from element-
+     * relative pointer position. Without JS the var(...) falls
+     * back to 0 (no offset). */
+    transform: translate(
+      calc((var(--mouse-x, 0.5) - 0.5) * 4px),
+      calc((var(--mouse-y, 0.5) - 0.5) * 4px)
+    );
+  }
+  [data-loom-rich-focus="magnetic"]:hover {
+    filter: brightness(1.04);
+  }
+  /* Selected/active marker — for tab triggers, picker chips,
+   * active nav. Distinct from :focus so it can co-exist with
+   * the keyboard ring. */
+  [data-loom-selected="true"] {
+    background: color-mix(in oklab, var(--loom-color-primary) 12%, var(--loom-color-surface));
+    color: var(--loom-color-primary);
+    box-shadow: inset 0 -2px 0 var(--loom-color-primary);
+  }
+  /* Cursor-tracking spotlight (opt-in via data-loom-spotlight).
+   * JS sets --mouse-x / --mouse-y in CSS pixels; no-JS falls back
+   * to no spotlight. */
+  [data-loom-spotlight] {
+    position: relative;
+    isolation: isolate;
+  }
+  [data-loom-spotlight]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(
+      280px circle at var(--mouse-x, -1000px) var(--mouse-y, -1000px),
+      color-mix(in oklab, var(--loom-color-primary) 16%, transparent) 0%,
+      transparent 70%
+    );
+    opacity: 0;
+    transition: opacity var(--loom-transition-fast, 120ms) var(--loom-ease-out, ease);
+    z-index: -1;
+  }
+  [data-loom-spotlight]:hover::before { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) {
+    [data-loom-rich-focus]:hover,
+    [data-loom-rich-focus]:focus-visible,
+    [data-loom-rich-focus="magnetic"] {
+      transform: none;
+      transition: none;
+    }
+    [data-loom-spotlight]::before { transition: none; }
+  }
+
   /* Hide content from sighted users without removing from a11y tree. */
   [hidden] { display: none !important; }
 
