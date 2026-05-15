@@ -13950,6 +13950,215 @@ mod webauthn_credential_store_tests {
     }
 }
 
+// ============================================================
+// T43d cycle 95d-2: WebAuthn register-options response builder.
+// ============================================================
+//
+// The /webauthn/register/options HTTP endpoint returns the JSON
+// the browser feeds to `navigator.credentials.create({publicKey: …})`.
+// W3C WebAuthn L3 §5.4 mandates these fields:
+//
+//   {
+//     "rp":    { "name": string, "id": string (RP origin domain) },
+//     "user":  { "id": <base64url-buffer>, "name": string, "displayName": string },
+//     "challenge": <base64url-buffer>,
+//     "pubKeyCredParams": [{ "type": "public-key", "alg": -7 }],
+//     "timeout": <ms>,
+//     "attestation": "none",   // privacy-preserving default
+//     "authenticatorSelection": {
+//       "residentKey": "preferred" | "required",
+//       "userVerification": "preferred"
+//     }
+//   }
+//
+// This module ships the PURE function that builds that JSON.
+// HTTP route wiring (parses request, calls this fn, returns
+// JSON) is a follow-up slice — split for testability.
+//
+// SECURITY:
+// - challenge comes from a hot WebAuthnChallengeStore call so
+//   it's always fresh + replay-resistant.
+// - attestation = "none" → browser doesn't share authenticator
+//   model/vendor with the RP. Privacy-preserving default.
+// - alg = -7 (ES256) only — matches what cycle 95c verifies.
+//   No legacy ECDSA-with-SHA-1 or RSA. Future cycles can add
+//   alg = -8 (EdDSA) when we vet that path.
+
+/// Generates the JSON body for /webauthn/register/options.
+/// Returns a `serde_json::Value` so the caller (HTTP handler)
+/// can `to_string()` or further wrap. Side-effects: writes a
+/// fresh challenge into `store` keyed by `user_handle`.
+fn webauthn_register_options(
+    rp_name: &str,
+    rp_id: &str,
+    user_handle: &str,
+    user_display_name: &str,
+    challenge_store: &WebAuthnChallengeStore,
+) -> serde_json::Value {
+    let challenge = challenge_store.generate(user_handle);
+
+    // User-handle bytes are base64url-encoded for the wire format.
+    use base64::Engine as _;
+    let user_id_b64 =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(user_handle.as_bytes());
+
+    serde_json::json!({
+        "rp": { "name": rp_name, "id": rp_id },
+        "user": {
+            "id": user_id_b64,
+            "name": user_handle,
+            "displayName": user_display_name,
+        },
+        "challenge": challenge.encoded,
+        // ES256 only (cycle 95c verifies this path; alg=-7).
+        "pubKeyCredParams": [{ "type": "public-key", "alg": -7 }],
+        // 5-min ceremony timeout matches the challenge TTL.
+        "timeout": 5 * 60 * 1000_u32,
+        // Privacy-preserving: don't ask the authenticator to
+        // identify itself. Matches the default for solo deploys.
+        "attestation": "none",
+        "authenticatorSelection": {
+            "residentKey": "preferred",
+            "userVerification": "preferred",
+        },
+        // Future-compat field — empty list now; cycle 95d-3 will
+        // populate from the credential store to prevent re-register
+        // of an existing credential on the same user_handle.
+        "excludeCredentials": [],
+    })
+}
+
+#[cfg(test)]
+mod webauthn_register_options_tests {
+    use super::*;
+
+    fn fixture() -> (WebAuthnChallengeStore, serde_json::Value) {
+        let store = WebAuthnChallengeStore::new();
+        let v = webauthn_register_options(
+            "ACME Site",
+            "example.com",
+            "alice",
+            "Alice Anderson",
+            &store,
+        );
+        (store, v)
+    }
+
+    #[test]
+    fn rp_fields_present() {
+        let (_, v) = fixture();
+        assert_eq!(v["rp"]["name"], "ACME Site");
+        assert_eq!(v["rp"]["id"], "example.com");
+    }
+
+    #[test]
+    fn user_id_is_base64url_of_user_handle() {
+        let (_, v) = fixture();
+        // "alice" base64url-no-pad = "YWxpY2U"
+        assert_eq!(v["user"]["id"], "YWxpY2U");
+        assert_eq!(v["user"]["name"], "alice");
+        assert_eq!(v["user"]["displayName"], "Alice Anderson");
+    }
+
+    #[test]
+    fn challenge_format_base64url_43_chars() {
+        let (_, v) = fixture();
+        let c = v["challenge"].as_str().expect("challenge string");
+        assert_eq!(c.len(), 43, "32-byte b64url no pad = 43 chars");
+        for ch in c.chars() {
+            assert!(
+                ch.is_ascii_alphanumeric() || ch == '-' || ch == '_',
+                "non-b64url char {ch:?}"
+            );
+        }
+        assert!(!c.contains('='), "no padding");
+    }
+
+    #[test]
+    fn pubkey_cred_params_es256_only() {
+        let (_, v) = fixture();
+        let arr = v["pubKeyCredParams"].as_array().expect("array");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["type"], "public-key");
+        assert_eq!(arr[0]["alg"], -7);
+    }
+
+    #[test]
+    fn timeout_matches_challenge_ttl_ms() {
+        let (_, v) = fixture();
+        // 5 min × 60 sec × 1000 ms = 300000
+        assert_eq!(v["timeout"], 300_000_u64);
+    }
+
+    #[test]
+    fn attestation_is_none_for_privacy() {
+        let (_, v) = fixture();
+        assert_eq!(v["attestation"], "none");
+    }
+
+    #[test]
+    fn authenticator_selection_resident_key_preferred() {
+        let (_, v) = fixture();
+        assert_eq!(v["authenticatorSelection"]["residentKey"], "preferred");
+        assert_eq!(v["authenticatorSelection"]["userVerification"], "preferred");
+    }
+
+    #[test]
+    fn challenge_persisted_in_store_for_consume() {
+        // The options call MUST stash the challenge so the
+        // matching /verify call can consume it. PROOF: after
+        // calling, the store has a challenge for user_handle.
+        let (store, v) = fixture();
+        let emitted = v["challenge"].as_str().unwrap();
+        // Consume should succeed with the same encoded bytes.
+        let consumed = store.consume("alice", emitted).expect("consume ok");
+        assert_eq!(consumed.encoded, emitted);
+    }
+
+    #[test]
+    fn two_calls_emit_distinct_challenges() {
+        let store = WebAuthnChallengeStore::new();
+        let a = webauthn_register_options("R", "r.example", "alice", "A", &store);
+        // The first call stashed alice's challenge. A second call
+        // for the SAME user overwrites (anti-flood per challenge
+        // store doctrine). Verify the new challenge differs.
+        let b = webauthn_register_options("R", "r.example", "alice", "A", &store);
+        assert_ne!(a["challenge"], b["challenge"]);
+    }
+
+    #[test]
+    fn exclude_credentials_empty_for_now() {
+        // Cycle 95d-3 will populate this from the credential
+        // store. For now, empty array — documented in the impl.
+        let (_, v) = fixture();
+        let arr = v["excludeCredentials"].as_array().expect("array");
+        assert!(arr.is_empty());
+    }
+
+    #[test]
+    fn output_is_valid_json_serializable() {
+        // Whole point of returning serde_json::Value: must
+        // round-trip to string cleanly without panics.
+        let (_, v) = fixture();
+        let s = serde_json::to_string(&v).expect("serialize");
+        let parsed: serde_json::Value = serde_json::from_str(&s).expect("round-trip");
+        assert_eq!(parsed["rp"]["name"], "ACME Site");
+    }
+
+    #[test]
+    fn unicode_user_display_name_preserved() {
+        let store = WebAuthnChallengeStore::new();
+        let v = webauthn_register_options(
+            "R",
+            "r.example",
+            "user-1",
+            "Аня Иванова",
+            &store,
+        );
+        assert_eq!(v["user"]["displayName"], "Аня Иванова");
+    }
+}
+
 #[cfg(test)]
 mod webauthn_challenge_tests {
     use super::*;
