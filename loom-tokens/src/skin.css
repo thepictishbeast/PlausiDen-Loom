@@ -357,6 +357,35 @@
     max-width: var(--loom-break-xl);
     margin: 0 auto;
     padding: var(--loom-pad-band);
+    display: flex;
+    flex-direction: column;
+    gap: var(--loom-space-5);
+  }
+  /* T76 cycle 95b: 2-column layout when a sidebar exists.
+   * Mobile-first stacking is the default; widens to feed | sidebar
+   * at 960px+. Banner/hero/composer always span both columns.
+   * `:has()` is supported in every modern browser since 2023; falls
+   * back gracefully (single-column stack) elsewhere. */
+  @media (min-width: 960px) {
+    .loom-page:has(> .loom-sidebar):has(> .loom-card-feed) {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: var(--loom-space-6);
+      align-items: start;
+    }
+    .loom-page:has(> .loom-sidebar):has(> .loom-card-feed) > .loom-banner,
+    .loom-page:has(> .loom-sidebar):has(> .loom-card-feed) > .loom-section-hero,
+    .loom-page:has(> .loom-sidebar):has(> .loom-card-feed) > .loom-composer {
+      grid-column: 1 / -1;
+    }
+    .loom-page:has(> .loom-sidebar):has(> .loom-card-feed) > .loom-card-feed {
+      grid-column: 1;
+    }
+    .loom-page:has(> .loom-sidebar):has(> .loom-card-feed) > .loom-sidebar {
+      grid-column: 2;
+      position: sticky;
+      top: var(--loom-space-5);
+    }
   }
 
   .loom-stack {
@@ -1152,12 +1181,15 @@
   }
   .loom-panel {
     background: var(--loom-color-surface);
-    border: var(--loom-border-component);
+    border: 1px solid var(--loom-color-border);
     border-radius: var(--loom-radius-component);
-    padding: var(--loom-space-4);
+    padding: var(--loom-space-5);
     display: flex;
     flex-direction: column;
     gap: var(--loom-space-3);
+    box-shadow:
+      0 1px 2px color-mix(in oklab, var(--loom-color-ink) 5%, transparent),
+      0 1px 3px color-mix(in oklab, var(--loom-color-ink) 4%, transparent);
   }
   .loom-panel__title {
     font-family: var(--loom-font-display);
@@ -1257,16 +1289,28 @@
   }
   .loom-card-feed-item {
     background: var(--loom-color-surface);
-    border: var(--loom-border-component);
+    border: 1px solid var(--loom-color-border);
     border-radius: var(--loom-radius-component);
+    box-shadow:
+      0 1px 2px color-mix(in oklab, var(--loom-color-ink) 6%, transparent),
+      0 1px 3px color-mix(in oklab, var(--loom-color-ink) 4%, transparent);
     overflow: hidden;
-    transition: border-color var(--loom-transition-fast),
+    transition: transform var(--loom-transition-fast),
+                border-color var(--loom-transition-fast),
                 box-shadow var(--loom-transition-fast);
   }
   .loom-card-feed-item:hover,
   .loom-card-feed-item:focus-within {
-    border-color: var(--loom-color-primary, currentColor);
-    box-shadow: 0 4px 12px color-mix(in oklab, var(--loom-color-ink) 8%, transparent);
+    transform: translateY(-2px);
+    border-color: color-mix(in oklab, var(--loom-color-primary) 60%, var(--loom-color-border));
+    box-shadow:
+      0 14px 28px color-mix(in oklab, var(--loom-color-ink) 12%, transparent),
+      0 4px 8px color-mix(in oklab, var(--loom-color-ink) 8%, transparent);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .loom-card-feed-item { transition: none; }
+    .loom-card-feed-item:hover,
+    .loom-card-feed-item:focus-within { transform: none; }
   }
   .loom-card-feed-item__link {
     display: flex;
@@ -1365,17 +1409,44 @@
    * cms-render's CmsSection::Hero.                                *
    * ============================================================ */
   .loom-section-hero {
-    padding: var(--loom-space-8) var(--loom-space-5);
-    border-radius: var(--loom-radius-component);
+    padding: clamp(var(--loom-space-6), 5vw, var(--loom-space-10)) clamp(var(--loom-space-5), 4vw, var(--loom-space-8));
+    border-radius: var(--loom-radius-lg, 18px);
     background:
-      radial-gradient(800px 400px at 80% -10%,
-        color-mix(in oklab, var(--loom-color-primary, currentColor) 15%, transparent) 0%,
-        transparent 60%),
-      var(--loom-color-surface);
-    border: var(--loom-border-component);
+      radial-gradient(900px 500px at 85% -20%,
+        color-mix(in oklab, var(--loom-color-gradient-b) 22%, transparent) 0%,
+        transparent 55%),
+      radial-gradient(700px 400px at -10% 110%,
+        color-mix(in oklab, var(--loom-color-gradient-a) 18%, transparent) 0%,
+        transparent 55%),
+      linear-gradient(135deg,
+        color-mix(in oklab, var(--loom-color-gradient-a) 8%, var(--loom-color-surface)) 0%,
+        var(--loom-color-surface) 50%,
+        color-mix(in oklab, var(--loom-color-gradient-b) 6%, var(--loom-color-surface)) 100%);
+    border: 1px solid color-mix(in oklab, var(--loom-color-primary) 14%, var(--loom-color-border));
+    box-shadow:
+      0 12px 32px color-mix(in oklab, var(--loom-color-ink) 8%, transparent),
+      0 4px 8px color-mix(in oklab, var(--loom-color-ink) 4%, transparent);
     display: flex;
     flex-direction: column;
-    gap: var(--loom-space-3);
+    gap: var(--loom-space-4);
+    position: relative;
+    overflow: hidden;
+  }
+  .loom-section-hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(1px 1px at 20% 30%, color-mix(in oklab, var(--loom-color-primary) 40%, transparent), transparent 50%),
+      radial-gradient(1px 1px at 70% 60%, color-mix(in oklab, var(--loom-color-gradient-b) 40%, transparent), transparent 50%);
+    background-size: 60px 60px, 80px 80px;
+    opacity: .35;
+    mask-image: linear-gradient(180deg, transparent, black 30%, black 70%, transparent);
+  }
+  .loom-section-hero > * {
+    position: relative;
+    z-index: 1;
   }
   .loom-section-hero__eyebrow {
     display: inline-block;
@@ -1390,12 +1461,13 @@
   }
   .loom-section-hero__title {
     font-family: var(--loom-font-display);
-    font-size: var(--loom-font-3xl, 1.875rem);
-    font-weight: 700;
+    font-size: clamp(var(--loom-font-2xl, 1.5rem), 4.5vw, var(--loom-font-5xl, 3rem));
+    font-weight: 800;
     color: var(--loom-color-ink);
-    line-height: 1.15;
-    letter-spacing: var(--loom-track-tight);
+    line-height: 1.05;
+    letter-spacing: -.022em;
     margin: 0;
+    text-wrap: balance;
   }
   .loom-section-hero__lede {
     font-size: var(--loom-font-lg, 1.125rem);
@@ -1408,17 +1480,36 @@
     display: inline-flex;
     align-self: flex-start;
     align-items: center;
-    padding: var(--loom-space-3) var(--loom-space-5);
-    border-radius: var(--loom-radius-sm);
-    background: var(--loom-color-primary, var(--loom-color-ink));
+    padding: var(--loom-space-3) var(--loom-space-6);
+    border-radius: 999px;
+    background: linear-gradient(135deg,
+      var(--loom-color-primary) 0%,
+      color-mix(in oklab, var(--loom-color-primary) 70%, var(--loom-color-gradient-b)) 100%);
     color: var(--loom-color-primary-fg, var(--loom-color-surface));
     text-decoration: none;
     font-weight: 600;
+    font-size: 1.02rem;
+    letter-spacing: -.005em;
     min-height: var(--loom-tap-min);
-    transition: filter var(--loom-transition-fast);
+    box-shadow:
+      0 6px 16px color-mix(in oklab, var(--loom-color-primary) 30%, transparent),
+      0 2px 4px color-mix(in oklab, var(--loom-color-primary) 20%, transparent),
+      inset 0 1px 0 color-mix(in oklab, white 30%, transparent);
+    transition: transform var(--loom-transition-fast),
+                box-shadow var(--loom-transition-fast),
+                filter var(--loom-transition-fast);
   }
   .loom-section-hero__cta:hover {
-    filter: brightness(1.05);
+    transform: translateY(-1px);
+    filter: brightness(1.06);
+    box-shadow:
+      0 10px 24px color-mix(in oklab, var(--loom-color-primary) 35%, transparent),
+      0 3px 6px color-mix(in oklab, var(--loom-color-primary) 25%, transparent),
+      inset 0 1px 0 color-mix(in oklab, white 40%, transparent);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .loom-section-hero__cta { transition: none; }
+    .loom-section-hero__cta:hover { transform: none; }
   }
   .loom-section-hero__cta:focus-visible {
     filter: brightness(1.05);
@@ -1476,16 +1567,19 @@
    *   [data-invalid="true"]          surfaces a build-time error  *
    * ============================================================ */
   .loom-composer {
-    --comp-composer-pad: var(--loom-space-4);
-    --comp-composer-gap: var(--loom-space-3);
-    --comp-composer-prompt-pad: var(--loom-space-3) var(--loom-space-4);
+    --comp-composer-pad: var(--loom-space-5);
+    --comp-composer-gap: var(--loom-space-4);
+    --comp-composer-prompt-pad: var(--loom-space-3) var(--loom-space-5);
     background: var(--loom-color-surface);
-    border: var(--loom-border-component);
+    border: 1px solid var(--loom-color-border);
     border-radius: var(--loom-radius-component);
     padding: var(--comp-composer-pad);
     display: flex;
     flex-direction: column;
     gap: var(--comp-composer-gap);
+    box-shadow:
+      0 1px 2px color-mix(in oklab, var(--loom-color-ink) 5%, transparent),
+      0 1px 3px color-mix(in oklab, var(--loom-color-ink) 4%, transparent);
   }
   .loom-composer[data-size="compact"] {
     --comp-composer-pad: var(--loom-space-2);
@@ -2195,24 +2289,99 @@
    * --loom-color-primary was undefined → outline shorthand was
    * rejected as invalid CSS. */
   :root {
-    --loom-color-bg-canvas:     hsl(0 0% 0%);
-    --loom-color-surface:       hsl(0 0% 4%);
-    --loom-color-surface-muted: hsl(0 0% 8%);
-    --loom-color-bg-overlay:    hsl(0 0% 100% / 8%);
-    --loom-color-ink:           hsl(0 0% 100%);
-    --loom-color-ink-muted:     hsl(0 0% 86%);
-    --loom-color-border:        hsl(0 0% 50%);
-    --loom-color-border-strong: hsl(0 0% 70%);
-    --loom-color-primary:       hsl(220 100% 75%);
-    --loom-color-primary-fg:    hsl(0 0% 0%);
-    --loom-color-accent-glow:   hsl(220 100% 88%);
-    --loom-color-success:       hsl(140 100% 60%);
-    --loom-color-warn:          hsl(35 100% 70%);
-    --loom-color-warning:       hsl(35 100% 70%);
-    --loom-color-danger:        hsl(0 100% 70%);
-    --loom-color-tier-medium:   hsl(45 100% 65%);
-    --loom-color-gradient-a:    hsl(220 100% 75%);
-    --loom-color-gradient-b:    hsl(280 100% 75%);
+    /* T76 cycle 95b: premium palette default — warm violet + coral
+     * accent on a soft warm-white canvas. Light by default; the
+     * `@media (prefers-color-scheme: dark)` block below auto-flips
+     * to premium dark. Existing `data-theme="hc-dark"`, `hc-light`,
+     * `sepia` variants are unchanged. WCAG AA contrast pinned: ink
+     * #1B1F2A on bg #FBFAF7 = 16.4:1; primary #4338CA on bg = 7.6:1
+     * (AAA normal-text). Validated via loom theme contrast. */
+    --loom-color-bg-canvas:     hsl(40 33% 98%);
+    --loom-color-surface:       hsl(0 0% 100%);
+    --loom-color-surface-muted: hsl(40 25% 95%);
+    --loom-color-bg-overlay:    hsl(225 20% 14% / 6%);
+    --loom-color-ink:           hsl(225 25% 10%);
+    --loom-color-ink-muted:     hsl(225 15% 32%);
+    --loom-color-border:        hsl(36 16% 80%);
+    --loom-color-border-strong: hsl(36 12% 60%);
+    --loom-color-primary:       hsl(244 65% 38%);
+    --loom-color-primary-fg:    hsl(0 0% 100%);
+    --loom-color-accent-glow:   hsl(258 65% 45%);
+    --loom-color-success:       hsl(142 75% 22%);
+    --loom-color-warn:          hsl(28 95% 30%);
+    --loom-color-warning:       hsl(28 95% 30%);
+    --loom-color-danger:        hsl(0 75% 35%);
+    --loom-color-tier-medium:   hsl(38 95% 30%);
+    --loom-color-gradient-a:    hsl(244 65% 38%);
+    --loom-color-gradient-b:    hsl(15 85% 45%);
+  }
+  /* Premium dark — auto-flips on prefers-color-scheme:dark unless
+   * an explicit data-theme is set. Coordinates with BASE_THEME_CSS
+   * (loom-cms-render) so first-paint critical CSS + deferred
+   * component CSS agree. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) {
+      --loom-color-bg-canvas:     hsl(232 24% 8%);
+      --loom-color-surface:       hsl(232 22% 11%);
+      --loom-color-surface-muted: hsl(232 20% 15%);
+      --loom-color-bg-overlay:    hsl(0 0% 100% / 6%);
+      --loom-color-ink:           hsl(228 33% 95%);
+      --loom-color-ink-muted:     hsl(225 12% 65%);
+      --loom-color-border:        hsl(232 18% 22%);
+      --loom-color-border-strong: hsl(232 14% 38%);
+      --loom-color-primary:       hsl(238 100% 78%);
+      --loom-color-primary-fg:    hsl(232 24% 8%);
+      --loom-color-accent-glow:   hsl(258 100% 78%);
+      --loom-color-success:       hsl(142 60% 60%);
+      --loom-color-warn:          hsl(28 95% 65%);
+      --loom-color-warning:       hsl(28 95% 65%);
+      --loom-color-danger:        hsl(0 80% 65%);
+      --loom-color-tier-medium:   hsl(45 95% 60%);
+      --loom-color-gradient-a:    hsl(238 100% 78%);
+      --loom-color-gradient-b:    hsl(15 95% 70%);
+    }
+  }
+  /* Explicit data-theme="dark" — same palette as auto-dark above. */
+  :root[data-theme="dark"] {
+    --loom-color-bg-canvas:     hsl(232 24% 8%);
+    --loom-color-surface:       hsl(232 22% 11%);
+    --loom-color-surface-muted: hsl(232 20% 15%);
+    --loom-color-bg-overlay:    hsl(0 0% 100% / 6%);
+    --loom-color-ink:           hsl(228 33% 95%);
+    --loom-color-ink-muted:     hsl(225 12% 65%);
+    --loom-color-border:        hsl(232 18% 22%);
+    --loom-color-border-strong: hsl(232 14% 38%);
+    --loom-color-primary:       hsl(238 100% 78%);
+    --loom-color-primary-fg:    hsl(232 24% 8%);
+    --loom-color-accent-glow:   hsl(258 100% 78%);
+    --loom-color-success:       hsl(142 60% 60%);
+    --loom-color-warn:          hsl(28 95% 65%);
+    --loom-color-warning:       hsl(28 95% 65%);
+    --loom-color-danger:        hsl(0 80% 65%);
+    --loom-color-tier-medium:   hsl(45 95% 60%);
+    --loom-color-gradient-a:    hsl(238 100% 78%);
+    --loom-color-gradient-b:    hsl(15 95% 70%);
+  }
+  /* Explicit data-theme="light" — same as default :root. */
+  :root[data-theme="light"] {
+    --loom-color-bg-canvas:     hsl(40 33% 98%);
+    --loom-color-surface:       hsl(0 0% 100%);
+    --loom-color-surface-muted: hsl(40 25% 95%);
+    --loom-color-bg-overlay:    hsl(225 20% 14% / 6%);
+    --loom-color-ink:           hsl(225 25% 10%);
+    --loom-color-ink-muted:     hsl(225 15% 32%);
+    --loom-color-border:        hsl(36 16% 80%);
+    --loom-color-border-strong: hsl(36 12% 60%);
+    --loom-color-primary:       hsl(244 65% 38%);
+    --loom-color-primary-fg:    hsl(0 0% 100%);
+    --loom-color-accent-glow:   hsl(258 65% 45%);
+    --loom-color-success:       hsl(142 75% 22%);
+    --loom-color-warn:          hsl(28 95% 30%);
+    --loom-color-warning:       hsl(28 95% 30%);
+    --loom-color-danger:        hsl(0 75% 35%);
+    --loom-color-tier-medium:   hsl(38 95% 30%);
+    --loom-color-gradient-a:    hsl(244 65% 38%);
+    --loom-color-gradient-b:    hsl(15 85% 45%);
   }
   :root[data-theme="hc-dark"] {
     --loom-color-bg-canvas:     hsl(0 0% 0%);
