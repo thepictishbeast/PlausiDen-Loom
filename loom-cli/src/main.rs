@@ -1013,6 +1013,67 @@ enum Cmd {
         #[arg(long)]
         theme: Option<String>,
     },
+    /// T46 cycle 1 (advances #598): per-tenant SSH key registry.
+    /// Wraps the TenantStore SSH-key API in a typed CLI surface.
+    /// Foundation for the sandboxed Claude Code SSH bridge.
+    SshKey {
+        /// Path to the multi-tenant SQLite database. Created (with
+        /// the T45 schema) on first use.
+        #[arg(long, default_value = "loom-tenants.db")]
+        db: PathBuf,
+        #[command(subcommand)]
+        op: SshKeyOp,
+    },
+}
+
+#[derive(Subcommand)]
+enum SshKeyOp {
+    /// Register a new tenant by slug. Required before adding keys.
+    InitTenant {
+        /// Tenant slug (lowercase ASCII + digits + hyphen, ≤63 chars).
+        slug: String,
+        /// Display name.
+        #[arg(long, default_value = "")]
+        name: String,
+        /// Owner identifier (typically an email).
+        #[arg(long, default_value = "owner@local")]
+        owner: String,
+    },
+    /// Add an OpenSSH-format public key to a tenant.
+    Add {
+        /// Tenant slug.
+        slug: String,
+        /// authorized_keys-format line, e.g.
+        /// `ssh-ed25519 AAAA... alice@laptop`.
+        line: String,
+    },
+    /// List a tenant's active SSH keys (fingerprint + comment).
+    List {
+        /// Tenant slug.
+        slug: String,
+    },
+    /// Revoke a tenant's SSH key by fingerprint.
+    Revoke {
+        /// Tenant slug.
+        slug: String,
+        /// Fingerprint, format `SHA256:<base64-no-pad>`.
+        fingerprint: String,
+    },
+    /// Print the tenant's authorized_keys body (one line per
+    /// active key) — pipe to a file or to ssh-server config.
+    Export {
+        /// Tenant slug.
+        slug: String,
+    },
+    /// Generate a fresh ed25519 keypair (writes private to
+    /// stdout in OpenSSH base64 form, public to stderr in
+    /// authorized_keys format). The caller decides what to do
+    /// with each side; loom does NOT persist the private key.
+    Generate {
+        /// Comment to bake into the public key.
+        #[arg(long, default_value = "loom-generated")]
+        comment: String,
+    },
 }
 
 #[allow(clippy::too_many_lines)] // single match over every Cmd variant.
@@ -1508,6 +1569,94 @@ fn main() -> ExitCode {
                 ExitCode::from(2)
             }
         },
+        Cmd::SshKey { db, op } => match cmd_ssh_key(&db, op) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("loom ssh-key: {e}");
+                ExitCode::from(1)
+            }
+        },
+    }
+}
+
+fn cmd_ssh_key(db_path: &std::path::Path, op: SshKeyOp) -> Result<(), String> {
+    let db = db_path.to_string_lossy().into_owned();
+    let store = TenantStore::open(&db).map_err(|e| format!("open {db}: {e:?}"))?;
+    match op {
+        SshKeyOp::InitTenant { slug, name, owner } => {
+            let display = if name.is_empty() { slug.clone() } else { name };
+            let id = store
+                .register_tenant(&slug, &display, &owner)
+                .map_err(|e| format!("register tenant: {e:?}"))?;
+            println!("registered tenant '{slug}' (id={id})");
+            Ok(())
+        }
+        SshKeyOp::Add { slug, line } => {
+            let tenant = store
+                .get_tenant(&slug)
+                .map_err(|e| format!("tenant '{slug}': {e:?}"))?;
+            let id = store
+                .add_ssh_key(tenant.id, &line)
+                .map_err(|e| format!("add key: {e:?}"))?;
+            println!("added key (row id={id}) to tenant '{slug}'");
+            Ok(())
+        }
+        SshKeyOp::List { slug } => {
+            let tenant = store
+                .get_tenant(&slug)
+                .map_err(|e| format!("tenant '{slug}': {e:?}"))?;
+            let keys = store
+                .list_ssh_keys(tenant.id)
+                .map_err(|e| format!("list keys: {e:?}"))?;
+            if keys.is_empty() {
+                println!("(no active keys for tenant '{slug}')");
+            } else {
+                println!("# tenant '{slug}': {n} active key(s)", n = keys.len());
+                for k in &keys {
+                    println!("{fp}  {comment}  added={added}", fp = k.fingerprint, comment = k.comment, added = k.added_at);
+                }
+            }
+            Ok(())
+        }
+        SshKeyOp::Revoke { slug, fingerprint } => {
+            let tenant = store
+                .get_tenant(&slug)
+                .map_err(|e| format!("tenant '{slug}': {e:?}"))?;
+            store
+                .revoke_ssh_key(tenant.id, &fingerprint)
+                .map_err(|e| format!("revoke: {e:?}"))?;
+            println!("revoked '{fingerprint}' for tenant '{slug}'");
+            Ok(())
+        }
+        SshKeyOp::Export { slug } => {
+            let tenant = store
+                .get_tenant(&slug)
+                .map_err(|e| format!("tenant '{slug}': {e:?}"))?;
+            let body = store
+                .export_authorized_keys(tenant.id)
+                .map_err(|e| format!("export: {e:?}"))?;
+            print!("{body}");
+            Ok(())
+        }
+        SshKeyOp::Generate { comment } => {
+            use base64::Engine as _;
+            let (sk_bytes, pk_bytes) = ssh_ed25519_generate();
+            let pub_line = ssh_authorized_key_format(&pk_bytes, &comment);
+            let fp = ssh_ed25519_fingerprint(&pk_bytes);
+            // Private key bytes go to stdout — caller redirects it.
+            // We emit just the 32 raw seed bytes, base64-no-pad,
+            // wrapped in a banner so accidental terminal display
+            // is loud.
+            let sk_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(sk_bytes);
+            println!("-----BEGIN LOOM ED25519 SECRET-----");
+            println!("{sk_b64}");
+            println!("-----END LOOM ED25519 SECRET-----");
+            // Public key + fingerprint to stderr so a redirect
+            // captures only the secret.
+            eprintln!("{pub_line}");
+            eprintln!("# fingerprint: {fp}");
+            Ok(())
+        }
     }
 }
 
