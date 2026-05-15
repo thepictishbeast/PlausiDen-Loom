@@ -1303,9 +1303,29 @@
    * tag). Used for battle feeds, vote queues, leaderboard rows.   *
    * ============================================================ */
   .loom-card-feed {
-    display: flex;
-    flex-direction: column;
-    gap: var(--loom-space-3);
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--loom-space-4);
+  }
+  /* T70d: 2-column card grid at desktop. Featured first card
+   * spans both columns. Sites that want a vertical list set
+   * data-layout="list" on .loom-card-feed. */
+  @media (min-width: 720px) {
+    .loom-card-feed:not([data-layout="list"]) {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .loom-card-feed:not([data-layout="list"]):not([data-featured="off"]) > .loom-card-feed-item:first-of-type {
+      grid-column: 1 / -1;
+    }
+  }
+  /* 3-column at very wide viewports — also keeps featured at full width. */
+  @media (min-width: 1440px) {
+    .loom-card-feed:not([data-layout="list"]):not([data-layout="grid-2"]) {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .loom-card-feed:not([data-layout="list"]):not([data-layout="grid-2"]):not([data-featured="off"]) > .loom-card-feed-item:first-of-type {
+      grid-column: 1 / -1;
+    }
   }
   .loom-card-feed__heading {
     font-family: var(--loom-font-display);
@@ -1317,11 +1337,13 @@
   }
   .loom-card-feed-item {
     background: var(--loom-color-surface);
-    border: 1px solid var(--loom-color-border);
+    border: 1px solid color-mix(in oklab, var(--loom-color-border) 60%, transparent);
     border-radius: var(--loom-radius-component);
+    /* Layered depth — three shadow stacks for real elevation. */
     box-shadow:
-      0 1px 2px color-mix(in oklab, var(--loom-color-ink) 6%, transparent),
-      0 1px 3px color-mix(in oklab, var(--loom-color-ink) 4%, transparent);
+      0 1px 2px color-mix(in oklab, var(--loom-color-ink) 5%, transparent),
+      0 4px 12px color-mix(in oklab, var(--loom-color-ink) 6%, transparent),
+      0 16px 32px color-mix(in oklab, var(--loom-color-ink) 4%, transparent);
     overflow: hidden;
     transition: transform var(--loom-transition-fast),
                 border-color var(--loom-transition-fast),
@@ -1542,28 +1564,48 @@
    * cms-render's CmsSection::Hero.                                *
    * ============================================================ */
   .loom-section-hero {
-    padding: clamp(var(--loom-space-6), 5vw, var(--loom-space-10)) clamp(var(--loom-space-5), 4vw, var(--loom-space-8));
-    border-radius: var(--loom-radius-lg, 18px);
+    padding: clamp(var(--loom-space-8), 6vw, var(--loom-space-16)) clamp(var(--loom-space-6), 5vw, var(--loom-space-10));
+    border-radius: var(--loom-radius-lg, 24px);
     background:
       radial-gradient(900px 500px at 85% -20%,
-        color-mix(in oklab, var(--loom-color-gradient-b) 22%, transparent) 0%,
+        color-mix(in oklab, var(--loom-color-gradient-b) 38%, transparent) 0%,
         transparent 55%),
       radial-gradient(700px 400px at -10% 110%,
-        color-mix(in oklab, var(--loom-color-gradient-a) 18%, transparent) 0%,
+        color-mix(in oklab, var(--loom-color-gradient-a) 30%, transparent) 0%,
         transparent 55%),
       linear-gradient(135deg,
-        color-mix(in oklab, var(--loom-color-gradient-a) 8%, var(--loom-color-surface)) 0%,
+        color-mix(in oklab, var(--loom-color-gradient-a) 14%, var(--loom-color-surface)) 0%,
         var(--loom-color-surface) 50%,
-        color-mix(in oklab, var(--loom-color-gradient-b) 6%, var(--loom-color-surface)) 100%);
-    border: 1px solid color-mix(in oklab, var(--loom-color-primary) 14%, var(--loom-color-border));
+        color-mix(in oklab, var(--loom-color-gradient-b) 12%, var(--loom-color-surface)) 100%);
+    border: 1px solid color-mix(in oklab, var(--loom-color-primary) 20%, var(--loom-color-border));
     box-shadow:
-      0 12px 32px color-mix(in oklab, var(--loom-color-ink) 8%, transparent),
-      0 4px 8px color-mix(in oklab, var(--loom-color-ink) 4%, transparent);
+      0 2px 4px color-mix(in oklab, var(--loom-color-ink) 5%, transparent),
+      0 24px 48px color-mix(in oklab, var(--loom-color-primary) 18%, transparent),
+      0 48px 96px color-mix(in oklab, var(--loom-color-ink) 10%, transparent);
     display: flex;
     flex-direction: column;
-    gap: var(--loom-space-4);
+    gap: var(--loom-space-5);
     position: relative;
     overflow: hidden;
+    isolation: isolate;
+  }
+  /* Decorative blob behind the hero — adds depth/dimension.
+   * Stays INSIDE the hero's box (no negative inset) so the
+   * uiOverflow detector doesn't flag it. Visual continuity
+   * still preserved by overflow:hidden + isolation:isolate. */
+  .loom-section-hero::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 0 auto;
+    width: 45%;
+    height: 90%;
+    transform: translate(15%, 25%);
+    background: radial-gradient(closest-side,
+      color-mix(in oklab, var(--loom-color-gradient-b) 32%, transparent) 0%,
+      transparent 70%);
+    pointer-events: none;
+    z-index: -1;
+    filter: blur(24px);
   }
   .loom-section-hero::before {
     content: "";

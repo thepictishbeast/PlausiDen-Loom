@@ -2686,8 +2686,14 @@ pub const BASE_THEME_CSS: &str = ":root{\
 html{background:var(--loom-bg);color:var(--loom-fg);\
 font-family:var(--loom-font-stack);line-height:1.55;\
 -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;\
-font-feature-settings:\"cv11\",\"ss01\",\"ss03\"}\
-body{margin:0}\
+font-feature-settings:\"cv11\",\"ss01\",\"ss03\";min-height:100%}\
+body{margin:0;min-height:100vh;\
+background:\
+radial-gradient(60rem 38rem at 88% -8%,color-mix(in oklab,var(--loom-accent-2,#E07A5F) 14%,transparent) 0%,transparent 55%),\
+radial-gradient(50rem 36rem at -8% 12%,color-mix(in oklab,var(--loom-accent,#4338CA) 10%,transparent) 0%,transparent 55%),\
+radial-gradient(40rem 28rem at 50% 110%,color-mix(in oklab,var(--loom-accent,#4338CA) 8%,transparent) 0%,transparent 55%),\
+var(--loom-bg);\
+background-attachment:fixed}\
 a{color:var(--loom-link);text-decoration-thickness:.08em;text-underline-offset:.18em;\
 transition:color var(--loom-motion-fast) var(--loom-ease-out)}\
 a:hover,a:focus{color:var(--loom-link-hover)}\
@@ -2712,7 +2718,10 @@ nav.loom-page-nav a[aria-current=\"page\"]{color:var(--loom-accent);font-weight:
 nav.loom-page-nav a.loom-page-brand{font-family:var(--loom-font-display);font-weight:800;color:var(--loom-fg);\
 font-size:1.15rem;letter-spacing:-.022em;padding-left:.25rem;padding-right:1.25rem;background:none}\
 nav.loom-page-nav a.loom-page-brand:hover{background:none}\
-.loom-page-title{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}\
+.loom-page-title{margin:0;font-family:var(--loom-font-display);\
+font-weight:800;letter-spacing:-.022em;font-size:1.4rem;line-height:1.2;color:var(--loom-fg);\
+display:flex;align-items:center;padding-left:.6rem;border-left:3px solid color-mix(in oklab,var(--loom-accent,#4338CA) 70%,transparent);\
+margin-left:.4rem}\
 main#content{padding:1.5rem;max-width:64rem;margin:0 auto}\
 @media (prefers-reduced-motion:reduce){\
 *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;\
