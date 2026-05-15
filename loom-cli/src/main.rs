@@ -13353,6 +13353,272 @@ mod webauthn_cose_tests {
     }
 }
 
+// ============================================================
+// T43d cycle 95c: ES256 (ECDSA P-256 + SHA-256) verify.
+// ============================================================
+//
+// The browser-side authenticator signs `authenticatorData ||
+// SHA-256(clientDataJSON)` with the user's private key. The
+// server verifies the signature with the registered public key
+// — that's the final SAFETY-critical step that confirms the
+// ceremony came from the actual authenticator paired with this
+// credential (not a replay, not a spoofed page).
+//
+// Wire-format note: WebAuthn signatures are DER-encoded
+// ECDSA-Sig-Value (SEQUENCE OF two INTEGERs r, s). p256 has
+// built-in `Signature::from_der` for this.
+//
+// AVP-2 Tier-3 doctrine:
+//   * Use vetted crypto. No custom curve math.
+//   * Constant-time verify (p256's verify is constant-time
+//     w.r.t. signature bytes by construction).
+//   * Build the pubkey via from_encoded_point with the
+//     SEC1-uncompressed (0x04 || X || Y) layout — rejects
+//     off-curve points at construction time, so a malicious
+//     COSE_Key payload can't get past verify.
+//   * Length checks on x/y BEFORE handing to p256.
+
+#[derive(Debug, PartialEq, Eq)]
+enum WebAuthnVerifyError {
+    /// (x, y) didn't decode to a valid P-256 point.
+    InvalidPubkey,
+    /// Signature bytes didn't parse as DER-encoded ECDSA-Sig-Value.
+    InvalidSignatureDer,
+    /// All formats OK; signature did not verify against pubkey.
+    SignatureMismatch,
+}
+
+/// Verify a WebAuthn assertion/attestation signature.
+///
+/// The signed bytes per WebAuthn L3 §7.2 step 19 are
+/// `authenticator_data || SHA-256(client_data_json)`. The
+/// caller supplies the raw authenticator_data bytes (NOT the
+/// parsed struct — we sign exactly what was on the wire) +
+/// the raw client_data_json bytes (also pre-base64-decode).
+fn verify_es256_signature(
+    pubkey: &CoseEs256PublicKey,
+    authenticator_data: &[u8],
+    client_data_json: &[u8],
+    signature_der: &[u8],
+) -> Result<(), WebAuthnVerifyError> {
+    use p256::ecdsa::signature::Verifier as _;
+    use p256::ecdsa::{Signature, VerifyingKey};
+    use p256::elliptic_curve::generic_array::GenericArray;
+    use p256::EncodedPoint;
+    use sha2::{Digest as _, Sha256};
+
+    // SEC1-uncompressed encoded point: 0x04 || X || Y.
+    let encoded = EncodedPoint::from_affine_coordinates(
+        GenericArray::from_slice(&pubkey.x),
+        GenericArray::from_slice(&pubkey.y),
+        false,
+    );
+    let verifying_key = VerifyingKey::from_encoded_point(&encoded)
+        .map_err(|_| WebAuthnVerifyError::InvalidPubkey)?;
+
+    let signature = Signature::from_der(signature_der)
+        .map_err(|_| WebAuthnVerifyError::InvalidSignatureDer)?;
+
+    // The data signed is auth_data || sha256(client_data_json).
+    // We compute sha256(client_data_json) and concatenate;
+    // p256's `verify` then takes the SHA-256 of the WHOLE thing
+    // internally. Net result: sig over sha256(auth_data ||
+    // sha256(client_data_json)) — matches WebAuthn spec.
+    let mut signed_bytes: Vec<u8> =
+        Vec::with_capacity(authenticator_data.len() + 32);
+    signed_bytes.extend_from_slice(authenticator_data);
+    let mut hasher = Sha256::new();
+    hasher.update(client_data_json);
+    let client_data_hash = hasher.finalize();
+    signed_bytes.extend_from_slice(&client_data_hash);
+
+    verifying_key
+        .verify(&signed_bytes, &signature)
+        .map_err(|_| WebAuthnVerifyError::SignatureMismatch)
+}
+
+#[cfg(test)]
+mod webauthn_es256_verify_tests {
+    use super::*;
+    use p256::ecdsa::signature::Signer as _;
+    use p256::ecdsa::SigningKey;
+    use p256::elliptic_curve::generic_array::GenericArray;
+
+    /// Build a fresh test key + the matching CoseEs256PublicKey.
+    fn fresh_key() -> (SigningKey, CoseEs256PublicKey) {
+        let signing_key = SigningKey::random(&mut rand_core::OsRng);
+        let verifying_key = signing_key.verifying_key();
+        let point = verifying_key.to_encoded_point(false);
+        let mut x = [0u8; 32];
+        let mut y = [0u8; 32];
+        x.copy_from_slice(point.x().expect("x bytes"));
+        y.copy_from_slice(point.y().expect("y bytes"));
+        (signing_key, CoseEs256PublicKey { x, y })
+    }
+
+    /// Sign per WebAuthn spec: signature over
+    /// authenticator_data || sha256(client_data_json).
+    fn sign_webauthn(
+        sk: &SigningKey,
+        auth_data: &[u8],
+        client_data_json: &[u8],
+    ) -> Vec<u8> {
+        use p256::ecdsa::Signature;
+        use sha2::{Digest as _, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(client_data_json);
+        let cdh = hasher.finalize();
+        let mut signed = Vec::with_capacity(auth_data.len() + 32);
+        signed.extend_from_slice(auth_data);
+        signed.extend_from_slice(&cdh);
+        let sig: Signature = sk.sign(&signed);
+        sig.to_der().as_bytes().to_vec()
+    }
+
+    #[test]
+    fn verify_freshly_signed_passes() {
+        let (sk, cose) = fresh_key();
+        let auth = b"auth-data-test-bytes";
+        let cdj = br#"{"type":"webauthn.get","challenge":"x","origin":"y"}"#;
+        let sig = sign_webauthn(&sk, auth, cdj);
+        verify_es256_signature(&cose, auth, cdj, &sig).expect("verify ok");
+    }
+
+    #[test]
+    fn verify_tampered_auth_data_rejected() {
+        let (sk, cose) = fresh_key();
+        let auth = b"auth-data-test-bytes";
+        let cdj = br#"{"type":"webauthn.get"}"#;
+        let sig = sign_webauthn(&sk, auth, cdj);
+        let tampered = b"auth-data-test-byteX"; // last byte changed
+        let err = verify_es256_signature(&cose, tampered, cdj, &sig)
+            .expect_err("tampered must fail");
+        assert_eq!(err, WebAuthnVerifyError::SignatureMismatch);
+    }
+
+    #[test]
+    fn verify_tampered_client_data_rejected() {
+        let (sk, cose) = fresh_key();
+        let auth = b"auth-data-test-bytes";
+        let cdj = br#"{"type":"webauthn.get"}"#;
+        let sig = sign_webauthn(&sk, auth, cdj);
+        let tampered = br#"{"type":"webauthn.create"}"#;
+        let err = verify_es256_signature(&cose, auth, tampered, &sig)
+            .expect_err("tampered cdj must fail");
+        assert_eq!(err, WebAuthnVerifyError::SignatureMismatch);
+    }
+
+    #[test]
+    fn verify_wrong_pubkey_rejected() {
+        let (sk, _cose_a) = fresh_key();
+        let (_sk_b, cose_b) = fresh_key();
+        let auth = b"auth";
+        let cdj = br#"{}"#;
+        let sig = sign_webauthn(&sk, auth, cdj);
+        let err = verify_es256_signature(&cose_b, auth, cdj, &sig)
+            .expect_err("wrong key must fail");
+        assert_eq!(err, WebAuthnVerifyError::SignatureMismatch);
+    }
+
+    #[test]
+    fn verify_malformed_signature_der_rejected() {
+        let (_, cose) = fresh_key();
+        let auth = b"auth";
+        let cdj = br#"{}"#;
+        let bogus = b"not-der-at-all";
+        let err = verify_es256_signature(&cose, auth, cdj, bogus)
+            .expect_err("bogus sig must fail");
+        assert_eq!(err, WebAuthnVerifyError::InvalidSignatureDer);
+    }
+
+    #[test]
+    fn verify_invalid_pubkey_off_curve_rejected() {
+        // x=0, y=0 is not on the P-256 curve; from_encoded_point
+        // should reject.
+        let bad_key = CoseEs256PublicKey { x: [0u8; 32], y: [0u8; 32] };
+        let sig = vec![0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01];
+        let err = verify_es256_signature(&bad_key, b"x", b"y", &sig)
+            .expect_err("off-curve must fail");
+        assert_eq!(err, WebAuthnVerifyError::InvalidPubkey);
+    }
+
+    #[test]
+    fn verify_empty_signature_rejected() {
+        let (_, cose) = fresh_key();
+        let err = verify_es256_signature(&cose, b"a", b"b", &[])
+            .expect_err("empty sig");
+        assert_eq!(err, WebAuthnVerifyError::InvalidSignatureDer);
+    }
+
+    #[test]
+    fn verify_signature_changed_byte_rejected() {
+        let (sk, cose) = fresh_key();
+        let auth = b"auth-data";
+        let cdj = br#"{}"#;
+        let mut sig = sign_webauthn(&sk, auth, cdj);
+        // Flip a byte deep in the signature (skip the DER header).
+        if sig.len() > 12 {
+            sig[10] ^= 0x10;
+        }
+        let err = verify_es256_signature(&cose, auth, cdj, &sig)
+            .expect_err("byte flip");
+        // Could be either InvalidSignatureDer (if we hit a length
+        // byte) or SignatureMismatch (if we hit a value byte).
+        assert!(
+            matches!(
+                err,
+                WebAuthnVerifyError::SignatureMismatch
+                    | WebAuthnVerifyError::InvalidSignatureDer
+            ),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn full_webauthn_flow_chain_passes() {
+        // End-to-end happy path: simulate the WebAuthn ceremony.
+        // 1. Server issues challenge.
+        // 2. Client signs auth_data || sha256(cdj).
+        // 3. Server parses + verifies.
+        let store = WebAuthnChallengeStore::new();
+        let challenge = store.generate("user-1");
+        let cdj_bytes = format!(
+            r#"{{"type":"webauthn.get","challenge":"{}","origin":"https://example.com"}}"#,
+            challenge.encoded
+        );
+        let parsed_cdj = parse_client_data_json(cdj_bytes.as_bytes())
+            .expect("parse cdj");
+        verify_client_data(
+            &parsed_cdj,
+            "webauthn.get",
+            "https://example.com",
+            &challenge.encoded,
+        )
+        .expect("cdj verify");
+
+        // Mock auth_data: rpIdHash(32) + flags(UP) + signCount(1).
+        let mut auth_data = vec![0u8; 32];
+        auth_data.push(WEBAUTHN_FLAG_UP);
+        auth_data.extend_from_slice(&1u32.to_be_bytes());
+        let parsed_auth =
+            parse_authenticator_data(&auth_data).expect("parse auth");
+        assert_eq!(parsed_auth.sign_count, 1);
+        assert!(parsed_auth.user_present());
+
+        // Sign + verify with a fresh key.
+        let (sk, cose) = fresh_key();
+        let sig = sign_webauthn(&sk, &auth_data, cdj_bytes.as_bytes());
+        verify_es256_signature(&cose, &auth_data, cdj_bytes.as_bytes(), &sig)
+            .expect("end-to-end verify");
+
+        // Consume the challenge so a replay fails.
+        let _ = store.consume("user-1", &challenge.encoded).unwrap();
+        // Second consume = replay → NotFound.
+        let err = store.consume("user-1", &challenge.encoded).expect_err("replay");
+        assert_eq!(err, WebAuthnChallengeError::NotFound);
+    }
+}
+
 #[cfg(test)]
 mod webauthn_challenge_tests {
     use super::*;

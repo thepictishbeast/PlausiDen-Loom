@@ -49,6 +49,12 @@ serde = { version = "1", features = ["derive"] }
 # PlausiDen-Forge uses (T56). Auditor with the attest-pubkey
 # can prove a bundle was published by THIS loom instance.
 ed25519-dalek = { version = "2", features = ["rand_core"] }
+# T43d cycle 95c: ES256 signature verify for WebAuthn passkeys.
+# RustCrypto p256 — pure Rust, no unsafe in hot paths, constant-
+# time field ops, audited by rustls + sigstore + FIDO2 stacks.
+# AVP-2 vet: hand-rolling ECDSA P-256 is forbidden ("no custom
+# crypto"); p256 is the supersociety-correct choice.
+p256 = { version = "0.13", features = ["ecdsa", "arithmetic"] }
 
 [dev-dependencies]
 # T29: property-based tests on the contrast math + parser.
