@@ -2918,7 +2918,7 @@ pub const THEME_TOGGLE_JS: &str = "(function(){var K='loom-theme';var B=document
 
 /// CSS for the theme-toggle button. Inlined into BASE_THEME_CSS
 /// so first paint paints the button correctly without FOUC.
-pub const THEME_TOGGLE_CSS: &str = ".loom-theme-toggle{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:9999px;border:1px solid var(--loom-color-border,var(--loom-border));background:var(--loom-color-surface,var(--loom-bg));color:var(--loom-color-ink,var(--loom-fg));font-size:1.15rem;cursor:pointer;line-height:1;padding:0;transition:background var(--loom-motion-fast,120ms) var(--loom-ease-out,ease),border-color var(--loom-motion-fast,120ms) var(--loom-ease-out,ease)}.loom-theme-toggle:hover{background:var(--loom-color-surface-muted,var(--loom-grad-soft));border-color:var(--loom-color-primary,var(--loom-accent))}.loom-theme-toggle:focus-visible{outline:2px solid var(--loom-color-primary,var(--loom-accent));outline-offset:3px}";
+pub const THEME_TOGGLE_CSS: &str = ".loom-theme-toggle{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:9999px;border:1px solid var(--loom-color-border,var(--loom-border));background:var(--loom-color-surface,var(--loom-bg));color:var(--loom-color-ink,var(--loom-fg));font-size:1.15rem;cursor:pointer;line-height:1;padding:0;transition:background var(--loom-motion-fast,120ms) var(--loom-ease-out,ease),border-color var(--loom-motion-fast,120ms) var(--loom-ease-out,ease)}.loom-theme-toggle:hover{background:var(--loom-color-surface-muted,var(--loom-grad-soft));border-color:var(--loom-color-primary,var(--loom-accent))}.loom-theme-toggle:focus-visible{outline:2px solid var(--loom-color-primary,var(--loom-accent));outline-offset:3px}";
 
 /// T76 (Crawler dogfood 2026-05-14): every page emits a default
 /// inline-SVG favicon so browser tabs / bookmarks / history don't
@@ -3153,9 +3153,13 @@ mod page_shell_tests {
 
     #[test]
     fn always_emits_base_theme_block_csp_pinned() {
+        // T72 cycle 96 iter 9: base-theme block bundles
+        // BASE_THEME_CSS + THEME_TOGGLE_CSS, so the CSP hash
+        // covers BOTH together.
         let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
-        let hash = csp_sha256(BASE_THEME_CSS.as_bytes());
-        assert!(s.contains(&hash), "base-theme hash must appear in CSP");
+        let combined = format!("{BASE_THEME_CSS}{THEME_TOGGLE_CSS}");
+        let hash = csp_sha256(combined.as_bytes());
+        assert!(s.contains(&hash), "combined base-theme + toggle hash must appear in CSP");
         assert!(!s.contains("'unsafe-inline'"));
         assert!(s.contains("<style>"));
         assert!(s.contains("--loom-bg"));
@@ -3189,9 +3193,13 @@ mod page_shell_tests {
 
     #[test]
     fn pins_critical_css_with_separate_hash_when_supplied() {
+        // T72 cycle 96 iter 9: base-theme is the combined
+        // BASE_THEME_CSS + THEME_TOGGLE_CSS block; critical_css is
+        // a separate inline pinned by its own hash.
         let crit = "h1{color:red}";
         let s = page_shell(&empty_page(), "/loom-skin.css", "", Some(crit));
-        assert!(s.contains(&csp_sha256(BASE_THEME_CSS.as_bytes())));
+        let combined = format!("{BASE_THEME_CSS}{THEME_TOGGLE_CSS}");
+        assert!(s.contains(&csp_sha256(combined.as_bytes())));
         assert!(s.contains(&csp_sha256(crit.as_bytes())));
         assert!(s.contains(&csp_sha256(DEFER_ONLOAD_JS.as_bytes())));
         assert!(s.contains("'unsafe-hashes'"));
@@ -3301,12 +3309,28 @@ mod page_shell_tests {
 
     #[test]
     fn base_theme_css_dark_media_does_not_apply_when_light_is_explicit() {
-        // The @media (prefers-color-scheme: dark) block uses
-        // :root:not([data-theme="light"]) so an explicit
-        // data-theme="light" overrides the OS preference.
+        // The @media (prefers-color-scheme: dark) block applies
+        // ONLY when data-theme="auto" — explicit light or dark
+        // get their own selector blocks. Effect: an explicit
+        // data-theme="light" overrides the OS preference, since
+        // the OS-driven dark rule is scoped to the auto block.
         assert!(
-            BASE_THEME_CSS.contains(r#":not([data-theme="light"])"#),
-            "@media block must use :root:not([data-theme=\"light\"])"
+            BASE_THEME_CSS.contains("@media (prefers-color-scheme:dark){:root[data-theme=\"auto\"]"),
+            "OS-dark media block must be scoped to data-theme=auto so explicit light wins"
+        );
+        // The explicit dark block stands on its own.
+        assert!(
+            BASE_THEME_CSS.contains(":root[data-theme=\"dark\"]"),
+            "explicit dark selector must exist for data-theme=dark to apply"
+        );
+        // No standalone OS-dark rule that would override explicit light.
+        let media_idx = BASE_THEME_CSS
+            .find("@media (prefers-color-scheme:dark)")
+            .expect("media block must be present");
+        let after_media = &BASE_THEME_CSS[media_idx..];
+        assert!(
+            after_media.starts_with("@media (prefers-color-scheme:dark){:root[data-theme=\"auto\"]"),
+            "media block must IMMEDIATELY scope to data-theme=auto"
         );
     }
 
