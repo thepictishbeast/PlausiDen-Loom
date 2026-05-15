@@ -13619,6 +13619,337 @@ mod webauthn_es256_verify_tests {
     }
 }
 
+// ============================================================
+// T43d cycle 95d slice 1: WebAuthn credential store.
+// ============================================================
+//
+// Persists registered passkeys per user. Multi-credential per
+// user supported (W3C spec allows N keys per RP/user pair).
+// Replay defence: sign_count must STRICTLY INCREASE on every
+// authentication — non-increasing rejected (authenticator
+// rollback / clone).
+//
+// Doctrine:
+//   * In-memory HashMap; multi-tenant T45 swaps for SQLite
+//     behind the same trait surface.
+//   * MAX_CREDENTIALS_PER_USER caps how many keys one user can
+//     register — defeats credential-flood DoS.
+//   * Credential IDs compared via constant-time subtle::ConstantTimeEq
+//     to defeat timing oracles when looking up.
+//   * Sign-count check is "stored < incoming" — strictly increasing.
+//     Equal is REJECTED to catch authenticator clones with shared
+//     state.
+
+const MAX_CREDENTIALS_PER_USER: usize = 10;
+
+/// One registered passkey credential for one user.
+#[derive(Debug, Clone)]
+struct WebAuthnRegisteredCredential {
+    /// Opaque credential ID from the authenticator (raw bytes,
+    /// not base64-encoded). Compared in constant time.
+    credential_id: Vec<u8>,
+    /// EC2 P-256 public key for ES256 verify.
+    pubkey: CoseEs256PublicKey,
+    /// Monotonic counter; must strictly increase per auth.
+    sign_count: u32,
+    /// Unix-secs when credential was first registered.
+    registered_at: u64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum WebAuthnCredentialError {
+    /// User is at MAX_CREDENTIALS_PER_USER cap.
+    PerUserCapReached,
+    /// Credential ID lookup yielded nothing.
+    NotFound,
+    /// Authentication tried to update with sign_count <= stored
+    /// — authenticator rollback or clone, reject.
+    StaleSignCount,
+    /// Registration with an already-registered credential ID for
+    /// the same user (idempotent re-register attempt).
+    DuplicateCredentialId,
+}
+
+/// Thread-safe credential registry.
+#[derive(Debug, Default)]
+struct WebAuthnCredentialStore {
+    inner: std::sync::Mutex<
+        std::collections::HashMap<String, Vec<WebAuthnRegisteredCredential>>,
+    >,
+}
+
+impl WebAuthnCredentialStore {
+    fn new() -> Self {
+        Self {
+            inner: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    /// Add a fresh credential for `user_handle`.
+    ///
+    /// SECURITY: returns DuplicateCredentialId if the user
+    /// already has a credential with these bytes — prevents
+    /// idempotent re-register confusing the store. Caller
+    /// catches and surfaces "already registered" to the user.
+    fn register(
+        &self,
+        user_handle: &str,
+        credential_id: Vec<u8>,
+        pubkey: CoseEs256PublicKey,
+        sign_count: u32,
+    ) -> Result<(), WebAuthnCredentialError> {
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| WebAuthnCredentialError::NotFound)?;
+        let entry = guard.entry(user_handle.to_owned()).or_default();
+        if entry.len() >= MAX_CREDENTIALS_PER_USER {
+            return Err(WebAuthnCredentialError::PerUserCapReached);
+        }
+        // Duplicate-ID check (constant-time per credential).
+        use subtle::ConstantTimeEq as _;
+        for existing in entry.iter() {
+            if existing.credential_id.len() == credential_id.len() {
+                let eq: subtle::Choice =
+                    existing.credential_id.as_slice().ct_eq(&credential_id);
+                if bool::from(eq) {
+                    return Err(WebAuthnCredentialError::DuplicateCredentialId);
+                }
+            }
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        entry.push(WebAuthnRegisteredCredential {
+            credential_id,
+            pubkey,
+            sign_count,
+            registered_at: now,
+        });
+        Ok(())
+    }
+
+    /// Look up a credential by (user_handle, credential_id).
+    /// Returns a CLONE so callers can verify without holding
+    /// the store lock during expensive signature verify.
+    fn lookup(
+        &self,
+        user_handle: &str,
+        credential_id: &[u8],
+    ) -> Result<WebAuthnRegisteredCredential, WebAuthnCredentialError> {
+        use subtle::ConstantTimeEq as _;
+        let guard = self
+            .inner
+            .lock()
+            .map_err(|_| WebAuthnCredentialError::NotFound)?;
+        let entries =
+            guard.get(user_handle).ok_or(WebAuthnCredentialError::NotFound)?;
+        for cred in entries {
+            if cred.credential_id.len() == credential_id.len() {
+                let eq: subtle::Choice =
+                    cred.credential_id.as_slice().ct_eq(credential_id);
+                if bool::from(eq) {
+                    return Ok(cred.clone());
+                }
+            }
+        }
+        Err(WebAuthnCredentialError::NotFound)
+    }
+
+    /// After a successful signature verify, advance the stored
+    /// sign_count. Rejects non-strictly-increasing counts to
+    /// catch authenticator rollback / clone attacks.
+    fn update_sign_count(
+        &self,
+        user_handle: &str,
+        credential_id: &[u8],
+        new_sign_count: u32,
+    ) -> Result<(), WebAuthnCredentialError> {
+        use subtle::ConstantTimeEq as _;
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| WebAuthnCredentialError::NotFound)?;
+        let entries = guard
+            .get_mut(user_handle)
+            .ok_or(WebAuthnCredentialError::NotFound)?;
+        for cred in entries.iter_mut() {
+            if cred.credential_id.len() == credential_id.len() {
+                let eq: subtle::Choice =
+                    cred.credential_id.as_slice().ct_eq(credential_id);
+                if bool::from(eq) {
+                    if new_sign_count <= cred.sign_count {
+                        return Err(WebAuthnCredentialError::StaleSignCount);
+                    }
+                    cred.sign_count = new_sign_count;
+                    return Ok(());
+                }
+            }
+        }
+        Err(WebAuthnCredentialError::NotFound)
+    }
+
+    /// Test-only: how many credentials for a user.
+    #[cfg(test)]
+    fn count(&self, user_handle: &str) -> usize {
+        self.inner
+            .lock()
+            .ok()
+            .and_then(|g| g.get(user_handle).map(Vec::len))
+            .unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod webauthn_credential_store_tests {
+    use super::*;
+
+    fn fake_pubkey() -> CoseEs256PublicKey {
+        CoseEs256PublicKey { x: [0xAA; 32], y: [0xBB; 32] }
+    }
+
+    #[test]
+    fn register_lookup_round_trip() {
+        let store = WebAuthnCredentialStore::new();
+        store
+            .register("alice", b"cred-id-1".to_vec(), fake_pubkey(), 0)
+            .expect("register");
+        assert_eq!(store.count("alice"), 1);
+        let c = store.lookup("alice", b"cred-id-1").expect("lookup");
+        assert_eq!(c.credential_id, b"cred-id-1");
+        assert_eq!(c.sign_count, 0);
+    }
+
+    #[test]
+    fn register_multiple_credentials_for_one_user() {
+        let store = WebAuthnCredentialStore::new();
+        for i in 0..5u8 {
+            store
+                .register(
+                    "alice",
+                    vec![i, i, i, i],
+                    fake_pubkey(),
+                    0,
+                )
+                .expect("register");
+        }
+        assert_eq!(store.count("alice"), 5);
+        let c = store.lookup("alice", &[3u8, 3, 3, 3]).expect("lookup 3");
+        assert_eq!(c.credential_id, &[3u8, 3, 3, 3]);
+    }
+
+    #[test]
+    fn register_caps_at_max() {
+        let store = WebAuthnCredentialStore::new();
+        for i in 0..MAX_CREDENTIALS_PER_USER as u8 {
+            store
+                .register("alice", vec![i], fake_pubkey(), 0)
+                .expect("under cap");
+        }
+        let err = store
+            .register("alice", b"overflow".to_vec(), fake_pubkey(), 0)
+            .expect_err("at cap");
+        assert_eq!(err, WebAuthnCredentialError::PerUserCapReached);
+    }
+
+    #[test]
+    fn register_rejects_duplicate_credential_id() {
+        let store = WebAuthnCredentialStore::new();
+        store
+            .register("alice", b"same".to_vec(), fake_pubkey(), 0)
+            .expect("first");
+        let err = store
+            .register("alice", b"same".to_vec(), fake_pubkey(), 0)
+            .expect_err("dup");
+        assert_eq!(err, WebAuthnCredentialError::DuplicateCredentialId);
+    }
+
+    #[test]
+    fn lookup_unknown_user_returns_not_found() {
+        let store = WebAuthnCredentialStore::new();
+        store
+            .register("alice", b"x".to_vec(), fake_pubkey(), 0)
+            .unwrap();
+        let err = store.lookup("bob", b"x").expect_err("unknown user");
+        assert_eq!(err, WebAuthnCredentialError::NotFound);
+    }
+
+    #[test]
+    fn lookup_unknown_credential_id_returns_not_found() {
+        let store = WebAuthnCredentialStore::new();
+        store
+            .register("alice", b"real".to_vec(), fake_pubkey(), 0)
+            .unwrap();
+        let err = store.lookup("alice", b"fake").expect_err("wrong id");
+        assert_eq!(err, WebAuthnCredentialError::NotFound);
+    }
+
+    #[test]
+    fn update_sign_count_strictly_increasing_ok() {
+        let store = WebAuthnCredentialStore::new();
+        store
+            .register("alice", b"x".to_vec(), fake_pubkey(), 5)
+            .unwrap();
+        store.update_sign_count("alice", b"x", 6).expect("6 > 5");
+        store.update_sign_count("alice", b"x", 7).expect("7 > 6");
+        let c = store.lookup("alice", b"x").unwrap();
+        assert_eq!(c.sign_count, 7);
+    }
+
+    #[test]
+    fn update_sign_count_equal_rejected_as_stale() {
+        let store = WebAuthnCredentialStore::new();
+        store
+            .register("alice", b"x".to_vec(), fake_pubkey(), 5)
+            .unwrap();
+        let err = store
+            .update_sign_count("alice", b"x", 5)
+            .expect_err("equal");
+        assert_eq!(err, WebAuthnCredentialError::StaleSignCount);
+    }
+
+    #[test]
+    fn update_sign_count_lower_rejected_as_stale() {
+        let store = WebAuthnCredentialStore::new();
+        store
+            .register("alice", b"x".to_vec(), fake_pubkey(), 5)
+            .unwrap();
+        let err = store
+            .update_sign_count("alice", b"x", 4)
+            .expect_err("lower");
+        assert_eq!(err, WebAuthnCredentialError::StaleSignCount);
+    }
+
+    #[test]
+    fn update_sign_count_unknown_user_returns_not_found() {
+        let store = WebAuthnCredentialStore::new();
+        let err = store
+            .update_sign_count("ghost", b"x", 1)
+            .expect_err("unknown");
+        assert_eq!(err, WebAuthnCredentialError::NotFound);
+    }
+
+    #[test]
+    fn cross_user_isolation() {
+        // Same credential_id for two users — independent.
+        let store = WebAuthnCredentialStore::new();
+        store
+            .register("alice", b"shared-id".to_vec(), fake_pubkey(), 0)
+            .unwrap();
+        store
+            .register("bob", b"shared-id".to_vec(), fake_pubkey(), 0)
+            .unwrap();
+        // Both lookups succeed.
+        let _ = store.lookup("alice", b"shared-id").unwrap();
+        let _ = store.lookup("bob", b"shared-id").unwrap();
+        // Sign-count updates are independent.
+        store.update_sign_count("alice", b"shared-id", 10).unwrap();
+        let bob = store.lookup("bob", b"shared-id").unwrap();
+        assert_eq!(bob.sign_count, 0); // untouched
+    }
+}
+
 #[cfg(test)]
 mod webauthn_challenge_tests {
     use super::*;
