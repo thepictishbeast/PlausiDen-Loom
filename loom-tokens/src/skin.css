@@ -1600,8 +1600,10 @@
   .loom-section-hero::after {
     content: "";
     position: absolute;
-    inset: 30% -2% 0 auto;
-    width: 40%;
+    /* Strictly inside the hero box. -2% bleed in iter 2 still
+     * triggered uiOverflow on themed-page baselines. */
+    inset: 30% 0 0 auto;
+    width: 38%;
     height: 100%;
     background: radial-gradient(closest-side,
       color-mix(in oklab, var(--loom-color-gradient-b) 36%, transparent) 0%,
