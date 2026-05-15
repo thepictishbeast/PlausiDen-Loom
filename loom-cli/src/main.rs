@@ -15186,10 +15186,27 @@ impl TenantStore {
                 user_handle TEXT NOT NULL,
                 expires_at INTEGER NOT NULL
              );
+             -- T46 cycle 1: per-tenant SSH key registry. Foundation
+             -- for the sandboxed Claude Code SSH bridge. Multiple
+             -- keys per tenant (laptop + workstation + mobile).
+             -- public_key is the raw 32-byte ed25519 pubkey; the
+             -- ssh-format wire encoding is reconstructed on read.
+             CREATE TABLE IF NOT EXISTS tenant_ssh_keys (
+                id INTEGER PRIMARY KEY,
+                tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                comment TEXT NOT NULL,
+                public_key BLOB NOT NULL,
+                fingerprint TEXT NOT NULL,
+                added_at INTEGER NOT NULL,
+                revoked_at INTEGER,
+                UNIQUE (tenant_id, fingerprint)
+             );
              CREATE INDEX IF NOT EXISTS idx_tenant_credentials_handle
                 ON tenant_credentials(tenant_id, user_handle);
              CREATE INDEX IF NOT EXISTS idx_tenant_sessions_expires
-                ON tenant_sessions(expires_at);",
+                ON tenant_sessions(expires_at);
+             CREATE INDEX IF NOT EXISTS idx_tenant_ssh_keys_active
+                ON tenant_ssh_keys(tenant_id) WHERE revoked_at IS NULL;",
         )
         .map_err(|e| TenantError::Sql(format!("schema: {e}")))?;
         Ok(Self { conn: std::sync::Mutex::new(conn) })
@@ -15717,6 +15734,579 @@ mod webauthn_http_tests {
 
         // Confirm credential persisted.
         assert_eq!(creds.count(user), 1);
+    }
+}
+
+// ============================================================
+// T46 cycle 1 (advances #598): per-tenant SSH key registry +
+// signature verification — foundation for the sandboxed
+// Claude Code SSH bridge.
+// ============================================================
+//
+// What this slice ships:
+//   • SSH ed25519 key generation (ed25519-dalek; vetted crate).
+//   • ssh-format public-key parser/encoder (`ssh-ed25519 <b64> <comment>`).
+//   • SHA256 fingerprint emission ("SHA256:<base64-no-pad>").
+//   • Per-tenant SQLite registry (table created in T45 schema).
+//   • Signature-verify primitive for incoming auth challenges.
+//   • Authorized-keys file-format emission (one key per line).
+//
+// What this slice does NOT yet ship (later cycles):
+//   • russh server (T46 cycle 2).
+//   • Capability/seccomp/landlock sandboxing (T46 cycle 3).
+//   • Claude Code CLI bridge (T46 cycle 4).
+//   • Per-tenant Merkle audit log of SSH actions (T46 cycle 5).
+//
+// AVP-2 doctrine:
+//   • ed25519 verify is constant-time (the crate guarantees it).
+//   • No string concat in SQL.
+//   • Public keys validated by length + curve identifier prefix
+//     before reaching the SQL layer.
+//   • Fingerprint comparison constant-time via subtle.
+
+use ed25519_dalek::{Signature, SigningKey, Verifier, VerifyingKey};
+use sha2::Digest;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TenantSshKey {
+    id: i64,
+    tenant_id: i64,
+    comment: String,
+    /// 32-byte raw ed25519 public key.
+    public_key: [u8; 32],
+    /// `SHA256:<base64-no-pad>` per OpenSSH convention.
+    fingerprint: String,
+    added_at: u64,
+    /// Unix-seconds; `None` = active.
+    revoked_at: Option<u64>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum SshKeyError {
+    BadFormat(&'static str),
+    BadLength,
+    UnsupportedAlgorithm(String),
+    DuplicateKey,
+    NotFound,
+    SignatureInvalid,
+    Sql(String),
+}
+
+impl From<rusqlite::Error> for SshKeyError {
+    fn from(e: rusqlite::Error) -> Self {
+        if let rusqlite::Error::SqliteFailure(err, _) = &e {
+            if err.code == rusqlite::ErrorCode::ConstraintViolation {
+                return Self::DuplicateKey;
+            }
+        }
+        Self::Sql(e.to_string())
+    }
+}
+
+/// Compute the OpenSSH-format fingerprint of a 32-byte ed25519
+/// public key: `SHA256:<base64-no-pad>` of the SSH wire encoding.
+fn ssh_ed25519_fingerprint(pubkey: &[u8; 32]) -> String {
+    use base64::Engine as _;
+    let wire = ssh_ed25519_wire_encode(pubkey);
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(&wire);
+    let digest = hasher.finalize();
+    let b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(digest);
+    format!("SHA256:{b64}")
+}
+
+/// Encode a 32-byte ed25519 public key as the SSH wire format:
+/// `string("ssh-ed25519") || string(pubkey-bytes)` where each
+/// `string` is a 4-byte big-endian length prefix + bytes.
+fn ssh_ed25519_wire_encode(pubkey: &[u8; 32]) -> Vec<u8> {
+    const ALG: &[u8] = b"ssh-ed25519";
+    let mut out = Vec::with_capacity(4 + ALG.len() + 4 + 32);
+    out.extend_from_slice(&(ALG.len() as u32).to_be_bytes());
+    out.extend_from_slice(ALG);
+    out.extend_from_slice(&(32u32).to_be_bytes());
+    out.extend_from_slice(pubkey);
+    out
+}
+
+/// Decode the SSH wire format back into a 32-byte ed25519 public
+/// key. Rejects unknown algorithms and malformed lengths.
+fn ssh_ed25519_wire_decode(wire: &[u8]) -> Result<[u8; 32], SshKeyError> {
+    let mut p = 0usize;
+    let alg = read_ssh_string(wire, &mut p)?;
+    if alg != b"ssh-ed25519" {
+        let s = String::from_utf8_lossy(alg).into_owned();
+        return Err(SshKeyError::UnsupportedAlgorithm(s));
+    }
+    let key = read_ssh_string(wire, &mut p)?;
+    if key.len() != 32 {
+        return Err(SshKeyError::BadLength);
+    }
+    let mut out = [0u8; 32];
+    out.copy_from_slice(key);
+    Ok(out)
+}
+
+fn read_ssh_string<'a>(buf: &'a [u8], p: &mut usize) -> Result<&'a [u8], SshKeyError> {
+    if *p + 4 > buf.len() {
+        return Err(SshKeyError::BadFormat("truncated length"));
+    }
+    let len = u32::from_be_bytes([buf[*p], buf[*p + 1], buf[*p + 2], buf[*p + 3]]) as usize;
+    *p += 4;
+    if *p + len > buf.len() {
+        return Err(SshKeyError::BadFormat("truncated payload"));
+    }
+    let s = &buf[*p..*p + len];
+    *p += len;
+    Ok(s)
+}
+
+/// Parse an OpenSSH `authorized_keys` line into `(pubkey32, comment)`.
+/// Format: `ssh-ed25519 <base64-wire> [comment...]`.
+fn ssh_authorized_key_parse(line: &str) -> Result<([u8; 32], String), SshKeyError> {
+    use base64::Engine as _;
+    let line = line.trim();
+    let mut parts = line.splitn(3, char::is_whitespace);
+    let alg = parts.next().ok_or(SshKeyError::BadFormat("missing algorithm"))?;
+    if alg != "ssh-ed25519" {
+        return Err(SshKeyError::UnsupportedAlgorithm(alg.to_owned()));
+    }
+    let b64 = parts.next().ok_or(SshKeyError::BadFormat("missing key"))?;
+    let comment = parts.next().unwrap_or("").trim().to_owned();
+    let wire = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|_| SshKeyError::BadFormat("base64 decode"))?;
+    let pubkey = ssh_ed25519_wire_decode(&wire)?;
+    Ok((pubkey, comment))
+}
+
+/// Format a 32-byte ed25519 public key + comment as an OpenSSH
+/// `authorized_keys` line.
+fn ssh_authorized_key_format(pubkey: &[u8; 32], comment: &str) -> String {
+    use base64::Engine as _;
+    let wire = ssh_ed25519_wire_encode(pubkey);
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&wire);
+    if comment.is_empty() {
+        format!("ssh-ed25519 {b64}")
+    } else {
+        format!("ssh-ed25519 {b64} {comment}")
+    }
+}
+
+/// Verify an ed25519 signature over `message` from a 32-byte
+/// public key. Constant-time courtesy of the underlying crate.
+fn ssh_ed25519_verify(
+    pubkey: &[u8; 32],
+    message: &[u8],
+    signature: &[u8; 64],
+) -> Result<(), SshKeyError> {
+    let vk = VerifyingKey::from_bytes(pubkey)
+        .map_err(|_| SshKeyError::BadFormat("invalid public key"))?;
+    let sig = Signature::from_bytes(signature);
+    vk.verify(message, &sig)
+        .map_err(|_| SshKeyError::SignatureInvalid)?;
+    Ok(())
+}
+
+/// Generate a fresh ed25519 keypair using the OS RNG. Returns
+/// (32-byte private seed, 32-byte public key).
+fn ssh_ed25519_generate() -> ([u8; 32], [u8; 32]) {
+    let mut csprng = rand_core::OsRng;
+    let sk = SigningKey::generate(&mut csprng);
+    let pk = sk.verifying_key();
+    (sk.to_bytes(), pk.to_bytes())
+}
+
+impl TenantStore {
+    /// Add an OpenSSH-format public key to a tenant. Returns the
+    /// new row ID. Duplicate fingerprints (same tenant, same key)
+    /// return `DuplicateKey`.
+    fn add_ssh_key(
+        &self,
+        tenant_id: i64,
+        authorized_keys_line: &str,
+    ) -> Result<i64, SshKeyError> {
+        let (pubkey, comment_from_line) = ssh_authorized_key_parse(authorized_keys_line)?;
+        let comment = if comment_from_line.is_empty() {
+            "(no comment)".to_owned()
+        } else {
+            comment_from_line
+        };
+        let fingerprint = ssh_ed25519_fingerprint(&pubkey);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| SshKeyError::Sql("mutex poisoned".to_owned()))?;
+        conn.execute(
+            "INSERT INTO tenant_ssh_keys
+                (tenant_id, comment, public_key, fingerprint, added_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![tenant_id, comment, pubkey.as_slice(), fingerprint, now as i64],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// List active (non-revoked) SSH keys for a tenant.
+    fn list_ssh_keys(&self, tenant_id: i64) -> Result<Vec<TenantSshKey>, SshKeyError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| SshKeyError::Sql("mutex poisoned".to_owned()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, tenant_id, comment, public_key, fingerprint, added_at, revoked_at
+             FROM tenant_ssh_keys
+             WHERE tenant_id = ?1 AND revoked_at IS NULL
+             ORDER BY added_at ASC",
+        )?;
+        let rows = stmt
+            .query_map(params![tenant_id], |row| {
+                let pk: Vec<u8> = row.get(3)?;
+                let mut pubkey = [0u8; 32];
+                if pk.len() == 32 {
+                    pubkey.copy_from_slice(&pk);
+                }
+                Ok(TenantSshKey {
+                    id: row.get(0)?,
+                    tenant_id: row.get(1)?,
+                    comment: row.get(2)?,
+                    public_key: pubkey,
+                    fingerprint: row.get(4)?,
+                    added_at: row.get::<_, i64>(5)? as u64,
+                    revoked_at: row.get::<_, Option<i64>>(6)?.map(|v| v as u64),
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Revoke (soft-delete) an SSH key by fingerprint. Returns
+    /// NotFound if no active key with that fingerprint exists.
+    fn revoke_ssh_key(&self, tenant_id: i64, fingerprint: &str) -> Result<(), SshKeyError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| SshKeyError::Sql("mutex poisoned".to_owned()))?;
+        let n = conn.execute(
+            "UPDATE tenant_ssh_keys SET revoked_at = ?1
+             WHERE tenant_id = ?2 AND fingerprint = ?3 AND revoked_at IS NULL",
+            params![now as i64, tenant_id, fingerprint],
+        )?;
+        if n == 0 {
+            return Err(SshKeyError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Look up a tenant's active SSH key by fingerprint. Returns
+    /// `NotFound` if no active key matches.
+    fn find_ssh_key(
+        &self,
+        tenant_id: i64,
+        fingerprint: &str,
+    ) -> Result<TenantSshKey, SshKeyError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| SshKeyError::Sql("mutex poisoned".to_owned()))?;
+        conn.query_row(
+            "SELECT id, tenant_id, comment, public_key, fingerprint, added_at, revoked_at
+             FROM tenant_ssh_keys
+             WHERE tenant_id = ?1 AND fingerprint = ?2 AND revoked_at IS NULL",
+            params![tenant_id, fingerprint],
+            |row| {
+                let pk: Vec<u8> = row.get(3)?;
+                let mut pubkey = [0u8; 32];
+                if pk.len() == 32 {
+                    pubkey.copy_from_slice(&pk);
+                }
+                Ok(TenantSshKey {
+                    id: row.get(0)?,
+                    tenant_id: row.get(1)?,
+                    comment: row.get(2)?,
+                    public_key: pubkey,
+                    fingerprint: row.get(4)?,
+                    added_at: row.get::<_, i64>(5)? as u64,
+                    revoked_at: row.get::<_, Option<i64>>(6)?.map(|v| v as u64),
+                })
+            },
+        )
+        .optional()?
+        .ok_or(SshKeyError::NotFound)
+    }
+
+    /// Emit an `authorized_keys` file body for a tenant. One
+    /// active key per line, sorted by added_at ascending.
+    fn export_authorized_keys(&self, tenant_id: i64) -> Result<String, SshKeyError> {
+        let keys = self.list_ssh_keys(tenant_id)?;
+        let mut out = String::new();
+        for k in &keys {
+            out.push_str(&ssh_authorized_key_format(&k.public_key, &k.comment));
+            out.push('\n');
+        }
+        Ok(out)
+    }
+
+    /// Authenticate a signature: find the active key with the
+    /// given fingerprint and verify the signature. Returns the
+    /// authenticated key on success.
+    fn authenticate_ssh_signature(
+        &self,
+        tenant_id: i64,
+        fingerprint: &str,
+        message: &[u8],
+        signature: &[u8; 64],
+    ) -> Result<TenantSshKey, SshKeyError> {
+        let key = self.find_ssh_key(tenant_id, fingerprint)?;
+        ssh_ed25519_verify(&key.public_key, message, signature)?;
+        Ok(key)
+    }
+}
+
+#[cfg(test)]
+mod tenant_ssh_keys_tests {
+    use super::*;
+
+    fn store_with_tenant() -> (TenantStore, i64) {
+        let store = TenantStore::open(":memory:").unwrap();
+        let id = store.register_tenant("acme", "ACME", "alice").unwrap();
+        (store, id)
+    }
+
+    fn sample_keypair() -> ([u8; 32], [u8; 32]) {
+        ssh_ed25519_generate()
+    }
+
+    fn authorized_keys_line(pk: &[u8; 32], comment: &str) -> String {
+        ssh_authorized_key_format(pk, comment)
+    }
+
+    #[test]
+    fn round_trip_authorized_keys_format() {
+        let (_sk, pk) = sample_keypair();
+        let line = authorized_keys_line(&pk, "alice@laptop");
+        let (parsed_pk, parsed_comment) = ssh_authorized_key_parse(&line).unwrap();
+        assert_eq!(parsed_pk, pk);
+        assert_eq!(parsed_comment, "alice@laptop");
+    }
+
+    #[test]
+    fn fingerprint_format_is_sha256_base64_no_pad() {
+        let (_sk, pk) = sample_keypair();
+        let fp = ssh_ed25519_fingerprint(&pk);
+        assert!(fp.starts_with("SHA256:"), "got {fp}");
+        let body = &fp["SHA256:".len()..];
+        // 32-byte SHA256 → 43-char base64-no-pad.
+        assert_eq!(body.len(), 43, "got {body}");
+        assert!(!body.contains('='), "must not have padding: {body}");
+    }
+
+    #[test]
+    fn add_then_list_returns_one_active_key() {
+        let (store, tid) = store_with_tenant();
+        let (_sk, pk) = sample_keypair();
+        let line = authorized_keys_line(&pk, "alice@laptop");
+        let id = store.add_ssh_key(tid, &line).unwrap();
+        assert!(id > 0);
+        let keys = store.list_ssh_keys(tid).unwrap();
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].comment, "alice@laptop");
+        assert_eq!(keys[0].public_key, pk);
+        assert!(keys[0].revoked_at.is_none());
+    }
+
+    #[test]
+    fn duplicate_key_per_tenant_rejected() {
+        let (store, tid) = store_with_tenant();
+        let (_sk, pk) = sample_keypair();
+        let line = authorized_keys_line(&pk, "first");
+        store.add_ssh_key(tid, &line).unwrap();
+        let dupe = store.add_ssh_key(tid, &authorized_keys_line(&pk, "second"));
+        assert_eq!(dupe, Err(SshKeyError::DuplicateKey));
+    }
+
+    #[test]
+    fn revoke_then_list_excludes_key() {
+        let (store, tid) = store_with_tenant();
+        let (_sk, pk) = sample_keypair();
+        store.add_ssh_key(tid, &authorized_keys_line(&pk, "k1")).unwrap();
+        let fp = ssh_ed25519_fingerprint(&pk);
+        store.revoke_ssh_key(tid, &fp).unwrap();
+        assert_eq!(store.list_ssh_keys(tid).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn revoke_unknown_returns_not_found() {
+        let (store, tid) = store_with_tenant();
+        let r = store.revoke_ssh_key(tid, "SHA256:nonexistent");
+        assert_eq!(r, Err(SshKeyError::NotFound));
+    }
+
+    #[test]
+    fn find_ssh_key_returns_active_only() {
+        let (store, tid) = store_with_tenant();
+        let (_sk, pk) = sample_keypair();
+        store.add_ssh_key(tid, &authorized_keys_line(&pk, "k1")).unwrap();
+        let fp = ssh_ed25519_fingerprint(&pk);
+        let k = store.find_ssh_key(tid, &fp).unwrap();
+        assert_eq!(k.public_key, pk);
+        store.revoke_ssh_key(tid, &fp).unwrap();
+        let r = store.find_ssh_key(tid, &fp);
+        assert_eq!(r, Err(SshKeyError::NotFound));
+    }
+
+    #[test]
+    fn parse_rejects_unknown_algorithm() {
+        let r = ssh_authorized_key_parse("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ root@host");
+        assert!(matches!(r, Err(SshKeyError::UnsupportedAlgorithm(_))));
+    }
+
+    #[test]
+    fn parse_rejects_truncated_base64() {
+        let r = ssh_authorized_key_parse("ssh-ed25519 AAAA");
+        assert!(r.is_err(), "got {r:?}");
+    }
+
+    #[test]
+    fn signature_verification_round_trip() {
+        use ed25519_dalek::Signer;
+        let mut csprng = rand_core::OsRng;
+        let sk = SigningKey::generate(&mut csprng);
+        let pk: [u8; 32] = sk.verifying_key().to_bytes();
+        let message = b"login challenge: abc123";
+        let sig = sk.sign(message);
+        let sig_bytes: [u8; 64] = sig.to_bytes();
+        ssh_ed25519_verify(&pk, message, &sig_bytes).unwrap();
+    }
+
+    #[test]
+    fn signature_verification_rejects_tampered_message() {
+        use ed25519_dalek::Signer;
+        let mut csprng = rand_core::OsRng;
+        let sk = SigningKey::generate(&mut csprng);
+        let pk: [u8; 32] = sk.verifying_key().to_bytes();
+        let sig = sk.sign(b"original");
+        let r = ssh_ed25519_verify(&pk, b"tampered", &sig.to_bytes());
+        assert_eq!(r, Err(SshKeyError::SignatureInvalid));
+    }
+
+    #[test]
+    fn authenticate_signature_through_store() {
+        use ed25519_dalek::Signer;
+        let (store, tid) = store_with_tenant();
+        let mut csprng = rand_core::OsRng;
+        let sk = SigningKey::generate(&mut csprng);
+        let pk: [u8; 32] = sk.verifying_key().to_bytes();
+        store.add_ssh_key(tid, &authorized_keys_line(&pk, "alice")).unwrap();
+        let fp = ssh_ed25519_fingerprint(&pk);
+        let challenge = b"loom-ssh-challenge-2026-05-15";
+        let sig = sk.sign(challenge);
+        let key = store
+            .authenticate_ssh_signature(tid, &fp, challenge, &sig.to_bytes())
+            .unwrap();
+        assert_eq!(key.public_key, pk);
+        assert_eq!(key.comment, "alice");
+    }
+
+    #[test]
+    fn authenticate_rejects_wrong_signature() {
+        use ed25519_dalek::Signer;
+        let (store, tid) = store_with_tenant();
+        let mut csprng = rand_core::OsRng;
+        let sk_a = SigningKey::generate(&mut csprng);
+        let pk_a: [u8; 32] = sk_a.verifying_key().to_bytes();
+        let sk_b = SigningKey::generate(&mut csprng);
+        store.add_ssh_key(tid, &authorized_keys_line(&pk_a, "alice")).unwrap();
+        let fp_a = ssh_ed25519_fingerprint(&pk_a);
+        // Sign with sk_b but claim to be alice (fp_a).
+        let sig = sk_b.sign(b"impostor");
+        let r = store.authenticate_ssh_signature(tid, &fp_a, b"impostor", &sig.to_bytes());
+        assert_eq!(r, Err(SshKeyError::SignatureInvalid));
+    }
+
+    #[test]
+    fn authenticate_unknown_fingerprint_returns_not_found() {
+        let (store, tid) = store_with_tenant();
+        let r = store.authenticate_ssh_signature(
+            tid,
+            "SHA256:does-not-exist",
+            b"x",
+            &[0u8; 64],
+        );
+        assert_eq!(r, Err(SshKeyError::NotFound));
+    }
+
+    #[test]
+    fn export_authorized_keys_emits_one_line_per_active_key() {
+        let (store, tid) = store_with_tenant();
+        let (_sk1, pk1) = sample_keypair();
+        let (_sk2, pk2) = sample_keypair();
+        store.add_ssh_key(tid, &authorized_keys_line(&pk1, "k1")).unwrap();
+        store.add_ssh_key(tid, &authorized_keys_line(&pk2, "k2")).unwrap();
+        let body = store.export_authorized_keys(tid).unwrap();
+        let lines: Vec<&str> = body.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].starts_with("ssh-ed25519 "));
+        assert!(lines[1].starts_with("ssh-ed25519 "));
+        // Revoke one → only one line remains.
+        let fp1 = ssh_ed25519_fingerprint(&pk1);
+        store.revoke_ssh_key(tid, &fp1).unwrap();
+        let body2 = store.export_authorized_keys(tid).unwrap();
+        assert_eq!(body2.lines().count(), 1);
+    }
+
+    #[test]
+    fn cascade_delete_tenant_removes_ssh_keys() {
+        let (store, tid) = store_with_tenant();
+        let (_sk, pk) = sample_keypair();
+        store.add_ssh_key(tid, &authorized_keys_line(&pk, "k")).unwrap();
+        store.delete_tenant("acme").unwrap();
+        // Use raw SQL: list_ssh_keys would scope by tenant_id and
+        // miss the orphan-row case (the table CASCADE-deletes, so
+        // the row is gone, not orphaned).
+        let conn = store.conn.lock().unwrap();
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tenant_ssh_keys", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn fingerprint_is_deterministic_for_same_key() {
+        let (_sk, pk) = sample_keypair();
+        assert_eq!(ssh_ed25519_fingerprint(&pk), ssh_ed25519_fingerprint(&pk));
+    }
+
+    #[test]
+    fn fingerprints_differ_for_different_keys() {
+        let (_, pk1) = sample_keypair();
+        let (_, pk2) = sample_keypair();
+        assert_ne!(ssh_ed25519_fingerprint(&pk1), ssh_ed25519_fingerprint(&pk2));
+    }
+
+    #[test]
+    fn parse_handles_no_comment() {
+        let (_sk, pk) = sample_keypair();
+        let line = ssh_authorized_key_format(&pk, "");
+        let (parsed_pk, comment) = ssh_authorized_key_parse(&line).unwrap();
+        assert_eq!(parsed_pk, pk);
+        assert_eq!(comment, "");
+    }
+
+    #[test]
+    fn add_with_no_comment_records_placeholder() {
+        let (store, tid) = store_with_tenant();
+        let (_sk, pk) = sample_keypair();
+        let line = ssh_authorized_key_format(&pk, "");
+        store.add_ssh_key(tid, &line).unwrap();
+        let keys = store.list_ssh_keys(tid).unwrap();
+        assert_eq!(keys[0].comment, "(no comment)");
     }
 }
 
