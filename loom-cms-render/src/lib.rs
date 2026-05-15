@@ -233,6 +233,35 @@ pub enum CmsSection {
         /// strictness).
         level: HeadingLevel,
     },
+    /// FORGE_ROADMAP item 41 — typed key/value list (definition-list
+    /// shape). Renders as a `<dl>` with one `<dt>/<dd>` pair per
+    /// item; optional `hint` shows as a muted span under the value.
+    /// Use cases: "Settings", "Match details", "Spec sheet",
+    /// "Receipt fields", "Profile facts" — anywhere a label-and-value
+    /// row stack would otherwise be hand-rolled markup.
+    KvPair {
+        /// Optional heading (rendered as h2 above the list).
+        heading: Option<String>,
+        /// Items, top to bottom.
+        items: Vec<CmsKvItem>,
+    },
+}
+
+/// FORGE_ROADMAP item 41: one entry in a [`CmsSection::KvPair`].
+///
+/// BUG ASSUMPTION: `key` and `value` carry no markup; renderer
+/// auto-escapes via Maud. `hint` is also escaped and rendered as
+/// a muted single-line caption — not a place for arbitrary HTML.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CmsKvItem {
+    /// Label / dt text. Auto-escaped on render.
+    pub key: String,
+    /// Value / dd text. Auto-escaped on render.
+    pub value: String,
+    /// Optional muted caption shown below the value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
 }
 
 /// T36: typed heading level for `CmsSection::Heading`.
@@ -1002,6 +1031,26 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 },
             }
         }
+        CmsSection::KvPair { heading, items } => html! {
+            section class="loom-kv-section" {
+                @if let Some(h) = heading {
+                    h2 class="loom-kv-heading" { (h) }
+                }
+                dl class="loom-kv-list" {
+                    @for item in items {
+                        div class="loom-kv-row" {
+                            dt class="loom-kv-key" { (item.key) }
+                            dd class="loom-kv-value" {
+                                span class="loom-kv-text" { (item.value) }
+                                @if let Some(hint) = &item.hint {
+                                    span class="loom-kv-hint" { (hint) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
     }
 }
 
@@ -2746,6 +2795,176 @@ mod tests {
         let para_pos = html.find("Vote on entries").expect("paragraph");
         assert!(composer_pos < h2_pos, "composer before heading");
         assert!(h2_pos < para_pos, "heading before paragraph");
+    }
+
+    // ----------------------------------------------------------
+    // FORGE_ROADMAP item 41 — KvPair BlockKind tests.
+    // ----------------------------------------------------------
+
+    fn kv_page(items: Vec<CmsKvItem>, heading: Option<&str>) -> CmsPage {
+        CmsPage {
+            schema: None,
+            title: "KV".to_owned(),
+            description: "kv-test".to_owned(),
+            path: "/kv".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::KvPair {
+                heading: heading.map(|s| s.to_owned()),
+                items,
+            }],
+        }
+    }
+
+    #[test]
+    fn kv_pair_renders_as_definition_list() {
+        let p = kv_page(
+            vec![CmsKvItem {
+                key: "Match length".into(),
+                value: "3 rounds".into(),
+                hint: None,
+            }],
+            None,
+        );
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"<dl class="loom-kv-list">"#));
+        assert!(html.contains(r#"<dt class="loom-kv-key">Match length</dt>"#));
+        assert!(html.contains(r#"<dd class="loom-kv-value">"#));
+        assert!(html.contains("3 rounds"));
+    }
+
+    #[test]
+    fn kv_pair_optional_heading_renders_when_some() {
+        let p = kv_page(
+            vec![CmsKvItem { key: "k".into(), value: "v".into(), hint: None }],
+            Some("Match details"),
+        );
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"<h2 class="loom-kv-heading">Match details</h2>"#));
+    }
+
+    #[test]
+    fn kv_pair_omits_heading_element_when_none() {
+        let p = kv_page(
+            vec![CmsKvItem { key: "k".into(), value: "v".into(), hint: None }],
+            None,
+        );
+        let html = render_to_string(&p);
+        assert!(!html.contains("loom-kv-heading"));
+    }
+
+    #[test]
+    fn kv_pair_hint_renders_when_some() {
+        let p = kv_page(
+            vec![CmsKvItem {
+                key: "Stake".into(),
+                value: "$100".into(),
+                hint: Some("non-refundable".into()),
+            }],
+            None,
+        );
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"<span class="loom-kv-hint">non-refundable</span>"#));
+    }
+
+    #[test]
+    fn kv_pair_hint_absent_emits_no_hint_span() {
+        let p = kv_page(
+            vec![CmsKvItem { key: "k".into(), value: "v".into(), hint: None }],
+            None,
+        );
+        let html = render_to_string(&p);
+        assert!(!html.contains("loom-kv-hint"));
+    }
+
+    #[test]
+    fn kv_pair_emits_one_row_per_item_in_order() {
+        let p = kv_page(
+            vec![
+                CmsKvItem { key: "A".into(), value: "1".into(), hint: None },
+                CmsKvItem { key: "B".into(), value: "2".into(), hint: None },
+                CmsKvItem { key: "C".into(), value: "3".into(), hint: None },
+            ],
+            None,
+        );
+        let html = render_to_string(&p);
+        let row_count = html.matches(r#"loom-kv-row"#).count();
+        assert_eq!(row_count, 3);
+        let pos_a = html.find(">A<").expect("A");
+        let pos_b = html.find(">B<").expect("B");
+        let pos_c = html.find(">C<").expect("C");
+        assert!(pos_a < pos_b && pos_b < pos_c, "items in declared order");
+    }
+
+    #[test]
+    fn kv_pair_auto_escapes_key_value_hint() {
+        let p = kv_page(
+            vec![CmsKvItem {
+                key: "<script>alert(1)</script>".into(),
+                value: "& \"x\"".into(),
+                hint: Some("</dl>".into()),
+            }],
+            None,
+        );
+        let html = render_to_string(&p);
+        // Maud auto-escapes; raw < > " & must be entity-encoded.
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("&amp;"));
+        assert!(html.contains("&lt;/dl&gt;"));
+    }
+
+    #[test]
+    fn kv_pair_serde_round_trip_via_json() {
+        let p = kv_page(
+            vec![CmsKvItem {
+                key: "k".into(),
+                value: "v".into(),
+                hint: Some("h".into()),
+            }],
+            Some("My list"),
+        );
+        let j = serde_json::to_string(&p).expect("serialize");
+        let parsed: CmsPage = serde_json::from_str(&j).expect("deserialize");
+        assert_eq!(parsed.sections.len(), 1);
+        match &parsed.sections[0] {
+            CmsSection::KvPair { heading, items } => {
+                assert_eq!(heading.as_deref(), Some("My list"));
+                assert_eq!(items.len(), 1);
+                assert_eq!(items[0].key, "k");
+                assert_eq!(items[0].value, "v");
+                assert_eq!(items[0].hint.as_deref(), Some("h"));
+            }
+            other => panic!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn kv_pair_json_skips_none_hint_on_serialize() {
+        let p = kv_page(
+            vec![CmsKvItem { key: "k".into(), value: "v".into(), hint: None }],
+            None,
+        );
+        let j = serde_json::to_string(&p).expect("serialize");
+        // None hint should NOT appear in serialized JSON.
+        assert!(!j.contains("\"hint\""));
+    }
+
+    #[test]
+    fn kv_pair_section_kind_serializes_snake_case() {
+        let p = kv_page(vec![], None);
+        let j = serde_json::to_string(&p).expect("serialize");
+        // serde tag = "kind", rename_all = "snake_case" → "kv_pair".
+        assert!(j.contains(r#""kind":"kv_pair""#));
+    }
+
+    #[test]
+    fn kv_pair_empty_items_renders_empty_dl() {
+        let p = kv_page(vec![], None);
+        let html = render_to_string(&p);
+        // Empty list still emits the dl shell — operator can spot
+        // the bug visually rather than the renderer collapsing.
+        assert!(html.contains(r#"<dl class="loom-kv-list">"#));
+        assert!(!html.contains("loom-kv-row"));
     }
 }
 
