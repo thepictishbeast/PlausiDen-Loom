@@ -2467,12 +2467,14 @@
     --loom-color-gradient-a:    hsl(244 65% 38%);
     --loom-color-gradient-b:    hsl(15 85% 45%);
   }
-  /* Premium dark — auto-flips on prefers-color-scheme:dark unless
-   * an explicit data-theme is set. Coordinates with BASE_THEME_CSS
-   * (loom-cms-render) so first-paint critical CSS + deferred
-   * component CSS agree. */
+  /* Premium dark — owner directive (2026-05-15): default to
+   * LIGHT regardless of OS pref. Auto-flip only when the page
+   * explicitly opts in via data-theme="auto" (matches the
+   * BASE_THEME_CSS contract in loom-cms-render). The in-page
+   * theme switcher (T72) sets data-theme="light"|"dark"|"auto"
+   * and persists to localStorage. */
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme]) {
+    :root[data-theme="auto"] {
       --loom-color-bg-canvas:     hsl(232 24% 8%);
       --loom-color-surface:       hsl(232 22% 11%);
       --loom-color-surface-muted: hsl(232 20% 15%);
