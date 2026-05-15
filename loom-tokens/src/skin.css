@@ -1299,6 +1299,39 @@
                 border-color var(--loom-transition-fast),
                 box-shadow var(--loom-transition-fast);
   }
+  /* T70a: optional 16:9 media slot above the card body. Activates
+   * when the CMS markup includes <div class="loom-card-feed-item__media">
+   * with an <img>/<video>/<picture>. Lazy-load via loading="lazy".
+   * Falls back to a soft gradient placeholder when empty so we
+   * never ship a blank media slot. */
+  .loom-card-feed-item__media {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    width: 100%;
+    overflow: hidden;
+    background: linear-gradient(135deg,
+      color-mix(in oklab, var(--loom-color-primary) 18%, var(--loom-color-surface-muted)) 0%,
+      color-mix(in oklab, var(--loom-color-gradient-b) 18%, var(--loom-color-surface-muted)) 100%);
+  }
+  .loom-card-feed-item__media img,
+  .loom-card-feed-item__media video,
+  .loom-card-feed-item__media picture > img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .loom-card-feed-item__media[data-empty="true"]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(60% 60% at 30% 30%,
+        color-mix(in oklab, var(--loom-color-primary) 10%, transparent),
+        transparent 70%);
+  }
   .loom-card-feed-item:hover,
   .loom-card-feed-item:focus-within {
     transform: translateY(-2px);
@@ -1315,8 +1348,8 @@
   .loom-card-feed-item__link {
     display: flex;
     align-items: flex-start;
-    gap: var(--loom-space-3);
-    padding: var(--loom-space-4);
+    gap: var(--loom-space-4);
+    padding: var(--loom-space-5);
     color: var(--loom-color-ink);
     text-decoration: none;
     min-height: var(--loom-tap-min);
@@ -1335,51 +1368,75 @@
     width: var(--loom-size-avatar-md);
     height: var(--loom-size-avatar-md);
     border-radius: 50%;
-    background: var(--loom-color-surface-muted);
-    color: var(--loom-color-ink);
+    background: linear-gradient(135deg,
+      color-mix(in oklab, var(--loom-color-primary) 65%, var(--loom-color-gradient-b) 35%) 0%,
+      color-mix(in oklab, var(--loom-color-gradient-b) 70%, var(--loom-color-primary) 30%) 100%);
+    color: var(--loom-color-primary-fg);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-weight: 600;
+    font-family: var(--loom-font-display);
+    font-weight: 700;
     font-size: var(--loom-font-base);
+    letter-spacing: -.02em;
     overflow: hidden;
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, white 30%, transparent),
+      0 2px 6px color-mix(in oklab, var(--loom-color-primary) 30%, transparent);
   }
   .loom-card-feed-item__body {
     flex: 1 1 auto;
     display: flex;
     flex-direction: column;
-    gap: var(--loom-space-1);
+    gap: var(--loom-space-2);
+    min-width: 0;
   }
   .loom-card-feed-item__tag {
     align-self: flex-start;
-    padding: 2px var(--loom-space-2);
+    padding: var(--loom-space-1) var(--loom-space-3);
     border-radius: 999px;
-    background: color-mix(in oklab, var(--loom-color-primary, currentColor) 12%, transparent);
-    color: var(--loom-color-primary, currentColor);
+    background: color-mix(in oklab, var(--loom-color-primary) 14%, var(--loom-color-surface));
+    color: color-mix(in oklab, var(--loom-color-primary) 80%, var(--loom-color-ink));
+    font-family: var(--loom-font-display);
     font-size: var(--loom-font-sm, 0.875rem);
-    font-weight: 600;
+    font-weight: 700;
+    letter-spacing: .02em;
+    text-transform: uppercase;
     line-height: 1.4;
+    border: 1px solid color-mix(in oklab, var(--loom-color-primary) 25%, transparent);
   }
+  /* Per-category color hint via data-category attribute (CMS may
+   * emit this on the tag span). Falls back to primary when absent. */
+  .loom-card-feed-item__tag[data-category="parkour"]   { background: color-mix(in oklab, hsl(280 75% 50%) 14%, var(--loom-color-surface)); color: hsl(280 75% 38%); border-color: color-mix(in oklab, hsl(280 75% 50%) 25%, transparent); }
+  .loom-card-feed-item__tag[data-category="billiards"] { background: color-mix(in oklab, hsl(155 65% 40%) 14%, var(--loom-color-surface)); color: hsl(155 65% 28%); border-color: color-mix(in oklab, hsl(155 65% 40%) 25%, transparent); }
+  .loom-card-feed-item__tag[data-category="mind"]      { background: color-mix(in oklab, hsl(210 80% 45%) 14%, var(--loom-color-surface)); color: hsl(210 80% 32%); border-color: color-mix(in oklab, hsl(210 80% 45%) 25%, transparent); }
+  .loom-card-feed-item__tag[data-category="skate"]     { background: color-mix(in oklab, hsl(340 80% 50%) 14%, var(--loom-color-surface)); color: hsl(340 80% 36%); border-color: color-mix(in oklab, hsl(340 80% 50%) 25%, transparent); }
+  .loom-card-feed-item__tag[data-category="darts"]     { background: color-mix(in oklab, hsl(20 85% 50%) 14%, var(--loom-color-surface)); color: hsl(20 85% 36%); border-color: color-mix(in oklab, hsl(20 85% 50%) 25%, transparent); }
+  .loom-card-feed-item__tag[data-category="cafe"]      { background: color-mix(in oklab, hsl(35 70% 40%) 14%, var(--loom-color-surface)); color: hsl(35 70% 28%); border-color: color-mix(in oklab, hsl(35 70% 40%) 25%, transparent); }
+  .loom-card-feed-item__tag[data-category="basketball"]{ background: color-mix(in oklab, hsl(15 90% 50%) 14%, var(--loom-color-surface)); color: hsl(15 90% 35%); border-color: color-mix(in oklab, hsl(15 90% 50%) 25%, transparent); }
   .loom-card-feed-item__title {
     font-family: var(--loom-font-display);
-    font-size: var(--loom-font-lg, 1.125rem);
-    font-weight: 600;
+    font-size: var(--loom-font-xl, 1.25rem);
+    font-weight: 700;
     color: var(--loom-color-ink);
-    line-height: 1.3;
+    line-height: 1.25;
+    letter-spacing: -.012em;
     margin: 0;
+    text-wrap: pretty;
   }
   .loom-card-feed-item__host {
     color: var(--loom-color-ink-muted, var(--loom-color-ink));
     font-size: var(--loom-font-sm, 0.875rem);
-    line-height: 1.4;
+    line-height: 1.45;
     margin: 0;
   }
   .loom-card-feed-item__stats {
     list-style: none;
-    padding: 0;
+    padding: var(--loom-space-3) 0 0 0;
     margin: var(--loom-space-2) 0 0 0;
+    border-top: 1px solid color-mix(in oklab, var(--loom-color-border) 80%, transparent);
     display: flex;
-    gap: var(--loom-space-4);
+    gap: var(--loom-space-6);
     flex-wrap: wrap;
   }
   .loom-card-feed-item__stat {
@@ -1388,16 +1445,26 @@
     gap: 2px;
   }
   .loom-card-feed-item__stat-label {
-    font-size: var(--loom-font-sm, 0.875rem);
+    font-size: var(--loom-font-xs, 0.75rem);
     color: var(--loom-color-ink-muted, var(--loom-color-ink));
     line-height: 1.2;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    font-weight: 600;
   }
   .loom-card-feed-item__stat-value {
     font-family: var(--loom-font-display);
-    font-size: var(--loom-font-base);
-    font-weight: 600;
+    font-size: var(--loom-font-2xl, 1.5rem);
+    font-weight: 800;
     color: var(--loom-color-ink);
-    line-height: 1.2;
+    line-height: 1;
+    letter-spacing: -.018em;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Highlight the primary stat (votes %, pot $) — first stat
+   * gets the primary color treatment for visual anchor. */
+  .loom-card-feed-item__stat:first-child .loom-card-feed-item__stat-value {
+    color: var(--loom-color-primary);
   }
 
   /* ============================================================ *
@@ -1600,29 +1667,40 @@
   }
   .loom-composer__avatar {
     flex: 0 0 auto;
-    width: var(--loom-size-avatar-sm);
-    height: var(--loom-size-avatar-sm);
+    width: calc(var(--loom-size-avatar-md, 48px));
+    height: calc(var(--loom-size-avatar-md, 48px));
     border-radius: 50%;
-    background: var(--loom-color-surface-muted);
-    color: var(--loom-color-ink);
+    background: linear-gradient(135deg,
+      color-mix(in oklab, var(--loom-color-primary) 65%, var(--loom-color-gradient-b) 35%) 0%,
+      color-mix(in oklab, var(--loom-color-gradient-b) 70%, var(--loom-color-primary) 30%) 100%);
+    color: var(--loom-color-primary-fg);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-weight: 600;
-    font-size: var(--loom-font-sm, 0.875rem);
+    font-family: var(--loom-font-display);
+    font-weight: 700;
+    font-size: var(--loom-font-base);
+    letter-spacing: -.02em;
     overflow: hidden;
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, white 30%, transparent),
+      0 2px 6px color-mix(in oklab, var(--loom-color-primary) 30%, transparent);
   }
   .loom-composer__prompt {
     flex: 1 1 auto;
     display: block;
-    padding: var(--comp-composer-prompt-pad);
+    padding: var(--loom-space-4) var(--loom-space-5);
     background: var(--loom-color-surface-muted);
     color: var(--loom-color-ink-muted, var(--loom-color-ink));
     border-radius: 999px;
+    border: 1px solid var(--loom-color-border);
     text-decoration: none;
     min-height: var(--loom-tap-min);
     line-height: 1.4;
-    transition: background var(--loom-transition-fast);
+    font-size: 1.02rem;
+    transition: background var(--loom-transition-fast),
+                border-color var(--loom-transition-fast),
+                color var(--loom-transition-fast);
   }
   .loom-composer__prompt:hover {
     background: color-mix(in oklab, var(--loom-color-surface-muted) 92%, var(--loom-color-ink) 8%);
@@ -1647,15 +1725,23 @@
     align-items: center;
     justify-content: center;
     gap: var(--loom-space-2);
-    padding: var(--loom-space-2) var(--loom-space-3);
+    padding: var(--loom-space-3) var(--loom-space-4);
     border-radius: var(--loom-radius-sm);
-    color: var(--loom-color-ink);
+    color: var(--loom-color-ink-muted);
     text-decoration: none;
     min-height: var(--loom-tap-min);
-    transition: background var(--loom-transition-fast);
+    font-weight: 600;
+    font-size: 0.96rem;
+    transition: background var(--loom-transition-fast),
+                color var(--loom-transition-fast);
   }
   .loom-composer__action:hover {
-    background: var(--loom-color-surface-muted);
+    background: color-mix(in oklab, var(--loom-color-primary) 8%, var(--loom-color-surface-muted));
+    color: var(--loom-color-primary);
+  }
+  .loom-composer__action-icon svg {
+    width: 1.25rem;
+    height: 1.25rem;
   }
   .loom-composer__action:focus-visible {
     background: var(--loom-color-surface-muted);

@@ -2558,7 +2558,24 @@ pub const BASE_THEME_CSS: &str = ":root{\
 --loom-font-display:\"Outfit\",ui-rounded,Inter,ui-sans-serif,system-ui,sans-serif;\
 --loom-font-mono:ui-monospace,\"JetBrains Mono\",SFMono-Regular,\"Cascadia Mono\",monospace;\
 --loom-motion-fast:120ms;--loom-motion-base:220ms;--loom-motion-slow:420ms;\
---loom-ease-out:cubic-bezier(.22,1,.36,1);--loom-ease-spring:cubic-bezier(.34,1.56,.64,1)}\
+--loom-ease-out:cubic-bezier(.22,1,.36,1);--loom-ease-spring:cubic-bezier(.34,1.56,.64,1);\
+--loom-space-0:0;--loom-space-1:.25rem;--loom-space-2:.5rem;--loom-space-3:.75rem;\
+--loom-space-4:1rem;--loom-space-5:1.25rem;--loom-space-6:1.5rem;--loom-space-7:1.75rem;\
+--loom-space-8:2rem;--loom-space-10:2.5rem;--loom-space-12:3rem;--loom-space-16:4rem;\
+--loom-space-20:5rem;--loom-space-24:6rem;\
+--loom-font-xs:.75rem;--loom-font-sm:.875rem;--loom-font-base:1rem;--loom-font-lg:1.125rem;\
+--loom-font-xl:1.25rem;--loom-font-2xl:1.5rem;--loom-font-3xl:1.875rem;--loom-font-4xl:2.25rem;\
+--loom-font-5xl:3rem;--loom-font-6xl:3.75rem;\
+--loom-pad-card:1rem;--loom-pad-panel:1.25rem;--loom-pad-band:1.5rem;\
+--loom-gap-stack:1rem;--loom-gap-row:.75rem;--loom-gap-grid:1rem;\
+--loom-tap-min:44px;--loom-track-tight:-.012em;\
+--loom-stroke-thin:1px;--loom-stroke-strong:2px;\
+--loom-radius-component:10px;--loom-radius-sm:6px;\
+--loom-size-icon-sm:20px;--loom-size-icon-md:24px;\
+--loom-size-avatar-sm:40px;--loom-size-avatar-md:48px;\
+--loom-break-xl:80rem;\
+--loom-border-component:1px solid var(--loom-color-border,var(--loom-border));\
+--loom-transition-fast:120ms cubic-bezier(.22,1,.36,1)}\
 @media (prefers-color-scheme:dark){:root:not([data-theme=\"light\"]){\
 --loom-bg:#0F1019;--loom-fg:#ECEEF6;--loom-muted:#8B92A6;\
 --loom-accent:#A5A6FF;--loom-accent-2:#FFA771;\
