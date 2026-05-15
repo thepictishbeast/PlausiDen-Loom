@@ -3085,12 +3085,18 @@ pub fn page_shell_themed(
         (String::new(), css_link, csp)
     };
     let style_block = format!("{base_theme_block}{extra_style_block}");
-    // T37 v1: gate the `data-theme` attribute on a closed allow-list
-    // ("light" | "dark"). An attacker-controlled value is dropped
-    // rather than escaped-and-emitted — defence in depth on top of
-    // the attribute-escape.
+    // T37 v1 + T66 (closes #649): closed allow-list for the
+    // `data-theme` attribute. T66 extends to named palettes
+    // ("warm" | "ocean" | "forest" | "violet" | "rose") on top
+    // of "light" | "dark" | "auto". An attacker-controlled
+    // value is dropped rather than escaped-and-emitted —
+    // defence in depth on top of attribute-escape.
     let html_open = match theme {
-        Some(t) if t == "light" || t == "dark" => {
+        Some(t) if matches!(
+            t,
+            "light" | "dark" | "auto" |
+            "warm" | "ocean" | "forest" | "violet" | "rose"
+        ) => {
             format!("<html lang=\"en\" data-theme=\"{t}\">")
         }
         _ => "<html lang=\"en\">".to_owned(),
