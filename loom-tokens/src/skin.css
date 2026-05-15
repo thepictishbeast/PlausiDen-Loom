@@ -1392,28 +1392,37 @@
     min-width: 0;
   }
   .loom-card-feed-item__tag {
+    /* General-purpose tag chip. Any site sets either a curated
+     * tone via data-tone="X" OR a custom color via inline
+     * style="--tag-color: <hsl|hex|hsl()>". Falls back to the
+     * site's primary brand color when nothing is set. SkillShots
+     * categorisation lives in the CMS data, NOT in this CSS. */
+    --tag-color: var(--loom-color-primary);
     align-self: flex-start;
     padding: var(--loom-space-1) var(--loom-space-3);
     border-radius: 999px;
-    background: color-mix(in oklab, var(--loom-color-primary) 14%, var(--loom-color-surface));
-    color: color-mix(in oklab, var(--loom-color-primary) 80%, var(--loom-color-ink));
+    background: color-mix(in oklab, var(--tag-color) 14%, var(--loom-color-surface));
+    color: color-mix(in oklab, var(--tag-color) 80%, var(--loom-color-ink));
     font-family: var(--loom-font-display);
     font-size: var(--loom-font-sm, 0.875rem);
     font-weight: 700;
     letter-spacing: .02em;
     text-transform: uppercase;
     line-height: 1.4;
-    border: 1px solid color-mix(in oklab, var(--loom-color-primary) 25%, transparent);
+    border: 1px solid color-mix(in oklab, var(--tag-color) 25%, transparent);
   }
-  /* Per-category color hint via data-category attribute (CMS may
-   * emit this on the tag span). Falls back to primary when absent. */
-  .loom-card-feed-item__tag[data-category="parkour"]   { background: color-mix(in oklab, hsl(280 75% 50%) 14%, var(--loom-color-surface)); color: hsl(280 75% 38%); border-color: color-mix(in oklab, hsl(280 75% 50%) 25%, transparent); }
-  .loom-card-feed-item__tag[data-category="billiards"] { background: color-mix(in oklab, hsl(155 65% 40%) 14%, var(--loom-color-surface)); color: hsl(155 65% 28%); border-color: color-mix(in oklab, hsl(155 65% 40%) 25%, transparent); }
-  .loom-card-feed-item__tag[data-category="mind"]      { background: color-mix(in oklab, hsl(210 80% 45%) 14%, var(--loom-color-surface)); color: hsl(210 80% 32%); border-color: color-mix(in oklab, hsl(210 80% 45%) 25%, transparent); }
-  .loom-card-feed-item__tag[data-category="skate"]     { background: color-mix(in oklab, hsl(340 80% 50%) 14%, var(--loom-color-surface)); color: hsl(340 80% 36%); border-color: color-mix(in oklab, hsl(340 80% 50%) 25%, transparent); }
-  .loom-card-feed-item__tag[data-category="darts"]     { background: color-mix(in oklab, hsl(20 85% 50%) 14%, var(--loom-color-surface)); color: hsl(20 85% 36%); border-color: color-mix(in oklab, hsl(20 85% 50%) 25%, transparent); }
-  .loom-card-feed-item__tag[data-category="cafe"]      { background: color-mix(in oklab, hsl(35 70% 40%) 14%, var(--loom-color-surface)); color: hsl(35 70% 28%); border-color: color-mix(in oklab, hsl(35 70% 40%) 25%, transparent); }
-  .loom-card-feed-item__tag[data-category="basketball"]{ background: color-mix(in oklab, hsl(15 90% 50%) 14%, var(--loom-color-surface)); color: hsl(15 90% 35%); border-color: color-mix(in oklab, hsl(15 90% 50%) 25%, transparent); }
+  /* Curated tone palette — any site can opt in via data-tone="X".
+   * Custom colours via inline style="--tag-color: …" still work. */
+  .loom-card-feed-item__tag[data-tone="violet"] { --tag-color: hsl(280 75% 50%); }
+  .loom-card-feed-item__tag[data-tone="indigo"] { --tag-color: hsl(244 65% 50%); }
+  .loom-card-feed-item__tag[data-tone="ocean"]  { --tag-color: hsl(210 80% 45%); }
+  .loom-card-feed-item__tag[data-tone="forest"] { --tag-color: hsl(155 65% 40%); }
+  .loom-card-feed-item__tag[data-tone="amber"]  { --tag-color: hsl(38 90% 45%); }
+  .loom-card-feed-item__tag[data-tone="rose"]   { --tag-color: hsl(340 80% 50%); }
+  .loom-card-feed-item__tag[data-tone="ruby"]   { --tag-color: hsl(0 75% 48%); }
+  .loom-card-feed-item__tag[data-tone="walnut"] { --tag-color: hsl(28 60% 35%); }
+  .loom-card-feed-item__tag[data-tone="slate"]  { --tag-color: hsl(225 15% 38%); }
+  .loom-card-feed-item__tag[data-tone="teal"]   { --tag-color: hsl(180 70% 35%); }
   .loom-card-feed-item__title {
     font-family: var(--loom-font-display);
     font-size: var(--loom-font-xl, 1.25rem);
