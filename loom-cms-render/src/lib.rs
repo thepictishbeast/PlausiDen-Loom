@@ -2902,6 +2902,24 @@ header.loom-page-header{position:static;backdrop-filter:none;-webkit-backdrop-fi
 /// in CSP `script-src 'unsafe-hashes' 'sha256-…'`.
 pub const DEFER_ONLOAD_JS: &str = "this.media='all';this.removeAttribute('onload')";
 
+/// T72 cycle 96 iter 9: in-page theme switcher.
+///
+/// Cycles light → dark → auto on each click. Persists choice to
+/// localStorage('loom-theme'). On load, applies the stored
+/// preference (or 'light' default per cycle 95f owner directive).
+/// ARIA-correct: button announces current theme + intent.
+///
+/// Hash-pinned in CSP `script-src` per Loom doctrine. No external
+/// deps. ~30 lines minified for a small inline script tag.
+///
+/// SECURITY: only writes to data-theme on html element + localStorage
+/// with a fixed key. No DOM injection, no eval, no fetch.
+pub const THEME_TOGGLE_JS: &str = "(function(){var K='loom-theme';var B=document.querySelector('[data-loom-theme-toggle]');if(!B)return;var T=['light','dark','auto'];function r(){var v=null;try{v=localStorage.getItem(K);}catch(_){}return T.indexOf(v)>=0?v:'light';}function a(t){document.documentElement.setAttribute('data-theme',t);B.setAttribute('aria-label','Theme: '+t+' (click to cycle)');B.setAttribute('aria-pressed',t==='dark'?'true':'false');B.textContent=t==='light'?'☀':(t==='dark'?'☾':'◐');}a(r());B.addEventListener('click',function(){var c=r();var n=T[(T.indexOf(c)+1)%T.length];try{localStorage.setItem(K,n);}catch(_){}a(n);});})();";
+
+/// CSS for the theme-toggle button. Inlined into BASE_THEME_CSS
+/// so first paint paints the button correctly without FOUC.
+pub const THEME_TOGGLE_CSS: &str = ".loom-theme-toggle{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:9999px;border:1px solid var(--loom-color-border,var(--loom-border));background:var(--loom-color-surface,var(--loom-bg));color:var(--loom-color-ink,var(--loom-fg));font-size:1.15rem;cursor:pointer;line-height:1;padding:0;transition:background var(--loom-motion-fast,120ms) var(--loom-ease-out,ease),border-color var(--loom-motion-fast,120ms) var(--loom-ease-out,ease)}.loom-theme-toggle:hover{background:var(--loom-color-surface-muted,var(--loom-grad-soft));border-color:var(--loom-color-primary,var(--loom-accent))}.loom-theme-toggle:focus-visible{outline:2px solid var(--loom-color-primary,var(--loom-accent));outline-offset:3px}";
+
 /// T76 (Crawler dogfood 2026-05-14): every page emits a default
 /// inline-SVG favicon so browser tabs / bookmarks / history don't
 /// render the generic globe glyph. Inline data URL means there's
@@ -3033,8 +3051,12 @@ pub fn page_shell_themed(
     let path = escape_html_attr(&page.path);
     let css = escape_html_attr(css_href);
     let nav_links = render_nav_links(&page.nav_links);
-    let base_theme_hash = csp_sha256(BASE_THEME_CSS.as_bytes());
-    let base_theme_block = format!("<style>{BASE_THEME_CSS}</style>\n  ");
+    // T72: bundle the theme-toggle button CSS into the inline
+    // critical-CSS block. Recomputes the hash naturally.
+    let base_with_toggle = format!("{BASE_THEME_CSS}{THEME_TOGGLE_CSS}");
+    let base_theme_hash = csp_sha256(base_with_toggle.as_bytes());
+    let base_theme_block = format!("<style>{base_with_toggle}</style>\n  ");
+    let toggle_script_hash = csp_sha256(THEME_TOGGLE_JS.as_bytes());
     #[allow(clippy::option_if_let_else)]
     let (extra_style_block, css_link, csp) = if let Some(crit) = critical_css {
         let style_hash = csp_sha256(crit.as_bytes());
@@ -3044,13 +3066,13 @@ pub fn page_shell_themed(
             "<link rel=\"stylesheet\" href=\"{css}\" media=\"print\" onload=\"{DEFER_ONLOAD_JS}\">\n  <noscript><link rel=\"stylesheet\" href=\"{css}\"></noscript>"
         );
         let csp = format!(
-            "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}' '{style_hash}'; script-src 'self' 'unsafe-hashes' '{onload_hash}'; frame-ancestors 'none'"
+            "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}' '{style_hash}'; script-src 'self' 'unsafe-hashes' '{onload_hash}' '{toggle_script_hash}'; frame-ancestors 'none'"
         );
         (extra_block, css_link, csp)
     } else {
         let css_link = format!("<link rel=\"stylesheet\" href=\"{css}\">");
         let csp = format!(
-            "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}'; script-src 'self'; frame-ancestors 'none'"
+            "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}'; script-src 'self' '{toggle_script_hash}'; frame-ancestors 'none'"
         );
         (String::new(), css_link, csp)
     };
@@ -3085,6 +3107,7 @@ pub fn page_shell_themed(
   <header class=\"loom-page-header\">\n\
     <nav class=\"loom-page-nav\" aria-label=\"Primary\">\n\
       <a class=\"loom-page-brand\" href=\"/\" data-loom-rich-link=\"true\">SkillShots</a>{nav_links}\n\
+      <button type=\"button\" class=\"loom-theme-toggle\" data-loom-theme-toggle aria-label=\"Theme: light (click to cycle)\" aria-pressed=\"false\">☀</button>\n\
     </nav>\n\
     <h1 class=\"loom-page-title\">{title}</h1>\n\
   </header>\n\
@@ -3093,6 +3116,7 @@ pub fn page_shell_themed(
   </main>\n\
   <footer class=\"loom-page-footer\">\n\
   </footer>\n\
+  <script>{THEME_TOGGLE_JS}</script>\n\
 </body>\n\
 </html>\n"
     )
