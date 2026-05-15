@@ -1590,23 +1590,27 @@
     isolation: isolate;
   }
   /* Decorative blob behind the hero — adds depth/dimension.
-   * Stays INSIDE the hero's box (no negative inset) so the
-   * uiOverflow detector doesn't flag it. Visual continuity
-   * still preserved by overflow:hidden + isolation:isolate. */
+   * REGRESSION-GUARD (cycle 96 iter 2): tablet uiOverflow +7
+   * was caused by the previous transform:translate(15%,25%)
+   * pushing the ::after box past the hero edge. Even with
+   * overflow:hidden, scrollWidth includes transformed children.
+   * Fix: stay strictly inside the box (no transform), AND add
+   * contain:paint as belt-and-braces so any future ::after
+   * won't accidentally bleed out. */
   .loom-section-hero::after {
     content: "";
     position: absolute;
-    inset: auto 0 0 auto;
-    width: 45%;
-    height: 90%;
-    transform: translate(15%, 25%);
+    inset: 30% -2% 0 auto;
+    width: 40%;
+    height: 100%;
     background: radial-gradient(closest-side,
-      color-mix(in oklab, var(--loom-color-gradient-b) 32%, transparent) 0%,
+      color-mix(in oklab, var(--loom-color-gradient-b) 36%, transparent) 0%,
       transparent 70%);
     pointer-events: none;
     z-index: -1;
-    filter: blur(24px);
+    filter: blur(28px);
   }
+  .loom-section-hero { contain: paint; }
   .loom-section-hero::before {
     content: "";
     position: absolute;
