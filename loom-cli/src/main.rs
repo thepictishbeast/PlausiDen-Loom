@@ -701,11 +701,19 @@ enum Cmd {
     /// MVP scope: single HTML file, local path only. Future:
     /// directory walk, URL fetch, automatic asset extraction.
     Import {
-        /// Path to the source HTML file.
-        #[arg(long)]
-        from: PathBuf,
+        /// Path to the source HTML file. Mutually exclusive with --url.
+        #[arg(long, conflicts_with = "url")]
+        from: Option<PathBuf>,
+        /// T64 cycle 96 closes #646: URL to fetch and import.
+        /// Fetches the HTML via system curl (no new Rust dep),
+        /// stages it to a temp file, then runs the same parse
+        /// path as --from. Mutually exclusive with --from.
+        /// Does NOT render JS — for SPA sites, future cycle adds
+        /// --render that uses the Crawler's Playwright stack.
+        #[arg(long, conflicts_with = "from")]
+        url: Option<String>,
         /// Target CMS directory. The slug is derived from the
-        /// file's basename (without extension).
+        /// file's basename (without extension) or the URL path.
         #[arg(long, default_value = "cms")]
         into: PathBuf,
         /// Override the derived slug.
@@ -1226,10 +1234,11 @@ fn main() -> ExitCode {
         },
         Cmd::Import {
             from,
+            url,
             into,
             slug,
             force,
-        } => match cmd_import(&from, &into, slug.as_deref(), force) {
+        } => match cmd_import_dispatch(from, url, &into, slug.as_deref(), force) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("loom import: {e}");
@@ -15519,6 +15528,103 @@ pub(crate) fn import_body(body_html: &str) -> Vec<ImportedSection> {
     }
 
     out
+}
+
+/// T64 (cycle 96 closes #646): dispatcher for `loom import`.
+/// Either --from <path> OR --url <URL>. URL path fetches via
+/// system curl (no new Rust dep) into a temp file, then runs
+/// the same parse pipeline. Slug defaults from URL host+path
+/// when --url is used.
+fn cmd_import_dispatch(
+    from: Option<std::path::PathBuf>,
+    url: Option<String>,
+    into: &std::path::Path,
+    explicit_slug: Option<&str>,
+    force: bool,
+) -> std::io::Result<()> {
+    match (from, url) {
+        (Some(p), None) => cmd_import(&p, into, explicit_slug, force),
+        (None, Some(u)) => {
+            // Fetch via curl. -L follows redirects, -s silent,
+            // --max-filesize caps response at 16 MiB (DoS gate),
+            // --max-time 30s, -A realistic UA so sites don't 403.
+            const MAX_BYTES: usize = 16 * 1024 * 1024;
+            if !u.starts_with("http://") && !u.starts_with("https://") {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("--url must be http(s)://; got {u:?}"),
+                ));
+            }
+            let tmp = std::env::temp_dir().join(format!(
+                "loom-import-{}-{}.html",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0)
+            ));
+            let status = std::process::Command::new("curl")
+                .arg("-sL")
+                .arg("--max-filesize")
+                .arg(MAX_BYTES.to_string())
+                .arg("--max-time")
+                .arg("30")
+                .arg("-A")
+                .arg("Mozilla/5.0 loom-import/1.0")
+                .arg("-o")
+                .arg(&tmp)
+                .arg(&u)
+                .status()?;
+            if !status.success() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("curl failed (exit {:?}) on {u:?}", status.code()),
+                ));
+            }
+            // Derive a slug from URL if not explicit. Must start
+            // with lowercase a-z (CMS schema rule).
+            let derived_slug = explicit_slug.map(str::to_owned).unwrap_or_else(|| {
+                // Strip scheme + query/fragment, take last path segment.
+                let no_scheme = u.split("://").nth(1).unwrap_or(&u);
+                let no_query = no_scheme.split('?').next().unwrap_or(no_scheme);
+                let no_frag = no_query.split('#').next().unwrap_or(no_query);
+                let path = no_frag.splitn(2, '/').nth(1).unwrap_or("");
+                let cleaned = path
+                    .trim_end_matches('/')
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or("");
+                // Strip common HTML extensions BEFORE char-filtering
+                // so the trim sees the literal "." separator.
+                let trimmed = cleaned
+                    .trim_end_matches(".html")
+                    .trim_end_matches(".htm")
+                    .trim_end_matches(".xhtml");
+                let safe: String = trimmed
+                    .chars()
+                    .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+                    .collect();
+                // Slug must start with a-z. If the URL doesn't
+                // give us that, fall back to "index".
+                if safe.chars().next().map_or(false, |c| c.is_ascii_lowercase()) {
+                    safe
+                } else {
+                    "index".to_owned()
+                }
+            });
+            let result = cmd_import(&tmp, into, Some(&derived_slug), force);
+            let _ = std::fs::remove_file(&tmp);
+            result
+        }
+        (Some(_), Some(_)) => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "use exactly one of --from or --url",
+        )),
+        (None, None) => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "loom import: --from <path> OR --url <URL> required",
+        )),
+    }
 }
 
 fn cmd_import(
