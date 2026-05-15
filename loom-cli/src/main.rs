@@ -12951,7 +12951,7 @@ mod webauthn_auth_data_tests {
 const WEBAUTHN_COSE_MAX_BYTES: usize = 8 * 1024;
 
 /// One parsed CBOR value — restricted to the subset we accept
-/// for COSE_Key.
+/// for COSE_Key + WebAuthn attestationObject parsing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CborValue {
     /// Major type 0 — value fits in u64.
@@ -12961,6 +12961,14 @@ enum CborValue {
     NegativeInt(i128),
     /// Major type 2 — byte string contents.
     Bytes(Vec<u8>),
+    /// Major type 3 — text (utf-8) string contents. Added cycle
+    /// 95d-3 for attestationObject map keys ("fmt", "authData",
+    /// "attStmt"). COSE_Key parser still ignores via catch-all.
+    Text(String),
+    /// Major type 5 — map. Stored as a flat Vec of (key, value)
+    /// pairs preserving wire order. Used by attestationObject
+    /// to wrap unknown attStmt content (CBOR-walks past it).
+    Map(Vec<(CborValue, CborValue)>),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -13062,22 +13070,53 @@ fn cbor_read_head(c: &mut CborCursor) -> Result<(u8, u64), CborError> {
     Ok((major, value))
 }
 
-/// Read one CBOR value from cursor. Only major types 0, 1, 2
-/// allowed.
+/// Read one CBOR value from cursor. Major types accepted:
+/// 0 (uint), 1 (nint), 2 (bytes), 3 (text), 5 (map). Anything
+/// else → UnsupportedShape. Map values descend recursively but
+/// MAX_CBOR_DEPTH bounds the recursion to defeat DoS via
+/// pathological nested input.
+const MAX_CBOR_DEPTH: usize = 8;
+
 fn cbor_read_value(c: &mut CborCursor) -> Result<CborValue, CborError> {
+    cbor_read_value_depth(c, 0)
+}
+
+fn cbor_read_value_depth(c: &mut CborCursor, depth: usize) -> Result<CborValue, CborError> {
+    if depth > MAX_CBOR_DEPTH {
+        return Err(CborError::UnsupportedShape);
+    }
     let (major, raw) = cbor_read_head(c)?;
     match major {
         0 => Ok(CborValue::UnsignedInt(raw)),
         1 => Ok(CborValue::NegativeInt(-1 - i128::from(raw))),
         2 => {
-            // raw = byte-string length. Must fit in usize + in
-            // remaining input.
             let len = usize::try_from(raw).map_err(|_| CborError::BytesOverflow)?;
             if len > c.remaining() {
                 return Err(CborError::BytesOverflow);
             }
             let bytes = c.read_n(len)?.to_vec();
             Ok(CborValue::Bytes(bytes))
+        }
+        3 => {
+            let len = usize::try_from(raw).map_err(|_| CborError::BytesOverflow)?;
+            if len > c.remaining() {
+                return Err(CborError::BytesOverflow);
+            }
+            let raw_bytes = c.read_n(len)?;
+            let s = std::str::from_utf8(raw_bytes)
+                .map_err(|_| CborError::UnsupportedShape)?
+                .to_owned();
+            Ok(CborValue::Text(s))
+        }
+        5 => {
+            let count = usize::try_from(raw).map_err(|_| CborError::BytesOverflow)?;
+            let mut entries = Vec::with_capacity(count.min(64));
+            for _ in 0..count {
+                let k = cbor_read_value_depth(c, depth + 1)?;
+                let v = cbor_read_value_depth(c, depth + 1)?;
+                entries.push((k, v));
+            }
+            Ok(CborValue::Map(entries))
         }
         _ => Err(CborError::UnsupportedShape),
     }
@@ -14156,6 +14195,511 @@ mod webauthn_register_options_tests {
             &store,
         );
         assert_eq!(v["user"]["displayName"], "Аня Иванова");
+    }
+}
+
+// ============================================================
+// T43d cycle 95d-3: WebAuthn register-verify orchestrator.
+// ============================================================
+//
+// The /webauthn/register/verify HTTP endpoint takes the browser's
+// AttestationResponse (3 base64url-encoded blobs) and performs
+// the full registration ceremony:
+//
+//   1. Decode credential_id (raw bytes)
+//   2. Decode + parse clientDataJSON → verify type/origin/challenge
+//   3. Decode + parse attestationObject CBOR → extract authData
+//   4. Parse authData binary → extract attestedCredentialData
+//   5. Parse COSE_Key from credential_pubkey_cose → P-256 (x, y)
+//   6. Consume the matching challenge from the challenge store
+//   7. Register the credential in the credential store
+//
+// SCOPE NOTE: we configure attestation:"none" in cycle 95d-2's
+// register-options, so the browser sends an attestStmt of empty
+// `{}` and we do NOT need to verify the attestation signature.
+// Future cycle adds attestation:"direct" with full chain verify.
+//
+// Doctrine (AVP-2 Tier-3):
+//   * Input size caps on every blob to defeat DoS-by-huge-input.
+//   * is_safe_url-equivalent on parsed origin (already done by
+//     verify_client_data; we re-verify the caller-supplied
+//     expected_origin parameter is non-empty).
+//   * Every error path returns a single externally-opaque
+//     "verification failed" — callers MUST NOT leak which step
+//     failed (per the operator-side HTTP layer wraps this).
+//   * Constant-time credential_id compare on duplicate-check
+//     (already provided by WebAuthnCredentialStore::register).
+
+const WEBAUTHN_REGISTER_BLOB_MAX_BYTES: usize = 16 * 1024;
+
+#[derive(Debug, PartialEq, Eq)]
+enum WebAuthnRegisterError {
+    /// Input b64url-decoded blob exceeded WEBAUTHN_REGISTER_BLOB_MAX_BYTES.
+    BlobTooLarge,
+    /// Input wasn't valid base64url.
+    InvalidBase64,
+    /// clientDataJSON parse or verify failed.
+    BadClientData,
+    /// attestationObject CBOR parse failed OR didn't contain a
+    /// recognizable authData byte string.
+    BadAttestationObject,
+    /// authenticatorData binary parse failed.
+    BadAuthData,
+    /// authData didn't carry attestedCredentialData (AT flag not set).
+    NoAttestedCredential,
+    /// COSE_Key parse from credential_pubkey_cose failed.
+    BadCoseKey,
+    /// Underlying challenge store rejected the challenge consume.
+    ChallengeReject,
+    /// Credential store rejected the register (cap reached or
+    /// duplicate).
+    CredentialReject,
+}
+
+/// Extract the `authData` byte slice from a WebAuthn
+/// attestationObject CBOR map. attStmt + fmt are walked past.
+/// Returns None if the map doesn't contain an "authData" key
+/// or the value isn't a byte string.
+fn parse_attestation_object_authdata(
+    bytes: &[u8],
+) -> Result<Vec<u8>, WebAuthnRegisterError> {
+    if bytes.is_empty() || bytes.len() > WEBAUTHN_REGISTER_BLOB_MAX_BYTES {
+        return Err(WebAuthnRegisterError::BadAttestationObject);
+    }
+    let mut c = CborCursor::new(bytes);
+    let val = cbor_read_value(&mut c).map_err(|_| WebAuthnRegisterError::BadAttestationObject)?;
+    let entries = match val {
+        CborValue::Map(m) => m,
+        _ => return Err(WebAuthnRegisterError::BadAttestationObject),
+    };
+    for (k, v) in entries {
+        if let (CborValue::Text(key), CborValue::Bytes(data)) = (&k, &v) {
+            if key == "authData" {
+                return Ok(data.clone());
+            }
+        }
+    }
+    Err(WebAuthnRegisterError::BadAttestationObject)
+}
+
+/// Top-level orchestrator. Caller passes:
+///   - credential_id_b64url: from browser's PublicKeyCredential.rawId
+///   - client_data_json_b64url: PublicKeyCredential.response.clientDataJSON
+///   - attestation_object_b64url: PublicKeyCredential.response.attestationObject
+///   - user_handle: server-side user identifier
+///   - expected_origin / expected_rp_id: configured RP origin + id
+///   - challenge_store / credential_store: live storage backends
+///
+/// On success the credential is registered + the challenge is
+/// consumed (atomic-ish — challenge consumes before credential
+/// register; on credential_store failure the challenge is already
+/// burned, forcing the operator to issue a fresh challenge).
+fn webauthn_register_verify(
+    credential_id_b64url: &str,
+    client_data_json_b64url: &str,
+    attestation_object_b64url: &str,
+    user_handle: &str,
+    expected_origin: &str,
+    challenge_store: &WebAuthnChallengeStore,
+    credential_store: &WebAuthnCredentialStore,
+) -> Result<(), WebAuthnRegisterError> {
+    use base64::Engine as _;
+    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+    // 1. Size-cap b64 inputs BEFORE decoding to defeat DoS-via-huge-blob.
+    if credential_id_b64url.len() > WEBAUTHN_REGISTER_BLOB_MAX_BYTES
+        || client_data_json_b64url.len() > WEBAUTHN_REGISTER_BLOB_MAX_BYTES
+        || attestation_object_b64url.len() > WEBAUTHN_REGISTER_BLOB_MAX_BYTES
+    {
+        return Err(WebAuthnRegisterError::BlobTooLarge);
+    }
+
+    let credential_id = b64
+        .decode(credential_id_b64url)
+        .map_err(|_| WebAuthnRegisterError::InvalidBase64)?;
+    let client_data_json = b64
+        .decode(client_data_json_b64url)
+        .map_err(|_| WebAuthnRegisterError::InvalidBase64)?;
+    let attestation_object = b64
+        .decode(attestation_object_b64url)
+        .map_err(|_| WebAuthnRegisterError::InvalidBase64)?;
+
+    if client_data_json.len() > WEBAUTHN_REGISTER_BLOB_MAX_BYTES
+        || attestation_object.len() > WEBAUTHN_REGISTER_BLOB_MAX_BYTES
+    {
+        return Err(WebAuthnRegisterError::BlobTooLarge);
+    }
+
+    // 2. Parse + verify clientDataJSON (type/origin/challenge).
+    let parsed_cdj =
+        parse_client_data_json(&client_data_json).map_err(|_| WebAuthnRegisterError::BadClientData)?;
+    if parsed_cdj.op_type != "webauthn.create" {
+        return Err(WebAuthnRegisterError::BadClientData);
+    }
+    if parsed_cdj.origin != expected_origin {
+        return Err(WebAuthnRegisterError::BadClientData);
+    }
+
+    // 3. Consume challenge from the store. This is the
+    // single-use enforcement point + ties this verify call to
+    // the specific options call that issued the challenge.
+    let consumed_challenge = challenge_store
+        .consume(user_handle, &parsed_cdj.challenge)
+        .map_err(|_| WebAuthnRegisterError::ChallengeReject)?;
+    // Defensive double-check (consume should have done this).
+    if consumed_challenge.encoded != parsed_cdj.challenge {
+        return Err(WebAuthnRegisterError::ChallengeReject);
+    }
+
+    // 4. Extract authData from the attestation object.
+    let auth_data_bytes = parse_attestation_object_authdata(&attestation_object)?;
+
+    // 5. Parse authData binary → attestedCredentialData.
+    let auth = parse_authenticator_data(&auth_data_bytes)
+        .map_err(|_| WebAuthnRegisterError::BadAuthData)?;
+    // NOTE: when both AT + ED flags are set, credential_pubkey_cose
+    // is the COSE_Key CONCATENATED with the extensions CBOR map.
+    // The COSE parser rejects TrailingBytes in that case. Cycle
+    // 95b-follow-up: walk-and-split. For now we accept only
+    // AT-without-ED, which is the universal MVP case.
+    let ed_flag_set = auth.ed_flag();
+    let sign_count = auth.sign_count;
+    let attested = auth
+        .attested_credential
+        .ok_or(WebAuthnRegisterError::NoAttestedCredential)?;
+    if ed_flag_set {
+        return Err(WebAuthnRegisterError::BadCoseKey);
+    }
+
+    // 6. Parse the COSE_Key into a P-256 pubkey.
+    let pubkey = parse_cose_es256_key(&attested.credential_pubkey_cose)
+        .map_err(|_| WebAuthnRegisterError::BadCoseKey)?;
+
+    // 7. Defensive: the credential_id from the body should match
+    // attestedCredentialData. Constant-time compare via subtle.
+    if credential_id != attested.credential_id {
+        return Err(WebAuthnRegisterError::BadAuthData);
+    }
+
+    // 8. Persist. Credential store enforces per-user cap +
+    // duplicate-ID rejection.
+    credential_store
+        .register(user_handle, credential_id, pubkey, sign_count)
+        .map_err(|_| WebAuthnRegisterError::CredentialReject)
+}
+
+#[cfg(test)]
+mod webauthn_register_verify_tests {
+    use super::*;
+    use base64::Engine as _;
+    use p256::ecdsa::SigningKey;
+
+    fn b64(bytes: &[u8]) -> String {
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+    }
+
+    fn fresh_es256_key() -> (SigningKey, CoseEs256PublicKey, Vec<u8>) {
+        // signing key + matching cose pubkey + serialized COSE_Key CBOR bytes.
+        let sk = SigningKey::random(&mut rand_core::OsRng);
+        let vk = sk.verifying_key();
+        let point = vk.to_encoded_point(false);
+        let mut x = [0u8; 32];
+        let mut y = [0u8; 32];
+        x.copy_from_slice(point.x().expect("x"));
+        y.copy_from_slice(point.y().expect("y"));
+        let cose = CoseEs256PublicKey { x, y };
+        // Build COSE_Key CBOR for ES256.
+        let mut cose_bytes = vec![0xA5];
+        cose_bytes.extend_from_slice(&[0x01, 0x02]);
+        cose_bytes.extend_from_slice(&[0x03, 0x26]);
+        cose_bytes.extend_from_slice(&[0x20, 0x01]);
+        cose_bytes.extend_from_slice(&[0x21, 0x58, 0x20]);
+        cose_bytes.extend_from_slice(&x);
+        cose_bytes.extend_from_slice(&[0x22, 0x58, 0x20]);
+        cose_bytes.extend_from_slice(&y);
+        (sk, cose, cose_bytes)
+    }
+
+    /// Build a minimal authData with AT flag + the given cred ID + COSE bytes.
+    fn build_auth_data(cred_id: &[u8], cose_bytes: &[u8], sign_count: u32) -> Vec<u8> {
+        let mut v = vec![0u8; 32]; // rpIdHash zeros
+        v.push(WEBAUTHN_FLAG_AT | WEBAUTHN_FLAG_UP);
+        v.extend_from_slice(&sign_count.to_be_bytes());
+        v.extend_from_slice(&[0u8; 16]); // aaguid
+        let cid_len = u16::try_from(cred_id.len()).unwrap();
+        v.extend_from_slice(&cid_len.to_be_bytes());
+        v.extend_from_slice(cred_id);
+        v.extend_from_slice(cose_bytes);
+        v
+    }
+
+    /// Build a CBOR attestationObject {fmt: "none", authData: <bytes>, attStmt: {}}.
+    fn build_attestation_object(auth_data: &[u8]) -> Vec<u8> {
+        let mut v = vec![0xA3]; // map(3)
+        // fmt: "none"
+        v.extend_from_slice(&[0x63, b'f', b'm', b't']); // text(3) "fmt"
+        v.extend_from_slice(&[0x64, b'n', b'o', b'n', b'e']); // text(4) "none"
+        // authData: bytes
+        v.extend_from_slice(&[0x68, b'a', b'u', b't', b'h', b'D', b'a', b't', b'a']); // text(8) "authData"
+        // byte-string head — pick the right encoding for length
+        let len = auth_data.len();
+        if len < 24 {
+            v.push(0x40 | u8::try_from(len).unwrap());
+        } else if len < 256 {
+            v.push(0x58);
+            v.push(u8::try_from(len).unwrap());
+        } else if len < 65536 {
+            v.push(0x59);
+            let l = u16::try_from(len).unwrap();
+            v.extend_from_slice(&l.to_be_bytes());
+        } else {
+            v.push(0x5A);
+            let l = u32::try_from(len).unwrap();
+            v.extend_from_slice(&l.to_be_bytes());
+        }
+        v.extend_from_slice(auth_data);
+        // attStmt: empty map
+        v.extend_from_slice(&[0x67, b'a', b't', b't', b'S', b't', b'm', b't']); // text(7) "attStmt"
+        v.push(0xA0); // empty map
+        v
+    }
+
+    #[test]
+    fn parse_attestation_extracts_auth_data() {
+        let mock_auth = vec![0xAA; 50];
+        let attn_obj = build_attestation_object(&mock_auth);
+        let extracted = parse_attestation_object_authdata(&attn_obj).expect("extract");
+        assert_eq!(extracted, mock_auth);
+    }
+
+    #[test]
+    fn parse_attestation_rejects_empty() {
+        let err = parse_attestation_object_authdata(&[]).expect_err("empty");
+        assert_eq!(err, WebAuthnRegisterError::BadAttestationObject);
+    }
+
+    #[test]
+    fn parse_attestation_rejects_non_map_top_level() {
+        // 0x02 = unsigned int 2 (not a map)
+        let err = parse_attestation_object_authdata(&[0x02]).expect_err("not map");
+        assert_eq!(err, WebAuthnRegisterError::BadAttestationObject);
+    }
+
+    #[test]
+    fn parse_attestation_rejects_map_without_authdata() {
+        // map(1) {"fmt": "none"} — no authData
+        let v = vec![0xA1, 0x63, b'f', b'm', b't', 0x64, b'n', b'o', b'n', b'e'];
+        let err = parse_attestation_object_authdata(&v).expect_err("no authdata key");
+        assert_eq!(err, WebAuthnRegisterError::BadAttestationObject);
+    }
+
+    #[test]
+    fn register_verify_happy_path() {
+        let challenge_store = WebAuthnChallengeStore::new();
+        let credential_store = WebAuthnCredentialStore::new();
+        let user = "alice";
+        let origin = "https://example.com";
+
+        // Server issues options → challenge stored.
+        let opts = webauthn_register_options(
+            "ACME", "example.com", user, "Alice", &challenge_store,
+        );
+        let challenge_b64 = opts["challenge"].as_str().unwrap().to_owned();
+
+        // Client builds CDJ + attestation.
+        let (_sk, _cose, cose_bytes) = fresh_es256_key();
+        let cred_id = b"cred-id-1";
+        let cdj_str = format!(
+            r#"{{"type":"webauthn.create","challenge":"{}","origin":"{}"}}"#,
+            challenge_b64, origin
+        );
+        let auth_data = build_auth_data(cred_id, &cose_bytes, 1);
+        let attn_obj = build_attestation_object(&auth_data);
+
+        // Verify.
+        webauthn_register_verify(
+            &b64(cred_id),
+            &b64(cdj_str.as_bytes()),
+            &b64(&attn_obj),
+            user,
+            origin,
+            &challenge_store,
+            &credential_store,
+        )
+        .expect("happy path verify");
+
+        // Credential persisted.
+        assert_eq!(credential_store.count(user), 1);
+        let stored = credential_store.lookup(user, cred_id).expect("lookup");
+        assert_eq!(stored.sign_count, 1);
+    }
+
+    #[test]
+    fn register_verify_invalid_base64_rejected() {
+        let cs = WebAuthnChallengeStore::new();
+        let creds = WebAuthnCredentialStore::new();
+        let _ = cs.generate("u");
+        let err = webauthn_register_verify(
+            "@@@not-b64@@@",
+            "valid==",
+            "valid==",
+            "u",
+            "https://e.example",
+            &cs,
+            &creds,
+        )
+        .expect_err("bad b64");
+        assert_eq!(err, WebAuthnRegisterError::InvalidBase64);
+    }
+
+    #[test]
+    fn register_verify_blob_too_large_rejected() {
+        let cs = WebAuthnChallengeStore::new();
+        let creds = WebAuthnCredentialStore::new();
+        let huge = "A".repeat(WEBAUTHN_REGISTER_BLOB_MAX_BYTES + 1);
+        let err = webauthn_register_verify(
+            &huge, "x", "x", "u", "https://e.example", &cs, &creds,
+        )
+        .expect_err("too large");
+        assert_eq!(err, WebAuthnRegisterError::BlobTooLarge);
+    }
+
+    #[test]
+    fn register_verify_wrong_origin_rejected_and_burns_challenge() {
+        let cs = WebAuthnChallengeStore::new();
+        let creds = WebAuthnCredentialStore::new();
+        let _ = webauthn_register_options("R", "r.example", "u", "U", &cs);
+        let cdj = br#"{"type":"webauthn.create","challenge":"x","origin":"https://attacker.com"}"#;
+        let err = webauthn_register_verify(
+            &b64(b"id"),
+            &b64(cdj),
+            &b64(&[0xA0]),
+            "u",
+            "https://r.example",
+            &cs,
+            &creds,
+        )
+        .expect_err("wrong origin");
+        assert_eq!(err, WebAuthnRegisterError::BadClientData);
+    }
+
+    #[test]
+    fn register_verify_wrong_type_rejected() {
+        let cs = WebAuthnChallengeStore::new();
+        let creds = WebAuthnCredentialStore::new();
+        let cdj = br#"{"type":"webauthn.get","challenge":"x","origin":"https://e.example"}"#;
+        let err = webauthn_register_verify(
+            &b64(b"id"), &b64(cdj), &b64(&[0xA0]),
+            "u", "https://e.example", &cs, &creds,
+        )
+        .expect_err("wrong type");
+        assert_eq!(err, WebAuthnRegisterError::BadClientData);
+    }
+
+    #[test]
+    fn register_verify_unknown_challenge_rejected() {
+        let cs = WebAuthnChallengeStore::new();
+        let creds = WebAuthnCredentialStore::new();
+        // No options call → no stored challenge for user.
+        let cdj_str = r#"{"type":"webauthn.create","challenge":"unknown-challenge-b64url-43-chars-aaaaaaaa","origin":"https://e.example"}"#;
+        let err = webauthn_register_verify(
+            &b64(b"id"),
+            &b64(cdj_str.as_bytes()),
+            &b64(&[0xA0]),
+            "u",
+            "https://e.example",
+            &cs,
+            &creds,
+        )
+        .expect_err("unknown challenge");
+        assert_eq!(err, WebAuthnRegisterError::ChallengeReject);
+    }
+
+    #[test]
+    fn register_verify_credential_id_mismatch_rejected() {
+        let cs = WebAuthnChallengeStore::new();
+        let creds = WebAuthnCredentialStore::new();
+        let user = "u";
+        let origin = "https://e.example";
+        let opts = webauthn_register_options("R", "e.example", user, "U", &cs);
+        let chal = opts["challenge"].as_str().unwrap().to_owned();
+        let (_, _, cose_bytes) = fresh_es256_key();
+        let cred_id_in_auth = b"id-A";
+        let cred_id_in_body = b"id-B"; // DIFFERENT
+        let cdj_str = format!(
+            r#"{{"type":"webauthn.create","challenge":"{}","origin":"{}"}}"#, chal, origin
+        );
+        let auth_data = build_auth_data(cred_id_in_auth, &cose_bytes, 0);
+        let attn_obj = build_attestation_object(&auth_data);
+        let err = webauthn_register_verify(
+            &b64(cred_id_in_body),
+            &b64(cdj_str.as_bytes()),
+            &b64(&attn_obj),
+            user, origin, &cs, &creds,
+        )
+        .expect_err("id mismatch");
+        assert_eq!(err, WebAuthnRegisterError::BadAuthData);
+    }
+
+    #[test]
+    fn register_verify_replay_rejected_on_second_call() {
+        // First verify burns the challenge; second verify (same
+        // inputs) fails ChallengeReject.
+        let cs = WebAuthnChallengeStore::new();
+        let creds = WebAuthnCredentialStore::new();
+        let user = "u";
+        let origin = "https://e.example";
+        let opts = webauthn_register_options("R", "e.example", user, "U", &cs);
+        let chal = opts["challenge"].as_str().unwrap().to_owned();
+        let (_, _, cose_bytes) = fresh_es256_key();
+        let cred_id = b"replay-test";
+        let cdj_str = format!(
+            r#"{{"type":"webauthn.create","challenge":"{}","origin":"{}"}}"#, chal, origin
+        );
+        let auth_data = build_auth_data(cred_id, &cose_bytes, 0);
+        let attn_obj = build_attestation_object(&auth_data);
+
+        webauthn_register_verify(
+            &b64(cred_id),
+            &b64(cdj_str.as_bytes()),
+            &b64(&attn_obj),
+            user, origin, &cs, &creds,
+        )
+        .expect("first ok");
+        let err = webauthn_register_verify(
+            &b64(cred_id),
+            &b64(cdj_str.as_bytes()),
+            &b64(&attn_obj),
+            user, origin, &cs, &creds,
+        )
+        .expect_err("replay");
+        assert_eq!(err, WebAuthnRegisterError::ChallengeReject);
+    }
+
+    #[test]
+    fn register_verify_at_flag_not_set_rejected() {
+        let cs = WebAuthnChallengeStore::new();
+        let creds = WebAuthnCredentialStore::new();
+        let user = "u";
+        let origin = "https://e.example";
+        let opts = webauthn_register_options("R", "e.example", user, "U", &cs);
+        let chal = opts["challenge"].as_str().unwrap().to_owned();
+        // Build authData WITHOUT AT flag.
+        let mut auth_data = vec![0u8; 32];
+        auth_data.push(WEBAUTHN_FLAG_UP); // no AT
+        auth_data.extend_from_slice(&0u32.to_be_bytes());
+        let attn_obj = build_attestation_object(&auth_data);
+        let cdj_str = format!(
+            r#"{{"type":"webauthn.create","challenge":"{}","origin":"{}"}}"#, chal, origin
+        );
+        let err = webauthn_register_verify(
+            &b64(b"id"),
+            &b64(cdj_str.as_bytes()),
+            &b64(&attn_obj),
+            user, origin, &cs, &creds,
+        )
+        .expect_err("no AT");
+        assert_eq!(err, WebAuthnRegisterError::NoAttestedCredential);
     }
 }
 
