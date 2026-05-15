@@ -5654,6 +5654,19 @@ fn handle_edit_request(
         return handle_security_report(request, cms_root, path);
     }
 
+    // T43d cycle 95e (closes #664): wire webauthn_handle_http
+    // into edit-serve's route table. The four ceremony endpoints
+    // bypass auth (they ARE auth). Handler reads the JSON body,
+    // builds rp_id/origin from request headers, dispatches to
+    // the pure-function HTTP handler, writes the response.
+    if path.starts_with("webauthn/") {
+        let route = format!("/{path}");
+        return handle_webauthn_request(request, &route, method, url);
+    }
+    if is_get && path == "webauthn-test" {
+        return serve_webauthn_test_page(request);
+    }
+
     // T43: auth middleware. If auth.toml exists, every endpoint
     // except /login + the static preview is gated. Without
     // auth.toml the editor stays open (back-compat).
@@ -9210,6 +9223,215 @@ fn respond_text(
     body: &str,
 ) -> std::io::Result<()> {
     let resp = tiny_http::Response::from_string(body.to_owned()).with_status_code(code);
+    request.respond(resp)?;
+    Ok(())
+}
+
+// ============================================================
+// T43d cycle 95e: WebAuthn HTTP handler — wires the pure
+// dispatcher (webauthn_handle_http) into edit-serve's tiny_http
+// route table. Singleton challenge + credential stores live in
+// process memory for the server lifetime.
+// ============================================================
+
+/// Singleton stores for the edit-serve process. Initialized on
+/// first WebAuthn request. Cleared on process restart by design
+/// (challenges are short-lived; credentials would re-register).
+fn webauthn_stores() -> &'static (WebAuthnChallengeStore, WebAuthnCredentialStore) {
+    static STORES: std::sync::OnceLock<(WebAuthnChallengeStore, WebAuthnCredentialStore)> =
+        std::sync::OnceLock::new();
+    STORES.get_or_init(|| (WebAuthnChallengeStore::new(), WebAuthnCredentialStore::new()))
+}
+
+const WEBAUTHN_BODY_CAP: usize = 16 * 1024;
+
+fn extract_query_param(url: &str, name: &str) -> Option<String> {
+    let qs = url.split_once('?').map(|(_, q)| q)?;
+    for pair in qs.split('&') {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        if k == name {
+            return Some(urlencoding::decode(v).ok()?.into_owned());
+        }
+    }
+    None
+}
+
+fn extract_header<'a>(req: &'a tiny_http::Request, name_lower: &str) -> Option<&'a str> {
+    for h in req.headers() {
+        if h.field.as_str().as_str().eq_ignore_ascii_case(name_lower) {
+            return Some(h.value.as_str());
+        }
+    }
+    None
+}
+
+fn handle_webauthn_request(
+    mut request: tiny_http::Request,
+    route: &str,
+    method: &tiny_http::Method,
+    url: &str,
+) -> std::io::Result<()> {
+    let method_str = match method {
+        tiny_http::Method::Get => "GET",
+        tiny_http::Method::Post => "POST",
+        _ => "OTHER",
+    };
+
+    // user_handle: required on every endpoint. Pull from
+    // ?user=<slug> (works with the browser-side JS that POSTs
+    // JSON without re-encoding the user into the body).
+    let user_handle = match extract_query_param(url, "user") {
+        Some(s) if !s.is_empty() => s,
+        _ => {
+            return respond_json(
+                request,
+                400,
+                r#"{"error":"missing user query param: ?user=<handle>"}"#,
+            );
+        }
+    };
+
+    // Determine rp_id + origin from the Host header (loopback by
+    // default). rp_id is the bare host (no port); origin is
+    // scheme + authority. tiny_http listens plain HTTP, but for
+    // localhost the WebAuthn spec permits secure-context
+    // exemption.
+    let host_full = extract_header(&request, "host").unwrap_or("127.0.0.1").to_owned();
+    let rp_id = host_full.split(':').next().unwrap_or("127.0.0.1").to_owned();
+    let scheme = if rp_id == "localhost" || rp_id == "127.0.0.1" || rp_id == "::1" {
+        "http"
+    } else {
+        "https"
+    };
+    let expected_origin = format!("{scheme}://{host_full}");
+    let rp_name = "Loom edit-serve";
+
+    // Read the request body up to a hard cap.
+    let mut body = String::new();
+    if matches!(method, tiny_http::Method::Post) {
+        let mut buf = vec![0u8; WEBAUTHN_BODY_CAP + 1];
+        let reader = request.as_reader();
+        let mut total = 0usize;
+        loop {
+            match std::io::Read::read(reader, &mut buf[total..]) {
+                Ok(0) => break,
+                Ok(n) => {
+                    total += n;
+                    if total > WEBAUTHN_BODY_CAP {
+                        return respond_json(request, 413, r#"{"error":"body too large"}"#);
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        body = String::from_utf8_lossy(&buf[..total]).into_owned();
+    }
+
+    let (challenge_store, credential_store) = webauthn_stores();
+    let resp = webauthn_handle_http(
+        route,
+        method_str,
+        &body,
+        &user_handle,
+        rp_name,
+        &rp_id,
+        &expected_origin,
+        challenge_store,
+        credential_store,
+    );
+    respond_json(request, resp.status, &resp.body)
+}
+
+fn respond_json(
+    request: tiny_http::Request,
+    code: u16,
+    body: &str,
+) -> std::io::Result<()> {
+    let header = tiny_http::Header::from_bytes(
+        &b"Content-Type"[..],
+        &b"application/json; charset=utf-8"[..],
+    )
+    .map_err(|_| std::io::Error::other("bad header"))?;
+    let resp = tiny_http::Response::from_string(body.to_owned())
+        .with_status_code(code)
+        .with_header(header);
+    request.respond(resp)?;
+    Ok(())
+}
+
+fn serve_webauthn_test_page(request: tiny_http::Request) -> std::io::Result<()> {
+    // Inline page for human dogfood: type a username + click
+    // register/authenticate. Loads the canonical WEBAUTHN_BROWSER_JS
+    // verbatim so the wire is end-to-end testable from a browser.
+    let html = format!(
+        r#"<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Loom WebAuthn — dogfood test</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{{font:14px/1.4 system-ui;max-width:560px;margin:2rem auto;padding:0 1rem;color:#0a0e16;background:#f7f8fa}}
+input{{font:inherit;padding:.5rem;width:100%;box-sizing:border-box;margin:.25rem 0}}
+button{{font:inherit;padding:.5rem 1rem;margin:.25rem .25rem .25rem 0;cursor:pointer}}
+pre{{background:#0a0e16;color:#cbd5e1;padding:1rem;border-radius:.5rem;overflow:auto;font:12px ui-monospace,monospace}}
+.ok{{color:#15803d}} .err{{color:#b91c1c}}
+</style>
+</head><body>
+<h1>Loom WebAuthn — dogfood</h1>
+<p>Per-user passkey registration + authentication via <code>navigator.credentials</code>. Server endpoints under <code>/webauthn/*</code>.</p>
+<label>User handle: <input id="u" value="alice" autocomplete="off" autocapitalize="off"></label>
+<button id="reg">Register</button>
+<button id="auth">Authenticate</button>
+<pre id="log">ready.</pre>
+<script>{webauthn_js}</script>
+<script>
+const log = (m, ok) => {{
+  const p = document.getElementById('log');
+  p.textContent = (ok===true?'OK · ':ok===false?'ERR · ':'... · ') + m;
+  p.className = ok===true?'ok':ok===false?'err':'';
+}};
+document.getElementById('reg').onclick = async () => {{
+  const u = document.getElementById('u').value.trim();
+  if (!u) return log('user handle required', false);
+  log('registering ' + u);
+  // Trampoline into the loomWebAuthnRegister global, but we need
+  // to override the URL builder so it appends ?user=<u>.
+  try {{
+    const orig_fetch = window.fetch;
+    window.fetch = (path, opts) => orig_fetch(path + (path.includes('?')?'&':'?') + 'user=' + encodeURIComponent(u), opts);
+    await window.loomWebAuthnRegister(u);
+    window.fetch = orig_fetch;
+    log('registered ' + u, true);
+  }} catch (e) {{
+    log(String(e.message||e), false);
+  }}
+}};
+document.getElementById('auth').onclick = async () => {{
+  const u = document.getElementById('u').value.trim();
+  if (!u) return log('user handle required', false);
+  log('authenticating ' + u);
+  try {{
+    const orig_fetch = window.fetch;
+    window.fetch = (path, opts) => orig_fetch(path + (path.includes('?')?'&':'?') + 'user=' + encodeURIComponent(u), opts);
+    await window.loomWebAuthnAuthenticate(u);
+    window.fetch = orig_fetch;
+    log('authenticated ' + u, true);
+  }} catch (e) {{
+    log(String(e.message||e), false);
+  }}
+}};
+</script>
+</body></html>"#,
+        webauthn_js = WEBAUTHN_BROWSER_JS,
+    );
+    let header = tiny_http::Header::from_bytes(
+        &b"Content-Type"[..],
+        &b"text/html; charset=utf-8"[..],
+    )
+    .map_err(|_| std::io::Error::other("bad header"))?;
+    let resp = tiny_http::Response::from_string(html)
+        .with_status_code(200)
+        .with_header(header);
     request.respond(resp)?;
     Ok(())
 }
