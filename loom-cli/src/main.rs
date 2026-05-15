@@ -14703,6 +14703,393 @@ mod webauthn_register_verify_tests {
     }
 }
 
+// ============================================================
+// T43d cycle 95d-4: WebAuthn authenticate options + verify.
+// ============================================================
+//
+// Mirror of the register flow but for AUTHENTICATION (login,
+// not registration). The browser calls
+// navigator.credentials.get({publicKey}) and returns an
+// AssertionResponse — server verifies and grants the session.
+//
+// /webauthn/authenticate/options response shape (W3C L3 §5.5):
+//   { "challenge": <b64url>,
+//     "timeout": <ms>,
+//     "rpId": <domain>,
+//     "allowCredentials": [{ "type": "public-key", "id": <b64url> }, ...],
+//     "userVerification": "preferred" }
+//
+// /webauthn/authenticate/verify body shape:
+//   { credential_id_b64, client_data_json_b64,
+//     authenticator_data_b64, signature_b64, user_handle }
+//
+// THE BIG DIFFERENCES vs register:
+//   - No attestationObject — the browser sends authenticatorData
+//     + signature DIRECTLY (no CBOR wrapping).
+//   - No COSE_Key in authData — the stored credential's pubkey
+//     is used.
+//   - SIGNATURE verify happens here (was attestation:none on
+//     register, so register skipped signature). Calls our
+//     cycle 95c verify_es256_signature.
+//   - sign_count check enforced via credential_store.update_sign_count.
+
+fn webauthn_authenticate_options(
+    rp_id: &str,
+    user_handle: &str,
+    credential_store: &WebAuthnCredentialStore,
+    challenge_store: &WebAuthnChallengeStore,
+) -> serde_json::Value {
+    use base64::Engine as _;
+    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let challenge = challenge_store.generate(user_handle);
+
+    // Enumerate the user's existing credentials → allowCredentials.
+    // The user picks which credential to use (matters for users
+    // with multiple devices registered).
+    let allow_creds: Vec<serde_json::Value> = {
+        let guard = credential_store.inner.lock().ok();
+        match guard {
+            Some(g) => g
+                .get(user_handle)
+                .map(|creds| {
+                    creds
+                        .iter()
+                        .map(|c| {
+                            serde_json::json!({
+                                "type": "public-key",
+                                "id": b64.encode(&c.credential_id),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            None => Vec::new(),
+        }
+    };
+
+    serde_json::json!({
+        "challenge": challenge.encoded,
+        "timeout": 5 * 60 * 1000_u32,
+        "rpId": rp_id,
+        "allowCredentials": allow_creds,
+        "userVerification": "preferred",
+    })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum WebAuthnAuthenticateError {
+    BlobTooLarge,
+    InvalidBase64,
+    BadClientData,
+    BadAuthData,
+    UnknownCredential,
+    ChallengeReject,
+    SignatureMismatch,
+    StaleSignCount,
+}
+
+/// Top-level authenticate-verify orchestrator. Ties together
+/// every piece for the LOGIN ceremony.
+#[allow(clippy::too_many_arguments)]
+fn webauthn_authenticate_verify(
+    credential_id_b64url: &str,
+    client_data_json_b64url: &str,
+    authenticator_data_b64url: &str,
+    signature_b64url: &str,
+    user_handle: &str,
+    expected_origin: &str,
+    challenge_store: &WebAuthnChallengeStore,
+    credential_store: &WebAuthnCredentialStore,
+) -> Result<(), WebAuthnAuthenticateError> {
+    use base64::Engine as _;
+    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+    // Pre-decode size caps (DoS gate).
+    if credential_id_b64url.len() > WEBAUTHN_REGISTER_BLOB_MAX_BYTES
+        || client_data_json_b64url.len() > WEBAUTHN_REGISTER_BLOB_MAX_BYTES
+        || authenticator_data_b64url.len() > WEBAUTHN_REGISTER_BLOB_MAX_BYTES
+        || signature_b64url.len() > WEBAUTHN_REGISTER_BLOB_MAX_BYTES
+    {
+        return Err(WebAuthnAuthenticateError::BlobTooLarge);
+    }
+
+    let credential_id = b64
+        .decode(credential_id_b64url)
+        .map_err(|_| WebAuthnAuthenticateError::InvalidBase64)?;
+    let client_data_json = b64
+        .decode(client_data_json_b64url)
+        .map_err(|_| WebAuthnAuthenticateError::InvalidBase64)?;
+    let authenticator_data = b64
+        .decode(authenticator_data_b64url)
+        .map_err(|_| WebAuthnAuthenticateError::InvalidBase64)?;
+    let signature = b64
+        .decode(signature_b64url)
+        .map_err(|_| WebAuthnAuthenticateError::InvalidBase64)?;
+
+    // 1. Parse + verify clientDataJSON.
+    let parsed_cdj = parse_client_data_json(&client_data_json)
+        .map_err(|_| WebAuthnAuthenticateError::BadClientData)?;
+    if parsed_cdj.op_type != "webauthn.get" {
+        return Err(WebAuthnAuthenticateError::BadClientData);
+    }
+    if parsed_cdj.origin != expected_origin {
+        return Err(WebAuthnAuthenticateError::BadClientData);
+    }
+
+    // 2. Consume challenge (single-use).
+    challenge_store
+        .consume(user_handle, &parsed_cdj.challenge)
+        .map_err(|_| WebAuthnAuthenticateError::ChallengeReject)?;
+
+    // 3. Look up the stored credential.
+    let stored = credential_store
+        .lookup(user_handle, &credential_id)
+        .map_err(|_| WebAuthnAuthenticateError::UnknownCredential)?;
+
+    // 4. Parse authData to extract the new sign_count.
+    let auth = parse_authenticator_data(&authenticator_data)
+        .map_err(|_| WebAuthnAuthenticateError::BadAuthData)?;
+    let new_sign_count = auth.sign_count;
+
+    // 5. Verify ES256 signature over auth_data || sha256(client_data_json).
+    verify_es256_signature(
+        &stored.pubkey,
+        &authenticator_data,
+        &client_data_json,
+        &signature,
+    )
+    .map_err(|_| WebAuthnAuthenticateError::SignatureMismatch)?;
+
+    // 6. Replay defence: update sign_count (strictly increasing).
+    credential_store
+        .update_sign_count(user_handle, &credential_id, new_sign_count)
+        .map_err(|_| WebAuthnAuthenticateError::StaleSignCount)?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod webauthn_authenticate_tests {
+    use super::*;
+    use base64::Engine as _;
+    use p256::ecdsa::signature::Signer as _;
+    use p256::ecdsa::{Signature, SigningKey};
+
+    fn b64(bytes: &[u8]) -> String {
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+    }
+
+    fn fresh_key() -> (SigningKey, CoseEs256PublicKey) {
+        let sk = SigningKey::random(&mut rand_core::OsRng);
+        let vk = sk.verifying_key();
+        let point = vk.to_encoded_point(false);
+        let mut x = [0u8; 32];
+        let mut y = [0u8; 32];
+        x.copy_from_slice(point.x().unwrap());
+        y.copy_from_slice(point.y().unwrap());
+        (sk, CoseEs256PublicKey { x, y })
+    }
+
+    fn build_auth_data_no_attestation(sign_count: u32) -> Vec<u8> {
+        let mut v = vec![0u8; 32];
+        v.push(WEBAUTHN_FLAG_UP);
+        v.extend_from_slice(&sign_count.to_be_bytes());
+        v
+    }
+
+    #[test]
+    fn auth_options_returns_known_credentials() {
+        let cs = WebAuthnChallengeStore::new();
+        let creds = WebAuthnCredentialStore::new();
+        let (_, pk) = fresh_key();
+        creds
+            .register("alice", b"cred-1".to_vec(), pk, 0)
+            .unwrap();
+        let v = webauthn_authenticate_options("example.com", "alice", &creds, &cs);
+        assert_eq!(v["rpId"], "example.com");
+        let allow = v["allowCredentials"].as_array().unwrap();
+        assert_eq!(allow.len(), 1);
+        assert_eq!(allow[0]["type"], "public-key");
+        let id = allow[0]["id"].as_str().unwrap();
+        // Round-trip the credential ID through base64url.
+        use base64::Engine as _;
+        let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(id)
+            .unwrap();
+        assert_eq!(decoded, b"cred-1");
+    }
+
+    #[test]
+    fn auth_options_unknown_user_returns_empty_allow_credentials() {
+        let cs = WebAuthnChallengeStore::new();
+        let creds = WebAuthnCredentialStore::new();
+        let v = webauthn_authenticate_options("example.com", "ghost", &creds, &cs);
+        assert!(v["allowCredentials"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn auth_verify_happy_path() {
+        let cs = WebAuthnChallengeStore::new();
+        let creds = WebAuthnCredentialStore::new();
+        let user = "alice";
+        let origin = "https://example.com";
+        let (sk, pk) = fresh_key();
+        let cred_id = b"my-cred";
+        creds.register(user, cred_id.to_vec(), pk, 5).unwrap();
+
+        // Server issues options → challenge stored.
+        let opts = webauthn_authenticate_options("example.com", user, &creds, &cs);
+        let challenge = opts["challenge"].as_str().unwrap().to_owned();
+
+        // Client builds CDJ + signs.
+        let cdj_bytes = format!(
+            r#"{{"type":"webauthn.get","challenge":"{}","origin":"{}"}}"#,
+            challenge, origin
+        )
+        .into_bytes();
+        let auth_data = build_auth_data_no_attestation(6); // 6 > stored 5
+        // Sign auth_data || sha256(client_data_json).
+        use sha2::{Digest as _, Sha256};
+        let mut h = Sha256::new();
+        h.update(&cdj_bytes);
+        let cdh = h.finalize();
+        let mut signed = Vec::with_capacity(auth_data.len() + 32);
+        signed.extend_from_slice(&auth_data);
+        signed.extend_from_slice(&cdh);
+        let sig: Signature = sk.sign(&signed);
+        let sig_der = sig.to_der().as_bytes().to_vec();
+
+        webauthn_authenticate_verify(
+            &b64(cred_id),
+            &b64(&cdj_bytes),
+            &b64(&auth_data),
+            &b64(&sig_der),
+            user,
+            origin,
+            &cs,
+            &creds,
+        )
+        .expect("happy path verify");
+
+        // sign_count advanced.
+        let stored = creds.lookup(user, cred_id).unwrap();
+        assert_eq!(stored.sign_count, 6);
+    }
+
+    #[test]
+    fn auth_verify_wrong_origin_rejected() {
+        let cs = WebAuthnChallengeStore::new();
+        let creds = WebAuthnCredentialStore::new();
+        let cdj = br#"{"type":"webauthn.get","challenge":"x","origin":"https://attacker.com"}"#;
+        let err = webauthn_authenticate_verify(
+            &b64(b"id"), &b64(cdj), &b64(b"auth"), &b64(b"sig"),
+            "u", "https://example.com", &cs, &creds,
+        )
+        .expect_err("wrong origin");
+        assert_eq!(err, WebAuthnAuthenticateError::BadClientData);
+    }
+
+    #[test]
+    fn auth_verify_wrong_type_rejected() {
+        let cs = WebAuthnChallengeStore::new();
+        let creds = WebAuthnCredentialStore::new();
+        let cdj = br#"{"type":"webauthn.create","challenge":"x","origin":"https://example.com"}"#;
+        let err = webauthn_authenticate_verify(
+            &b64(b"id"), &b64(cdj), &b64(b"auth"), &b64(b"sig"),
+            "u", "https://example.com", &cs, &creds,
+        )
+        .expect_err("wrong type");
+        assert_eq!(err, WebAuthnAuthenticateError::BadClientData);
+    }
+
+    #[test]
+    fn auth_verify_unknown_credential_rejected() {
+        let cs = WebAuthnChallengeStore::new();
+        let creds = WebAuthnCredentialStore::new();
+        let origin = "https://example.com";
+        // Issue options for user but no credentials registered.
+        let opts = webauthn_authenticate_options("example.com", "u", &creds, &cs);
+        let chal = opts["challenge"].as_str().unwrap().to_owned();
+        let cdj = format!(
+            r#"{{"type":"webauthn.get","challenge":"{}","origin":"{}"}}"#, chal, origin
+        );
+        let err = webauthn_authenticate_verify(
+            &b64(b"unknown-cred"),
+            &b64(cdj.as_bytes()),
+            &b64(b"auth"), &b64(b"sig"),
+            "u", origin, &cs, &creds,
+        )
+        .expect_err("unknown cred");
+        assert_eq!(err, WebAuthnAuthenticateError::UnknownCredential);
+    }
+
+    #[test]
+    fn auth_verify_signature_mismatch_rejected() {
+        let cs = WebAuthnChallengeStore::new();
+        let creds = WebAuthnCredentialStore::new();
+        let user = "u";
+        let origin = "https://example.com";
+        let (_sk, pk) = fresh_key();
+        let cred_id = b"id";
+        creds.register(user, cred_id.to_vec(), pk, 0).unwrap();
+        let opts = webauthn_authenticate_options("example.com", user, &creds, &cs);
+        let chal = opts["challenge"].as_str().unwrap().to_owned();
+        let cdj = format!(
+            r#"{{"type":"webauthn.get","challenge":"{}","origin":"{}"}}"#, chal, origin
+        );
+        let auth_data = build_auth_data_no_attestation(1);
+        // bogus signature
+        let err = webauthn_authenticate_verify(
+            &b64(cred_id),
+            &b64(cdj.as_bytes()),
+            &b64(&auth_data),
+            &b64(b"bogus-not-der"),
+            user, origin, &cs, &creds,
+        )
+        .expect_err("bad sig");
+        assert_eq!(err, WebAuthnAuthenticateError::SignatureMismatch);
+    }
+
+    #[test]
+    fn auth_verify_stale_sign_count_rejected_after_signature_ok() {
+        let cs = WebAuthnChallengeStore::new();
+        let creds = WebAuthnCredentialStore::new();
+        let user = "u";
+        let origin = "https://example.com";
+        let (sk, pk) = fresh_key();
+        let cred_id = b"id";
+        // Pre-store at sign_count=10.
+        creds.register(user, cred_id.to_vec(), pk, 10).unwrap();
+        let opts = webauthn_authenticate_options("example.com", user, &creds, &cs);
+        let chal = opts["challenge"].as_str().unwrap().to_owned();
+        let cdj = format!(
+            r#"{{"type":"webauthn.get","challenge":"{}","origin":"{}"}}"#, chal, origin
+        )
+        .into_bytes();
+        // New auth_data with sign_count = 5 (LESS than stored 10).
+        let auth_data = build_auth_data_no_attestation(5);
+        use sha2::{Digest as _, Sha256};
+        let mut h = Sha256::new();
+        h.update(&cdj);
+        let cdh = h.finalize();
+        let mut signed = Vec::new();
+        signed.extend_from_slice(&auth_data);
+        signed.extend_from_slice(&cdh);
+        let sig: Signature = sk.sign(&signed);
+        let sig_der = sig.to_der().as_bytes().to_vec();
+
+        let err = webauthn_authenticate_verify(
+            &b64(cred_id),
+            &b64(&cdj),
+            &b64(&auth_data),
+            &b64(&sig_der),
+            user, origin, &cs, &creds,
+        )
+        .expect_err("stale sign count");
+        assert_eq!(err, WebAuthnAuthenticateError::StaleSignCount);
+    }
+}
+
 #[cfg(test)]
 mod webauthn_challenge_tests {
     use super::*;
