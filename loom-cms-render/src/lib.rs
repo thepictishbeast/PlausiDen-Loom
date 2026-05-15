@@ -3065,14 +3065,22 @@ pub fn page_shell_themed(
         let css_link = format!(
             "<link rel=\"stylesheet\" href=\"{css}\" media=\"print\" onload=\"{DEFER_ONLOAD_JS}\">\n  <noscript><link rel=\"stylesheet\" href=\"{css}\"></noscript>"
         );
+        // T72 cycle 96 iter 10: add Trusted Types CSP-L3
+        // directives. require-trusted-types-for 'script' makes
+        // the browser reject DOM-sink string assignments
+        // (innerHTML, document.write, eval). trusted-types 'none'
+        // means no policy creation allowed — strongest stance.
+        // Our inline scripts (THEME_TOGGLE_JS + DEFER_ONLOAD_JS)
+        // only use setAttribute/textContent/addEventListener and
+        // single-string property writes — all safe under TT.
         let csp = format!(
-            "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}' '{style_hash}'; script-src 'self' 'unsafe-hashes' '{onload_hash}' '{toggle_script_hash}'; frame-ancestors 'none'"
+            "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}' '{style_hash}'; script-src 'self' 'unsafe-hashes' '{onload_hash}' '{toggle_script_hash}'; require-trusted-types-for 'script'; trusted-types 'none'; frame-ancestors 'none'"
         );
         (extra_block, css_link, csp)
     } else {
         let css_link = format!("<link rel=\"stylesheet\" href=\"{css}\">");
         let csp = format!(
-            "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}'; script-src 'self' '{toggle_script_hash}'; frame-ancestors 'none'"
+            "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}'; script-src 'self' '{toggle_script_hash}'; require-trusted-types-for 'script'; trusted-types 'none'; frame-ancestors 'none'"
         );
         (String::new(), css_link, csp)
     };
