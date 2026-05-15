@@ -2744,8 +2744,10 @@ mod cms_render_tests {
         // The current link gets aria-current.
         assert!(s.contains(r#"aria-current="page""#));
         // Non-current does NOT get aria-current — count the
-        // attribute occurrences and confirm exactly one.
-        assert_eq!(s.matches(r#"aria-current="page""#).count(), 1);
+        // ATTRIBUTE occurrences (leading-space discriminates the
+        // attribute form from the CSS-selector form
+        // `[aria-current="page"]` that's now in BASE_THEME_CSS).
+        assert_eq!(s.matches(r#" aria-current="page""#).count(), 1);
     }
 
     #[test]
@@ -19553,10 +19555,18 @@ mod editor_schema_tests {
     #[test]
     fn page_shell_pins_base_theme_in_csp() {
         let s = page_shell(&empty_cms_page(), "/loom-skin.css", "", None);
-        let hash = csp_sha256(BASE_THEME_CSS.as_bytes());
+        // T72 (cycle 96 iter 9): page-shell inlines
+        // BASE_THEME_CSS + THEME_TOGGLE_CSS together as one
+        // <style> block; the hash pins the combined bytes.
+        let combined = format!(
+            "{}{}",
+            loom_cms_render::BASE_THEME_CSS,
+            loom_cms_render::THEME_TOGGLE_CSS
+        );
+        let hash = csp_sha256(combined.as_bytes());
         assert!(
             s.contains(&hash),
-            "base-theme hash {hash} must appear in CSP:\n{s}"
+            "base-theme + toggle hash {hash} must appear in CSP:\n{s}"
         );
         assert!(
             !s.contains("'unsafe-inline'"),
