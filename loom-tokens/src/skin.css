@@ -514,6 +514,116 @@
     }
   }
 
+  /* T71 (closes #654): typography rhythm.
+   * Establishes a vertical rhythm + leading scale so every page
+   * has consistent breathing room without per-element tuning.
+   *
+   * Modular scale: Perfect Fourth (1.333) for headings, base-1
+   * for body. Line-heights tight on display (1.1-1.2) and loose
+   * on body (1.55-1.7) per WCAG 1.4.12 + readable-typography
+   * doctrine.
+   *
+   * Heading top-margin pattern: large top-margin (de-cramps
+   * content above), zero bottom-margin (paragraph spacing
+   * handled by p { margin-top }). Per CSS-Wizardry's classic
+   * "trimming the top" rhythm pattern.
+   *
+   * Cascade-scoped to main#content so site chrome (header /
+   * nav / footer) keeps its own rhythm.
+   */
+  main#content {
+    line-height: 1.55;
+  }
+  main#content h1, main#content h2, main#content h3,
+  main#content h4, main#content h5, main#content h6 {
+    font-family: var(--loom-font-display, inherit);
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -.012em;
+    text-wrap: balance;
+    margin: var(--loom-space-8, 2rem) 0 0 0;
+  }
+  main#content h1 { font-size: var(--loom-font-4xl, 2.25rem); }
+  main#content h2 { font-size: var(--loom-font-3xl, 1.875rem); }
+  main#content h3 { font-size: var(--loom-font-2xl, 1.5rem); }
+  main#content h4 { font-size: var(--loom-font-xl, 1.25rem); }
+  main#content h5 { font-size: var(--loom-font-lg, 1.125rem); }
+  main#content h6 {
+    font-size: var(--loom-font-base, 1rem);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  /* First heading in a flow has no top-margin (the section's
+   * pad already provides breathing room). */
+  main#content > h1:first-child,
+  main#content > h2:first-child,
+  main#content > h3:first-child,
+  main#content > *:first-child > h1:first-child,
+  main#content > *:first-child > h2:first-child,
+  main#content > *:first-child > h3:first-child {
+    margin-top: 0;
+  }
+  main#content p {
+    margin: var(--loom-space-4, 1rem) 0 0 0;
+    line-height: 1.65;
+    text-wrap: pretty;
+    max-width: 70ch;
+  }
+  main#content p:first-child { margin-top: 0; }
+  /* Lists — generous leading + nested indent. */
+  main#content ul, main#content ol {
+    margin: var(--loom-space-4, 1rem) 0 0 0;
+    padding-left: var(--loom-space-6, 1.5rem);
+    line-height: 1.65;
+  }
+  main#content li + li { margin-top: var(--loom-space-2, 0.5rem); }
+  main#content li > ul, main#content li > ol { margin-top: var(--loom-space-2, 0.5rem); }
+  /* Blockquote — pull-quote treatment with accent border. */
+  main#content blockquote {
+    margin: var(--loom-space-6, 1.5rem) 0 0 0;
+    padding: var(--loom-space-3, 0.75rem) var(--loom-space-5, 1.25rem);
+    border-left: 3px solid var(--loom-color-primary, currentColor);
+    background: color-mix(in oklab, var(--loom-color-primary, currentColor) 5%, transparent);
+    color: var(--loom-color-ink-muted, inherit);
+    font-style: italic;
+  }
+  main#content blockquote p { max-width: none; }
+  /* Inline code — distinct mono font + soft bg. */
+  main#content code {
+    font-family: var(--loom-font-mono, ui-monospace, monospace);
+    font-size: .92em;
+    padding: 1px 6px;
+    border-radius: var(--loom-radius-sm, 6px);
+    background: color-mix(in oklab, var(--loom-color-ink, currentColor) 6%, transparent);
+  }
+  main#content pre {
+    margin: var(--loom-space-5, 1.25rem) 0 0 0;
+    padding: var(--loom-space-4, 1rem);
+    border-radius: var(--loom-radius-md, 10px);
+    background: var(--loom-color-surface-muted, var(--loom-bg, #f4f4f5));
+    overflow-x: auto;
+    font-family: var(--loom-font-mono, ui-monospace, monospace);
+    font-size: .92em;
+    line-height: 1.55;
+  }
+  main#content pre code {
+    background: none;
+    padding: 0;
+    font-size: 1em;
+  }
+  /* HR — subtle divider on accent. */
+  main#content hr {
+    margin: var(--loom-space-8, 2rem) 0;
+    border: 0;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--loom-color-border, currentColor) 50%,
+      transparent 100%
+    );
+  }
+
 
 /* ============================================================ *
  * @layer tokens                                                 *
