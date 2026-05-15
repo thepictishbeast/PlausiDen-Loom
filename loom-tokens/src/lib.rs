@@ -18,6 +18,7 @@ pub mod color;
 pub mod icons;
 pub mod radius;
 pub mod scale;
+pub mod stock_photos;
 
 /// T69 (cycle 96 iter 13): the canonical Loom skin CSS bytes,
 /// bundled at compile time. Forge's render phase writes these
