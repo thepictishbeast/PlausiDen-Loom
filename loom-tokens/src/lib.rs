@@ -19,6 +19,18 @@ pub mod icons;
 pub mod radius;
 pub mod scale;
 
+/// T69 (cycle 96 iter 13): the canonical Loom skin CSS bytes,
+/// bundled at compile time. Forge's render phase writes these
+/// bytes to `<static_dir>/loom-skin.css` on every build so the
+/// shipped CSS is never stale.
+///
+/// Cycles 95a-g had to manually `cp` this file every iteration
+/// because Forge's render phase wrote `<slug>.html` but not the
+/// design-system CSS those HTML files reference. This const +
+/// the matching write in `forge-phases::render` closes that
+/// loop friction permanently.
+pub const SKIN_CSS: &str = include_str!("skin.css");
+
 pub use color::{Color, ColorRole};
 pub use radius::Radius;
 pub use scale::{Breakpoint, FontSize, Spacing};
