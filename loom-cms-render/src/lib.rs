@@ -1015,6 +1015,60 @@ fn render_card(card: &CmsCard) -> Markup {
     } else {
         "#invalid-card"
     };
+    // T70a (cycle 96 finish): render the optional media slot.
+    // SAFETY: every URL passed through is_safe_url() before
+    // emission. Image alt is REQUIRED by the schema. Video MIME
+    // is restricted to the ALLOWED_VIDEO_MIME allowlist.
+    let media_markup: Markup = match &card.media {
+        None => html! {},
+        Some(CmsCardMedia::Image { src, alt, srcset, width, height }) => {
+            if !is_safe_url(src) {
+                html! {
+                    div class="loom-card-feed-item__media" data-empty="true" aria-hidden="true" {}
+                }
+            } else {
+                html! {
+                    div class="loom-card-feed-item__media" {
+                        img
+                            src=(src)
+                            alt=(alt)
+                            srcset=[srcset.as_deref()]
+                            width=[width.map(|w| w.to_string())]
+                            height=[height.map(|h| h.to_string())]
+                            loading="lazy"
+                            decoding="async";
+                    }
+                }
+            }
+        }
+        Some(CmsCardMedia::Video { poster, src, mime, alt }) => {
+            let poster_safe = poster.as_deref().map(is_safe_url).unwrap_or(true);
+            let src_safe = is_safe_url(src);
+            let mime_ok = ALLOWED_VIDEO_MIME.contains(&mime.as_str());
+            if !src_safe || !poster_safe || !mime_ok {
+                html! {
+                    div class="loom-card-feed-item__media" data-empty="true" aria-hidden="true" {}
+                }
+            } else {
+                html! {
+                    div class="loom-card-feed-item__media" {
+                        video
+                            controls
+                            preload="metadata"
+                            poster=[poster.as_deref()]
+                            aria-label=(alt)
+                        {
+                            source src=(src) type=(mime);
+                        }
+                    }
+                }
+            }
+        }
+        Some(CmsCardMedia::Placeholder { tone }) => html! {
+            div class="loom-card-feed-item__media" data-empty="true" data-tone=[tone.as_deref()] aria-hidden="true" {}
+        },
+    };
+
     html! {
         article class="loom-card-feed-item" data-loom-card {
             a
@@ -1024,6 +1078,7 @@ fn render_card(card: &CmsCard) -> Markup {
                 data-loom-rich-link="true"
                 data-invalid=[(!href_safe).then_some("true")]
             {
+                (media_markup)
                 @match &card.avatar {
                     CmsAvatar::None => {}
                     CmsAvatar::Initials { letters } => {
@@ -1051,7 +1106,7 @@ fn render_card(card: &CmsCard) -> Markup {
                 }
                 div class="loom-card-feed-item__body" {
                     @if let Some(tag) = &card.tag {
-                        span class="loom-card-feed-item__tag" { (tag) }
+                        span class="loom-card-feed-item__tag" data-tone=[card.tone.as_deref()] { (tag) }
                     }
                     h3 class="loom-card-feed-item__title" { (card.title) }
                     @if let Some(host) = &card.host {
@@ -1798,7 +1853,120 @@ mod tests {
             href: href.to_owned(),
             data_backend: "view-challenge".to_owned(),
             tag: Some("Parkour".to_owned()),
+            tone: None,
+            media: None,
         }
+    }
+
+    fn page_with_card(c: CmsCard) -> CmsPage {
+        CmsPage {
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::CardFeed {
+                heading: None,
+                items: vec![c],
+            }],
+        }
+    }
+
+    #[test]
+    fn card_media_image_renders_lazy_with_alt() {
+        let mut c = card("Battle", "/c/x");
+        c.media = Some(CmsCardMedia::Image {
+            src: "/assets/foo.jpg".to_owned(),
+            alt: "A jumping skater".to_owned(),
+            srcset: Some("/assets/foo.jpg 1x, /assets/foo@2x.jpg 2x".to_owned()),
+            width: Some(1280),
+            height: Some(720),
+        });
+        let html = render_to_string(&page_with_card(c));
+        assert!(html.contains(r#"class="loom-card-feed-item__media""#));
+        assert!(html.contains(r#"src="/assets/foo.jpg""#));
+        assert!(html.contains(r#"alt="A jumping skater""#));
+        assert!(html.contains(r#"loading="lazy""#));
+        assert!(html.contains(r#"decoding="async""#));
+        assert!(html.contains(r#"srcset="/assets/foo.jpg 1x, /assets/foo@2x.jpg 2x""#));
+        assert!(html.contains(r#"width="1280""#));
+        assert!(html.contains(r#"height="720""#));
+    }
+
+    #[test]
+    fn card_media_image_unsafe_url_falls_back_to_empty_placeholder() {
+        let mut c = card("X", "/c/x");
+        c.media = Some(CmsCardMedia::Image {
+            src: "javascript:alert(1)".to_owned(),
+            alt: "evil".to_owned(),
+            srcset: None,
+            width: None,
+            height: None,
+        });
+        let html = render_to_string(&page_with_card(c));
+        assert!(html.contains(r#"data-empty="true""#));
+        assert!(!html.contains("javascript:alert"));
+    }
+
+    #[test]
+    fn card_media_video_emits_native_player_with_safe_mime() {
+        let mut c = card("X", "/c/x");
+        c.media = Some(CmsCardMedia::Video {
+            poster: Some("/assets/poster.jpg".to_owned()),
+            src: "/assets/clip.mp4".to_owned(),
+            mime: "video/mp4".to_owned(),
+            alt: "Skill clip".to_owned(),
+        });
+        let html = render_to_string(&page_with_card(c));
+        assert!(html.contains("<video"));
+        assert!(html.contains(r#"poster="/assets/poster.jpg""#));
+        assert!(html.contains(r#"src="/assets/clip.mp4""#));
+        assert!(html.contains(r#"type="video/mp4""#));
+        assert!(html.contains(r#"controls"#));
+        assert!(html.contains(r#"preload="metadata""#));
+    }
+
+    #[test]
+    fn card_media_video_rejected_mime_falls_back_to_empty() {
+        let mut c = card("X", "/c/x");
+        c.media = Some(CmsCardMedia::Video {
+            poster: None,
+            src: "/clip.mkv".to_owned(),
+            mime: "video/x-matroska".to_owned(),
+            alt: "x".to_owned(),
+        });
+        let html = render_to_string(&page_with_card(c));
+        assert!(html.contains(r#"data-empty="true""#));
+        assert!(!html.contains("<video"));
+    }
+
+    #[test]
+    fn card_media_placeholder_emits_data_tone_only() {
+        let mut c = card("X", "/c/x");
+        c.media = Some(CmsCardMedia::Placeholder {
+            tone: Some("violet".to_owned()),
+        });
+        let html = render_to_string(&page_with_card(c));
+        assert!(html.contains(r#"data-empty="true""#));
+        assert!(html.contains(r#"data-tone="violet""#));
+        assert!(!html.contains("<img"));
+        assert!(!html.contains("<video"));
+    }
+
+    #[test]
+    fn card_tag_emits_data_tone_when_set() {
+        let mut c = card("X", "/c/x");
+        c.tone = Some("forest".to_owned());
+        let html = render_to_string(&page_with_card(c));
+        assert!(html.contains(r#"data-tone="forest""#));
+    }
+
+    #[test]
+    fn card_tag_omits_data_tone_when_unset() {
+        let html = render_to_string(&page_with_card(card("X", "/c/x")));
+        // tag is "Parkour" but tone is None — chip span should
+        // not have a data-tone attr (CSS falls back to primary).
+        assert!(!html.contains("data-tone="));
     }
 
     #[test]
