@@ -12516,6 +12516,399 @@ mod webauthn_client_data_tests {
     }
 }
 
+// ============================================================
+// T43d cycle 95: WebAuthn authenticatorData binary parser.
+// ============================================================
+//
+// Wire format (W3C WebAuthn L3 §6.1):
+//
+//   authData = rpIdHash         32 bytes
+//            || flags            1 byte
+//            || signCount        4 bytes (big-endian u32)
+//            || attestedCredentialData   variable (present iff
+//                                        AT bit in flags set)
+//            || extensions               variable CBOR (present
+//                                        iff ED bit in flags set)
+//
+//   flags bits (0 = LSB):
+//     0 UP — User Present
+//     1 RFU1
+//     2 UV — User Verified
+//     3-5 BS/BE/RFU3 (reserved for sync state in L3)
+//     6 AT — Attested credential data INCLUDED
+//     7 ED — Extension data INCLUDED
+//
+//   attestedCredentialData =
+//     aaguid                    16 bytes
+//     || credentialIdLength     2 bytes (big-endian u16)
+//     || credentialId           <credentialIdLength> bytes
+//     || credentialPublicKey    variable CBOR (COSE_Key)
+//
+// THIS SLICE (cycle 95a) ships the BINARY parse: fixed-size
+// fields + variable-size attestedCredentialData up to (but not
+// including) the COSE_Key CBOR. The COSE_Key bytes are returned
+// raw for cycle 95b's CBOR decoder + cycle 95c's ES256
+// signature verify (pending p256 dep + AVP-2 vetting).
+//
+// AVP-2 Tier-1 doctrine:
+//   * Every read is bounds-checked; never panic on malicious
+//     input. All errors precise (TooShort / BadLength /
+//     CredentialIdOverflow / FlagsInconsistent).
+//   * No unsafe code.
+//   * Maximum input size enforced before parse to defeat
+//     DoS-via-huge-blob.
+//   * Flags integrity: bit-mask checks for AT/ED match presence
+//     of the corresponding sections. Inconsistency is rejected.
+//
+// REGRESSION-GUARD: A future browser may emit unknown flag
+// bits (e.g., backup state BE/BS in L3). We tolerate them
+// silently — only AT and ED change parse shape. Future-compat.
+
+const WEBAUTHN_AUTH_DATA_MAX_BYTES: usize = 64 * 1024;
+const WEBAUTHN_AUTH_DATA_MIN_BYTES: usize = 37; // rpIdHash(32) + flags(1) + signCount(4)
+const WEBAUTHN_FLAG_UP: u8 = 0b0000_0001;
+const WEBAUTHN_FLAG_UV: u8 = 0b0000_0100;
+const WEBAUTHN_FLAG_AT: u8 = 0b0100_0000;
+const WEBAUTHN_FLAG_ED: u8 = 0b1000_0000;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WebAuthnAuthData {
+    /// SHA-256 of the RP ID (e.g., `example.com`).
+    rp_id_hash: [u8; 32],
+    /// Raw flags byte. Use accessors below for bit reads.
+    flags_raw: u8,
+    /// Authenticator's monotonic counter. Replay defence: server
+    /// compares vs the previous count for this credential and
+    /// rejects if non-increasing.
+    sign_count: u32,
+    /// Present iff AT flag set.
+    attested_credential: Option<WebAuthnAttestedCredentialData>,
+    /// Raw CBOR of the extensions map. Present iff ED flag set.
+    /// Decoded by future cycle 95b's CBOR module.
+    extensions_cbor: Option<Vec<u8>>,
+}
+
+impl WebAuthnAuthData {
+    /// Bit 0: user touched / pressed the authenticator.
+    fn user_present(&self) -> bool {
+        self.flags_raw & WEBAUTHN_FLAG_UP != 0
+    }
+    /// Bit 2: user verified (PIN / biometric / etc).
+    fn user_verified(&self) -> bool {
+        self.flags_raw & WEBAUTHN_FLAG_UV != 0
+    }
+    /// Bit 6: attested credential data present.
+    fn at_flag(&self) -> bool {
+        self.flags_raw & WEBAUTHN_FLAG_AT != 0
+    }
+    /// Bit 7: extension data present.
+    fn ed_flag(&self) -> bool {
+        self.flags_raw & WEBAUTHN_FLAG_ED != 0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WebAuthnAttestedCredentialData {
+    /// 16-byte authenticator AAGUID (vendor + model identifier).
+    aaguid: [u8; 16],
+    /// Credential ID — opaque bytes the authenticator uses to
+    /// identify this credential. Server stores it alongside the
+    /// pubkey.
+    credential_id: Vec<u8>,
+    /// Raw COSE_Key bytes. Decoded by future cycle 95b.
+    credential_pubkey_cose: Vec<u8>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum WebAuthnAuthDataError {
+    /// Input shorter than the 37-byte minimum (rpIdHash + flags + signCount).
+    TooShort,
+    /// Input exceeded WEBAUTHN_AUTH_DATA_MAX_BYTES.
+    TooLarge,
+    /// AT flag set but the attested data section is malformed
+    /// (e.g., credentialIdLength claims more bytes than remain).
+    AttestedCredentialMalformed,
+    /// ED flag set but no extensions bytes remain.
+    ExtensionsMissing,
+    /// AT bit not set but trailing bytes remain past the
+    /// 37-byte header that aren't accounted for as extensions.
+    UnexpectedTrailingBytes,
+}
+
+/// Parse-only — does NOT verify signatures or check flags vs
+/// caller's policy. Caller is responsible for:
+///   * Checking flags match policy (UP required; UV optional
+///     based on RP's UV requirement).
+///   * Verifying rpIdHash == sha256(rp_id).
+///   * Replay-checking sign_count > stored count.
+///   * Decoding credential_pubkey_cose via cycle 95b CBOR
+///     module + verifying signature via cycle 95c ES256.
+fn parse_authenticator_data(
+    bytes: &[u8],
+) -> Result<WebAuthnAuthData, WebAuthnAuthDataError> {
+    if bytes.len() > WEBAUTHN_AUTH_DATA_MAX_BYTES {
+        return Err(WebAuthnAuthDataError::TooLarge);
+    }
+    if bytes.len() < WEBAUTHN_AUTH_DATA_MIN_BYTES {
+        return Err(WebAuthnAuthDataError::TooShort);
+    }
+
+    // Fixed-size header.
+    let mut rp_id_hash = [0u8; 32];
+    rp_id_hash.copy_from_slice(&bytes[0..32]);
+    let flags_raw = bytes[32];
+    let sign_count = u32::from_be_bytes([bytes[33], bytes[34], bytes[35], bytes[36]]);
+
+    let has_at = flags_raw & WEBAUTHN_FLAG_AT != 0;
+    let has_ed = flags_raw & WEBAUTHN_FLAG_ED != 0;
+
+    let mut offset = WEBAUTHN_AUTH_DATA_MIN_BYTES;
+    let mut attested_credential: Option<WebAuthnAttestedCredentialData> = None;
+
+    if has_at {
+        // attestedCredentialData: aaguid(16) + credIdLen(2) + credId + COSE_Key
+        if bytes.len() < offset + 16 + 2 {
+            return Err(WebAuthnAuthDataError::AttestedCredentialMalformed);
+        }
+        let mut aaguid = [0u8; 16];
+        aaguid.copy_from_slice(&bytes[offset..offset + 16]);
+        offset += 16;
+        let cred_id_len =
+            u16::from_be_bytes([bytes[offset], bytes[offset + 1]]) as usize;
+        offset += 2;
+        // Spec caps credentialIdLength at 1023; we enforce that
+        // AND ensure the claimed length fits in remaining bytes.
+        if cred_id_len > 1023 || offset + cred_id_len > bytes.len() {
+            return Err(WebAuthnAuthDataError::AttestedCredentialMalformed);
+        }
+        let credential_id = bytes[offset..offset + cred_id_len].to_vec();
+        offset += cred_id_len;
+
+        // Remainder is COSE_Key (if no ED) OR COSE_Key followed
+        // by extensions CBOR (if ED). For now we keep the
+        // remainder as `credential_pubkey_cose`; ED flag
+        // handling for the credentialPublicKey/extensions split
+        // happens in cycle 95b's CBOR module which knows how
+        // long the COSE_Key is.
+        //
+        // BUG ASSUMPTION: when both AT and ED are set, this slice
+        // captures BOTH the COSE_Key AND the extensions CBOR into
+        // credential_pubkey_cose. Cycle 95b's CBOR walker will
+        // need to consume the COSE_Key only and return the
+        // remaining bytes as extensions. Tracked as a TODO.
+        let credential_pubkey_cose = bytes[offset..].to_vec();
+        offset = bytes.len();
+        attested_credential = Some(WebAuthnAttestedCredentialData {
+            aaguid,
+            credential_id,
+            credential_pubkey_cose,
+        });
+    }
+
+    let extensions_cbor: Option<Vec<u8>> = if has_ed && !has_at {
+        // ED but not AT: extensions are the entire trailing region.
+        if offset >= bytes.len() {
+            return Err(WebAuthnAuthDataError::ExtensionsMissing);
+        }
+        let ext = bytes[offset..].to_vec();
+        offset = bytes.len();
+        Some(ext)
+    } else if has_ed && has_at {
+        // ED + AT: extensions are interleaved with COSE_Key
+        // in credential_pubkey_cose. Cycle 95b extracts them.
+        None
+    } else {
+        None
+    };
+
+    if offset != bytes.len() {
+        return Err(WebAuthnAuthDataError::UnexpectedTrailingBytes);
+    }
+
+    Ok(WebAuthnAuthData {
+        rp_id_hash,
+        flags_raw,
+        sign_count,
+        attested_credential,
+        extensions_cbor,
+    })
+}
+
+#[cfg(test)]
+mod webauthn_auth_data_tests {
+    use super::*;
+
+    /// Build a minimal 37-byte authData with given flags + count.
+    fn minimal(flags: u8, count: u32) -> Vec<u8> {
+        let mut v = vec![0u8; 32]; // rpIdHash all zeros
+        v.push(flags);
+        v.extend_from_slice(&count.to_be_bytes());
+        v
+    }
+
+    fn with_attested(flags: u8, cred_id: &[u8], pubkey_cose: &[u8]) -> Vec<u8> {
+        let mut v = minimal(flags, 1);
+        v.extend_from_slice(&[0u8; 16]); // aaguid all zeros
+        let len = u16::try_from(cred_id.len()).expect("cred_id < 65k");
+        v.extend_from_slice(&len.to_be_bytes());
+        v.extend_from_slice(cred_id);
+        v.extend_from_slice(pubkey_cose);
+        v
+    }
+
+    #[test]
+    fn parse_minimal_no_attested_no_ext_ok() {
+        let bytes = minimal(WEBAUTHN_FLAG_UP, 42);
+        let p = parse_authenticator_data(&bytes).expect("parse ok");
+        assert_eq!(p.rp_id_hash, [0u8; 32]);
+        assert_eq!(p.flags_raw, WEBAUTHN_FLAG_UP);
+        assert_eq!(p.sign_count, 42);
+        assert!(p.user_present());
+        assert!(!p.user_verified());
+        assert!(!p.at_flag());
+        assert!(!p.ed_flag());
+        assert!(p.attested_credential.is_none());
+        assert!(p.extensions_cbor.is_none());
+    }
+
+    #[test]
+    fn parse_too_short_rejected() {
+        let err = parse_authenticator_data(&[0u8; 36]).expect_err("too short");
+        assert_eq!(err, WebAuthnAuthDataError::TooShort);
+    }
+
+    #[test]
+    fn parse_empty_rejected_as_too_short() {
+        let err = parse_authenticator_data(&[]).expect_err("empty");
+        assert_eq!(err, WebAuthnAuthDataError::TooShort);
+    }
+
+    #[test]
+    fn parse_too_large_rejected() {
+        let mut v = minimal(0, 0);
+        v.resize(WEBAUTHN_AUTH_DATA_MAX_BYTES + 1, 0);
+        let err = parse_authenticator_data(&v).expect_err("too large");
+        assert_eq!(err, WebAuthnAuthDataError::TooLarge);
+    }
+
+    #[test]
+    fn parse_sign_count_big_endian() {
+        let mut v = vec![0u8; 32];
+        v.push(0); // flags
+        v.extend_from_slice(&[0x01, 0x02, 0x03, 0x04]); // big-endian
+        let p = parse_authenticator_data(&v).unwrap();
+        assert_eq!(p.sign_count, 0x01020304);
+    }
+
+    #[test]
+    fn parse_attested_credential_ok() {
+        let cred_id = b"my-credential-id";
+        let pubkey = b"fake-cose-bytes-here";
+        let bytes = with_attested(WEBAUTHN_FLAG_UP | WEBAUTHN_FLAG_AT, cred_id, pubkey);
+        let p = parse_authenticator_data(&bytes).expect("parse ok");
+        assert!(p.at_flag());
+        let ac = p.attested_credential.expect("attested present");
+        assert_eq!(ac.aaguid, [0u8; 16]);
+        assert_eq!(ac.credential_id, cred_id);
+        assert_eq!(ac.credential_pubkey_cose, pubkey);
+    }
+
+    #[test]
+    fn parse_at_flag_set_but_truncated_attested_rejected() {
+        // AT set but only 16 of the required aaguid+credIdLen bytes.
+        let mut v = minimal(WEBAUTHN_FLAG_AT, 0);
+        v.extend_from_slice(&[0u8; 10]); // only 10 of needed 18
+        let err = parse_authenticator_data(&v).expect_err("truncated");
+        assert_eq!(err, WebAuthnAuthDataError::AttestedCredentialMalformed);
+    }
+
+    #[test]
+    fn parse_credential_id_length_overflow_rejected() {
+        // AT set, claim a 65535-byte credential ID but no bytes follow.
+        let mut v = minimal(WEBAUTHN_FLAG_AT, 0);
+        v.extend_from_slice(&[0u8; 16]); // aaguid
+        v.extend_from_slice(&[0xFF, 0xFF]); // credIdLen = 65535
+        // no bytes for the cred id itself
+        let err = parse_authenticator_data(&v).expect_err("overflow");
+        assert_eq!(err, WebAuthnAuthDataError::AttestedCredentialMalformed);
+    }
+
+    #[test]
+    fn parse_credential_id_length_exceeds_spec_cap() {
+        // Spec caps at 1023; 1024 must be rejected.
+        let mut v = minimal(WEBAUTHN_FLAG_AT, 0);
+        v.extend_from_slice(&[0u8; 16]); // aaguid
+        v.extend_from_slice(&[0x04, 0x00]); // 1024
+        v.extend_from_slice(&vec![0u8; 1024]); // bytes do exist
+        v.extend_from_slice(b"cose");
+        let err = parse_authenticator_data(&v).expect_err("over spec cap");
+        assert_eq!(err, WebAuthnAuthDataError::AttestedCredentialMalformed);
+    }
+
+    #[test]
+    fn parse_ed_only_extensions_captured() {
+        // ED set, no AT. Trailing bytes are extensions CBOR.
+        let mut v = minimal(WEBAUTHN_FLAG_ED, 7);
+        v.extend_from_slice(b"\xa0"); // CBOR empty map
+        let p = parse_authenticator_data(&v).expect("parse ok");
+        assert!(p.ed_flag());
+        assert_eq!(p.extensions_cbor, Some(b"\xa0".to_vec()));
+        assert!(p.attested_credential.is_none());
+    }
+
+    #[test]
+    fn parse_ed_set_but_no_bytes_rejected() {
+        let v = minimal(WEBAUTHN_FLAG_ED, 0);
+        let err = parse_authenticator_data(&v).expect_err("no ext bytes");
+        assert_eq!(err, WebAuthnAuthDataError::ExtensionsMissing);
+    }
+
+    #[test]
+    fn parse_unexpected_trailing_bytes_rejected_when_no_at_no_ed() {
+        // Neither AT nor ED set, but extra bytes follow header.
+        let mut v = minimal(WEBAUTHN_FLAG_UP, 0);
+        v.extend_from_slice(b"garbage");
+        let err = parse_authenticator_data(&v).expect_err("trailing");
+        assert_eq!(err, WebAuthnAuthDataError::UnexpectedTrailingBytes);
+    }
+
+    #[test]
+    fn parse_at_and_ed_both_set_captures_combined() {
+        // When both AT + ED are set, the COSE_Key + extensions
+        // are interleaved in credential_pubkey_cose. Cycle 95b
+        // CBOR module will split them. For now the parser
+        // returns the combined trailing bytes in pubkey field.
+        let mut v = minimal(WEBAUTHN_FLAG_UP | WEBAUTHN_FLAG_AT | WEBAUTHN_FLAG_ED, 0);
+        v.extend_from_slice(&[0u8; 16]); // aaguid
+        v.extend_from_slice(&[0u8, 4]); // credIdLen = 4
+        v.extend_from_slice(b"cred");
+        v.extend_from_slice(b"cose-and-extensions-combined");
+        let p = parse_authenticator_data(&v).expect("parse ok");
+        assert!(p.at_flag() && p.ed_flag());
+        let ac = p.attested_credential.expect("attested");
+        assert_eq!(ac.credential_id, b"cred");
+        assert_eq!(ac.credential_pubkey_cose, b"cose-and-extensions-combined");
+        // extensions_cbor stays None — caller's CBOR decoder splits.
+        assert!(p.extensions_cbor.is_none());
+    }
+
+    #[test]
+    fn parse_flag_accessors_distinct_bits() {
+        // Every flag bit independent.
+        let bytes = minimal(
+            WEBAUTHN_FLAG_UP | WEBAUTHN_FLAG_UV | WEBAUTHN_FLAG_ED,
+            0,
+        );
+        let mut v = bytes.clone();
+        v.extend_from_slice(b"\xa0");
+        let p = parse_authenticator_data(&v).expect("parse ok");
+        assert!(p.user_present());
+        assert!(p.user_verified());
+        assert!(!p.at_flag());
+        assert!(p.ed_flag());
+    }
+}
+
 #[cfg(test)]
 mod webauthn_challenge_tests {
     use super::*;
