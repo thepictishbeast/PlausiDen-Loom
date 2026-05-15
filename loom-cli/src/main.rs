@@ -15381,6 +15381,345 @@ mod tenant_store_tests {
     }
 }
 
+// ============================================================
+// T43d cycle 95e (closes #664): HTTP dispatcher + browser JS.
+// ============================================================
+//
+// Pure dispatcher that maps (path, method, body, user_handle)
+// to (status, response_body). Wraps cycles 93-95d-4 for any
+// HTTP server (loom-cli edit-serve, axum, hyper, …) to call.
+//
+// Routes:
+//   POST /webauthn/register/options       → 200 + JSON
+//   POST /webauthn/register/verify        → 204 / 4xx
+//   POST /webauthn/authenticate/options   → 200 + JSON
+//   POST /webauthn/authenticate/verify    → 204 / 4xx
+//
+// Plus WEBAUTHN_BROWSER_JS — browser-side JS that calls
+// navigator.credentials.create/get and POSTs the responses
+// back. Hash-pinnable in CSP via csp_sha256().
+
+#[derive(Debug, PartialEq, Eq)]
+struct WebAuthnHttpResponse {
+    status: u16,
+    body: String,
+    content_type: &'static str,
+}
+
+/// Pure-function HTTP dispatcher. Caller's HTTP layer matches
+/// path/method, calls this, writes the (status, body) back.
+fn webauthn_handle_http(
+    path: &str,
+    method: &str,
+    body: &str,
+    user_handle: &str,
+    rp_name: &str,
+    rp_id: &str,
+    expected_origin: &str,
+    challenge_store: &WebAuthnChallengeStore,
+    credential_store: &WebAuthnCredentialStore,
+) -> WebAuthnHttpResponse {
+    if method != "POST" {
+        return WebAuthnHttpResponse {
+            status: 405,
+            body: r#"{"error":"method_not_allowed"}"#.to_owned(),
+            content_type: "application/json",
+        };
+    }
+    match path {
+        "/webauthn/register/options" => {
+            let v = webauthn_register_options(
+                rp_name, rp_id, user_handle, user_handle, challenge_store,
+            );
+            WebAuthnHttpResponse {
+                status: 200,
+                body: v.to_string(),
+                content_type: "application/json",
+            }
+        }
+        "/webauthn/register/verify" => {
+            let parsed: serde_json::Value = match serde_json::from_str(body) {
+                Ok(v) => v,
+                Err(_) => return error_response(400, "invalid_json"),
+            };
+            let cid = match parsed.get("credential_id").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return error_response(400, "missing_credential_id"),
+            };
+            let cdj = match parsed.get("client_data_json").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return error_response(400, "missing_client_data_json"),
+            };
+            let attn = match parsed.get("attestation_object").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return error_response(400, "missing_attestation_object"),
+            };
+            match webauthn_register_verify(
+                cid, cdj, attn,
+                user_handle, expected_origin,
+                challenge_store, credential_store,
+            ) {
+                Ok(()) => WebAuthnHttpResponse {
+                    status: 204,
+                    body: String::new(),
+                    content_type: "application/json",
+                },
+                Err(_) => error_response(400, "verification_failed"),
+            }
+        }
+        "/webauthn/authenticate/options" => {
+            let v = webauthn_authenticate_options(
+                rp_id, user_handle, credential_store, challenge_store,
+            );
+            WebAuthnHttpResponse {
+                status: 200,
+                body: v.to_string(),
+                content_type: "application/json",
+            }
+        }
+        "/webauthn/authenticate/verify" => {
+            let parsed: serde_json::Value = match serde_json::from_str(body) {
+                Ok(v) => v,
+                Err(_) => return error_response(400, "invalid_json"),
+            };
+            let cid = match parsed.get("credential_id").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return error_response(400, "missing_credential_id"),
+            };
+            let cdj = match parsed.get("client_data_json").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return error_response(400, "missing_client_data_json"),
+            };
+            let auth = match parsed.get("authenticator_data").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return error_response(400, "missing_authenticator_data"),
+            };
+            let sig = match parsed.get("signature").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return error_response(400, "missing_signature"),
+            };
+            match webauthn_authenticate_verify(
+                cid, cdj, auth, sig,
+                user_handle, expected_origin,
+                challenge_store, credential_store,
+            ) {
+                Ok(()) => WebAuthnHttpResponse {
+                    status: 204,
+                    body: String::new(),
+                    content_type: "application/json",
+                },
+                Err(_) => error_response(400, "verification_failed"),
+            }
+        }
+        _ => WebAuthnHttpResponse {
+            status: 404,
+            body: r#"{"error":"not_found"}"#.to_owned(),
+            content_type: "application/json",
+        },
+    }
+}
+
+fn error_response(status: u16, error: &str) -> WebAuthnHttpResponse {
+    WebAuthnHttpResponse {
+        status,
+        body: format!(r#"{{"error":"{error}"}}"#),
+        content_type: "application/json",
+    }
+}
+
+/// Browser-side JS for the WebAuthn ceremony. Caller embeds in
+/// admin login page. Hash-pinnable in CSP via csp_sha256().
+///
+/// Exposes two globals on window:
+///   loomWebAuthnRegister(userHandle): Promise<void>
+///   loomWebAuthnAuthenticate(userHandle): Promise<void>
+///
+/// Both throw on any failure; caller wraps in try/catch + UI.
+#[allow(dead_code)]
+const WEBAUTHN_BROWSER_JS: &str = r#"(function(){
+function b64u(buf){var s=btoa(String.fromCharCode.apply(null,new Uint8Array(buf)));return s.replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
+function b64d(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';var bin=atob(s);var arr=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);return arr.buffer;}
+async function post(path,body){var r=await fetch(path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});if(!r.ok&&r.status!==204)throw new Error('webauthn http '+r.status);return r.status===204?null:await r.json();}
+window.loomWebAuthnRegister=async function(userHandle){
+var opts=await post('/webauthn/register/options',{user_handle:userHandle});
+opts.challenge=b64d(opts.challenge);opts.user.id=b64d(opts.user.id);
+var cred=await navigator.credentials.create({publicKey:opts});
+await post('/webauthn/register/verify',{credential_id:b64u(cred.rawId),client_data_json:b64u(cred.response.clientDataJSON),attestation_object:b64u(cred.response.attestationObject)});
+};
+window.loomWebAuthnAuthenticate=async function(userHandle){
+var opts=await post('/webauthn/authenticate/options',{user_handle:userHandle});
+opts.challenge=b64d(opts.challenge);
+if(opts.allowCredentials)opts.allowCredentials=opts.allowCredentials.map(function(c){return Object.assign({},c,{id:b64d(c.id)});});
+var cred=await navigator.credentials.get({publicKey:opts});
+await post('/webauthn/authenticate/verify',{credential_id:b64u(cred.rawId),client_data_json:b64u(cred.response.clientDataJSON),authenticator_data:b64u(cred.response.authenticatorData),signature:b64u(cred.response.signature)});
+};
+})();"#;
+
+#[cfg(test)]
+mod webauthn_http_tests {
+    use super::*;
+
+    fn stores() -> (WebAuthnChallengeStore, WebAuthnCredentialStore) {
+        (WebAuthnChallengeStore::new(), WebAuthnCredentialStore::new())
+    }
+
+    #[test]
+    fn unknown_path_returns_404() {
+        let (cs, creds) = stores();
+        let r = webauthn_handle_http(
+            "/webauthn/unknown", "POST", "", "u", "R", "r.example", "https://r.example",
+            &cs, &creds,
+        );
+        assert_eq!(r.status, 404);
+    }
+
+    #[test]
+    fn non_post_returns_405() {
+        let (cs, creds) = stores();
+        let r = webauthn_handle_http(
+            "/webauthn/register/options", "GET", "", "u", "R", "r.example", "https://r.example",
+            &cs, &creds,
+        );
+        assert_eq!(r.status, 405);
+    }
+
+    #[test]
+    fn register_options_returns_200_with_challenge() {
+        let (cs, creds) = stores();
+        let r = webauthn_handle_http(
+            "/webauthn/register/options", "POST", "{}", "alice",
+            "ACME", "example.com", "https://example.com",
+            &cs, &creds,
+        );
+        assert_eq!(r.status, 200);
+        assert!(r.body.contains("\"challenge\":"));
+        assert!(r.body.contains("\"rp\":"));
+    }
+
+    #[test]
+    fn register_verify_invalid_json_returns_400() {
+        let (cs, creds) = stores();
+        let r = webauthn_handle_http(
+            "/webauthn/register/verify", "POST", "{not json", "u",
+            "R", "r.example", "https://r.example", &cs, &creds,
+        );
+        assert_eq!(r.status, 400);
+        assert!(r.body.contains("invalid_json"));
+    }
+
+    #[test]
+    fn register_verify_missing_field_returns_400() {
+        let (cs, creds) = stores();
+        let r = webauthn_handle_http(
+            "/webauthn/register/verify", "POST",
+            r#"{"credential_id":"a"}"#, "u",
+            "R", "r.example", "https://r.example", &cs, &creds,
+        );
+        assert_eq!(r.status, 400);
+        assert!(r.body.contains("missing_client_data_json"));
+    }
+
+    #[test]
+    fn authenticate_options_returns_200() {
+        let (cs, creds) = stores();
+        let r = webauthn_handle_http(
+            "/webauthn/authenticate/options", "POST", "{}", "alice",
+            "R", "example.com", "https://example.com",
+            &cs, &creds,
+        );
+        assert_eq!(r.status, 200);
+        assert!(r.body.contains("\"rpId\":"));
+        assert!(r.body.contains("\"allowCredentials\":"));
+    }
+
+    #[test]
+    fn browser_js_exposes_two_globals() {
+        // Minimal source-string sanity check.
+        assert!(WEBAUTHN_BROWSER_JS.contains("loomWebAuthnRegister"));
+        assert!(WEBAUTHN_BROWSER_JS.contains("loomWebAuthnAuthenticate"));
+        assert!(WEBAUTHN_BROWSER_JS.contains("navigator.credentials.create"));
+        assert!(WEBAUTHN_BROWSER_JS.contains("navigator.credentials.get"));
+        // No eval / Function / innerHTML — TT-safe.
+        assert!(!WEBAUTHN_BROWSER_JS.contains("eval("));
+        assert!(!WEBAUTHN_BROWSER_JS.contains("Function("));
+        assert!(!WEBAUTHN_BROWSER_JS.contains("innerHTML"));
+    }
+
+    #[test]
+    fn end_to_end_through_http_dispatcher() {
+        let (cs, creds) = stores();
+        let user = "alice";
+        let origin = "https://example.com";
+
+        // Register options via HTTP.
+        let r = webauthn_handle_http(
+            "/webauthn/register/options", "POST", "{}", user,
+            "ACME", "example.com", origin, &cs, &creds,
+        );
+        assert_eq!(r.status, 200);
+        let opts: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+        let challenge = opts["challenge"].as_str().unwrap().to_owned();
+
+        // Build a fake registration verify body (uses the same
+        // pieces as the cycle 95d-3 happy-path test).
+        use base64::Engine as _;
+        let b = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use p256::ecdsa::SigningKey;
+        let sk = SigningKey::random(&mut rand_core::OsRng);
+        let vk = sk.verifying_key();
+        let point = vk.to_encoded_point(false);
+        let mut x = [0u8; 32];
+        let mut y = [0u8; 32];
+        x.copy_from_slice(point.x().unwrap());
+        y.copy_from_slice(point.y().unwrap());
+        let mut cose = vec![0xA5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20];
+        cose.extend_from_slice(&x);
+        cose.extend_from_slice(&[0x22, 0x58, 0x20]);
+        cose.extend_from_slice(&y);
+        let cred_id = b"endtoend";
+        let mut auth_data = vec![0u8; 32];
+        auth_data.push(WEBAUTHN_FLAG_AT | WEBAUTHN_FLAG_UP);
+        auth_data.extend_from_slice(&1u32.to_be_bytes());
+        auth_data.extend_from_slice(&[0u8; 16]);
+        auth_data.extend_from_slice(&(cred_id.len() as u16).to_be_bytes());
+        auth_data.extend_from_slice(cred_id);
+        auth_data.extend_from_slice(&cose);
+        // attestationObject with fmt:none, authData, attStmt:{}
+        let mut attn = vec![0xA3];
+        attn.extend_from_slice(&[0x63, b'f', b'm', b't', 0x64, b'n', b'o', b'n', b'e']);
+        attn.extend_from_slice(&[0x68, b'a', b'u', b't', b'h', b'D', b'a', b't', b'a']);
+        let len = auth_data.len();
+        if len < 256 {
+            attn.push(0x58);
+            attn.push(len as u8);
+        } else {
+            attn.push(0x59);
+            attn.extend_from_slice(&(len as u16).to_be_bytes());
+        }
+        attn.extend_from_slice(&auth_data);
+        attn.extend_from_slice(&[0x67, b'a', b't', b't', b'S', b't', b'm', b't', 0xA0]);
+
+        let cdj = format!(
+            r#"{{"type":"webauthn.create","challenge":"{}","origin":"{}"}}"#,
+            challenge, origin
+        );
+        let body = serde_json::json!({
+            "credential_id": b.encode(cred_id),
+            "client_data_json": b.encode(cdj.as_bytes()),
+            "attestation_object": b.encode(&attn),
+        }).to_string();
+
+        let r = webauthn_handle_http(
+            "/webauthn/register/verify", "POST", &body, user,
+            "ACME", "example.com", origin, &cs, &creds,
+        );
+        assert_eq!(r.status, 204, "register verify status: body={}", r.body);
+
+        // Confirm credential persisted.
+        assert_eq!(creds.count(user), 1);
+    }
+}
+
 #[cfg(test)]
 mod webauthn_challenge_tests {
     use super::*;
