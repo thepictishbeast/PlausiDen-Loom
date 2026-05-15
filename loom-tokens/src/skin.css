@@ -1180,17 +1180,45 @@
     gap: var(--loom-space-4);
   }
   .loom-panel {
+    --comp-panel-accent: var(--loom-color-primary);
     background: var(--loom-color-surface);
     border: 1px solid var(--loom-color-border);
     border-radius: var(--loom-radius-component);
-    padding: var(--loom-space-5);
+    padding: var(--loom-space-4) var(--loom-space-5);
     display: flex;
     flex-direction: column;
     gap: var(--loom-space-3);
     box-shadow:
       0 1px 2px color-mix(in oklab, var(--loom-color-ink) 5%, transparent),
       0 1px 3px color-mix(in oklab, var(--loom-color-ink) 4%, transparent);
+    position: relative;
+    overflow: hidden;
   }
+  .loom-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: linear-gradient(180deg,
+      var(--comp-panel-accent) 0%,
+      color-mix(in oklab, var(--comp-panel-accent) 40%, transparent) 100%);
+  }
+  .loom-panel__title {
+    padding-left: var(--loom-space-1);
+  }
+  /* Per-panel accent rotation — sites can override via inline
+   * style="--comp-panel-accent: …" or via data-tone="X". */
+  .loom-sidebar > .loom-panel:nth-of-type(1) { --comp-panel-accent: hsl(244 65% 50%); }
+  .loom-sidebar > .loom-panel:nth-of-type(2) { --comp-panel-accent: hsl(15 75% 55%); }
+  .loom-sidebar > .loom-panel:nth-of-type(3) { --comp-panel-accent: hsl(155 65% 40%); }
+  .loom-sidebar > .loom-panel:nth-of-type(4) { --comp-panel-accent: hsl(280 70% 55%); }
+  .loom-sidebar > .loom-panel:nth-of-type(5) { --comp-panel-accent: hsl(38 90% 45%); }
+  .loom-panel[data-tone="violet"] { --comp-panel-accent: hsl(280 75% 50%); }
+  .loom-panel[data-tone="indigo"] { --comp-panel-accent: hsl(244 65% 50%); }
+  .loom-panel[data-tone="ocean"]  { --comp-panel-accent: hsl(210 80% 45%); }
+  .loom-panel[data-tone="forest"] { --comp-panel-accent: hsl(155 65% 40%); }
+  .loom-panel[data-tone="amber"]  { --comp-panel-accent: hsl(38 90% 45%); }
+  .loom-panel[data-tone="rose"]   { --comp-panel-accent: hsl(340 80% 50%); }
   .loom-panel__title {
     font-family: var(--loom-font-display);
     font-size: var(--loom-font-base);
@@ -1298,6 +1326,35 @@
     transition: transform var(--loom-transition-fast),
                 border-color var(--loom-transition-fast),
                 box-shadow var(--loom-transition-fast);
+    position: relative;
+  }
+  /* Featured first card — stronger visual hierarchy. Operators
+   * who want EVERY card uniform set data-featured="off" on the
+   * .loom-card-feed wrapper to disable. */
+  .loom-card-feed:not([data-featured="off"]) > .loom-card-feed-item:first-of-type {
+    background:
+      radial-gradient(600px 200px at 100% 0%,
+        color-mix(in oklab, var(--loom-color-gradient-b) 14%, transparent) 0%,
+        transparent 60%),
+      var(--loom-color-surface);
+    border-color: color-mix(in oklab, var(--loom-color-primary) 35%, var(--loom-color-border));
+    box-shadow:
+      0 18px 40px color-mix(in oklab, var(--loom-color-primary) 18%, transparent),
+      0 6px 12px color-mix(in oklab, var(--loom-color-ink) 8%, transparent);
+  }
+  .loom-card-feed:not([data-featured="off"]) > .loom-card-feed-item:first-of-type::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 4px;
+    background: var(--loom-grad-hero, linear-gradient(90deg, var(--loom-color-primary), var(--loom-color-gradient-b)));
+    z-index: 1;
+  }
+  .loom-card-feed:not([data-featured="off"]) > .loom-card-feed-item:first-of-type .loom-card-feed-item__title {
+    font-size: var(--loom-font-2xl, 1.5rem);
+  }
+  .loom-card-feed:not([data-featured="off"]) > .loom-card-feed-item:first-of-type .loom-card-feed-item__link {
+    padding: var(--loom-space-6);
   }
   /* T70a: optional 16:9 media slot above the card body. Activates
    * when the CMS markup includes <div class="loom-card-feed-item__media">

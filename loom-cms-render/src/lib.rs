@@ -2646,7 +2646,14 @@ pub const BASE_THEME_CSS: &str = ":root{\
 --loom-break-xl:80rem;\
 --loom-border-component:1px solid var(--loom-color-border,var(--loom-border));\
 --loom-transition-fast:120ms cubic-bezier(.22,1,.36,1)}\
-@media (prefers-color-scheme:dark){:root:not([data-theme=\"light\"]){\
+/* T76: light default by owner directive (most users prefer light).\
+ * Dark is opt-in via data-theme=\"dark\" or via the in-page theme\
+ * switcher (T72). Auto-flip via prefers-color-scheme is ALSO\
+ * available BUT only when the user explicitly opts via\
+ * data-theme=\"auto\" — so a fresh page-load defaults to light\
+ * regardless of OS dark-mode pref. */\
+:root[data-theme=\"auto\"] {color-scheme: light dark;}\
+@media (prefers-color-scheme:dark){:root[data-theme=\"auto\"]{\
 --loom-bg:#0F1019;--loom-fg:#ECEEF6;--loom-muted:#8B92A6;\
 --loom-accent:#A5A6FF;--loom-accent-2:#FFA771;\
 --loom-border:#25283A;\
@@ -2690,20 +2697,22 @@ h1,h2,h3,h4,h5,h6{font-family:var(--loom-font-display);letter-spacing:-.012em;li
 .loom-skip:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;\
 background:var(--loom-bg);color:var(--loom-fg);border:2px solid var(--loom-focus);\
 border-radius:var(--loom-radius);z-index:1000;box-shadow:var(--loom-shadow-md)}\
-header.loom-page-header{padding:1.25rem 1.5rem;border-bottom:1px solid var(--loom-border);\
-background:var(--loom-bg);position:sticky;top:0;z-index:50;\
-backdrop-filter:saturate(140%) blur(8px);-webkit-backdrop-filter:saturate(140%) blur(8px)}\
-footer.loom-page-footer{padding:2rem 1.5rem;border-top:1px solid var(--loom-border);\
-color:var(--loom-muted);margin-top:3rem;font-size:.92rem}\
-nav.loom-page-nav{display:flex;gap:1.25rem;align-items:center;flex-wrap:wrap}\
-nav.loom-page-nav a{text-decoration:none;color:var(--loom-fg);\
-display:inline-flex;align-items:center;min-height:44px;padding:.5rem .75rem;\
-border-radius:var(--loom-radius-sm);\
+header.loom-page-header{padding:1rem 1.75rem;border-bottom:1px solid color-mix(in oklab,var(--loom-border) 60%,transparent);\
+background:color-mix(in oklab,var(--loom-bg) 88%,transparent);position:sticky;top:0;z-index:50;\
+backdrop-filter:saturate(160%) blur(14px);-webkit-backdrop-filter:saturate(160%) blur(14px)}\
+footer.loom-page-footer{padding:2.5rem 1.75rem;border-top:1px solid var(--loom-border);\
+color:var(--loom-muted);margin-top:4rem;font-size:.92rem}\
+nav.loom-page-nav{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}\
+nav.loom-page-nav a{text-decoration:none;color:var(--loom-muted);\
+display:inline-flex;align-items:center;min-height:44px;padding:.5rem .9rem;\
+border-radius:999px;font-weight:500;font-size:.96rem;\
 transition:background var(--loom-motion-fast) var(--loom-ease-out),color var(--loom-motion-fast) var(--loom-ease-out)}\
-nav.loom-page-nav a:hover{color:var(--loom-link-hover);background:var(--loom-grad-soft)}\
-nav.loom-page-nav a[aria-current=\"page\"]{color:var(--loom-accent);font-weight:600}\
-.loom-page-title{margin:.5rem 0 0;font-family:var(--loom-font-display);\
-font-weight:700;letter-spacing:-.018em;font-size:1.6rem}\
+nav.loom-page-nav a:hover{color:var(--loom-fg);background:color-mix(in oklab,var(--loom-fg) 5%,transparent)}\
+nav.loom-page-nav a[aria-current=\"page\"]{color:var(--loom-accent);font-weight:600;background:color-mix(in oklab,var(--loom-accent) 10%,transparent)}\
+nav.loom-page-nav a.loom-page-brand{font-family:var(--loom-font-display);font-weight:800;color:var(--loom-fg);\
+font-size:1.15rem;letter-spacing:-.022em;padding-left:.25rem;padding-right:1.25rem;background:none}\
+nav.loom-page-nav a.loom-page-brand:hover{background:none}\
+.loom-page-title{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}\
 main#content{padding:1.5rem;max-width:64rem;margin:0 auto}\
 @media (prefers-reduced-motion:reduce){\
 *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;\

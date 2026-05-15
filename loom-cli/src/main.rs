@@ -2207,6 +2207,8 @@ fn build_state_matrix_page() -> loom_cms_render::CmsPage {
                         href: "/card-1".into(),
                         data_backend: "card-target".into(),
                         tag: None,
+                        tone: None,
+                        media: None,
                     },
                     CmsCard {
                         avatar: loom_cms_render::CmsAvatar::None,
@@ -2216,6 +2218,8 @@ fn build_state_matrix_page() -> loom_cms_render::CmsPage {
                         href: "/card-2".into(),
                         data_backend: "card-target".into(),
                         tag: Some("featured".into()),
+                        tone: None,
+                        media: None,
                     },
                 ],
             },
@@ -11046,6 +11050,8 @@ fn cms_template_landing(title: &str, path: &str) -> loom_cms_render::CmsPage {
                         href: format!("/c/sample-{i}"),
                         data_backend: "view-challenge".to_owned(),
                         tag: Some("Sample".to_owned()),
+                        tone: None,
+                        media: None,
                     })
                     .collect(),
             },
