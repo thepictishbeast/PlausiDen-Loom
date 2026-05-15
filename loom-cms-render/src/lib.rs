@@ -588,7 +588,77 @@ pub struct CmsCard {
     pub data_backend: String,
     /// Optional category tag (small badge above the title).
     pub tag: Option<String>,
+    /// Optional `data-tone` value for the tag chip (curated palette
+    /// in skin.css: violet/indigo/ocean/forest/amber/rose/ruby/
+    /// walnut/slate/teal). When set, drives the chip's bg/fg/border
+    /// hue. Falls back to the site's primary brand color when None.
+    /// Sites that need a custom hue should keep `tone` None and
+    /// emit inline `style="--tag-color: …"` via a future field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tone: Option<String>,
+    /// T70a: optional 16:9 media slot rendered ABOVE the body.
+    /// When None, no media block is emitted (card is pure text).
+    /// When Some, a `<div class="loom-card-feed-item__media">`
+    /// wraps the asset (image / picture / video). Lazy-load via
+    /// loading="lazy". Object-fit:cover via skin.css.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media: Option<CmsCardMedia>,
 }
+
+/// T70a: media slot for [`CmsCard`]. Three shapes:
+/// - `Image { src, alt, srcset?, width?, height? }` — `<img loading="lazy">`
+/// - `Video { poster?, src, type, alt }` — native `<video>` (no autoplay)
+/// - `Placeholder { tone? }` — visible empty media area with
+///   gradient bg (no `<img>`/`<video>`), useful while content is
+///   being authored. data-empty="true" lets skin.css show a soft
+///   pattern.
+///
+/// All variants are SAFE: src/poster validated by `is_safe_url`;
+/// alt is REQUIRED for Image (a11y); type is restricted to known
+/// safe MIME values for Video.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CmsCardMedia {
+    /// Static image. `loading="lazy"`. `decoding="async"`.
+    Image {
+        /// Resource URL. Validated by `is_safe_url`.
+        src: String,
+        /// REQUIRED accessible-name text. Empty string allowed
+        /// only for purely decorative media (then aria-hidden
+        /// will be set by the renderer too).
+        alt: String,
+        /// Optional `srcset` for responsive density (1x/2x/3x).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        srcset: Option<String>,
+        /// Optional intrinsic dimensions (drives layout-shift
+        /// avoidance via the rendered width/height attrs).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        width: Option<u32>,
+        /// See `width`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        height: Option<u32>,
+    },
+    /// Native HTML `<video>`. No autoplay. controls=true. preload=metadata.
+    Video {
+        /// Optional poster image (shown before play).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        poster: Option<String>,
+        /// Video resource URL.
+        src: String,
+        /// MIME type — must be one of: video/mp4, video/webm, video/ogg.
+        mime: String,
+        /// Accessible-name (for screen-reader fallback).
+        alt: String,
+    },
+    /// Visible-but-empty media area. CSS gradient placeholder.
+    Placeholder {
+        /// Optional `data-tone` to colorize the placeholder.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tone: Option<String>,
+    },
+}
+
+const ALLOWED_VIDEO_MIME: &[&str] = &["video/mp4", "video/webm", "video/ogg"];
 
 /// One {label, value} pair inside a [`CmsCard`]'s stats grid.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
