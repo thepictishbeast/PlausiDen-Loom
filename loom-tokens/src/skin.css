@@ -442,6 +442,78 @@
     }
   }
 
+  /* T65 (closes #648): animation primitives.
+   * Opt-in via data-loom-anim="<name>". Every animation collapses
+   * to instant under prefers-reduced-motion (WCAG 2.3.3).
+   *
+   * Available animations:
+   *   fade-in, fade-up, fade-down, fade-left, fade-right
+   *   scale-in, scale-out
+   *   slide-up, slide-down, slide-left, slide-right
+   *   pulse, shake, spin
+   *
+   * Speed:
+   *   data-loom-anim-duration="fast|base|slow|slower"
+   *   default: base (var(--loom-motion-base, 220ms))
+   *
+   * Delay:
+   *   data-loom-anim-delay="N" (N in ms)
+   *
+   * Easing:
+   *   uses --loom-ease-out by default; data-loom-anim-easing="spring"
+   *   switches to var(--loom-ease-spring).
+   */
+  @keyframes loom-anim-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes loom-anim-fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes loom-anim-fade-down { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes loom-anim-fade-left { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes loom-anim-fade-right { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes loom-anim-scale-in { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+  @keyframes loom-anim-scale-out { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.92); } }
+  @keyframes loom-anim-slide-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  @keyframes loom-anim-slide-down { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+  @keyframes loom-anim-slide-left { from { transform: translateX(100%); } to { transform: translateX(0); } }
+  @keyframes loom-anim-slide-right { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+  @keyframes loom-anim-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.04); } }
+  @keyframes loom-anim-shake { 10%, 90% { transform: translateX(-2px); } 20%, 80% { transform: translateX(4px); } 30%, 50%, 70% { transform: translateX(-6px); } 40%, 60% { transform: translateX(6px); } }
+  @keyframes loom-anim-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
+  [data-loom-anim] {
+    --comp-anim-duration: var(--loom-motion-base, 220ms);
+    --comp-anim-easing: var(--loom-ease-out, ease);
+    --comp-anim-delay: 0ms;
+    animation-duration: var(--comp-anim-duration);
+    animation-timing-function: var(--comp-anim-easing);
+    animation-delay: var(--comp-anim-delay);
+    animation-fill-mode: both;
+  }
+  [data-loom-anim-duration="fast"] { --comp-anim-duration: var(--loom-motion-fast, 120ms); }
+  [data-loom-anim-duration="slow"] { --comp-anim-duration: var(--loom-motion-slow, 420ms); }
+  [data-loom-anim-duration="slower"] { --comp-anim-duration: 800ms; }
+  [data-loom-anim-easing="spring"] { --comp-anim-easing: var(--loom-ease-spring, ease-out); }
+  /* Per-name binding. Plain CSS-only — no JS triggers, runs on
+   * page load for each element with the attribute. */
+  [data-loom-anim="fade-in"]      { animation-name: loom-anim-fade-in; }
+  [data-loom-anim="fade-up"]      { animation-name: loom-anim-fade-up; }
+  [data-loom-anim="fade-down"]    { animation-name: loom-anim-fade-down; }
+  [data-loom-anim="fade-left"]    { animation-name: loom-anim-fade-left; }
+  [data-loom-anim="fade-right"]   { animation-name: loom-anim-fade-right; }
+  [data-loom-anim="scale-in"]     { animation-name: loom-anim-scale-in; }
+  [data-loom-anim="scale-out"]    { animation-name: loom-anim-scale-out; }
+  [data-loom-anim="slide-up"]     { animation-name: loom-anim-slide-up; }
+  [data-loom-anim="slide-down"]   { animation-name: loom-anim-slide-down; }
+  [data-loom-anim="slide-left"]   { animation-name: loom-anim-slide-left; }
+  [data-loom-anim="slide-right"]  { animation-name: loom-anim-slide-right; }
+  [data-loom-anim="pulse"]        { animation-name: loom-anim-pulse; animation-iteration-count: infinite; animation-duration: 2s; }
+  [data-loom-anim="shake"]        { animation-name: loom-anim-shake; animation-duration: 600ms; }
+  [data-loom-anim="spin"]         { animation-name: loom-anim-spin; animation-iteration-count: infinite; animation-timing-function: linear; animation-duration: 1.4s; }
+  /* WCAG 2.3.3: reduced-motion clamps every animation to no-op. */
+  @media (prefers-reduced-motion: reduce) {
+    [data-loom-anim] {
+      animation: none !important;
+    }
+  }
+
 
 /* ============================================================ *
  * @layer tokens                                                 *
