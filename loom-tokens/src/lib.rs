@@ -15,6 +15,7 @@
 #![doc(html_no_source)]
 
 pub mod color;
+pub mod icons;
 pub mod radius;
 pub mod scale;
 
