@@ -1307,25 +1307,19 @@
     grid-template-columns: 1fr;
     gap: var(--loom-space-4);
   }
-  /* T70d: 2-column card grid at desktop. Featured first card
-   * spans both columns. Sites that want a vertical list set
-   * data-layout="list" on .loom-card-feed. */
-  @media (min-width: 720px) {
-    .loom-card-feed:not([data-layout="list"]) {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .loom-card-feed:not([data-layout="list"]):not([data-featured="off"]) > .loom-card-feed-item:first-of-type {
-      grid-column: 1 / -1;
-    }
+  /* T70d cycle 96 iter 6: auto-fit card grid. Each card gets at
+   * least 18rem of width OR a full column if not enough room.
+   * Featured first card spans the full row regardless. Sites
+   * that want a vertical list set data-layout="list" on
+   * .loom-card-feed. REGRESSION-GUARD: prior fixed 2-col grid
+   * broke at 200% zoom (root font-size = 32px), squeezing card
+   * bodies to clientWidth=0. auto-fit + min(100%, 18rem) means
+   * the grid degrades gracefully under zoom + narrow viewports. */
+  .loom-card-feed:not([data-layout="list"]) {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
   }
-  /* 3-column at very wide viewports — also keeps featured at full width. */
-  @media (min-width: 1440px) {
-    .loom-card-feed:not([data-layout="list"]):not([data-layout="grid-2"]) {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-    .loom-card-feed:not([data-layout="list"]):not([data-layout="grid-2"]):not([data-featured="off"]) > .loom-card-feed-item:first-of-type {
-      grid-column: 1 / -1;
-    }
+  .loom-card-feed:not([data-layout="list"]):not([data-featured="off"]) > .loom-card-feed-item:first-of-type {
+    grid-column: 1 / -1;
   }
   .loom-card-feed__heading {
     font-family: var(--loom-font-display);

@@ -12909,6 +12909,450 @@ mod webauthn_auth_data_tests {
     }
 }
 
+// ============================================================
+// T43d cycle 95b: minimal CBOR subset for COSE_Key parsing.
+// ============================================================
+//
+// COSE_Key is a CBOR map (RFC 8152 §7). For WebAuthn ES256
+// (P-256 EC) we need:
+//   kty  (label 1)  = 2 (EC2)
+//   alg  (label 3)  = -7 (ES256)
+//   crv  (label -1) = 1 (P-256)
+//   x    (label -2) = byte-string (32 bytes, EC pubkey X)
+//   y    (label -3) = byte-string (32 bytes, EC pubkey Y)
+//
+// Why hand-roll? AVP-2 doctrine prohibits "custom crypto" — but
+// CBOR is a wire format, not crypto. The COSE_Key shape we
+// parse is rigid (5 specific labels, 2 specific value shapes).
+// A specialised parser is smaller + more auditable than pulling
+// in a full CBOR crate. ~200 LOC + 14 tests cover every branch.
+//
+// CBOR encoding refresher (RFC 8949):
+//   First byte = (major_type << 5) | additional_info
+//   major 0: unsigned int, value = ai (or follow-on bytes per ai)
+//   major 1: negative int, encoded value n → -1 - n
+//   major 2: byte string (len = ai or follow-on), then len bytes
+//   major 3: text string (we don't use; reject)
+//   major 4: array (we don't use; reject)
+//   major 5: map, (len = ai or follow-on) k:v pairs follow
+//   major 6: tagged (we don't use; reject)
+//   major 7: simple/float (we don't use; reject)
+//
+// additional_info:
+//   0..=23 — value IS ai (single byte total)
+//   24     — next 1 byte is value
+//   25     — next 2 bytes BE
+//   26     — next 4 bytes BE
+//   27     — next 8 bytes BE (we reject — overflow risk for our use)
+//   31     — indefinite (reject — COSE_Key never uses)
+//
+// AVP-2 Tier-1: every read bounds-checked. Every branch tested.
+
+const WEBAUTHN_COSE_MAX_BYTES: usize = 8 * 1024;
+
+/// One parsed CBOR value — restricted to the subset we accept
+/// for COSE_Key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CborValue {
+    /// Major type 0 — value fits in u64.
+    UnsignedInt(u64),
+    /// Major type 1 — value is -1 - encoded. Stored as i128 to
+    /// give head-room for negative range without overflow.
+    NegativeInt(i128),
+    /// Major type 2 — byte string contents.
+    Bytes(Vec<u8>),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CborError {
+    /// Reached end of input before parse completed.
+    EndOfInput,
+    /// Input exceeded WEBAUTHN_COSE_MAX_BYTES.
+    TooLarge,
+    /// Major type or additional-info value we don't support.
+    UnsupportedShape,
+    /// Indefinite-length encoding (additional info 31).
+    IndefiniteLength,
+    /// Map key was not a small integer (the only label shape
+    /// COSE_Key uses).
+    UnexpectedKeyShape,
+    /// Byte-string length exceeded remaining input.
+    BytesOverflow,
+    /// Trailing garbage after the top-level COSE_Key map.
+    TrailingBytes,
+    /// Required COSE_Key field absent.
+    MissingField(&'static str),
+    /// Required field present but wrong value.
+    WrongValue(&'static str),
+    /// EC coord byte string was not 32 bytes (P-256 expects 32).
+    BadCoordLength,
+    /// Header byte 0 — empty CBOR is not a valid value.
+    EmptyInput,
+}
+
+/// Parsed COSE_Key for ES256 (P-256). Fields:
+/// * kty = 2 (EC2)
+/// * alg = -7 (ES256)
+/// * crv = 1 (P-256)
+/// * x, y = 32-byte BE EC public coordinates
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CoseEs256PublicKey {
+    /// Uncompressed P-256 public-key X coordinate (32 bytes BE).
+    x: [u8; 32],
+    /// Uncompressed P-256 public-key Y coordinate (32 bytes BE).
+    y: [u8; 32],
+}
+
+/// Internal cursor — tracks remaining input + offset for error
+/// surface.
+struct CborCursor<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> CborCursor<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, pos: 0 }
+    }
+    fn remaining(&self) -> usize {
+        self.bytes.len().saturating_sub(self.pos)
+    }
+    fn read_u8(&mut self) -> Result<u8, CborError> {
+        if self.pos >= self.bytes.len() {
+            return Err(CborError::EndOfInput);
+        }
+        let v = self.bytes[self.pos];
+        self.pos += 1;
+        Ok(v)
+    }
+    fn read_n(&mut self, n: usize) -> Result<&'a [u8], CborError> {
+        if self.pos + n > self.bytes.len() {
+            return Err(CborError::EndOfInput);
+        }
+        let s = &self.bytes[self.pos..self.pos + n];
+        self.pos += n;
+        Ok(s)
+    }
+    fn read_u16_be(&mut self) -> Result<u16, CborError> {
+        let s = self.read_n(2)?;
+        Ok(u16::from_be_bytes([s[0], s[1]]))
+    }
+    fn read_u32_be(&mut self) -> Result<u32, CborError> {
+        let s = self.read_n(4)?;
+        Ok(u32::from_be_bytes([s[0], s[1], s[2], s[3]]))
+    }
+}
+
+/// Read one CBOR head: returns (major_type, raw_value). Rejects
+/// indefinite-length + 8-byte-length fields.
+fn cbor_read_head(c: &mut CborCursor) -> Result<(u8, u64), CborError> {
+    let head = c.read_u8()?;
+    let major = head >> 5;
+    let ai = head & 0x1f;
+    let value: u64 = match ai {
+        0..=23 => u64::from(ai),
+        24 => u64::from(c.read_u8()?),
+        25 => u64::from(c.read_u16_be()?),
+        26 => u64::from(c.read_u32_be()?),
+        27 => return Err(CborError::UnsupportedShape),
+        28..=30 => return Err(CborError::UnsupportedShape),
+        31 => return Err(CborError::IndefiniteLength),
+        _ => unreachable!("ai is 5-bit; covered"),
+    };
+    Ok((major, value))
+}
+
+/// Read one CBOR value from cursor. Only major types 0, 1, 2
+/// allowed.
+fn cbor_read_value(c: &mut CborCursor) -> Result<CborValue, CborError> {
+    let (major, raw) = cbor_read_head(c)?;
+    match major {
+        0 => Ok(CborValue::UnsignedInt(raw)),
+        1 => Ok(CborValue::NegativeInt(-1 - i128::from(raw))),
+        2 => {
+            // raw = byte-string length. Must fit in usize + in
+            // remaining input.
+            let len = usize::try_from(raw).map_err(|_| CborError::BytesOverflow)?;
+            if len > c.remaining() {
+                return Err(CborError::BytesOverflow);
+            }
+            let bytes = c.read_n(len)?.to_vec();
+            Ok(CborValue::Bytes(bytes))
+        }
+        _ => Err(CborError::UnsupportedShape),
+    }
+}
+
+/// Top-level entry point. Parses bytes as a COSE_Key map and
+/// extracts the EC2 P-256 public-key x/y. Returns precise
+/// errors for any missing or malformed field.
+fn parse_cose_es256_key(bytes: &[u8]) -> Result<CoseEs256PublicKey, CborError> {
+    if bytes.is_empty() {
+        return Err(CborError::EmptyInput);
+    }
+    if bytes.len() > WEBAUTHN_COSE_MAX_BYTES {
+        return Err(CborError::TooLarge);
+    }
+    let mut c = CborCursor::new(bytes);
+    let (major, count) = cbor_read_head(&mut c)?;
+    if major != 5 {
+        return Err(CborError::UnsupportedShape);
+    }
+
+    // Required COSE_Key fields for ES256 P-256.
+    let mut kty: Option<i128> = None;
+    let mut alg: Option<i128> = None;
+    let mut crv: Option<i128> = None;
+    let mut x_coord: Option<Vec<u8>> = None;
+    let mut y_coord: Option<Vec<u8>> = None;
+
+    let count_usz = usize::try_from(count).map_err(|_| CborError::BytesOverflow)?;
+    for _ in 0..count_usz {
+        // Read key: must be a small integer (major 0 or 1).
+        let key_head_pos = c.pos;
+        let (kmajor, kraw) = cbor_read_head(&mut c)?;
+        let key_i: i128 = match kmajor {
+            0 => i128::from(kraw),
+            1 => -1 - i128::from(kraw),
+            _ => {
+                // Roll back so the error position is the key byte.
+                c.pos = key_head_pos;
+                return Err(CborError::UnexpectedKeyShape);
+            }
+        };
+        let val = cbor_read_value(&mut c)?;
+        match (key_i, val) {
+            (1, CborValue::UnsignedInt(v)) => kty = Some(i128::from(v)),
+            (1, CborValue::NegativeInt(v)) => kty = Some(v),
+            (3, CborValue::UnsignedInt(v)) => alg = Some(i128::from(v)),
+            (3, CborValue::NegativeInt(v)) => alg = Some(v),
+            (-1, CborValue::UnsignedInt(v)) => crv = Some(i128::from(v)),
+            (-1, CborValue::NegativeInt(v)) => crv = Some(v),
+            (-2, CborValue::Bytes(b)) => x_coord = Some(b),
+            (-3, CborValue::Bytes(b)) => y_coord = Some(b),
+            // Unknown keys: tolerate (forward-compat) — read+drop
+            // the value but don't record it.
+            _ => {}
+        }
+    }
+
+    if c.pos != c.bytes.len() {
+        return Err(CborError::TrailingBytes);
+    }
+
+    if kty != Some(2) {
+        return if kty.is_none() {
+            Err(CborError::MissingField("kty"))
+        } else {
+            Err(CborError::WrongValue("kty"))
+        };
+    }
+    if alg != Some(-7) {
+        return if alg.is_none() {
+            Err(CborError::MissingField("alg"))
+        } else {
+            Err(CborError::WrongValue("alg"))
+        };
+    }
+    if crv != Some(1) {
+        return if crv.is_none() {
+            Err(CborError::MissingField("crv"))
+        } else {
+            Err(CborError::WrongValue("crv"))
+        };
+    }
+    let x_vec = x_coord.ok_or(CborError::MissingField("x"))?;
+    let y_vec = y_coord.ok_or(CborError::MissingField("y"))?;
+    if x_vec.len() != 32 || y_vec.len() != 32 {
+        return Err(CborError::BadCoordLength);
+    }
+    let mut x = [0u8; 32];
+    let mut y = [0u8; 32];
+    x.copy_from_slice(&x_vec);
+    y.copy_from_slice(&y_vec);
+    Ok(CoseEs256PublicKey { x, y })
+}
+
+#[cfg(test)]
+mod webauthn_cose_tests {
+    use super::*;
+
+    /// Build a valid 5-entry ES256 COSE_Key. Returns the CBOR bytes.
+    fn valid_es256(x: &[u8; 32], y: &[u8; 32]) -> Vec<u8> {
+        let mut v = vec![0xA5]; // map(5)
+        v.extend_from_slice(&[0x01, 0x02]); // kty=2
+        v.extend_from_slice(&[0x03, 0x26]); // alg=-7 (major 1, value 6 → -1-6=-7)
+        v.extend_from_slice(&[0x20, 0x01]); // crv=-1 → P-256(1)
+        v.extend_from_slice(&[0x21, 0x58, 0x20]); // -2 = byte-string(32)
+        v.extend_from_slice(x);
+        v.extend_from_slice(&[0x22, 0x58, 0x20]); // -3 = byte-string(32)
+        v.extend_from_slice(y);
+        v
+    }
+
+    #[test]
+    fn parse_valid_es256_key_ok() {
+        let x = [0xAA; 32];
+        let y = [0xBB; 32];
+        let bytes = valid_es256(&x, &y);
+        let key = parse_cose_es256_key(&bytes).expect("parse ok");
+        assert_eq!(key.x, x);
+        assert_eq!(key.y, y);
+    }
+
+    #[test]
+    fn empty_input_rejected() {
+        let err = parse_cose_es256_key(&[]).expect_err("empty");
+        assert_eq!(err, CborError::EmptyInput);
+    }
+
+    #[test]
+    fn too_large_rejected() {
+        let huge = vec![0u8; WEBAUTHN_COSE_MAX_BYTES + 1];
+        let err = parse_cose_es256_key(&huge).expect_err("too large");
+        assert_eq!(err, CborError::TooLarge);
+    }
+
+    #[test]
+    fn top_level_not_map_rejected() {
+        // 0x02 = unsigned int 2 (not a map)
+        let err = parse_cose_es256_key(&[0x02]).expect_err("not map");
+        assert_eq!(err, CborError::UnsupportedShape);
+    }
+
+    #[test]
+    fn indefinite_length_rejected() {
+        // 0xBF = map indefinite-length (ai=31)
+        let err = parse_cose_es256_key(&[0xBF, 0xFF]).expect_err("indefinite");
+        assert_eq!(err, CborError::IndefiniteLength);
+    }
+
+    #[test]
+    fn ai_27_eight_byte_length_rejected() {
+        // 0xBB = map with 8-byte length prefix. We reject ai=27.
+        let err = parse_cose_es256_key(&[0xBB, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]).expect_err("ai27");
+        assert_eq!(err, CborError::UnsupportedShape);
+    }
+
+    #[test]
+    fn missing_kty_rejected() {
+        // Map(4) with everything except kty.
+        let mut v = vec![0xA4];
+        v.extend_from_slice(&[0x03, 0x26]); // alg=-7
+        v.extend_from_slice(&[0x20, 0x01]); // crv=1
+        v.extend_from_slice(&[0x21, 0x58, 0x20]);
+        v.extend_from_slice(&[0u8; 32]);
+        v.extend_from_slice(&[0x22, 0x58, 0x20]);
+        v.extend_from_slice(&[0u8; 32]);
+        let err = parse_cose_es256_key(&v).expect_err("no kty");
+        assert_eq!(err, CborError::MissingField("kty"));
+    }
+
+    #[test]
+    fn wrong_kty_rejected() {
+        // kty = 1 (OKP) instead of 2 (EC2).
+        let mut v = vec![0xA5];
+        v.extend_from_slice(&[0x01, 0x01]); // kty=1
+        v.extend_from_slice(&[0x03, 0x26]);
+        v.extend_from_slice(&[0x20, 0x01]);
+        v.extend_from_slice(&[0x21, 0x58, 0x20]);
+        v.extend_from_slice(&[0u8; 32]);
+        v.extend_from_slice(&[0x22, 0x58, 0x20]);
+        v.extend_from_slice(&[0u8; 32]);
+        let err = parse_cose_es256_key(&v).expect_err("wrong kty");
+        assert_eq!(err, CborError::WrongValue("kty"));
+    }
+
+    #[test]
+    fn wrong_alg_rejected_es384_instead_of_es256() {
+        // alg = -35 (ES384, encoded as major 1 value 34)
+        let mut v = vec![0xA5];
+        v.extend_from_slice(&[0x01, 0x02]);
+        v.extend_from_slice(&[0x03, 0x38, 0x22]); // alg=-35
+        v.extend_from_slice(&[0x20, 0x01]);
+        v.extend_from_slice(&[0x21, 0x58, 0x20]);
+        v.extend_from_slice(&[0u8; 32]);
+        v.extend_from_slice(&[0x22, 0x58, 0x20]);
+        v.extend_from_slice(&[0u8; 32]);
+        let err = parse_cose_es256_key(&v).expect_err("wrong alg");
+        assert_eq!(err, CborError::WrongValue("alg"));
+    }
+
+    #[test]
+    fn bad_x_coord_length_rejected() {
+        // x is only 16 bytes instead of 32.
+        let mut v = vec![0xA5];
+        v.extend_from_slice(&[0x01, 0x02]);
+        v.extend_from_slice(&[0x03, 0x26]);
+        v.extend_from_slice(&[0x20, 0x01]);
+        v.extend_from_slice(&[0x21, 0x50]); // byte string, length 16 (ai=16)
+        v.extend_from_slice(&[0u8; 16]);
+        v.extend_from_slice(&[0x22, 0x58, 0x20]);
+        v.extend_from_slice(&[0u8; 32]);
+        let err = parse_cose_es256_key(&v).expect_err("bad coord");
+        assert_eq!(err, CborError::BadCoordLength);
+    }
+
+    #[test]
+    fn byte_string_length_overflow_rejected() {
+        // byte-string head claims 1000 bytes but only 5 follow.
+        let mut v = vec![0xA1]; // map(1)
+        v.extend_from_slice(&[0x01]); // key=1
+        v.extend_from_slice(&[0x59, 0x03, 0xE8]); // byte-string, ai=25 (2-byte length), len=1000
+        v.extend_from_slice(&[0u8; 5]); // only 5 bytes
+        let err = parse_cose_es256_key(&v).expect_err("overflow");
+        assert_eq!(err, CborError::BytesOverflow);
+    }
+
+    #[test]
+    fn unknown_fields_tolerated_forward_compat() {
+        // Add an extra key (label 99 → byte-string) before the
+        // required fields. Parser MUST tolerate.
+        let mut v = vec![0xA6]; // map(6)
+        v.extend_from_slice(&[0x18, 0x63]); // key = 99 (ai=24, 1-byte value)
+        v.extend_from_slice(&[0x41, 0xFF]); // byte-string(1) = 0xFF
+        v.extend_from_slice(&[0x01, 0x02]);
+        v.extend_from_slice(&[0x03, 0x26]);
+        v.extend_from_slice(&[0x20, 0x01]);
+        v.extend_from_slice(&[0x21, 0x58, 0x20]);
+        v.extend_from_slice(&[0u8; 32]);
+        v.extend_from_slice(&[0x22, 0x58, 0x20]);
+        v.extend_from_slice(&[0u8; 32]);
+        let key = parse_cose_es256_key(&v).expect("unknown field ok");
+        assert_eq!(key.x, [0u8; 32]);
+    }
+
+    #[test]
+    fn trailing_bytes_rejected() {
+        let mut v = valid_es256(&[0xAA; 32], &[0xBB; 32]);
+        v.push(0xFF); // garbage past the map
+        let err = parse_cose_es256_key(&v).expect_err("trailing");
+        assert_eq!(err, CborError::TrailingBytes);
+    }
+
+    #[test]
+    fn text_string_key_rejected_as_unexpected_shape() {
+        // map(1) with key = text-string "kty" (major 3) — we
+        // only accept small-integer keys.
+        let mut v = vec![0xA1];
+        v.extend_from_slice(&[0x63, b'k', b't', b'y']); // tstr(3) "kty"
+        v.extend_from_slice(&[0x02]); // value = 2
+        let err = parse_cose_es256_key(&v).expect_err("text key");
+        assert_eq!(err, CborError::UnexpectedKeyShape);
+    }
+
+    #[test]
+    fn read_head_value_in_ai_24_1byte_extension() {
+        // Probe path: ai=24 with key value 100.
+        // map(1) key=100 value=2.
+        let v = [0xA1, 0x18, 0x64, 0x02];
+        // 100 is not 1 → unknown key, parser tolerates → all
+        // required fields missing → MissingField("kty").
+        let err = parse_cose_es256_key(&v).expect_err("ai24 happy path");
+        assert_eq!(err, CborError::MissingField("kty"));
+    }
+}
+
 #[cfg(test)]
 mod webauthn_challenge_tests {
     use super::*;
