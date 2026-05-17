@@ -31,6 +31,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod bwrap;
 pub mod resource;
 pub mod sandbox;
 pub mod tenant;
