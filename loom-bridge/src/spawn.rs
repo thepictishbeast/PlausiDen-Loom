@@ -33,7 +33,9 @@
 use crate::bwrap::compose_bwrap_exec_argv;
 use crate::cgroup::{CGROUP_ROOT, CgroupWriteError, apply_cgroup_writes, render_cgroup_writes};
 use crate::egress::{
-    EgressApplyError, NftablesRuleset, apply_nftables_ruleset, render_nftables_ruleset,
+    EgressApplyError, NftablesRuleset, ResolveError, ResolvedAllowlist, apply_nftables_ruleset,
+    apply_set_population_commands, render_nftables_ruleset, render_set_population_commands,
+    resolve_egress_allowlist,
 };
 use crate::exec_spec::ClaudeExecSpec;
 use crate::resource::ResourceCeilings;
@@ -88,6 +90,10 @@ pub struct PreparedLaunch {
     /// nftables ruleset that was applied (for audit log /
     /// dry-run diff).
     pub applied_ruleset: NftablesRuleset,
+    /// Resolved allowlist (IPs + per-host failures). `None` when
+    /// the sandbox spec has an empty `egress_allowlist` — no
+    /// resolver pass was attempted.
+    pub resolved_allowlist: Option<ResolvedAllowlist>,
 }
 
 /// Minimal Debug — skips the `Command` (which doesn't impl Debug
@@ -116,6 +122,10 @@ pub enum LaunchError {
     /// or nft isn't installed.
     #[error("nftables apply: {0}")]
     Egress(#[from] EgressApplyError),
+    /// Hostname resolution failed completely (zero hosts resolved).
+    /// Usually means the bridge has no working DNS path.
+    #[error("egress hostname resolution: {0}")]
+    Resolve(#[from] ResolveError),
 }
 
 impl BridgeLaunch {
@@ -148,11 +158,26 @@ impl BridgeLaunch {
         let cgroup_writes = render_cgroup_writes(&exec.tenant, &ceilings, &cgroup_root);
         apply_cgroup_writes(&cgroup_writes)?;
 
-        // 2. Render + apply nftables ruleset.
+        // 2. Render + apply nftables ruleset (table + chain skeleton).
         let ruleset = render_nftables_ruleset(&sandbox);
         apply_nftables_ruleset(&nft_binary, &ruleset)?;
 
-        // 3. Compose the bwrap+exec argv.
+        // 3. Cycle 5n (2026-05-17): resolve egress allowlist
+        //    hostnames + populate the @set elements. Only
+        //    attempted when the sandbox has hosts to resolve —
+        //    an empty allowlist deliberately leaves the ruleset's
+        //    DROP-by-default in force (zero egress for that
+        //    tenant).
+        let resolved_allowlist = if sandbox.egress_allowlist.is_empty() {
+            None
+        } else {
+            let resolved = resolve_egress_allowlist(&sandbox.egress_allowlist, 443)?;
+            let pop_commands = render_set_population_commands(&ruleset, &resolved);
+            apply_set_population_commands(&nft_binary, &pop_commands)?;
+            Some(resolved)
+        };
+
+        // 4. Compose the bwrap+exec argv.
         let argv_os = compose_bwrap_exec_argv(&sandbox, &ceilings, &exec);
         let audit_argv: Vec<String> = std::iter::once("bwrap".to_owned())
             .chain(argv_os.iter().map(|s| s.to_string_lossy().into_owned()))
@@ -165,6 +190,7 @@ impl BridgeLaunch {
             command,
             audit_argv,
             applied_ruleset: ruleset,
+            resolved_allowlist,
         })
     }
 }
@@ -361,5 +387,60 @@ mod tests {
         let launch = BridgeLaunch::new(exec, sandbox, ceilings);
         assert_eq!(launch.cgroup_root, "/sys/fs/cgroup");
         assert_eq!(launch.nft_binary, "nft");
+    }
+
+    // ---------- cycle 5n integration: resolver + populate ----------
+    //
+    // After Phase 1 (table/chain skeleton) we now invoke the
+    // resolver + set-population executor in `prepare()`. These
+    // tests pin that wiring without requiring DNS reachability —
+    // the partial/total-failure case is accepted as an outcome.
+
+    #[test]
+    fn prepare_populates_resolved_allowlist_for_default_spec() {
+        if !std::path::Path::new("/bin/sh").exists() {
+            return;
+        }
+        let tmp_cgroup = tempfile::tempdir().expect("tmp cgroup");
+        let tmp_nft = tempfile::tempdir().expect("tmp nft");
+        let nft = fresh_zero_exit_wrapper(&tmp_nft);
+        let launch = launch_with_cgroup_root(
+            tmp_cgroup.path().to_string_lossy().into_owned(),
+            nft.to_string_lossy().into_owned(),
+        );
+        match launch.prepare() {
+            Ok(prepared) => {
+                assert!(
+                    prepared.resolved_allowlist.is_some(),
+                    "default spec has non-empty allowlist; resolved must be Some"
+                );
+            }
+            Err(LaunchError::Resolve(_)) => {
+                // Offline test env (no DNS) — resolve failed completely.
+                // The spawn module correctly surfaced ResolveError;
+                // skip the populated-assert.
+            }
+            Err(other) => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn prepare_empty_allowlist_leaves_resolved_none() {
+        if !std::path::Path::new("/bin/sh").exists() {
+            return;
+        }
+        let tmp_cgroup = tempfile::tempdir().expect("tmp cgroup");
+        let tmp_nft = tempfile::tempdir().expect("tmp nft");
+        let nft = fresh_zero_exit_wrapper(&tmp_nft);
+        let mut launch = launch_with_cgroup_root(
+            tmp_cgroup.path().to_string_lossy().into_owned(),
+            nft.to_string_lossy().into_owned(),
+        );
+        launch.sandbox.egress_allowlist.clear();
+        let prepared = launch.prepare().expect("prepare ok with empty allowlist");
+        assert!(
+            prepared.resolved_allowlist.is_none(),
+            "empty allowlist means no resolver pass attempted; DROP-by-default in force"
+        );
     }
 }
