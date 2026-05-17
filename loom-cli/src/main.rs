@@ -7487,6 +7487,20 @@ fn handle_add_section(
             "tone": "info",
             "text": "Edit this banner.",
         }),
+        // T62 cycle 3+ (advances #615): kv_pair section picker.
+        // Mirrors CmsSection::KvPair { heading, items: Vec<CmsKvItem> }
+        // where CmsKvItem = { key, value, hint? }. Defaults seed three
+        // empty rows so the operator can immediately edit them in
+        // serve_edit_form without first having to add rows.
+        "kv_pair" => serde_json::json!({
+            "kind": "kv_pair",
+            "heading": "New facts list",
+            "items": [
+                {"key": "First label", "value": "First value."},
+                {"key": "Second label", "value": "Second value."},
+                {"key": "Third label", "value": "Third value."},
+            ],
+        }),
         _ => return respond_text(request, 400, "unknown section kind"),
     };
 
