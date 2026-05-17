@@ -4992,3 +4992,346 @@ body[data-loom-drawer-open] .loom-drawer-scrim {
   border-color: var(--loom-color-accent);
   color: var(--loom-color-ink);
 }
+
+/* ============================================================
+ * Navigation primitives — vocabulary batch 5 (task #46).
+ *
+ * Tabs / breadcrumbs / pagination / stepper / sidebar nav /
+ * toolbar / app bar / bottom nav / menu / link-list. Built on
+ * top of the surface primitives from batch 3 — chips, pills,
+ * dividers — and the form primitives from batch 4 (buttons).
+ *
+ * Every nav primitive uses semantic markup signals (aria-current,
+ * aria-selected, aria-expanded) for state. Visual state mirrors
+ * the semantic state so consumers don't have to maintain two
+ * separate signals.
+ * ============================================================ */
+
+/* Tabs — horizontal list + active indicator.
+ * Use with <ul role="tablist"> + <li role="tab" aria-selected="…">
+ * + <div role="tabpanel">.
+ */
+.loom-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--loom-space-3);
+}
+.loom-tab-list {
+  display: flex;
+  gap: var(--loom-space-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-block-end: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  overflow-x: auto;
+}
+.loom-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--loom-space-2);
+  padding: var(--loom-space-2) var(--loom-space-4);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+  background: transparent;
+  border: 0;
+  border-block-end: 2px solid transparent;
+  cursor: pointer;
+  margin-block-end: -1px;
+}
+.loom-tab:hover { color: var(--loom-color-ink); }
+.loom-tab[aria-selected="true"],
+.loom-tab[aria-current="page"] {
+  color: var(--loom-color-ink);
+  border-block-end-color: var(--loom-color-accent);
+}
+.loom-tab:focus-visible {
+  outline: 2px solid var(--loom-color-accent);
+  outline-offset: 2px;
+}
+.loom-tab-panel {
+  padding-block-start: var(--loom-space-3);
+}
+
+/* Breadcrumb — trail of links with separator.
+ */
+.loom-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--loom-space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.875rem;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+}
+.loom-breadcrumb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--loom-space-2);
+}
+.loom-breadcrumb-item > a {
+  color: inherit;
+  text-decoration: none;
+}
+.loom-breadcrumb-item > a:hover { text-decoration: underline; }
+.loom-breadcrumb-item[aria-current="page"] {
+  color: var(--loom-color-ink);
+  font-weight: 500;
+}
+.loom-breadcrumb-sep {
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+  user-select: none;
+}
+.loom-breadcrumb-sep::before { content: "/"; }
+
+/* Pagination — page-number list with prev/next.
+ */
+.loom-pagination {
+  display: flex;
+  align-items: center;
+  gap: var(--loom-space-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.loom-pagination-item {
+  display: inline-flex;
+}
+.loom-pagination-item > a,
+.loom-pagination-item > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 2.25rem;
+  block-size: 2.25rem;
+  padding-inline: var(--loom-space-2);
+  font-size: 0.875rem;
+  color: var(--loom-color-ink);
+  background: transparent;
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  border-radius: var(--loom-radius-sm, 0.25rem);
+  text-decoration: none;
+  cursor: pointer;
+}
+.loom-pagination-item[aria-current="page"] > a,
+.loom-pagination-item[aria-current="page"] > button {
+  background: var(--loom-color-accent);
+  color: var(--loom-color-on-accent, white);
+  border-color: var(--loom-color-accent);
+}
+.loom-pagination-item > a:focus-visible,
+.loom-pagination-item > button:focus-visible {
+  outline: 2px solid var(--loom-color-accent);
+  outline-offset: 2px;
+}
+.loom-pagination-item[aria-hidden="true"] {
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+  pointer-events: none;
+}
+
+/* Stepper — multi-step process indicator.
+ * Step states via data-state="complete|active|pending".
+ */
+.loom-stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--loom-space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.loom-step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--loom-space-2);
+}
+.loom-step + .loom-step::before {
+  content: "";
+  display: inline-block;
+  inline-size: 2rem;
+  block-size: 1px;
+  background: var(--loom-color-border, var(--loom-color-ink));
+}
+.loom-step > .loom-step-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.75rem;
+  block-size: 1.75rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--loom-color-border, var(--loom-color-ink));
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+  background: var(--loom-color-surface);
+}
+.loom-step[data-state="complete"] > .loom-step-marker {
+  background: var(--loom-color-success, var(--loom-color-accent));
+  border-color: var(--loom-color-success, var(--loom-color-accent));
+  color: var(--loom-color-on-accent, white);
+}
+.loom-step[data-state="active"] > .loom-step-marker {
+  background: var(--loom-color-accent);
+  border-color: var(--loom-color-accent);
+  color: var(--loom-color-on-accent, white);
+}
+.loom-step > .loom-step-label {
+  font-size: 0.875rem;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+}
+.loom-step[data-state="active"] > .loom-step-label {
+  color: var(--loom-color-ink);
+  font-weight: 500;
+}
+
+/* Sidebar navigation — vertical link list, common in app shells.
+ */
+.loom-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--loom-space-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.loom-sidebar-nav-item {
+  display: flex;
+}
+.loom-sidebar-nav-item > a {
+  display: flex;
+  align-items: center;
+  gap: var(--loom-space-3);
+  inline-size: 100%;
+  padding: var(--loom-space-2) var(--loom-space-3);
+  font-size: 0.9375rem;
+  color: var(--loom-color-ink);
+  text-decoration: none;
+  border-radius: var(--loom-radius-md, 0.5rem);
+}
+.loom-sidebar-nav-item > a:hover {
+  background: var(--loom-color-surface-subtle, var(--loom-color-surface));
+}
+.loom-sidebar-nav-item[aria-current="page"] > a,
+.loom-sidebar-nav-item > a[aria-current="page"] {
+  background: var(--loom-color-accent);
+  color: var(--loom-color-on-accent, white);
+}
+.loom-sidebar-nav-item > a:focus-visible {
+  outline: 2px solid var(--loom-color-accent);
+  outline-offset: 2px;
+}
+
+/* Toolbar — horizontal action strip.
+ */
+.loom-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--loom-space-2);
+  padding: var(--loom-space-2);
+  background: var(--loom-color-surface);
+  border-radius: var(--loom-radius-md, 0.5rem);
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+}
+
+/* App bar — page-top navigation chrome.
+ */
+.loom-app-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--loom-space-4);
+  padding: var(--loom-space-3) var(--loom-space-4);
+  background: var(--loom-color-surface);
+  border-block-end: 1px solid var(--loom-color-border, var(--loom-color-ink));
+}
+
+/* Bottom nav — mobile-shell navigation.
+ */
+.loom-bottom-nav {
+  display: flex;
+  justify-content: space-around;
+  align-items: stretch;
+  gap: var(--loom-space-2);
+  padding: var(--loom-space-2);
+  background: var(--loom-color-surface);
+  border-block-start: 1px solid var(--loom-color-border, var(--loom-color-ink));
+}
+.loom-bottom-nav-item {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--loom-space-1);
+  font-size: 0.75rem;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+  text-decoration: none;
+  padding: var(--loom-space-2);
+}
+.loom-bottom-nav-item[aria-current="page"] {
+  color: var(--loom-color-accent);
+}
+
+/* Menu — dropdown / popover list.
+ */
+.loom-menu {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: var(--loom-space-1);
+  min-inline-size: 12rem;
+  background: var(--loom-color-surface);
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  border-radius: var(--loom-radius-md, 0.5rem);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+.loom-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--loom-space-2);
+  padding: var(--loom-space-2) var(--loom-space-3);
+  font-size: 0.875rem;
+  color: var(--loom-color-ink);
+  text-decoration: none;
+  border-radius: var(--loom-radius-sm, 0.25rem);
+  cursor: pointer;
+}
+.loom-menu-item:hover {
+  background: var(--loom-color-surface-subtle, var(--loom-color-surface));
+}
+.loom-menu-item:focus-visible {
+  outline: 2px solid var(--loom-color-accent);
+  outline-offset: 2px;
+}
+.loom-menu-item[data-destructive="true"] {
+  color: var(--loom-color-danger, var(--loom-color-ink));
+}
+.loom-menu-divider {
+  block-size: 1px;
+  background: var(--loom-color-border, var(--loom-color-ink));
+  opacity: 0.4;
+  margin-block: var(--loom-space-1);
+}
+
+/* Link list — generic vertical list of links (sitemap, related
+ * articles, footer column).
+ */
+.loom-link-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--loom-space-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.loom-link-list > li > a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--loom-space-2);
+  color: var(--loom-color-ink);
+  text-decoration: none;
+}
+.loom-link-list > li > a:hover {
+  text-decoration: underline;
+}
