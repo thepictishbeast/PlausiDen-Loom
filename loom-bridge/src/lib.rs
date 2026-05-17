@@ -32,6 +32,7 @@
 #![deny(missing_docs)]
 
 pub mod bwrap;
+pub mod cgroup;
 pub mod resource;
 pub mod sandbox;
 pub mod tenant;
