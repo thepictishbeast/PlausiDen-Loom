@@ -2996,6 +2996,46 @@
     --loom-color-gradient-a:    hsl(238 100% 78%);
     --loom-color-gradient-b:    hsl(15 95% 70%);
   }
+
+  /* data-theme="dark-amoled" — true-black variant for OLED displays.
+   *
+   * bg-canvas at hsl(0 0% 0%) so OLED pixels are literally off:
+   * substantial battery savings on mobile, maximum contrast for
+   * low-vision readers without crossing into hc-dark's higher-
+   * contrast brand colors.
+   *
+   * Elevation grays (surface / surface-muted) stay near-black —
+   * just enough delta to convey depth in card stacks + modals
+   * without lighting up pixels that don't need to be on. Brand
+   * colors (primary, gradient-a/b, accent-glow, success/warn/
+   * danger) match the standard `dark` theme so the visual brand
+   * stays consistent across the two dark variants.
+   *
+   * Per `feedback_dark_theme_amoled_true_black`: OLED + max
+   * contrast + low-battery friendly. Selected via Crawler test
+   * matrix axis ?_theme=dark-amoled (see PlausiDen-Forge
+   * docs/TESTING.md for the 24-combo matrix).
+   */
+  :root[data-theme="dark-amoled"] {
+    --loom-color-bg-canvas:     hsl(0 0% 0%);
+    --loom-color-surface:       hsl(0 0% 5%);
+    --loom-color-surface-muted: hsl(0 0% 8%);
+    --loom-color-bg-overlay:    hsl(0 0% 100% / 6%);
+    --loom-color-ink:           hsl(228 33% 95%);
+    --loom-color-ink-muted:     hsl(225 12% 65%);
+    --loom-color-border:        hsl(0 0% 18%);
+    --loom-color-border-strong: hsl(0 0% 36%);
+    --loom-color-primary:       hsl(238 100% 78%);
+    --loom-color-primary-fg:    hsl(0 0% 0%);
+    --loom-color-accent-glow:   hsl(258 100% 78%);
+    --loom-color-success:       hsl(142 60% 60%);
+    --loom-color-warn:          hsl(28 95% 65%);
+    --loom-color-warning:       hsl(28 95% 65%);
+    --loom-color-danger:        hsl(0 80% 65%);
+    --loom-color-tier-medium:   hsl(45 95% 60%);
+    --loom-color-gradient-a:    hsl(238 100% 78%);
+    --loom-color-gradient-b:    hsl(15 95% 70%);
+  }
   /* Explicit data-theme="light" — same as default :root. */
   :root[data-theme="light"] {
     --loom-color-bg-canvas:     hsl(40 33% 98%);
