@@ -87,7 +87,10 @@ impl Tenant {
     /// Construct a tenant with no keys.
     #[must_use]
     pub fn new(id: TenantId) -> Self {
-        Self { id, keys: Vec::new() }
+        Self {
+            id,
+            keys: Vec::new(),
+        }
     }
 
     /// True iff the given base64-encoded ed25519 public key is on
@@ -168,7 +171,10 @@ mod tests {
     fn id_rejects_empty_and_long() {
         assert!(matches!(TenantId::new(""), Err(TenantError::InvalidId(_))));
         let long = "a".repeat(65);
-        assert!(matches!(TenantId::new(long), Err(TenantError::InvalidId(_))));
+        assert!(matches!(
+            TenantId::new(long),
+            Err(TenantError::InvalidId(_))
+        ));
     }
 
     #[test]
