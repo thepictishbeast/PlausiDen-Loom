@@ -57,10 +57,15 @@ pub struct BridgeLaunch {
     pub cgroup_root: String,
     /// `nft` binary path. Default `"nft"`. Override for tests.
     pub nft_binary: String,
+    /// `bwrap` binary path. Default `"bwrap"` (PATH lookup).
+    /// Override for tests (point at a sh-wrapper that ignores all
+    /// the bwrap-specific flags) or for non-standard installs
+    /// (e.g., flatpak/snap bwrap at a fixed absolute path).
+    pub bwrap_binary: String,
 }
 
 impl BridgeLaunch {
-    /// Construct with default cgroup root + nft binary.
+    /// Construct with default cgroup root + nft binary + bwrap binary.
     #[must_use]
     pub fn new(exec: ClaudeExecSpec, sandbox: SandboxSpec, ceilings: ResourceCeilings) -> Self {
         Self {
@@ -69,6 +74,7 @@ impl BridgeLaunch {
             ceilings,
             cgroup_root: CGROUP_ROOT.to_owned(),
             nft_binary: "nft".to_owned(),
+            bwrap_binary: "bwrap".to_owned(),
         }
     }
 }
@@ -152,6 +158,7 @@ impl BridgeLaunch {
             ceilings,
             cgroup_root,
             nft_binary,
+            bwrap_binary,
         } = self;
 
         // 1. Render + apply cgroup writes.
@@ -179,11 +186,11 @@ impl BridgeLaunch {
 
         // 4. Compose the bwrap+exec argv.
         let argv_os = compose_bwrap_exec_argv(&sandbox, &ceilings, &exec);
-        let audit_argv: Vec<String> = std::iter::once("bwrap".to_owned())
+        let audit_argv: Vec<String> = std::iter::once(bwrap_binary.clone())
             .chain(argv_os.iter().map(|s| s.to_string_lossy().into_owned()))
             .collect();
 
-        let mut command = Command::new("bwrap");
+        let mut command = Command::new(&bwrap_binary);
         command.args(&argv_os);
 
         Ok(PreparedLaunch {
@@ -221,6 +228,7 @@ mod tests {
             ceilings,
             cgroup_root,
             nft_binary,
+            bwrap_binary: "bwrap".to_owned(),
         }
     }
 

@@ -48,14 +48,17 @@ pub enum SandboxParamsError {
     /// `nft_binary` is empty.
     #[error("nft_binary is empty")]
     NftBinaryEmpty,
+    /// `bwrap_binary` is empty.
+    #[error("bwrap_binary is empty")]
+    BwrapBinaryEmpty,
 }
 
 /// Sandbox-template parameters consumed by the bridge server.
 ///
 /// Constructed via [`BridgeSandboxParams::new`] with mandatory
-/// `sandbox_root` + `ceilings`; cgroup root + nft binary default to
-/// their production values (`/sys/fs/cgroup`, `nft`) and may be
-/// overridden via the builder methods.
+/// `sandbox_root` + `ceilings`; cgroup root + nft binary + bwrap
+/// binary default to their production values (`/sys/fs/cgroup`,
+/// `nft`, `bwrap`) and may be overridden via the builder methods.
 ///
 /// BUG ASSUMPTION: the caller's process has the necessary
 /// capabilities (`CAP_SYS_ADMIN` for cgroup writes,
@@ -74,6 +77,9 @@ pub struct BridgeSandboxParams {
     pub cgroup_root: String,
     /// Path to the `nft` binary (production: `nft` on PATH).
     pub nft_binary: String,
+    /// Path to the `bwrap` binary (production: `bwrap` on PATH).
+    /// Override for tests or non-standard installs.
+    pub bwrap_binary: String,
 }
 
 impl BridgeSandboxParams {
@@ -96,6 +102,7 @@ impl BridgeSandboxParams {
             ceilings,
             cgroup_root: "/sys/fs/cgroup".to_owned(),
             nft_binary: "nft".to_owned(),
+            bwrap_binary: "bwrap".to_owned(),
         })
     }
 
@@ -124,6 +131,21 @@ impl BridgeSandboxParams {
             return Err(SandboxParamsError::NftBinaryEmpty);
         }
         self.nft_binary = nft_binary;
+        Ok(self)
+    }
+
+    /// Override the bwrap binary. Useful for tests that point at a
+    /// sh-wrapper or for operators with bwrap installed at a
+    /// non-standard absolute path (flatpak/snap).
+    ///
+    /// # Errors
+    ///
+    /// * [`SandboxParamsError::BwrapBinaryEmpty`] — empty input.
+    pub fn with_bwrap_binary(mut self, bwrap_binary: String) -> Result<Self, SandboxParamsError> {
+        if bwrap_binary.is_empty() {
+            return Err(SandboxParamsError::BwrapBinaryEmpty);
+        }
+        self.bwrap_binary = bwrap_binary;
         Ok(self)
     }
 
@@ -176,6 +198,7 @@ impl BridgeSandboxParams {
             ceilings: self.ceilings,
             cgroup_root: self.cgroup_root.clone(),
             nft_binary: self.nft_binary.clone(),
+            bwrap_binary: self.bwrap_binary.clone(),
         }
     }
 }
@@ -222,6 +245,48 @@ mod tests {
             .with_cgroup_root(String::new())
             .expect_err("empty cgroup fails");
         assert!(matches!(err, SandboxParamsError::CgroupRootEmpty));
+    }
+
+    #[test]
+    fn with_bwrap_binary_overrides_and_rejects_empty() {
+        let p = BridgeSandboxParams::new(PathBuf::from("/srv/loom"), ceilings())
+            .expect("ok")
+            .with_bwrap_binary("/tmp/sh-wrapper-for-bwrap".to_owned())
+            .expect("ok override");
+        assert_eq!(p.bwrap_binary, "/tmp/sh-wrapper-for-bwrap");
+
+        let err = BridgeSandboxParams::new(PathBuf::from("/srv/loom"), ceilings())
+            .expect("ok")
+            .with_bwrap_binary(String::new())
+            .expect_err("empty bwrap fails");
+        assert!(matches!(err, SandboxParamsError::BwrapBinaryEmpty));
+    }
+
+    #[test]
+    fn new_defaults_bwrap_binary_to_bwrap() {
+        let p = BridgeSandboxParams::new(PathBuf::from("/srv/loom"), ceilings()).expect("ok");
+        assert_eq!(p.bwrap_binary, "bwrap");
+    }
+
+    #[test]
+    fn build_launch_carries_overridden_bwrap_binary_through() {
+        use crate::exec_spec::{ClaudeExecSpec, ClaudeSessionId, TenantUid};
+        use crate::tenant::TenantId;
+        let tenant = TenantId::new("acme").expect("tenant id");
+        let exec = ClaudeExecSpec::new(
+            tenant,
+            TenantUid::new(1042).expect("uid"),
+            ClaudeSessionId::new("sess").expect("session id"),
+            "/usr/local/bin/claude",
+            "/sites/acme",
+        )
+        .expect("exec spec");
+        let p = BridgeSandboxParams::new(PathBuf::from("/srv/loom"), ceilings())
+            .expect("ok")
+            .with_bwrap_binary("/opt/flatpak/bin/bwrap".to_owned())
+            .expect("override");
+        let launch = p.build_launch(exec);
+        assert_eq!(launch.bwrap_binary, "/opt/flatpak/bin/bwrap");
     }
 
     #[test]

@@ -108,6 +108,7 @@ mod tests {
             ceilings,
             cgroup_root,
             nft_binary,
+            bwrap_binary: "bwrap".to_owned(),
         }
     }
 
