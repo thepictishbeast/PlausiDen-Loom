@@ -5918,3 +5918,333 @@ body[data-loom-drawer-open] .loom-drawer-scrim {
 .loom-command-palette-item:hover {
   background: var(--loom-color-surface-subtle, var(--loom-color-surface));
 }
+
+/* ============================================================
+ * Marketing primitives — vocabulary batch 8 (task #46, final).
+ *
+ * Hero / feature grid / pricing / testimonial / logo cloud /
+ * CTA / FAQ / stats / team / comparison. The landing-page
+ * layer — what most public-facing marketing sites need.
+ *
+ * Composes inside .loom-cover / .loom-center / .loom-grid /
+ * .loom-card-* from earlier batches.
+ *
+ * After this batch the vocabulary reaches the ~200 target.
+ * ============================================================ */
+
+/* Hero — page-leading marketing block.
+ */
+.loom-hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--loom-space-4);
+  padding: var(--loom-space-8) var(--loom-space-5, var(--loom-space-4));
+  text-align: start;
+}
+.loom-hero[data-align="center"] {
+  text-align: center;
+  align-items: center;
+}
+.loom-hero-eyebrow {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--loom-color-accent);
+}
+.loom-hero-title {
+  font-size: clamp(2.25rem, 4vw + 0.8rem, 4rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--loom-color-ink);
+  max-inline-size: 22ch;
+  margin: 0;
+}
+.loom-hero-subtitle {
+  font-size: clamp(1.125rem, 1vw + 0.9rem, 1.375rem);
+  line-height: 1.5;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+  max-inline-size: 60ch;
+  margin: 0;
+}
+.loom-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--loom-space-3);
+  margin-block-start: var(--loom-space-3);
+}
+.loom-hero-media {
+  margin-block-start: var(--loom-space-6);
+  border-radius: var(--loom-radius-lg, 0.75rem);
+  overflow: hidden;
+}
+
+/* Feature — single feature card (icon + title + desc).
+ */
+.loom-feature {
+  display: flex;
+  flex-direction: column;
+  gap: var(--loom-space-2);
+  padding: var(--loom-space-4);
+}
+.loom-feature-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
+  border-radius: var(--loom-radius-md, 0.5rem);
+  background: var(--loom-color-surface-subtle, var(--loom-color-surface));
+  color: var(--loom-color-accent);
+  margin-block-end: var(--loom-space-2);
+}
+.loom-feature-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0;
+}
+.loom-feature-desc {
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+  margin: 0;
+}
+.loom-feature-grid {
+  display: grid;
+  gap: var(--loom-space-5, var(--loom-space-4));
+  grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
+}
+
+/* Pricing table.
+ */
+.loom-pricing-table {
+  display: grid;
+  gap: var(--loom-space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+  align-items: stretch;
+}
+.loom-pricing-tier {
+  display: flex;
+  flex-direction: column;
+  gap: var(--loom-space-3);
+  padding: var(--loom-space-5, var(--loom-space-4));
+  background: var(--loom-color-surface);
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  border-radius: var(--loom-radius-lg, 0.75rem);
+}
+.loom-pricing-tier-featured {
+  border-color: var(--loom-color-accent);
+  box-shadow: 0 0 0 2px var(--loom-color-accent);
+  position: relative;
+}
+.loom-pricing-tier-featured::before {
+  content: "Popular";
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: var(--loom-space-4);
+  transform: translateY(-50%);
+  padding: 0.15em 0.6em;
+  background: var(--loom-color-accent);
+  color: var(--loom-color-on-accent, white);
+  border-radius: var(--loom-radius-pill, 999px);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.loom-pricing-price {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--loom-space-1);
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--loom-color-ink);
+  font-feature-settings: "tnum" 1;
+}
+.loom-pricing-period {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+}
+.loom-pricing-features {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--loom-space-2);
+  font-size: 0.9375rem;
+}
+.loom-pricing-features > li {
+  display: flex;
+  align-items: center;
+  gap: var(--loom-space-2);
+}
+
+/* Testimonial.
+ */
+.loom-testimonial {
+  display: flex;
+  flex-direction: column;
+  gap: var(--loom-space-4);
+  padding: var(--loom-space-5, var(--loom-space-4));
+  background: var(--loom-color-surface);
+  border-radius: var(--loom-radius-lg, 0.75rem);
+}
+.loom-testimonial-quote {
+  font-size: 1.125rem;
+  line-height: 1.6;
+  color: var(--loom-color-ink);
+  font-style: italic;
+  margin: 0;
+}
+.loom-testimonial-author {
+  display: flex;
+  align-items: center;
+  gap: var(--loom-space-3);
+}
+.loom-testimonial-avatar {
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
+  border-radius: 50%;
+  overflow: hidden;
+}
+.loom-testimonial-avatar > img {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+/* Logo cloud — customer trust strip.
+ */
+.loom-logo-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--loom-space-6);
+  padding: var(--loom-space-6) 0;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+}
+.loom-logo-cloud > img,
+.loom-logo-cloud > svg {
+  block-size: 1.75rem;
+  opacity: 0.7;
+  filter: grayscale(100%);
+}
+
+/* CTA — call-to-action banner + card variants.
+ */
+.loom-cta-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--loom-space-4);
+  padding: var(--loom-space-6) var(--loom-space-5, var(--loom-space-4));
+  background: var(--loom-color-accent);
+  color: var(--loom-color-on-accent, white);
+  border-radius: var(--loom-radius-lg, 0.75rem);
+}
+.loom-cta-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--loom-space-3);
+  padding: var(--loom-space-6);
+  background: var(--loom-color-surface);
+  border-radius: var(--loom-radius-lg, 0.75rem);
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+}
+
+/* FAQ — built on native <details>/<summary> for free accessibility.
+ */
+.loom-faq {
+  display: flex;
+  flex-direction: column;
+  gap: var(--loom-space-2);
+}
+.loom-faq-item {
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  border-radius: var(--loom-radius-md, 0.5rem);
+  background: var(--loom-color-surface);
+  overflow: hidden;
+}
+.loom-faq-question {
+  padding: var(--loom-space-4);
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--loom-space-3);
+}
+.loom-faq-question::-webkit-details-marker { display: none; }
+.loom-faq-question::after {
+  content: "+";
+  font-size: 1.25rem;
+  font-weight: 400;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+}
+.loom-faq-item[open] .loom-faq-question::after { content: "−"; }
+.loom-faq-answer {
+  padding: 0 var(--loom-space-4) var(--loom-space-4);
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+  line-height: 1.55;
+}
+
+/* Stats row — KPI strip (horizontal flex of .loom-metric).
+ */
+.loom-stats-row {
+  display: grid;
+  gap: var(--loom-space-5, var(--loom-space-4));
+  grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
+}
+
+/* Team member card + grid.
+ */
+.loom-team-member {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--loom-space-3);
+  padding: var(--loom-space-4);
+  text-align: center;
+}
+.loom-team-member > .loom-avatar {
+  inline-size: 5rem;
+  block-size: 5rem;
+}
+.loom-team-grid {
+  display: grid;
+  gap: var(--loom-space-5, var(--loom-space-4));
+  grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
+}
+
+/* Comparison table — feature-vs-feature comparison.
+ */
+.loom-comparison-table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+.loom-comparison-table th,
+.loom-comparison-table td {
+  padding: var(--loom-space-3) var(--loom-space-4);
+  border-block-end: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  text-align: center;
+}
+.loom-comparison-table th:first-child,
+.loom-comparison-table td:first-child {
+  text-align: start;
+  font-weight: 500;
+}
+.loom-comparison-table thead th {
+  background: var(--loom-color-surface-subtle, var(--loom-color-surface));
+  font-weight: 600;
+}
+.loom-comparison-table [data-yes]::before { content: "✓"; color: var(--loom-color-success, var(--loom-color-accent)); }
+.loom-comparison-table [data-no]::before  { content: "—"; color: var(--loom-color-ink-muted, var(--loom-color-ink)); }
