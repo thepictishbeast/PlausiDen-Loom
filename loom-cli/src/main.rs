@@ -9174,7 +9174,6 @@ fn handle_inline_edit(
 
     let mut body = String::new();
     {
-        use std::io::Read as _;
         let mut buf = [0u8; 4096];
         let mut total = 0usize;
         loop {
@@ -9724,7 +9723,6 @@ fn handle_section_reorder(
     }
     // Parse form body.
     let mut body = String::new();
-    use std::io::Read as _;
     request.as_reader().read_to_string(&mut body)?;
     let mut from: Option<usize> = None;
     let mut to: Option<usize> = None;
@@ -12349,7 +12347,6 @@ fn resolve_theme(request: &tiny_http::Request) -> Option<&'static str> {
 /// open-redirect (must start with `/` and not contain `//` /
 /// `\\` / control chars).
 fn handle_theme_post(mut request: tiny_http::Request) -> std::io::Result<()> {
-    use std::io::Read as _;
     let mut body = String::new();
     request.as_reader().read_to_string(&mut body)?;
     let mut theme: Option<&str> = None;
@@ -19126,7 +19123,6 @@ fn handle_upload_image(
     // Read body with size cap.
     let mut body = Vec::with_capacity(64 * 1024);
     {
-        use std::io::Read as _;
         let mut chunk = [0u8; 8192];
         loop {
             let n = request.as_reader().read(&mut chunk)?;
