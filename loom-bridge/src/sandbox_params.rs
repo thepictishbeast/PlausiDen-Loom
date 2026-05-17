@@ -144,6 +144,38 @@ impl BridgeSandboxParams {
     pub fn tenant_sandbox_dir(&self, tenant_id: &str) -> PathBuf {
         self.sandbox_root.join(tenant_id)
     }
+
+    /// T46 cycle 5r (2026-05-17): compose a `BridgeLaunch` from this
+    /// sandbox-params bundle plus the per-session `ClaudeExecSpec`.
+    ///
+    /// Centralises what the transport handler used to do inline
+    /// (`channel_open_session` in cycle 5q), so the launch composition
+    /// can be unit-tested without standing up a russh session and so
+    /// future callers (loom-cli's smoke harness, the dry-run flag,
+    /// etc.) share the same construction.
+    ///
+    /// BUG ASSUMPTION: the caller has already validated that
+    /// `exec.tenant` matches the tenant the resolver returned the
+    /// spec for. Mismatch would silently sandbox the wrong tenant's
+    /// exec — a SECURITY-relevant invariant the cycle-5d resolver
+    /// path guarantees.
+    #[must_use]
+    pub fn build_launch(
+        &self,
+        exec: crate::exec_spec::ClaudeExecSpec,
+    ) -> crate::spawn::BridgeLaunch {
+        let sandbox = crate::sandbox::SandboxSpec::minimum_privilege(
+            exec.tenant.clone(),
+            self.tenant_sandbox_dir(exec.tenant.as_str()),
+        );
+        crate::spawn::BridgeLaunch {
+            exec,
+            sandbox,
+            ceilings: self.ceilings.clone(),
+            cgroup_root: self.cgroup_root.clone(),
+            nft_binary: self.nft_binary.clone(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -225,5 +257,55 @@ mod tests {
         assert_eq!(p.sandbox_root, cloned.sandbox_root);
         assert_eq!(p.cgroup_root, cloned.cgroup_root);
         assert_eq!(p.nft_binary, cloned.nft_binary);
+    }
+
+    // ---------- cycle 5r: build_launch ----------
+
+    #[test]
+    fn build_launch_composes_per_tenant_sandbox_and_cgroup() {
+        use crate::exec_spec::{ClaudeExecSpec, ClaudeSessionId, TenantUid};
+        use crate::tenant::TenantId;
+        let tenant = TenantId::new("acme").expect("tenant id");
+        let exec = ClaudeExecSpec::new(
+            tenant.clone(),
+            TenantUid::new(1042).expect("uid"),
+            ClaudeSessionId::new("sess-x").expect("session id"),
+            "/usr/local/bin/claude",
+            "/sites/acme",
+        )
+        .expect("exec spec");
+        let params = BridgeSandboxParams::new(PathBuf::from("/srv/loom"), ceilings())
+            .expect("ok")
+            .with_cgroup_root("/tmp/cg".to_owned())
+            .expect("cgroup")
+            .with_nft_binary("/tmp/nft-stub".to_owned())
+            .expect("nft");
+        let launch = params.build_launch(exec.clone());
+        assert_eq!(launch.exec.tenant, tenant);
+        assert_eq!(launch.cgroup_root, "/tmp/cg");
+        assert_eq!(launch.nft_binary, "/tmp/nft-stub");
+        assert_eq!(launch.sandbox.session_root, PathBuf::from("/srv/loom/acme"));
+    }
+
+    #[test]
+    fn build_launch_clones_ceilings_for_per_session_isolation() {
+        use crate::exec_spec::{ClaudeExecSpec, ClaudeSessionId, TenantUid};
+        use crate::tenant::TenantId;
+        let tenant = TenantId::new("widgetco").expect("tenant id");
+        let exec = ClaudeExecSpec::new(
+            tenant.clone(),
+            TenantUid::new(2000).expect("uid"),
+            ClaudeSessionId::new("sess-y").expect("session id"),
+            "/usr/local/bin/claude",
+            "/sites/widgetco",
+        )
+        .expect("exec spec");
+        let params = BridgeSandboxParams::new(PathBuf::from("/srv/loom"), ceilings()).expect("ok");
+        let launch_a = params.build_launch(exec.clone());
+        let launch_b = params.build_launch(exec);
+        assert_eq!(launch_a.ceilings.cpu_percent, launch_b.ceilings.cpu_percent);
+        assert_eq!(launch_a.ceilings.memory_mib, launch_b.ceilings.memory_mib);
+        // Same tenant → same sandbox subtree (path arithmetic identity).
+        assert_eq!(launch_a.sandbox.session_root, launch_b.sandbox.session_root);
     }
 }

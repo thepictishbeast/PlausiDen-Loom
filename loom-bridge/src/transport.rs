@@ -37,9 +37,7 @@
 use crate::exec_spec::ClaudeSessionId;
 use crate::host_key::BridgeHostKey;
 use crate::resolver::SharedResolver;
-use crate::sandbox::SandboxSpec;
 use crate::sandbox_params::BridgeSandboxParams;
-use crate::spawn::BridgeLaunch;
 use crate::spawn_async::{PrepareAsyncError, prepare_blocking_async};
 use crate::tenant::{TenantId, TenantRegistry};
 use async_trait::async_trait;
@@ -387,17 +385,7 @@ impl russh::server::Handler for BridgeHandler {
         // tokio::process::Command::from(prepared.command).spawn()
         // + bidirectional stdio bridging.
         if let (Some(params), Ok(spec)) = (&self.sandbox_params, &resolve) {
-            let sandbox = SandboxSpec::minimum_privilege(
-                tenant.clone(),
-                params.tenant_sandbox_dir(tenant.as_str()),
-            );
-            let launch = BridgeLaunch {
-                exec: spec.clone(),
-                sandbox,
-                ceilings: params.ceilings.clone(),
-                cgroup_root: params.cgroup_root.clone(),
-                nft_binary: params.nft_binary.clone(),
-            };
+            let launch = params.build_launch(spec.clone());
             let prepare_line = match prepare_blocking_async(launch).await {
                 Ok(prepared) => {
                     tracing::info!(
