@@ -12,7 +12,16 @@
 //!   - the executor stays small (call into this module then spawn)
 //!   - the audit log records the exact argv used per session,
 //!     reproducibly, before any process state mutates
+//!
+//! Cycle 5e (T46.5 — 2026-05-17): adds [`compose_bwrap_exec_argv`]
+//! which COMPOSES the bwrap prefix (from this module) with an
+//! [`ClaudeExecSpec`] (from `exec_spec.rs`) into the full argv
+//! the spawner hands to `tokio::process::Command::new("bwrap")
+//! .args(argv)`. This is the typed handoff between the sandbox
+//! shape and the exec shape; the spawner stays a thin wrapper
+//! around this function.
 
+use crate::exec_spec::ClaudeExecSpec;
 use crate::{ResourceCeilings, SandboxSpec};
 use std::ffi::OsString;
 
@@ -118,6 +127,39 @@ pub fn render_bwrap_argv(spec: &SandboxSpec, ceilings: &ResourceCeilings) -> Vec
     a.push(OsString::from(spec.tenant.as_str()));
 
     a
+}
+
+/// T46.5 (cycle 5e): compose the bwrap argv with a typed
+/// `ClaudeExecSpec` to produce the full argv list for
+/// `Command::new("bwrap").args(...)`.
+///
+/// Layout: `<bwrap-flags…> -- <claude-bin> --resume <session-id>`.
+///
+/// The `--` separator is bwrap-standard: everything before `--` is
+/// bwrap configuration, everything after is the child command and
+/// its argv. This composition is what cycle 5f hands to
+/// `tokio::process::Command`.
+///
+/// SECURITY: the child argv comes from [`ClaudeExecSpec::argv`],
+/// which is already validated (TenantUid non-system, ClaudeSessionId
+/// charset-restricted, paths absolute + no `..`). The bwrap prefix
+/// `--clearenv` strips parent env so no `LD_PRELOAD` / `PYTHONPATH`
+/// leak to the child. The `--cap-drop ALL` strips capabilities
+/// before the child runs. Composition is therefore safe even if a
+/// future refactor wires this to a `sh -c` path by mistake — the
+/// argv is shell-safe by construction.
+#[must_use]
+pub fn compose_bwrap_exec_argv(
+    spec: &SandboxSpec,
+    ceilings: &ResourceCeilings,
+    exec: &ClaudeExecSpec,
+) -> Vec<OsString> {
+    let mut argv = render_bwrap_argv(spec, ceilings);
+    argv.push(OsString::from("--"));
+    for arg in exec.argv() {
+        argv.push(OsString::from(arg));
+    }
+    argv
 }
 
 /// Convenience: render the argv as a single shell-quoted line for
@@ -283,5 +325,92 @@ mod tests {
     #[test]
     fn shell_quote_wraps_spaces() {
         assert_eq!(shell_quote("hello world"), "'hello world'");
+    }
+
+    // ---------- T46.5 (cycle 5e) compose_bwrap_exec_argv ----------
+
+    use crate::exec_spec::{ClaudeExecSpec, ClaudeSessionId, TenantUid};
+
+    fn fresh_exec_spec(tenant: &str) -> ClaudeExecSpec {
+        ClaudeExecSpec::new(
+            TenantId::new(tenant).unwrap(),
+            TenantUid::new(1042).unwrap(),
+            ClaudeSessionId::new("test-session").unwrap(),
+            "/usr/local/bin/claude",
+            "/sites/acme",
+        )
+        .expect("fresh exec spec")
+    }
+
+    #[test]
+    fn compose_ends_with_dash_dash_then_claude_argv() {
+        let argv = compose_bwrap_exec_argv(&spec("acme"), &ceilings(), &fresh_exec_spec("acme"));
+        // Find the `--` separator (bwrap-standard)
+        let dash_pos = argv.iter().position(|a| a == "--").expect("-- present");
+        let after: Vec<&OsString> = argv[dash_pos + 1..].iter().collect();
+        assert_eq!(after.len(), 3, "claude argv has 3 elements");
+        assert_eq!(after[0], "/usr/local/bin/claude");
+        assert_eq!(after[1], "--resume");
+        assert_eq!(after[2], "test-session");
+    }
+
+    #[test]
+    fn compose_preserves_bwrap_security_flags() {
+        // The bwrap prefix must still include the lock-down flags
+        // even after composition (no accidental in-place mutation
+        // by the compose function).
+        let argv = compose_bwrap_exec_argv(&spec("acme"), &ceilings(), &fresh_exec_spec("acme"));
+        assert!(has(&argv, "--unshare-all"));
+        assert!(has(&argv, "--die-with-parent"));
+        assert!(has_pair(&argv, "--cap-drop", "ALL"));
+        assert!(has(&argv, "--clearenv"));
+    }
+
+    #[test]
+    fn compose_dash_dash_appears_exactly_once() {
+        // Defence: the bwrap prefix MUST NOT itself contain a bare
+        // '--' token. If it ever does, we'd accidentally split the
+        // child argv at the wrong place.
+        let argv = compose_bwrap_exec_argv(&spec("acme"), &ceilings(), &fresh_exec_spec("acme"));
+        let count = argv.iter().filter(|a| *a == "--").count();
+        assert_eq!(count, 1, "exactly one `--` separator");
+    }
+
+    #[test]
+    fn compose_argv_is_non_empty() {
+        let argv = compose_bwrap_exec_argv(&spec("acme"), &ceilings(), &fresh_exec_spec("acme"));
+        assert!(!argv.is_empty());
+        assert!(argv.len() > 20, "bwrap prefix has many flags");
+    }
+
+    #[test]
+    fn compose_tenant_id_propagates_into_bwrap_mount() {
+        let argv = compose_bwrap_exec_argv(
+            &spec("widgets-co"),
+            &ceilings(),
+            &fresh_exec_spec("widgets-co"),
+        );
+        // SandboxSpec uses session_root → /sites/<tenant>
+        assert!(argv.iter().any(|a| a == "/sites/widgets-co"));
+    }
+
+    #[test]
+    fn compose_child_argv_is_shell_safe_by_construction() {
+        // SECURITY: ClaudeExecSpec's charset-restricted ClaudeSessionId
+        // means the child argv contains no shell-special characters.
+        // Pin this property at the compose level too — a future
+        // refactor that accidentally interpolated a free-form string
+        // would break this test.
+        let argv = compose_bwrap_exec_argv(&spec("acme"), &ceilings(), &fresh_exec_spec("acme"));
+        let dash_pos = argv.iter().position(|a| a == "--").unwrap();
+        for arg in &argv[dash_pos + 1..] {
+            let s = arg.to_string_lossy();
+            for forbidden in [';', '|', '&', '$', '`', '\\', '"', '\''] {
+                assert!(
+                    !s.contains(forbidden),
+                    "child argv arg {s:?} contains shell-special {forbidden:?}"
+                );
+            }
+        }
     }
 }
