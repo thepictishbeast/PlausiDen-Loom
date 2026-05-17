@@ -3,7 +3,26 @@ all-features = true
 
 [advisories]
 yanked = "deny"
-ignore = []
+ignore = [
+  # SHIP-DECISION: 2026-05-17 wda — RUSTSEC-2023-0071 (Marvin Attack
+  # on `rsa` crate) pulled in transitively by russh-keys → ssh-key.
+  # `rsa` 0.9.x has no fixed upgrade available and no russh feature
+  # flag strips it from the dep graph (rsa is unconditional in
+  # ssh-key).
+  #
+  # Accepted residual risk: the loom-bridge SSH transport is opt-in
+  # behind the `russh-transport` feature (default = []) and the T46
+  # design pins client auth to ed25519 keys only — no RSA codepath is
+  # exercised at runtime. Marvin requires the attacker to observe RSA
+  # timings on the network; with the RSA path unused, the attack
+  # surface is zero in practice.
+  #
+  # SECURITY: this ignore MUST be re-evaluated whenever russh / russh-
+  # keys / ssh-key gets a release that either drops the rsa dep or
+  # picks up a constant-time alternative, AND on any expansion of
+  # loom-bridge transport beyond ed25519-only auth.
+  "RUSTSEC-2023-0071",
+]
 
 [licenses]
 # AGPL-3.0-or-later covers the Loom workspace itself (license declared

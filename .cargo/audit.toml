@@ -1,0 +1,14 @@
+# cargo-audit configuration. Mirrors the [advisories.ignore] block in
+# deny.toml — cargo-audit and cargo-deny are independent tools, each
+# with its own ignore list.
+#
+# Every ignore here is accompanied by a SHIP-DECISION comment in
+# deny.toml. Do NOT add an entry here without also updating deny.toml.
+
+[advisories]
+ignore = [
+  # See deny.toml for the full SHIP-DECISION rationale.
+  # russh-keys → ssh-key → rsa 0.9.x (Marvin Attack).
+  # Accepted because russh-transport is opt-in + ed25519-only.
+  "RUSTSEC-2023-0071",
+]
