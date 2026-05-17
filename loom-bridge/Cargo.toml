@@ -29,6 +29,11 @@ thiserror = "1"
 # the right prefix shouldn't be observable through timing on the
 # tenant-id branch).
 subtle = "2"
+# T46.4: HMAC-SHA256-signed session cookies. RustCrypto stack —
+# audited, no-std-friendly, zeroize-aware.
+hmac = "0.12"
+sha2 = "0.10"
+zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [features]
 # Default: no SSH transport, just the typed tenant + key model

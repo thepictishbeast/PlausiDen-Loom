@@ -33,6 +33,7 @@
 
 pub mod bwrap;
 pub mod cgroup;
+pub mod cookie_bridge;
 pub mod egress;
 pub mod exec_spec;
 pub mod host_key;
