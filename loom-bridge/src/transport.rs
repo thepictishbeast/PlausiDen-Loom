@@ -37,6 +37,10 @@
 use crate::exec_spec::ClaudeSessionId;
 use crate::host_key::BridgeHostKey;
 use crate::resolver::SharedResolver;
+use crate::sandbox::SandboxSpec;
+use crate::sandbox_params::BridgeSandboxParams;
+use crate::spawn::BridgeLaunch;
+use crate::spawn_async::{PrepareAsyncError, prepare_blocking_async};
 use crate::tenant::{TenantId, TenantRegistry};
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -73,6 +77,12 @@ pub struct BridgeServerConfig {
     /// DB-backed / cookie-bridge-backed resolvers without touching
     /// transport.rs.
     pub resolver: SharedResolver,
+    /// T46 cycle 5q: sandbox-template parameters. `None` keeps the
+    /// pre-cycle-5q behaviour (banner only, no `prepare` call) so
+    /// existing tests + the loom-cli's smoke-server keep working.
+    /// `Some(params)` enables the per-session `BridgeLaunch::prepare`
+    /// call on channel-open + surfaces the audit_argv via the banner.
+    pub sandbox_params: Option<BridgeSandboxParams>,
 }
 
 impl BridgeServerConfig {
@@ -94,7 +104,18 @@ impl BridgeServerConfig {
             listen_addr,
             host_key,
             resolver,
+            sandbox_params: None,
         }
+    }
+
+    /// Attach sandbox-template parameters. With this set, the
+    /// bridge will invoke `BridgeLaunch::prepare` on every
+    /// channel-open (after resolve) and surface the audit_argv via
+    /// the channel banner.
+    #[must_use]
+    pub fn with_sandbox_params(mut self, params: BridgeSandboxParams) -> Self {
+        self.sandbox_params = Some(params);
+        self
     }
 }
 
@@ -181,16 +202,25 @@ pub struct BridgeHandler {
     authenticated_as: Option<TenantId>,
     /// Resolver for tenant → exec-spec lookups at channel-open time.
     resolver: SharedResolver,
+    /// T46 cycle 5q: sandbox-template parameters from the server
+    /// config. `None` preserves cycle-5d behaviour; `Some(_)` triggers
+    /// the `prepare_blocking_async` call on channel-open.
+    sandbox_params: Option<BridgeSandboxParams>,
 }
 
 impl BridgeHandler {
     /// Construct a fresh handler for one client.
     #[must_use]
-    fn new(registry: Arc<TenantRegistry>, resolver: SharedResolver) -> Self {
+    fn new(
+        registry: Arc<TenantRegistry>,
+        resolver: SharedResolver,
+        sandbox_params: Option<BridgeSandboxParams>,
+    ) -> Self {
         Self {
             registry,
             authenticated_as: None,
             resolver,
+            sandbox_params,
         }
     }
 
@@ -318,7 +348,7 @@ impl russh::server::Handler for BridgeHandler {
             .data(banner.as_slice())
             .await
             .map_err(|e| BridgeError::Russh(format!("hello-banner write: {e}")))?;
-        let resolve_line = match resolve {
+        let resolve_line = match &resolve {
             Ok(spec) => {
                 tracing::info!(
                     tenant = %tenant,
@@ -344,6 +374,58 @@ impl russh::server::Handler for BridgeHandler {
             .data(resolve_line.as_bytes())
             .await
             .map_err(|e| BridgeError::Russh(format!("resolve-line write: {e}")))?;
+
+        // T46 cycle 5q (advances #598): if the server config has
+        // sandbox-template params + the resolve produced a valid
+        // ExecSpec, compose the BridgeLaunch + invoke prepare()
+        // on the blocking pool. Surface the audit_argv via a
+        // third data frame so the operator's session log captures
+        // the EXACT argv the bwrap+claude exec would run.
+        //
+        // Still close the channel (no actual spawn yet) — cycle
+        // 5r will replace the close with the real
+        // tokio::process::Command::from(prepared.command).spawn()
+        // + bidirectional stdio bridging.
+        if let (Some(params), Ok(spec)) = (&self.sandbox_params, &resolve) {
+            let sandbox = SandboxSpec::minimum_privilege(
+                tenant.clone(),
+                params.tenant_sandbox_dir(tenant.as_str()),
+            );
+            let launch = BridgeLaunch {
+                exec: spec.clone(),
+                sandbox,
+                ceilings: params.ceilings.clone(),
+                cgroup_root: params.cgroup_root.clone(),
+                nft_binary: params.nft_binary.clone(),
+            };
+            let prepare_line = match prepare_blocking_async(launch).await {
+                Ok(prepared) => {
+                    tracing::info!(
+                        tenant = %tenant,
+                        argv_len = prepared.audit_argv.len(),
+                        "launch prepared"
+                    );
+                    format!(
+                        "launch: prepared, argv_len={}, audit_argv={:?}\n",
+                        prepared.audit_argv.len(),
+                        prepared.audit_argv
+                    )
+                }
+                Err(PrepareAsyncError::Launch(e)) => {
+                    tracing::warn!(tenant = %tenant, error = %e, "launch prepare failed");
+                    format!("launch: FAILED ({e})\n")
+                }
+                Err(PrepareAsyncError::JoinPanic(msg)) => {
+                    tracing::error!(tenant = %tenant, panic_msg = %msg, "launch prepare panicked");
+                    format!("launch: PANICKED ({msg})\n")
+                }
+            };
+            channel
+                .data(prepare_line.as_bytes())
+                .await
+                .map_err(|e| BridgeError::Russh(format!("prepare-line write: {e}")))?;
+        }
+
         channel
             .close()
             .await
@@ -363,6 +445,7 @@ pub struct BridgeServer {
     listen_addr: SocketAddr,
     host_key: BridgeHostKey,
     resolver: SharedResolver,
+    sandbox_params: Option<BridgeSandboxParams>,
 }
 
 impl BridgeServer {
@@ -374,6 +457,7 @@ impl BridgeServer {
             listen_addr: config.listen_addr,
             host_key: config.host_key,
             resolver: config.resolver,
+            sandbox_params: config.sandbox_params,
         }
     }
 
@@ -447,7 +531,11 @@ impl russh::server::Server for BridgeServer {
     type Handler = BridgeHandler;
 
     fn new_client(&mut self, _peer_addr: Option<SocketAddr>) -> Self::Handler {
-        BridgeHandler::new(Arc::clone(&self.registry), Arc::clone(&self.resolver))
+        BridgeHandler::new(
+            Arc::clone(&self.registry),
+            Arc::clone(&self.resolver),
+            self.sandbox_params.clone(),
+        )
     }
 }
 
@@ -512,7 +600,7 @@ mod tests {
     fn classify_accepts_known_tenant() {
         let (_sk, vk, b64) = fresh_ed25519();
         let r = registry_with("acme", &b64);
-        let h = BridgeHandler::new(r, empty_resolver());
+        let h = BridgeHandler::new(r, empty_resolver(), None);
         let pk = russh::keys::key::PublicKey::Ed25519(vk);
         match h.classify(&pk) {
             AuthOutcome::Accept(id) => assert_eq!(id.as_str(), "acme"),
@@ -525,7 +613,7 @@ mod tests {
         let (_sk_a, _vk_a, b64_a) = fresh_ed25519();
         let (_sk_b, vk_b, _b64_b) = fresh_ed25519();
         let r = registry_with("acme", &b64_a);
-        let h = BridgeHandler::new(r, empty_resolver());
+        let h = BridgeHandler::new(r, empty_resolver(), None);
         let pk = russh::keys::key::PublicKey::Ed25519(vk_b);
         assert_eq!(
             h.classify(&pk),
@@ -539,7 +627,7 @@ mod tests {
     fn classify_empty_registry_rejects() {
         let (_sk, vk, _b64) = fresh_ed25519();
         let r = Arc::new(TenantRegistry::empty());
-        let h = BridgeHandler::new(r, empty_resolver());
+        let h = BridgeHandler::new(r, empty_resolver(), None);
         let pk = russh::keys::key::PublicKey::Ed25519(vk);
         assert_eq!(
             h.classify(&pk),
@@ -553,7 +641,7 @@ mod tests {
     fn handler_tenant_unset_until_auth() {
         let (_sk, _vk, b64) = fresh_ed25519();
         let r = registry_with("acme", &b64);
-        let h = BridgeHandler::new(r, empty_resolver());
+        let h = BridgeHandler::new(r, empty_resolver(), None);
         assert!(h.tenant().is_none());
     }
 
@@ -759,5 +847,61 @@ mod tests {
         for forbidden in ["sha256", "ed25519", "/home", "/etc", "host_key", "signing"] {
             assert!(!s.contains(forbidden), "banner leaks '{forbidden}': {s}");
         }
+    }
+
+    // ---------- cycle 5q: sandbox_params plumbing ----------
+
+    #[test]
+    fn config_new_leaves_sandbox_params_none_for_backwards_compat() {
+        let r = Arc::new(TenantRegistry::default());
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+        let cfg = BridgeServerConfig::new(r, addr, fresh_host_key(), empty_resolver());
+        assert!(
+            cfg.sandbox_params.is_none(),
+            "default config preserves cycle-5d behaviour"
+        );
+    }
+
+    #[test]
+    fn config_with_sandbox_params_attaches_the_bundle() {
+        use crate::resource::ResourceCeilings;
+        use crate::sandbox_params::BridgeSandboxParams;
+        use std::path::PathBuf;
+        let r = Arc::new(TenantRegistry::default());
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+        let params =
+            BridgeSandboxParams::new(PathBuf::from("/srv/loom"), ResourceCeilings::default())
+                .expect("valid params");
+        let cfg = BridgeServerConfig::new(r, addr, fresh_host_key(), empty_resolver())
+            .with_sandbox_params(params);
+        assert!(
+            cfg.sandbox_params.is_some(),
+            "with_sandbox_params attaches the bundle"
+        );
+        let attached = cfg.sandbox_params.expect("must be Some");
+        assert_eq!(attached.sandbox_root, PathBuf::from("/srv/loom"));
+        assert_eq!(attached.cgroup_root, "/sys/fs/cgroup");
+        assert_eq!(attached.nft_binary, "nft");
+    }
+
+    #[test]
+    fn handler_carries_sandbox_params_through_constructor() {
+        use crate::resource::ResourceCeilings;
+        use crate::sandbox_params::BridgeSandboxParams;
+        use std::path::PathBuf;
+        let r = Arc::new(TenantRegistry::default());
+        let params =
+            BridgeSandboxParams::new(PathBuf::from("/srv/loom"), ResourceCeilings::default())
+                .expect("valid params");
+        let handler = BridgeHandler::new(r.clone(), empty_resolver(), Some(params));
+        assert!(
+            handler.sandbox_params.is_some(),
+            "handler retains the sandbox_params bundle from the server config"
+        );
+        let handler_none = BridgeHandler::new(r, empty_resolver(), None);
+        assert!(
+            handler_none.sandbox_params.is_none(),
+            "None means cycle-5d behaviour"
+        );
     }
 }
