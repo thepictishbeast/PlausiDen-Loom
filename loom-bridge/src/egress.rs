@@ -402,18 +402,42 @@ mod tests {
     // function always passes -f, so any stand-in must accept that.)
 
     #[test]
-    fn apply_with_false_returns_non_zero_exit() {
-        if !std::path::Path::new("/bin/false").exists() {
+    fn apply_non_zero_exit_returns_non_zero_exit_error() {
+        // REGRESSION-GUARD (2026-05-17): an earlier version of this
+        // test pointed at `/bin/false`, which doesn't read stdin and
+        // exits IMMEDIATELY. The kernel buffers our 500-byte stdin
+        // write differently on different boxes — on the CI runner
+        // (cgroup-pressured) the child closed its end of the pipe
+        // before our write completed, yielding EPIPE (StdinWrite
+        // error) instead of the documented NonZeroExit. Both are
+        // legitimate "this command failed to apply the ruleset"
+        // outcomes, but the test was over-specified to NonZeroExit.
+        //
+        // Fix: use a sh wrapper that explicitly drains stdin THEN
+        // exits non-zero. No race — the child consumes everything
+        // we write before reaching `exit 2`.
+        if !std::path::Path::new("/bin/sh").exists() {
             return;
         }
+        let tmp = tempfile::tempdir().expect("tmp");
+        let wrapper = fresh_non_zero_exit_wrapper_local(&tmp);
         let r = render_nftables_ruleset(&spec("acme"));
-        let err = apply_nftables_ruleset("/bin/false", &r).expect_err("false returns non-zero");
+        let err = apply_nftables_ruleset(wrapper.to_str().unwrap(), &r)
+            .expect_err("wrapper exits non-zero");
         match err {
-            EgressApplyError::NonZeroExit { binary, .. } => {
-                assert_eq!(binary, "/bin/false");
-            }
+            EgressApplyError::NonZeroExit { .. } => { /* expected */ }
             other => panic!("expected NonZeroExit, got {other:?}"),
         }
+    }
+
+    fn fresh_non_zero_exit_wrapper_local(tmp: &tempfile::TempDir) -> std::path::PathBuf {
+        let path = tmp.path().join("nft-fail.sh");
+        std::fs::write(&path, "#!/bin/sh\ncat >/dev/null; exit 2\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&path, perms).unwrap();
+        path
     }
 
     #[test]
