@@ -40,6 +40,7 @@ pub mod host_key;
 pub mod resolver;
 pub mod resource;
 pub mod sandbox;
+pub mod sandbox_params;
 pub mod spawn;
 #[cfg(feature = "russh-transport")]
 pub mod spawn_async;
@@ -55,6 +56,7 @@ pub use resolver::{
 };
 pub use resource::{ResourceCeilings, ResourceCeilingsBuilder, ResourceCeilingsError};
 pub use sandbox::{SandboxLint, SandboxSpec};
+pub use sandbox_params::{BridgeSandboxParams, SandboxParamsError};
 pub use tenant::{Tenant, TenantError, TenantId, TenantRegistry};
 
 /// Crate-wide error type at the public surface.
