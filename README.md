@@ -48,8 +48,9 @@ fragmenting the visual system.
 > automatically to MIT.
 >
 > Loom is `v0` per the doctrine in [CLAUDE.md](./CLAUDE.md): tokens
-> + components + lint work; `loom audit` (visual regression) and
-> `loom new` (page scaffolder) are stubs.
+> + components + lint work; `loom audit` (visual regression via
+> Crawler) and `loom new` (page scaffolder) are shipping —
+> previously marked as stubs in this status note.
 
 ## What this replaces
 
@@ -73,7 +74,7 @@ or developer points at, with CLI checks that fail closed.
 | `loom-bridge` | **Sandboxed per-tenant Claude Code SSH bridge (T46).** Routes admin-portal chat sessions to a jailed `claude --resume` under a per-tenant unix user with cgroup CPU+memory ceilings + an Anthropic+GitHub-only egress allowlist. ed25519 auth, russh transport, bwrap sandboxing. |
 | `loom-icons` | Curated Lucide-derived SVG icon set, served as typed Rust enums (no `<svg>` string drops). Brand logos live in a separate `loom-brand-icons` crate (queued). |
 | `loom-lint` | CLI: walks `*.rs` views and refuses raw class strings outside an allowlist (components crate + a few sanctioned chrome files). |
-| `loom-cli` | Top-level `loom <subcommand>` binary — `lint`, `tokens`, `theme`, `cms`, `site`, `deploy`, `edit serve`, `bridge` (queued: `audit`, `new`). |
+| `loom-cli` | Top-level `loom <subcommand>` binary — see the full subcommand list below (30+ subcommands shipping). |
 
 ## How it works
 
@@ -94,11 +95,81 @@ or developer points at, with CLI checks that fail closed.
    - Wraps the spawn in `bwrap` + cgroup v2 CPU+memory limits.
    - Restricts egress to Anthropic API + GitHub.
    - Streams bidirectional stdio over the russh transport.
-6. **CLI** (`loom`) wires it all together. Subcommands today:
-   `loom lint`, `loom tokens`, `loom theme contrast`, `loom cms render`,
-   `loom site init`, `loom edit serve`, `loom deploy hetzner`.
-   Queued: `loom audit` (Playwright visual diff), `loom new page`
-   (template scaffolder), `loom bridge serve` (T46.next).
+6. **CLI** (`loom`) wires it all together. **30+ subcommands
+   shipping today** across design-system / CMS / build /
+   operations / governance surfaces — see "CLI subcommands"
+   below for the full list.
+
+## CLI subcommands
+
+`loom --help` is the canonical source. Subcommand families
+currently shipping:
+
+**Design system core**
+
+- `loom lint` — refuses raw class strings outside the allowlist
+- `loom tokens` — print design tokens as JSON
+- `loom report` — drift report: raw class strings grouped by
+  file, includes previously-allowlisted files (migration burn-
+  down dashboard)
+- `loom audit` — visual-regression via PlausiDen-Crawler;
+  screenshots every breakpoint declared in `loom-tokens`
+- `loom state-matrix` — T34: emit a self-contained HTML page
+  rendering every `CmsSection` variant + named state into a
+  single grid (one output per theme)
+- `loom new` — scaffold a new page view from a sanctioned
+  template (stub composed entirely from Loom primitives)
+- `loom doctor` — verify the design-system doctrine document is
+  in sync with the code it claims to govern
+- `loom theme` — inspect + validate the theme system
+- `loom critical-css` — extract the critical-CSS subset for
+  first paint (drops component-specific rules into the deferred
+  sheet)
+
+**Token exporters (cross-platform)**
+
+- `loom gtk-theme` — emit GTK 4 CSS theme from tokens
+- `loom css` — emit every token as CSS custom properties under
+  `:root` and `:root[data-theme="dark"]`
+- `loom egui` — emit every token as Rust `pub const` blocks for
+  inclusion in an egui-driven app (Atrium etc.)
+
+**Backend manifest (capability-manifest pattern)**
+
+- `loom backend-stub` — scaffold a Rust handler stub for one
+  `backends.toml` key (typed Request/Response + axum-style
+  handler signature + test stub)
+- `loom backend-stub-all` — T19 mass-mint mode: walk
+  `backends.toml`, scaffold every entry whose `impl_files` is
+  empty
+- `loom backend-list` — list every backend with its impl status
+  (STUB vs IMPL)
+
+**CMS / editor / sites**
+
+- `loom site` — T41 + T48: scaffold a new site from a bundled
+  template
+- `loom edit-serve` — T42: typed CMS editor server
+- `loom import` — T63: import existing static HTML into typed
+  `CmsPage` JSON
+- `loom revisions` — T76: inspect + restore CMS revision
+  backups from the auto-save snapshot pipeline
+- `loom auth` — T43: admin auth management
+
+**Operational reporting (T76)**
+
+- `loom report-stats` — aggregate cycle-63 `violations.jsonl`
+  into per-kind summary stats
+- `loom report-tail` — tail the cycle-63 `violations.jsonl` log
+- `loom report-review` — operator triage:
+  `list | ack | dismiss | status`
+
+**Deploy + attestation**
+
+- `loom deploy` — T47: atomic deploy with signed manifest +
+  rollback
+- `loom attest` — T47c: Ed25519 attestation key management for
+  deploy manifests. **Same shape as Forge's `forge attest`**.
 
 ## Try it
 
@@ -122,7 +193,20 @@ cargo build --release -p loom-cli
 ./target/release/loom site init --template hero my-site/
 
 # Run admin editor (T42 — cookie-session auth, T43)
-./target/release/loom edit serve --site my-site/ --bind 127.0.0.1:8080
+./target/release/loom edit-serve --site my-site/ --bind 127.0.0.1:8080
+
+# Visual regression via Crawler (was queued in earlier README; shipping)
+./target/release/loom audit --site my-site/
+
+# Scaffold a new page view (was queued in earlier README; shipping)
+./target/release/loom new --name about --template legal
+
+# Emit token-derived stylesheets for downstream consumers
+./target/release/loom css > my-site/static/loom-tokens.css
+./target/release/loom gtk-theme > ~/.config/gtk-4.0/loom.css
+
+# Initialize the deploy attestation chain
+./target/release/loom attest init
 ```
 
 When `loom lint` reports violations, the fix is always one of:
@@ -156,18 +240,51 @@ PlausiDen-* repo.
   bidirectional stdio). Pending: real-bwrap host smoke test,
   `loom bridge serve` CLI subcommand, ops runbook, admin-portal
   consumer integration, Merkle audit log.
-- ✅ **CLI** — `lint`, `tokens`, `theme contrast`, `cms render`,
-  `site init`, `edit serve`, `deploy hetzner`.
-- 🚧 **icons** — Lucide-derived UI glyphs shipped; brand-logo set
+- ✅ **CLI** — 30+ subcommands across design-system / CMS / build
+  / operations / governance surfaces. See "CLI subcommands"
+  above. Highlights: `lint`, `tokens`, `theme`, `cms render`,
+  `site init`, `edit-serve`, `deploy`, `attest`, `audit`, `new`,
+  `state-matrix`, `doctor`, `critical-css`, `gtk-theme`, `css`,
+  `egui`, `backend-stub`/`-all`/`-list`, `import`, `revisions`,
+  `auth`, `report-stats`/`-tail`/`-review`.
+- ✅ **icons** — Lucide-derived UI glyphs shipped; brand-logo set
   queued as separate `loom-brand-icons` crate.
-- ⏳ **`loom audit`** — Playwright visual regression at every
-  breakpoint, screenshot diff vs. baseline. Stub today.
-- ⏳ **`loom new page`** — template scaffolder. Stub today.
-- 📋 **Token export** — GTK / Adwaita CSS / Jetpack Compose theme
-  generators. Tokens are language-neutral JSON; future generators
-  consume them.
-- 📋 **`loom-brand-icons`** — vetted brand SVG sources only; never
-  user-uploaded markup.
+- ✅ **`loom audit`** — visual regression via PlausiDen-Crawler.
+  Screenshots every breakpoint declared in `loom-tokens`. The
+  Crawler does the actual diffing; this subcommand is a typed
+  entry point locking the journey shape so `loom audit` is the
+  one canonical invocation.
+- ✅ **`loom new`** — page-view scaffolder from sanctioned
+  templates. Emits a stub composed entirely from Loom primitives,
+  plus the `pub mod <name>;` line. Refuses to overwrite existing.
+- ✅ **Token exporters** — `loom css` (web), `loom gtk-theme`
+  (GTK 4), `loom egui` (Rust constants for egui apps). Adwaita
+  + Jetpack Compose exporters queued.
+- ✅ **`loom backend-stub` / `-all` / `-list`** — capability-
+  manifest pattern integration. `backends.toml` entries become
+  scaffolded Rust handler stubs with typed Request/Response +
+  axum-style signatures + test stubs. `loom backend-stub-all`
+  walks the whole file. **This is the manifest-projection
+  pattern in shipping form** — see
+  [PlausiDen-Forge/docs/PLATFORM_ROADMAP.md §3](https://github.com/thepictishbeast/PlausiDen-Forge/blob/main/docs/PLATFORM_ROADMAP.md#3-the-manifest-layer--the-architectural-keystone).
+- ✅ **`loom attest`** — T47c: Ed25519 attestation key
+  management for deploy manifests. Same shape as Forge's
+  `forge attest`; shared substrate for cryptographic build
+  + deploy attestation.
+- ✅ **`loom doctor`** — verifies the design-system doctrine
+  document is in sync with the code it claims to govern. Fails
+  if `CLAUDE.md` is missing load-bearing sections, references
+  primitives that don't exist, or has drifted from the
+  structural shape we publish.
+- 🚧 **bridge** — T46 SSH bridge end-to-end (200 tests with
+  `russh-transport` feature). Pending: real-bwrap host smoke
+  test, `loom bridge serve` CLI subcommand, ops runbook,
+  admin-portal consumer integration, Merkle audit log.
+- 📋 **`loom-brand-icons`** — vetted brand SVG sources only;
+  never user-uploaded markup.
+- 📋 **Jetpack Compose / Adwaita token exporters** — queued
+  on top of the existing `css` / `gtk-theme` / `egui` exporter
+  pattern.
 
 ## Ecosystem integration
 
