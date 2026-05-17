@@ -285,7 +285,12 @@ pub struct CmsKvItem {
 ///   * **Type-state doctrine** — moves a runtime invariant into
 ///     the type system, where AVP-2's "no boolean blindness"
 ///     rule belongs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Heading level encoded over the wire as a raw u8 (2..=6) — the
+/// `serde(into / try_from)` pair lets derive produce the same wire
+/// shape as the prior hand-rolled impls (rejected by the composition
+/// audit as a manual-derivable). Same JSON encoding, less code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(into = "u8", try_from = "u8")]
 pub enum HeadingLevel {
     /// `<h2>` — top-level section heading inside a page.
     H2,
@@ -298,6 +303,39 @@ pub enum HeadingLevel {
     /// `<h6>`.
     H6,
 }
+
+impl From<HeadingLevel> for u8 {
+    fn from(h: HeadingLevel) -> Self {
+        h.as_u8()
+    }
+}
+
+impl TryFrom<u8> for HeadingLevel {
+    type Error = HeadingLevelOutOfRange;
+    fn try_from(n: u8) -> Result<Self, Self::Error> {
+        Self::from_u8(n).ok_or(HeadingLevelOutOfRange(n))
+    }
+}
+
+/// Returned when a numeric heading level is outside the 2..=6 range.
+/// `h1` is owned by the page shell, so it is intentionally excluded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HeadingLevelOutOfRange(
+    /// The offending input value.
+    pub u8,
+);
+
+impl std::fmt::Display for HeadingLevelOutOfRange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "heading level must be 2..=6 (h1 is owned by the page-shell), got {}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for HeadingLevelOutOfRange {}
 
 impl HeadingLevel {
     /// Tag name (`"h2"`..`"h6"`).
@@ -336,23 +374,6 @@ impl HeadingLevel {
             6 => Some(Self::H6),
             _ => None,
         }
-    }
-}
-
-impl Serialize for HeadingLevel {
-    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
-        ser.serialize_u8(self.as_u8())
-    }
-}
-
-impl<'de> Deserialize<'de> for HeadingLevel {
-    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
-        let n = u8::deserialize(de)?;
-        Self::from_u8(n).ok_or_else(|| {
-            serde::de::Error::custom(format!(
-                "heading level must be 2..=6 (h1 is owned by the page-shell), got {n}"
-            ))
-        })
     }
 }
 
