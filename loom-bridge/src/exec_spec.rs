@@ -49,7 +49,7 @@ impl TenantUid {
     /// # Errors
     ///
     /// Returns [`ExecSpecError::UidTooLow`] for uid < 1000.
-    pub fn new(uid: u32) -> Result<Self, ExecSpecError> {
+    pub const fn new(uid: u32) -> Result<Self, ExecSpecError> {
         if uid < MIN_TENANT_UID {
             return Err(ExecSpecError::UidTooLow(uid));
         }
@@ -58,7 +58,7 @@ impl TenantUid {
 
     /// Raw uid value.
     #[must_use]
-    pub fn as_u32(self) -> u32 {
+    pub const fn as_u32(self) -> u32 {
         self.0
     }
 }

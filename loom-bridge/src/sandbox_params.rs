@@ -171,7 +171,9 @@ impl BridgeSandboxParams {
         crate::spawn::BridgeLaunch {
             exec,
             sandbox,
-            ceilings: self.ceilings.clone(),
+            // ResourceCeilings is Copy — no clone needed (clippy
+            // clone_on_copy lint catches the redundant call).
+            ceilings: self.ceilings,
             cgroup_root: self.cgroup_root.clone(),
             nft_binary: self.nft_binary.clone(),
         }
