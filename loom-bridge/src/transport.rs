@@ -211,6 +211,24 @@ impl BridgeHandler {
     }
 }
 
+/// Render the cycle-5a hello banner sent to a newly opened session
+/// channel. Pure function so unit tests can pin the exact bytes
+/// without standing a real russh session.
+///
+/// BUG ASSUMPTION: the banner is a courtesy / forensic marker, not
+/// load-bearing for any client-side protocol. Operators reading SSH
+/// session logs use it to confirm the bridge is reachable and the
+/// tenant resolved correctly.
+#[must_use]
+pub fn format_hello_banner(tenant: &TenantId) -> Vec<u8> {
+    format!(
+        "loom-bridge cycle-5a: hello, tenant={tenant}.\n\
+         This channel is a minimum-viable session; cycle-5b wires \
+         `claude --resume <session-id>` exec under your uid.\n"
+    )
+    .into_bytes()
+}
+
 #[async_trait]
 impl russh::server::Handler for BridgeHandler {
     type Error = BridgeError;
@@ -240,6 +258,47 @@ impl russh::server::Handler for BridgeHandler {
                 })
             }
         }
+    }
+
+    /// T46 cycle 5a (advances #598): minimal viable session channel
+    /// handler. The auth flow + channel flow is end-to-end exercised
+    /// here without yet wiring claude / bwrap / cgroup. A session
+    /// open from an authenticated tenant returns a hello banner +
+    /// closes the channel cleanly; an unauthenticated request is
+    /// rejected (defence in depth — russh should never get here
+    /// without auth, but the handler enforces the invariant anyway).
+    ///
+    /// Cycle 5b will replace the banner+close with the
+    /// `claude --resume <session-id>` exec.
+    async fn channel_open_session(
+        &mut self,
+        channel: russh::Channel<russh::server::Msg>,
+        _session: &mut russh::server::Session,
+    ) -> Result<bool, Self::Error> {
+        let Some(tenant) = self.authenticated_as.clone() else {
+            // SECURITY: russh's auth gate runs BEFORE channel_open,
+            // so this should be unreachable. Belt + suspenders.
+            tracing::error!("channel_open_session without prior publickey auth — refusing");
+            return Ok(false);
+        };
+        tracing::info!(
+            tenant = %tenant,
+            channel_id = ?channel.id(),
+            "ssh channel open"
+        );
+        let banner = format_hello_banner(&tenant);
+        // Send the banner, then close. We intentionally swallow
+        // I/O errors back to BridgeError::Russh — the caller (russh
+        // accept loop) logs + tears down the connection.
+        channel
+            .data(banner.as_slice())
+            .await
+            .map_err(|e| BridgeError::Russh(format!("hello-banner write: {e}")))?;
+        channel
+            .close()
+            .await
+            .map_err(|e| BridgeError::Russh(format!("hello-banner close: {e}")))?;
+        Ok(true)
     }
 }
 
@@ -566,5 +625,58 @@ mod tests {
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 4242);
         let s = BridgeServer::new(BridgeServerConfig::new(r, addr, fresh_host_key()));
         assert_eq!(s.listen_addr(), addr);
+    }
+
+    // ---------- cycle 5a: hello-banner helper ----------
+
+    #[test]
+    fn format_hello_banner_includes_tenant() {
+        let id = TenantId::new("acme-corp").unwrap();
+        let bytes = format_hello_banner(&id);
+        let s = std::str::from_utf8(&bytes).expect("utf-8");
+        assert!(s.contains("tenant=acme-corp"), "banner missing tenant: {s}");
+    }
+
+    #[test]
+    fn format_hello_banner_includes_cycle_marker() {
+        // Forensic-trail aid: the banner identifies WHICH cycle of the
+        // bridge produced it. When cycle-5b replaces this with the
+        // claude exec, the marker disappears — log greppers know.
+        let id = TenantId::new("widgets-co").unwrap();
+        let bytes = format_hello_banner(&id);
+        let s = std::str::from_utf8(&bytes).unwrap();
+        assert!(s.contains("cycle-5a"), "banner missing cycle marker: {s}");
+    }
+
+    #[test]
+    fn format_hello_banner_ends_with_newline() {
+        let id = TenantId::new("acme").unwrap();
+        let bytes = format_hello_banner(&id);
+        assert_eq!(bytes.last(), Some(&b'\n'));
+    }
+
+    #[test]
+    fn format_hello_banner_is_pure_ascii() {
+        // Audit-log friendliness: keep the banner ASCII so log
+        // pipelines that don't UTF-8-normalise don't garble it.
+        let id = TenantId::new("acme").unwrap();
+        let bytes = format_hello_banner(&id);
+        for &b in &bytes {
+            assert!(b.is_ascii(), "non-ascii byte: {b}");
+        }
+    }
+
+    #[test]
+    fn format_hello_banner_does_not_leak_secrets() {
+        // SECURITY: the banner is sent over an authenticated channel,
+        // but the banner content itself should still NOT contain
+        // anything sensitive (e.g. internal paths, registry contents,
+        // host-key fingerprints). Tenant id is the only identifier.
+        let id = TenantId::new("acme").unwrap();
+        let bytes = format_hello_banner(&id);
+        let s = std::str::from_utf8(&bytes).unwrap();
+        for forbidden in ["sha256", "ed25519", "/home", "/etc", "host_key", "signing"] {
+            assert!(!s.contains(forbidden), "banner leaks '{forbidden}': {s}");
+        }
     }
 }
