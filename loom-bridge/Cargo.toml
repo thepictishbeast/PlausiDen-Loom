@@ -22,14 +22,20 @@ anyhow = { workspace = true }
 ed25519-dalek = { version = "2", features = ["pem"] }
 base64 = "0.22"
 thiserror = "1"
+# Constant-time byte comparison for any auth-path equality check that
+# can't lean on a CT primitive built into the underlying lib. Ed25519
+# signature verification already runs in CT inside dalek; this is
+# defence-in-depth at the tenant-lookup layer (a malicious key with
+# the right prefix shouldn't be observable through timing on the
+# tenant-id branch).
+subtle = "2"
 
 [features]
 # Default: no SSH transport, just the typed tenant + key model
 # the loom-cli already wires in. The russh transport feature
-# pulls in tokio + the full russh stack; opting in is a separate
-# cycle so the lean-mode build stays fast.
+# pulls in tokio + russh + async-trait + tracing for the server impl.
 default = []
-russh-transport = ["dep:russh", "dep:tokio"]
+russh-transport = ["dep:russh", "dep:tokio", "dep:async-trait", "dep:tracing"]
 
 [dependencies.russh]
 version = "0.45"
@@ -40,5 +46,15 @@ version = "1"
 features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"]
 optional = true
 
+[dependencies.async-trait]
+version = "0.1"
+optional = true
+
+[dependencies.tracing]
+version = "0.1"
+optional = true
+
 [dev-dependencies]
 tempfile = "3"
+# Cycle-3 transport tests mint fresh ed25519 keys via OsRng.
+rand_core = { version = "0.6", features = ["getrandom"] }
