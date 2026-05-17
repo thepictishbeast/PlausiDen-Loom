@@ -4062,3 +4062,235 @@ body[data-loom-drawer-open] .loom-drawer-scrim {
 .loom-icon[data-size="md"] { inline-size: 1.25em; block-size: 1.25em; }
 .loom-icon[data-size="lg"] { inline-size: 1.5em;  block-size: 1.5em; }
 .loom-icon[data-size="xl"] { inline-size: 2em;    block-size: 2em; }
+
+/* ============================================================
+ * Typography primitives — vocabulary batch 2 (task #46).
+ *
+ * Type scale follows a 1.25 (major-third) ratio over the
+ * --loom-type-base token. Line-heights tuned per scale step:
+ * tighter for display, looser for body, very loose for prose
+ * to match Bringhurst-style print rhythm.
+ *
+ * All sizes use clamp() so they fluidly scale with viewport
+ * width without breaking at any breakpoint. min < base < max.
+ *
+ * Every primitive composes inside the Every-Layout primitives
+ * from batch 1 (.loom-center / .loom-stack / .loom-box).
+ * ============================================================ */
+
+/* Display + heading scale.
+ * Display is hero-sized + only used once per page (per design
+ * doctrine). h1-h6 are the standard semantic scale.
+ */
+.loom-display {
+  font-family: var(--loom-font-display, var(--loom-font-sans));
+  font-size: clamp(2.5rem, 4vw + 1rem, 4.5rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--loom-color-ink);
+  margin: 0;
+}
+.loom-heading-1 {
+  font-size: clamp(2rem, 3vw + 0.8rem, 3rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+.loom-heading-2 {
+  font-size: clamp(1.5rem, 2vw + 0.6rem, 2.25rem);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.loom-heading-3 {
+  font-size: clamp(1.25rem, 1.5vw + 0.4rem, 1.75rem);
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 0;
+}
+.loom-heading-4 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0;
+}
+.loom-heading-5 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 0;
+}
+.loom-heading-6 {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0;
+}
+
+/* Body text scale.
+ * Lead is the standout intro paragraph; body is the reading
+ * default; small + caption are for metadata.
+ */
+.loom-text-lead {
+  font-size: 1.125rem;
+  line-height: 1.6;
+  color: var(--loom-color-ink);
+  margin: 0;
+}
+.loom-text-body {
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--loom-color-ink);
+  margin: 0;
+}
+.loom-text-small {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+  margin: 0;
+}
+.loom-text-caption {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+
+/* Prose wrapper — applies vertical rhythm to nested elements
+ * so long-form articles render correctly without per-element
+ * margin tweaks. Bringhurst-style: every block element has
+ * predictable space-after.
+ */
+.loom-prose {
+  font-size: 1rem;
+  line-height: 1.65;
+  color: var(--loom-color-ink);
+  max-inline-size: 65ch;
+}
+.loom-prose > * + * { margin-block-start: 1em; }
+.loom-prose > h1,
+.loom-prose > h2,
+.loom-prose > h3 { margin-block-start: 1.5em; }
+.loom-prose > h1 + *,
+.loom-prose > h2 + *,
+.loom-prose > h3 + * { margin-block-start: 0.5em; }
+.loom-prose ul,
+.loom-prose ol { padding-inline-start: 1.5em; }
+.loom-prose li + li { margin-block-start: 0.25em; }
+.loom-prose blockquote {
+  border-inline-start: 4px solid var(--loom-color-accent);
+  padding-inline-start: var(--loom-space-4);
+  font-style: italic;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+}
+
+/* Code + inline-code + kbd. Monospace stack.
+ */
+.loom-code {
+  font-family: var(--loom-font-mono);
+  font-size: 0.9em;
+  padding: 0.1em 0.35em;
+  background: var(--loom-color-surface-subtle, var(--loom-color-surface));
+  border-radius: var(--loom-radius-sm, 0.25rem);
+  color: var(--loom-color-ink);
+}
+.loom-pre {
+  font-family: var(--loom-font-mono);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  padding: var(--loom-space-4);
+  background: var(--loom-color-surface-subtle, var(--loom-color-surface));
+  border-radius: var(--loom-radius-md, 0.5rem);
+  overflow-x: auto;
+  color: var(--loom-color-ink);
+}
+.loom-pre > code { background: transparent; padding: 0; }
+.loom-kbd {
+  font-family: var(--loom-font-mono);
+  font-size: 0.8em;
+  padding: 0.15em 0.45em;
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  border-block-end-width: 2px;
+  border-radius: var(--loom-radius-sm, 0.25rem);
+  background: var(--loom-color-surface);
+  color: var(--loom-color-ink);
+}
+
+/* Quote + cite. Pull-quote feel.
+ */
+.loom-quote {
+  font-size: 1.25rem;
+  line-height: 1.4;
+  font-style: italic;
+  color: var(--loom-color-ink);
+  border-inline-start: 4px solid var(--loom-color-accent);
+  padding-inline-start: var(--loom-space-4);
+  margin: 0;
+}
+.loom-cite {
+  font-size: 0.875rem;
+  font-style: normal;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+  margin-block-start: var(--loom-space-2);
+  display: block;
+}
+.loom-cite::before { content: "— "; }
+
+/* Links — default + muted variants.
+ */
+.loom-link {
+  color: var(--loom-color-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  text-decoration-thickness: 1px;
+}
+.loom-link:hover,
+.loom-link:focus-visible {
+  text-decoration-thickness: 2px;
+}
+.loom-link-muted {
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+  text-decoration: none;
+}
+.loom-link-muted:hover,
+.loom-link-muted:focus-visible {
+  text-decoration: underline;
+}
+
+/* Lists — semantic + decorative variants.
+ */
+.loom-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.loom-list > li { padding-block: var(--loom-space-1); }
+.loom-list[data-divider="true"] > li + li {
+  border-block-start: 1px solid var(--loom-color-border, var(--loom-color-ink));
+}
+
+/* Truncation + ellipsis helpers.
+ */
+.loom-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.loom-truncate-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.loom-truncate-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
