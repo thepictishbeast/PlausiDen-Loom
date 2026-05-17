@@ -34,7 +34,9 @@
 
 #![cfg(feature = "russh-transport")]
 
+use crate::exec_spec::ClaudeSessionId;
 use crate::host_key::BridgeHostKey;
+use crate::resolver::SharedResolver;
 use crate::tenant::{TenantId, TenantRegistry};
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -65,6 +67,12 @@ pub struct BridgeServerConfig {
     /// Ed25519 host key. The transport layer is the SOLE consumer;
     /// other crates that need only the tenant model never see it.
     pub host_key: BridgeHostKey,
+    /// Resolver from authenticated TenantId → ClaudeExecSpec. The
+    /// bridge consults this on every channel-open to know what to
+    /// run + as which uid. Trait-object so deployments can swap in
+    /// DB-backed / cookie-bridge-backed resolvers without touching
+    /// transport.rs.
+    pub resolver: SharedResolver,
 }
 
 impl BridgeServerConfig {
@@ -79,11 +87,13 @@ impl BridgeServerConfig {
         registry: Arc<TenantRegistry>,
         listen_addr: SocketAddr,
         host_key: BridgeHostKey,
+        resolver: SharedResolver,
     ) -> Self {
         Self {
             registry,
             listen_addr,
             host_key,
+            resolver,
         }
     }
 }
@@ -169,15 +179,18 @@ pub struct BridgeHandler {
     registry: Arc<TenantRegistry>,
     /// `None` until publickey auth succeeds.
     authenticated_as: Option<TenantId>,
+    /// Resolver for tenant → exec-spec lookups at channel-open time.
+    resolver: SharedResolver,
 }
 
 impl BridgeHandler {
     /// Construct a fresh handler for one client.
     #[must_use]
-    fn new(registry: Arc<TenantRegistry>) -> Self {
+    fn new(registry: Arc<TenantRegistry>, resolver: SharedResolver) -> Self {
         Self {
             registry,
             authenticated_as: None,
+            resolver,
         }
     }
 
@@ -268,8 +281,11 @@ impl russh::server::Handler for BridgeHandler {
     /// rejected (defence in depth — russh should never get here
     /// without auth, but the handler enforces the invariant anyway).
     ///
-    /// Cycle 5b will replace the banner+close with the
-    /// `claude --resume <session-id>` exec.
+    /// Cycle 5d (this commit): the banner now ALSO reports the
+    /// resolved ExecSpec (if the resolver has a mapping) — proves
+    /// the cycle-5c TenantResolver wiring is end-to-end live.
+    /// Cycle 5e replaces banner+close with the actual
+    /// `claude --resume <session-id>` exec (tokio::process::Command).
     async fn channel_open_session(
         &mut self,
         channel: russh::Channel<russh::server::Msg>,
@@ -286,14 +302,48 @@ impl russh::server::Handler for BridgeHandler {
             channel_id = ?channel.id(),
             "ssh channel open"
         );
+        // T46 cycle 5d: resolve the tenant against the SharedResolver
+        // to confirm a per-tenant ExecSpec is registered. Cycle 5d
+        // uses a fixed placeholder session id ("bridge-default") so
+        // the resolver path is exercised end-to-end; T46.4 wires
+        // the real session id from the admin-portal cookie via a
+        // unix-socket lookup.
+        let placeholder_sid = ClaudeSessionId::new("bridge-default")
+            .map_err(|e| BridgeError::Russh(format!("placeholder session id: {e}")))?;
+        let resolve = self.resolver.resolve(&tenant, placeholder_sid);
         let banner = format_hello_banner(&tenant);
-        // Send the banner, then close. We intentionally swallow
-        // I/O errors back to BridgeError::Russh — the caller (russh
-        // accept loop) logs + tears down the connection.
+        // Send the hello banner first (forensic-trail), then the
+        // resolver outcome on a second data frame, then close.
         channel
             .data(banner.as_slice())
             .await
             .map_err(|e| BridgeError::Russh(format!("hello-banner write: {e}")))?;
+        let resolve_line = match resolve {
+            Ok(spec) => {
+                tracing::info!(
+                    tenant = %tenant,
+                    uid = spec.uid.as_u32(),
+                    "exec spec resolved"
+                );
+                format!(
+                    "exec-spec: uid={}, argv={:?}\n",
+                    spec.uid.as_u32(),
+                    spec.argv()
+                )
+            }
+            Err(e) => {
+                // The tenant authenticated but the operator forgot to
+                // register an exec mapping. Surface to both the log
+                // AND the channel so the user knows their session
+                // can't proceed.
+                tracing::warn!(tenant = %tenant, error = %e, "exec resolve failed");
+                format!("exec-spec: UNAVAILABLE ({e})\n")
+            }
+        };
+        channel
+            .data(resolve_line.as_bytes())
+            .await
+            .map_err(|e| BridgeError::Russh(format!("resolve-line write: {e}")))?;
         channel
             .close()
             .await
@@ -312,6 +362,7 @@ pub struct BridgeServer {
     registry: Arc<TenantRegistry>,
     listen_addr: SocketAddr,
     host_key: BridgeHostKey,
+    resolver: SharedResolver,
 }
 
 impl BridgeServer {
@@ -322,6 +373,7 @@ impl BridgeServer {
             registry: config.registry,
             listen_addr: config.listen_addr,
             host_key: config.host_key,
+            resolver: config.resolver,
         }
     }
 
@@ -395,7 +447,7 @@ impl russh::server::Server for BridgeServer {
     type Handler = BridgeHandler;
 
     fn new_client(&mut self, _peer_addr: Option<SocketAddr>) -> Self::Handler {
-        BridgeHandler::new(Arc::clone(&self.registry))
+        BridgeHandler::new(Arc::clone(&self.registry), Arc::clone(&self.resolver))
     }
 }
 
@@ -424,6 +476,10 @@ mod tests {
         BridgeHostKey::from_signing_key(SigningKey::generate(&mut OsRng))
     }
 
+    fn empty_resolver() -> SharedResolver {
+        Arc::new(crate::resolver::StaticTenantResolver::empty())
+    }
+
     fn registry_with(tenant: &str, key_b64: &str) -> Arc<TenantRegistry> {
         let mut r = TenantRegistry::empty();
         let id = TenantId::new(tenant).unwrap();
@@ -440,7 +496,7 @@ mod tests {
     fn config_constructs() {
         let r = Arc::new(TenantRegistry::empty());
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-        let cfg = BridgeServerConfig::new(r, addr, fresh_host_key());
+        let cfg = BridgeServerConfig::new(r, addr, fresh_host_key(), empty_resolver());
         assert_eq!(cfg.listen_addr.port(), 0);
     }
 
@@ -456,7 +512,7 @@ mod tests {
     fn classify_accepts_known_tenant() {
         let (_sk, vk, b64) = fresh_ed25519();
         let r = registry_with("acme", &b64);
-        let h = BridgeHandler::new(r);
+        let h = BridgeHandler::new(r, empty_resolver());
         let pk = russh::keys::key::PublicKey::Ed25519(vk);
         match h.classify(&pk) {
             AuthOutcome::Accept(id) => assert_eq!(id.as_str(), "acme"),
@@ -469,7 +525,7 @@ mod tests {
         let (_sk_a, _vk_a, b64_a) = fresh_ed25519();
         let (_sk_b, vk_b, _b64_b) = fresh_ed25519();
         let r = registry_with("acme", &b64_a);
-        let h = BridgeHandler::new(r);
+        let h = BridgeHandler::new(r, empty_resolver());
         let pk = russh::keys::key::PublicKey::Ed25519(vk_b);
         assert_eq!(
             h.classify(&pk),
@@ -483,7 +539,7 @@ mod tests {
     fn classify_empty_registry_rejects() {
         let (_sk, vk, _b64) = fresh_ed25519();
         let r = Arc::new(TenantRegistry::empty());
-        let h = BridgeHandler::new(r);
+        let h = BridgeHandler::new(r, empty_resolver());
         let pk = russh::keys::key::PublicKey::Ed25519(vk);
         assert_eq!(
             h.classify(&pk),
@@ -497,7 +553,7 @@ mod tests {
     fn handler_tenant_unset_until_auth() {
         let (_sk, _vk, b64) = fresh_ed25519();
         let r = registry_with("acme", &b64);
-        let h = BridgeHandler::new(r);
+        let h = BridgeHandler::new(r, empty_resolver());
         assert!(h.tenant().is_none());
     }
 
@@ -505,7 +561,12 @@ mod tests {
     fn server_mints_fresh_handler_per_client() {
         let r = Arc::new(TenantRegistry::empty());
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-        let mut s = BridgeServer::new(BridgeServerConfig::new(r, addr, fresh_host_key()));
+        let mut s = BridgeServer::new(BridgeServerConfig::new(
+            r,
+            addr,
+            fresh_host_key(),
+            empty_resolver(),
+        ));
         let h1 = s.new_client(None);
         let h2 = s.new_client(None);
         // Each handler is independent — auth state on one doesn't
@@ -556,7 +617,7 @@ mod tests {
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
         let hk = fresh_host_key();
         let hk_bytes = hk.verifying_key_bytes();
-        let s = BridgeServer::new(BridgeServerConfig::new(r, addr, hk));
+        let s = BridgeServer::new(BridgeServerConfig::new(r, addr, hk, empty_resolver()));
         let cfg = s.build_russh_config();
         assert_eq!(cfg.keys.len(), 1, "exactly one host keypair");
         match &cfg.keys[0] {
@@ -581,7 +642,12 @@ mod tests {
         // methods never call into auth_publickey.
         let r = Arc::new(TenantRegistry::empty());
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-        let s = BridgeServer::new(BridgeServerConfig::new(r, addr, fresh_host_key()));
+        let s = BridgeServer::new(BridgeServerConfig::new(
+            r,
+            addr,
+            fresh_host_key(),
+            empty_resolver(),
+        ));
         let cfg = s.build_russh_config();
         assert_eq!(
             cfg.methods,
@@ -597,7 +663,12 @@ mod tests {
         // a known-unknown-user from a known-known-user without-key.
         let r = Arc::new(TenantRegistry::empty());
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-        let s = BridgeServer::new(BridgeServerConfig::new(r, addr, fresh_host_key()));
+        let s = BridgeServer::new(BridgeServerConfig::new(
+            r,
+            addr,
+            fresh_host_key(),
+            empty_resolver(),
+        ));
         let cfg = s.build_russh_config();
         assert_eq!(cfg.auth_rejection_time, Duration::from_secs(2));
         assert_eq!(
@@ -610,7 +681,12 @@ mod tests {
     fn build_russh_config_caps_auth_attempts() {
         let r = Arc::new(TenantRegistry::empty());
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-        let s = BridgeServer::new(BridgeServerConfig::new(r, addr, fresh_host_key()));
+        let s = BridgeServer::new(BridgeServerConfig::new(
+            r,
+            addr,
+            fresh_host_key(),
+            empty_resolver(),
+        ));
         let cfg = s.build_russh_config();
         assert!(
             cfg.max_auth_attempts <= 3,
@@ -623,7 +699,12 @@ mod tests {
     fn server_listen_addr_accessor_returns_config_addr() {
         let r = Arc::new(TenantRegistry::empty());
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 4242);
-        let s = BridgeServer::new(BridgeServerConfig::new(r, addr, fresh_host_key()));
+        let s = BridgeServer::new(BridgeServerConfig::new(
+            r,
+            addr,
+            fresh_host_key(),
+            empty_resolver(),
+        ));
         assert_eq!(s.listen_addr(), addr);
     }
 
