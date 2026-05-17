@@ -7501,6 +7501,19 @@ fn handle_add_section(
                 {"key": "Third label", "value": "Third value."},
             ],
         }),
+        // T62 cycle 5 + T660 P1 (advances #615 + closes T70 P1):
+        // logo_wall section picker. Defaults seed two named items
+        // without hrefs; operator can edit per-item in serve_edit_form.
+        // Renderer falls back to typographic placeholder until the
+        // loom-brand-icons vetted SVG registry crate ships.
+        "logo_wall" => serde_json::json!({
+            "kind": "logo_wall",
+            "heading": "Trusted by",
+            "items": [
+                {"name": "Brand A"},
+                {"name": "Brand B"},
+            ],
+        }),
         // T62 cycle 4 (advances #615): card_feed section picker.
         // Mirrors CmsSection::CardFeed { heading?, items: Vec<CmsCard> }.
         // The CmsCard schema has many optional fields (host_sub,

@@ -245,6 +245,27 @@ pub enum CmsSection {
         /// Items, top to bottom.
         items: Vec<CmsKvItem>,
     },
+    /// T660 P1 LogoWall — a wall of vetted brand logos used as
+    /// social-proof on marketing landings ("Trusted by Stripe,
+    /// Linear, Vercel, ..."). Surfaced in 4 of 5 T660 dogfood
+    /// rebuilds — highest dedup-priority variant in the registry.
+    ///
+    /// `items` carries explicit text labels because the actual SVG
+    /// markup lives in a vetted `loom-brand-icons` registry crate
+    /// (queued separately). Until that registry lands, the
+    /// renderer emits a typographic placeholder; once it lands,
+    /// the registry lookup happens at render time keyed by the
+    /// label.
+    ///
+    /// AVP-2: brand SVG bodies are TRUSTED content; this CmsSection
+    /// never accepts inline SVG from user input.
+    LogoWall {
+        /// Optional heading rendered above the wall ("Trusted by",
+        /// "Customers", etc.).
+        heading: Option<String>,
+        /// Brand entries, left-to-right then wrap.
+        items: Vec<CmsLogoItem>,
+    },
 }
 
 /// FORGE_ROADMAP item 41: one entry in a [`CmsSection::KvPair`].
@@ -262,6 +283,27 @@ pub struct CmsKvItem {
     /// Optional muted caption shown below the value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
+}
+
+/// T660 P1: one brand logo entry in a [`CmsSection::LogoWall`].
+///
+/// `name` is the canonical brand name + lookup key into the
+/// future `loom-brand-icons` registry. `href` is the brand's
+/// website. Until the registry crate lands, the renderer falls
+/// back to typographic rendering (the name in `loom-font-display`).
+///
+/// AVP-2: never carries inline SVG; the registry is the only
+/// path through which SVG markup reaches the page.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CmsLogoItem {
+    /// Brand name (also the lookup key into `loom-brand-icons`).
+    /// Examples: "Stripe", "Linear", "Vercel".
+    pub name: String,
+    /// Brand website URL. Auto-escaped + rendered as the wrap
+    /// element if non-empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub href: Option<String>,
 }
 
 /// T36: typed heading level for `CmsSection::Heading`.
@@ -1064,6 +1106,33 @@ pub fn render_section(section: &CmsSection) -> Markup {
                                 span class="loom-kv-text" { (item.value) }
                                 @if let Some(hint) = &item.hint {
                                     span class="loom-kv-hint" { (hint) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        // T660 P1: typographic LogoWall fallback until loom-brand-icons
+        // ships the vetted SVG registry. Each item renders as the name
+        // in display font; if href is set, wraps in <a>.
+        CmsSection::LogoWall { heading, items } => html! {
+            section class="loom-logo-wall" {
+                @if let Some(h) = heading {
+                    h2 class="loom-logo-wall-heading" { (h) }
+                }
+                ul class="loom-logo-wall-list" {
+                    @for item in items {
+                        li class="loom-logo-wall-item" {
+                            @match item.href.as_deref() {
+                                Some(href) if is_safe_url(href) => {
+                                    a href=(href) class="loom-logo-wall-link"
+                                        rel="external nofollow noopener" {
+                                        span class="loom-logo-wall-name" { (item.name) }
+                                    }
+                                }
+                                _ => {
+                                    span class="loom-logo-wall-name" { (item.name) }
                                 }
                             }
                         }
@@ -2828,6 +2897,105 @@ mod tests {
         let para_pos = html.find("Vote on entries").expect("paragraph");
         assert!(composer_pos < h2_pos, "composer before heading");
         assert!(h2_pos < para_pos, "heading before paragraph");
+    }
+
+    // ----------------------------------------------------------
+    // T660 P1 — LogoWall tests
+    // ----------------------------------------------------------
+
+    fn logo_page(items: Vec<CmsLogoItem>, heading: Option<&str>) -> CmsPage {
+        CmsPage {
+            schema: None,
+            title: "LW".to_owned(),
+            description: "lw-test".to_owned(),
+            path: "/lw".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::LogoWall {
+                heading: heading.map(|s| s.to_owned()),
+                items,
+            }],
+        }
+    }
+
+    #[test]
+    fn logo_wall_renders_unlinked_names_as_spans() {
+        let p = logo_page(
+            vec![
+                CmsLogoItem {
+                    name: "Stripe".into(),
+                    href: None,
+                },
+                CmsLogoItem {
+                    name: "Linear".into(),
+                    href: None,
+                },
+            ],
+            Some("Trusted by"),
+        );
+        let html = render_to_string(&p);
+        assert!(html.contains("loom-logo-wall"));
+        assert!(html.contains("Trusted by"));
+        assert!(html.contains("Stripe"));
+        assert!(html.contains("Linear"));
+        // No href → no <a>, just <span class="loom-logo-wall-name">
+        assert!(!html.contains("href=\"\""));
+    }
+
+    #[test]
+    fn logo_wall_renders_safe_href_as_external_link() {
+        let p = logo_page(
+            vec![CmsLogoItem {
+                name: "Vercel".into(),
+                href: Some("https://vercel.com".into()),
+            }],
+            None,
+        );
+        let html = render_to_string(&p);
+        assert!(html.contains("href=\"https://vercel.com\""));
+        assert!(html.contains("rel=\"external nofollow noopener\""));
+    }
+
+    #[test]
+    fn logo_wall_rejects_javascript_url() {
+        let p = logo_page(
+            vec![CmsLogoItem {
+                name: "Evil".into(),
+                href: Some("javascript:alert(1)".into()),
+            }],
+            None,
+        );
+        let html = render_to_string(&p);
+        // is_safe_url returns false → falls back to span; no anchor emitted.
+        assert!(!html.contains("javascript:"));
+        assert!(html.contains("Evil"));
+    }
+
+    #[test]
+    fn logo_wall_auto_escapes_brand_name() {
+        let p = logo_page(
+            vec![CmsLogoItem {
+                name: "<script>alert(1)</script>".into(),
+                href: None,
+            }],
+            None,
+        );
+        let html = render_to_string(&p);
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn logo_wall_serde_round_trip() {
+        let p = logo_page(
+            vec![CmsLogoItem {
+                name: "Stripe".into(),
+                href: Some("https://stripe.com".into()),
+            }],
+            Some("Customers"),
+        );
+        let j = serde_json::to_string(&p).expect("serialize");
+        let parsed: CmsPage = serde_json::from_str(&j).expect("deserialize");
+        assert_eq!(parsed.sections.len(), 1);
     }
 
     // ----------------------------------------------------------
