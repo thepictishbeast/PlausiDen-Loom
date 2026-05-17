@@ -40,6 +40,7 @@ pub mod host_key;
 pub mod resolver;
 pub mod resource;
 pub mod sandbox;
+pub mod spawn;
 pub mod tenant;
 
 #[cfg(feature = "russh-transport")]
