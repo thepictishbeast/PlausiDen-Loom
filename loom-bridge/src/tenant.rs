@@ -73,6 +73,24 @@ pub struct TenantKey {
     pub label: Option<String>,
 }
 
+impl TenantKey {
+    /// Construct a `TenantKey` from its base64-encoded ed25519
+    /// public-key wire form + optional human label. The `b64` is
+    /// trusted as-is; callers MUST have already validated it
+    /// (e.g., parsed an OpenSSH-format authorized_keys line and
+    /// re-emitted the public bytes).
+    ///
+    /// BUG ASSUMPTION: the b64 input is exactly the 43-char
+    /// no-padding-base64 of a 32-byte ed25519 public key. The
+    /// registry's `tenant_for_key` lookup compares strings byte-
+    /// for-byte, so any inconsistency in encoding (padding /
+    /// case / whitespace) will silently fail to match.
+    #[must_use]
+    pub fn new(b64: String, label: Option<String>) -> Self {
+        Self { b64, label }
+    }
+}
+
 /// One tenant — the unit of isolation in the SSH bridge.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
