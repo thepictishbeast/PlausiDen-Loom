@@ -5599,3 +5599,322 @@ body[data-loom-drawer-open] .loom-drawer-scrim {
   block-size: 100%;
   display: block;
 }
+
+/* ============================================================
+ * Overlay primitives — vocabulary batch 7 (task #46).
+ *
+ * Modal / drawer / toast / popover / tooltip / bottom-sheet /
+ * command-palette. All assume the native HTML <dialog> element
+ * for modal + drawer where possible — its built-in focus-trap +
+ * inert behavior is the correct accessibility baseline. CSS
+ * here paints the visual; consumers manage open/close via
+ * native `<dialog>.showModal()`.
+ *
+ * Motion: every appear / dismiss transition guarded by
+ * @media (prefers-reduced-motion: no-preference). Reduced-motion
+ * readers see instant render, instant dismiss.
+ * ============================================================ */
+
+/* Modal — built on native <dialog>.
+ * Pair markup: <dialog class="loom-modal">…</dialog>
+ * Backdrop styled via ::backdrop (universally supported now).
+ */
+.loom-modal {
+  padding: 0;
+  border: 0;
+  border-radius: var(--loom-radius-lg, 0.75rem);
+  background: var(--loom-color-surface);
+  color: var(--loom-color-ink);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+  max-inline-size: min(32rem, 92vw);
+  inline-size: 100%;
+  margin: auto;
+}
+.loom-modal::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+.loom-modal[data-size="sm"] { max-inline-size: 24rem; }
+.loom-modal[data-size="lg"] { max-inline-size: 48rem; }
+.loom-modal[data-size="full"] {
+  max-inline-size: 96vw;
+  max-block-size: 92vh;
+}
+.loom-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--loom-space-3);
+  padding: var(--loom-space-4) var(--loom-space-5, var(--loom-space-4));
+  border-block-end: 1px solid var(--loom-color-border, var(--loom-color-ink));
+}
+.loom-modal-body {
+  padding: var(--loom-space-5, var(--loom-space-4));
+  overflow-y: auto;
+  max-block-size: 60vh;
+}
+.loom-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--loom-space-3);
+  padding: var(--loom-space-4) var(--loom-space-5, var(--loom-space-4));
+  border-block-start: 1px solid var(--loom-color-border, var(--loom-color-ink));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes loom-modal-appear {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0)   scale(1); }
+  }
+  .loom-modal[open] {
+    animation: loom-modal-appear 180ms cubic-bezier(0.34, 1.1, 0.64, 1) both;
+  }
+}
+
+/* Drawer — slide-in from an edge.
+ * Pair with <dialog class="loom-drawer" data-side="right">; the
+ * native dialog still provides the focus trap.
+ */
+.loom-drawer {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--loom-color-surface);
+  color: var(--loom-color-ink);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.12);
+  block-size: 100vh;
+  inline-size: min(28rem, 92vw);
+  margin: 0;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  inset-inline-start: auto;
+}
+.loom-drawer::backdrop { background: rgba(0, 0, 0, 0.4); }
+.loom-drawer[data-side="left"] {
+  inset-inline-start: 0;
+  inset-inline-end: auto;
+  box-shadow: 8px 0 32px rgba(0, 0, 0, 0.12);
+}
+.loom-drawer[data-side="bottom"] {
+  inset-inline-start: 0;
+  inset-inline-end: 0;
+  inset-block-end: 0;
+  inset-block-start: auto;
+  inline-size: 100vw;
+  block-size: auto;
+  max-block-size: 80vh;
+  border-start-start-radius: var(--loom-radius-lg, 0.75rem);
+  border-start-end-radius: var(--loom-radius-lg, 0.75rem);
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.12);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes loom-drawer-slide-right {
+    from { transform: translateX(100%); }
+    to   { transform: translateX(0); }
+  }
+  @keyframes loom-drawer-slide-left {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(0); }
+  }
+  @keyframes loom-drawer-slide-up {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+  .loom-drawer[open]:not([data-side]) ,
+  .loom-drawer[open][data-side="right"] {
+    animation: loom-drawer-slide-right 240ms cubic-bezier(0.34, 1.1, 0.64, 1) both;
+  }
+  .loom-drawer[open][data-side="left"] {
+    animation: loom-drawer-slide-left 240ms cubic-bezier(0.34, 1.1, 0.64, 1) both;
+  }
+  .loom-drawer[open][data-side="bottom"] {
+    animation: loom-drawer-slide-up 240ms cubic-bezier(0.34, 1.1, 0.64, 1) both;
+  }
+}
+
+/* Toast stack + individual toast. Toasts live in a fixed corner
+ * region; consumers append + dismiss via JS but the CSS is
+ * positionally self-contained.
+ */
+.loom-toast-stack {
+  position: fixed;
+  inset-block-end: var(--loom-space-4);
+  inset-inline-end: var(--loom-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--loom-space-2);
+  z-index: 100;
+  max-inline-size: 24rem;
+  pointer-events: none; /* let children opt in */
+}
+.loom-toast-stack[data-anchor="top-right"] {
+  inset-block-end: auto;
+  inset-block-start: var(--loom-space-4);
+}
+.loom-toast-stack[data-anchor="top-left"] {
+  inset-block-end: auto;
+  inset-block-start: var(--loom-space-4);
+  inset-inline-end: auto;
+  inset-inline-start: var(--loom-space-4);
+}
+.loom-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--loom-space-2);
+  padding: var(--loom-space-3) var(--loom-space-4);
+  background: var(--loom-color-surface);
+  color: var(--loom-color-ink);
+  border-radius: var(--loom-radius-md, 0.5rem);
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  font-size: 0.875rem;
+}
+.loom-toast[data-tone="success"] {
+  border-inline-start: 4px solid var(--loom-color-success, var(--loom-color-accent));
+}
+.loom-toast[data-tone="warning"] {
+  border-inline-start: 4px solid var(--loom-color-warning, var(--loom-color-accent));
+}
+.loom-toast[data-tone="danger"] {
+  border-inline-start: 4px solid var(--loom-color-danger, var(--loom-color-accent));
+}
+.loom-toast[data-tone="info"] {
+  border-inline-start: 4px solid var(--loom-color-info, var(--loom-color-accent));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes loom-toast-slide-in {
+    from { opacity: 0; transform: translateX(20px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .loom-toast { animation: loom-toast-slide-in 200ms ease-out both; }
+}
+
+/* Snackbar — single-line toast variant; bottom-center.
+ */
+.loom-snackbar {
+  position: fixed;
+  inset-block-end: var(--loom-space-4);
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  padding: var(--loom-space-3) var(--loom-space-5, var(--loom-space-4));
+  background: var(--loom-color-ink);
+  color: var(--loom-color-surface);
+  border-radius: var(--loom-radius-pill, 999px);
+  font-size: 0.875rem;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--loom-space-3);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
+}
+.loom-snackbar > button {
+  background: transparent;
+  border: 0;
+  color: var(--loom-color-accent);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+/* Popover — anchored floating card.
+ * Consumers position with Popover API (popover="" + popovertarget)
+ * OR via JS. CSS just paints.
+ */
+.loom-popover {
+  padding: var(--loom-space-3) var(--loom-space-4);
+  background: var(--loom-color-surface);
+  color: var(--loom-color-ink);
+  border-radius: var(--loom-radius-md, 0.5rem);
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  max-inline-size: 20rem;
+  font-size: 0.875rem;
+}
+.loom-popover[popover] {
+  margin: auto;
+  inset: unset;
+  position: fixed;
+}
+
+/* Tooltip — minimal popover. Use with title="..." or aria-describedby.
+ */
+.loom-tooltip {
+  padding: 0.35em 0.7em;
+  background: var(--loom-color-ink);
+  color: var(--loom-color-surface);
+  border-radius: var(--loom-radius-sm, 0.25rem);
+  font-size: 0.75rem;
+  line-height: 1.3;
+  max-inline-size: 16rem;
+  pointer-events: none;
+}
+
+/* Bottom-sheet — mobile-shell drawer that pulls up from the
+ * bottom. Alias for .loom-drawer[data-side="bottom"] but with
+ * its own classname so consumers can target the pattern
+ * explicitly.
+ */
+.loom-bottom-sheet {
+  position: fixed;
+  inset-block-end: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
+  background: var(--loom-color-surface);
+  color: var(--loom-color-ink);
+  border-start-start-radius: var(--loom-radius-lg, 0.75rem);
+  border-start-end-radius: var(--loom-radius-lg, 0.75rem);
+  padding: var(--loom-space-5, var(--loom-space-4));
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.12);
+  max-block-size: 80vh;
+  overflow-y: auto;
+  z-index: 90;
+}
+
+/* Command palette — ⌘K style modal with search + result list.
+ * The structural shell; consumers fill in input + list.
+ */
+.loom-command-palette {
+  padding: 0;
+  border: 0;
+  border-radius: var(--loom-radius-lg, 0.75rem);
+  background: var(--loom-color-surface);
+  color: var(--loom-color-ink);
+  inline-size: min(36rem, 92vw);
+  max-block-size: 70vh;
+  margin: 10vh auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
+}
+.loom-command-palette::backdrop { background: rgba(0, 0, 0, 0.4); }
+.loom-command-palette-input {
+  inline-size: 100%;
+  padding: var(--loom-space-3) var(--loom-space-4);
+  font-size: 1rem;
+  border: 0;
+  border-block-end: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  background: transparent;
+  color: var(--loom-color-ink);
+  outline: none;
+}
+.loom-command-palette-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--loom-space-2);
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+.loom-command-palette-item {
+  display: flex;
+  align-items: center;
+  gap: var(--loom-space-2);
+  padding: var(--loom-space-2) var(--loom-space-3);
+  border-radius: var(--loom-radius-sm, 0.25rem);
+  cursor: pointer;
+}
+.loom-command-palette-item[aria-selected="true"],
+.loom-command-palette-item:hover {
+  background: var(--loom-color-surface-subtle, var(--loom-color-surface));
+}
