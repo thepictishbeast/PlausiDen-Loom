@@ -3659,3 +3659,181 @@ body[data-loom-drawer-open] .loom-drawer-scrim {
     animation: loom-kinetic-sweep 8s ease-in-out infinite;
   }
 }
+
+/* ============================================================
+ * Motion primitives (task #47)
+ *
+ * Scroll-linked / magnetic-hover / scrub-timeline / spring-feel
+ * primitives. Every one of them lives inside a
+ * @media (prefers-reduced-motion: no-preference) block so the
+ * vestibular-affected reader sees them as static.
+ *
+ * Uses the CSS scroll-driven-animations spec (animation-timeline:
+ * view()) — Chromium 115+, Safari 17.4+, Firefox progressive.
+ * Where unsupported, the @keyframes simply doesn't run and the
+ * element renders in its end state. No JS, no IntersectionObserver,
+ * no layout thrashing.
+ *
+ * Spring physics is faked via overshoot-cubic-bezier — a real
+ * spring solver would need JS. The cubic-bezier
+ * (0.34, 1.56, 0.64, 1) hits ~6% overshoot which reads as
+ * "spring" without RWD jitter.
+ *
+ * Per ARCHITECTURE_PRINCIPLES.md §3 — "motion is a primitive,
+ * not a decoration."
+ * ============================================================ */
+
+/* loom-reveal-on-view — scroll-linked fade + rise as the element
+ * enters the viewport. Uses view() timeline; no JS observer.
+ *
+ * data-distance="N" picks the rise distance in token-units
+ * (default 4 = 16px).
+ */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    @keyframes loom-reveal-on-view-frames {
+      from { opacity: 0; transform: translateY(var(--loom-reveal-distance, var(--loom-space-4))); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .loom-reveal-on-view {
+      animation: loom-reveal-on-view-frames linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 30%;
+    }
+    .loom-reveal-on-view[data-distance="2"]  { --loom-reveal-distance: var(--loom-space-2); }
+    .loom-reveal-on-view[data-distance="4"]  { --loom-reveal-distance: var(--loom-space-4); }
+    .loom-reveal-on-view[data-distance="8"]  { --loom-reveal-distance: var(--loom-space-8); }
+  }
+}
+
+/* loom-slide-on-view — same envelope as reveal but horizontal.
+ * data-from="left" | "right".
+ */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    @keyframes loom-slide-on-view-from-left {
+      from { opacity: 0; transform: translateX(calc(-1 * var(--loom-space-8))); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes loom-slide-on-view-from-right {
+      from { opacity: 0; transform: translateX(var(--loom-space-8)); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    .loom-slide-on-view {
+      animation: loom-slide-on-view-from-left linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 30%;
+    }
+    .loom-slide-on-view[data-from="right"] {
+      animation-name: loom-slide-on-view-from-right;
+    }
+  }
+}
+
+/* loom-parallax-y — vertical parallax driven by the page's own
+ * scroll timeline. data-depth="N" picks the parallax factor (1-3).
+ * Bounded translation so it never escapes its column.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: scroll()) {
+    @keyframes loom-parallax-y-frames {
+      from { transform: translateY(calc(-1 * var(--loom-parallax-depth, 1) * var(--loom-space-6))); }
+      to   { transform: translateY(calc(var(--loom-parallax-depth, 1) * var(--loom-space-6))); }
+    }
+    .loom-parallax-y {
+      animation: loom-parallax-y-frames linear both;
+      animation-timeline: scroll(nearest);
+      animation-range: cover 0% cover 100%;
+    }
+    .loom-parallax-y[data-depth="1"] { --loom-parallax-depth: 1; }
+    .loom-parallax-y[data-depth="2"] { --loom-parallax-depth: 2; }
+    .loom-parallax-y[data-depth="3"] { --loom-parallax-depth: 3; }
+  }
+}
+
+/* loom-scrub-rotate — scroll-progress-driven rotation. Used for
+ * decorative spinning marks (logos, glyphs).
+ * data-revolutions="N" sets the count (0.5 / 1 / 2 / 4).
+ */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: scroll()) {
+    @keyframes loom-scrub-rotate-frames {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(calc(var(--loom-scrub-revolutions, 1) * 360deg)); }
+    }
+    .loom-scrub-rotate {
+      animation: loom-scrub-rotate-frames linear both;
+      animation-timeline: scroll(nearest);
+      animation-range: cover 0% cover 100%;
+    }
+    .loom-scrub-rotate[data-revolutions="0.5"] { --loom-scrub-revolutions: 0.5; }
+    .loom-scrub-rotate[data-revolutions="1"]   { --loom-scrub-revolutions: 1; }
+    .loom-scrub-rotate[data-revolutions="2"]   { --loom-scrub-revolutions: 2; }
+    .loom-scrub-rotate[data-revolutions="4"]   { --loom-scrub-revolutions: 4; }
+  }
+}
+
+/* loom-magnetic-hover — pointer-driven lift + scale with
+ * spring-feel cubic-bezier on hover/focus. No JS — uses transform
+ * + transition only.
+ *
+ * data-intensity="subtle" | "medium" | "strong".
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .loom-magnetic-hover {
+    --loom-magnetic-lift: calc(-1 * var(--loom-space-1));
+    --loom-magnetic-scale: 1.02;
+    transition: transform 240ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    will-change: transform;
+  }
+  .loom-magnetic-hover:hover,
+  .loom-magnetic-hover:focus-visible {
+    transform: translateY(var(--loom-magnetic-lift)) scale(var(--loom-magnetic-scale));
+  }
+  .loom-magnetic-hover[data-intensity="subtle"] {
+    --loom-magnetic-lift: calc(-0.5 * var(--loom-space-1));
+    --loom-magnetic-scale: 1.01;
+  }
+  .loom-magnetic-hover[data-intensity="strong"] {
+    --loom-magnetic-lift: calc(-1 * var(--loom-space-2));
+    --loom-magnetic-scale: 1.04;
+  }
+}
+
+/* loom-spring-pop — entrance animation with overshoot. Used by
+ * modal contents + toasts + CTA reveals. Self-running on mount
+ * (one-shot).
+ *
+ * data-delay="1".."5" reuses the existing --loom-stagger-step
+ * token so it composes with [data-stagger="N"] siblings.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes loom-spring-pop-frames {
+    from { opacity: 0; transform: scale(0.92); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  .loom-spring-pop {
+    animation: loom-spring-pop-frames 320ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .loom-spring-pop[data-delay="1"] { animation-delay: calc(var(--loom-stagger-step) * 1); }
+  .loom-spring-pop[data-delay="2"] { animation-delay: calc(var(--loom-stagger-step) * 2); }
+  .loom-spring-pop[data-delay="3"] { animation-delay: calc(var(--loom-stagger-step) * 3); }
+  .loom-spring-pop[data-delay="4"] { animation-delay: calc(var(--loom-stagger-step) * 4); }
+  .loom-spring-pop[data-delay="5"] { animation-delay: calc(var(--loom-stagger-step) * 5); }
+}
+
+/* loom-attention-pulse — small recurring scale to nudge the eye
+ * toward a single CTA. Distinct from .loom-pulse-dot (which is a
+ * status indicator glyph). data-speed="slow"|"normal"|"fast".
+ */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes loom-attention-pulse-frames {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.04); }
+  }
+  .loom-attention-pulse {
+    animation: loom-attention-pulse-frames 2.4s ease-in-out infinite;
+  }
+  .loom-attention-pulse[data-speed="slow"] { animation-duration: 4s; }
+  .loom-attention-pulse[data-speed="fast"] { animation-duration: 1.2s; }
+}
