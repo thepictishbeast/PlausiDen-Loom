@@ -124,25 +124,39 @@ async fn end_to_end_auth_and_channel_open_hello_banner() {
         .expect("authenticate_publickey runs");
     assert!(auth_ok, "ed25519 auth must succeed for a registered key");
 
-    // 7. Open a session channel + drain messages until we see the
-    //    hello banner, then disconnect.
+    // 7. Open a session channel + drain ALL messages until the
+    //    server-side close. The cycle-5d handler sends three
+    //    frames in order:
+    //      a. hello banner    ("loom-bridge cycle-5a: hello, tenant=acme.…")
+    //      b. resolve line    ("exec-spec: uid=1042, argv=[…]")
+    //      c. close
+    //    We accumulate everything until ChannelMsg::Close (or the
+    //    overall deadline) so a single assertion block can pin all
+    //    three pieces.
     let mut channel = session.channel_open_session().await.expect("open channel");
     let mut accumulated = Vec::<u8>::new();
+    let mut saw_close = false;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     while tokio::time::Instant::now() < deadline {
         match tokio::time::timeout(Duration::from_millis(200), channel.wait()).await {
-            Ok(Some(ChannelMsg::Data { data })) => {
-                accumulated.extend_from_slice(&data);
-                if accumulated.windows(4).any(|w| w == b"acme") {
-                    break;
-                }
+            Ok(Some(ChannelMsg::Data { data })) => accumulated.extend_from_slice(&data),
+            Ok(Some(ChannelMsg::Close)) | Ok(Some(ChannelMsg::Eof)) => {
+                saw_close = true;
+                break;
             }
             Ok(Some(_)) => {}
-            Ok(None) => break,
+            Ok(None) => {
+                // Channel torn down without an explicit Close/Eof
+                // message — russh may surface the server-side close
+                // as `None`. Either signals the channel is over.
+                saw_close = true;
+                break;
+            }
             Err(_) => continue,
         }
     }
     let banner = String::from_utf8_lossy(&accumulated);
+    // cycle-5a hello banner
     assert!(
         banner.contains("acme"),
         "hello banner must mention the tenant id; got {banner:?}"
@@ -150,6 +164,21 @@ async fn end_to_end_auth_and_channel_open_hello_banner() {
     assert!(
         banner.contains("cycle-5a"),
         "hello banner must include the cycle marker; got {banner:?}"
+    );
+    // cycle-5d resolve line
+    assert!(
+        banner.contains("exec-spec:"),
+        "resolve line must surface the exec-spec marker; got {banner:?}"
+    );
+    assert!(
+        banner.contains("uid=1042"),
+        "resolve line must surface the resolved uid; got {banner:?}"
+    );
+    // cycle-5a channel close (server-side)
+    assert!(
+        saw_close,
+        "server should close the channel after the cycle-5d resolve line; \
+         accumulated bytes={banner:?}"
     );
 
     // 8. Clean up: disconnect + abort the server task.
