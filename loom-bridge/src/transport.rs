@@ -34,12 +34,14 @@
 
 #![cfg(feature = "russh-transport")]
 
+use crate::host_key::BridgeHostKey;
 use crate::tenant::{TenantId, TenantRegistry};
 use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Configuration the bridge needs to bring an SSH server up.
 ///
@@ -50,7 +52,7 @@ use std::sync::Arc;
 /// BUG ASSUMPTION: `registry` is a fully-populated snapshot; mid-flight
 /// mutations require an `Arc<RwLock<TenantRegistry>>` swap, which is
 /// cycle-4 scope.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct BridgeServerConfig {
     /// Tenants authorised to connect, keyed by id. Cloned into each
@@ -60,6 +62,9 @@ pub struct BridgeServerConfig {
     pub registry: Arc<TenantRegistry>,
     /// Address the server should bind.
     pub listen_addr: SocketAddr,
+    /// Ed25519 host key. The transport layer is the SOLE consumer;
+    /// other crates that need only the tenant model never see it.
+    pub host_key: BridgeHostKey,
 }
 
 impl BridgeServerConfig {
@@ -70,10 +75,15 @@ impl BridgeServerConfig {
     /// only-bind-VPN-range, etc.). The bridge intentionally does
     /// not second-guess the socket choice.
     #[must_use]
-    pub fn new(registry: Arc<TenantRegistry>, listen_addr: SocketAddr) -> Self {
+    pub fn new(
+        registry: Arc<TenantRegistry>,
+        listen_addr: SocketAddr,
+        host_key: BridgeHostKey,
+    ) -> Self {
         Self {
             registry,
             listen_addr,
+            host_key,
         }
     }
 }
@@ -238,19 +248,86 @@ impl russh::server::Handler for BridgeHandler {
 /// BUG ASSUMPTION: `new_client` runs synchronously on the russh
 /// accept loop, so it must stay allocation-cheap. Wrapping the
 /// registry in `Arc` is the whole point — clone is O(1).
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BridgeServer {
     registry: Arc<TenantRegistry>,
+    listen_addr: SocketAddr,
+    host_key: BridgeHostKey,
 }
 
 impl BridgeServer {
-    /// Construct from a config. The listen_addr is held for
-    /// cycle-4's listen() impl; cycle 3 only exercises the trait.
+    /// Construct from a config.
     #[must_use]
     pub fn new(config: BridgeServerConfig) -> Self {
         Self {
             registry: config.registry,
+            listen_addr: config.listen_addr,
+            host_key: config.host_key,
         }
+    }
+
+    /// Borrow the configured listen address (handy for tests + logs).
+    #[must_use]
+    pub fn listen_addr(&self) -> SocketAddr {
+        self.listen_addr
+    }
+
+    /// Build a `russh::server::Config` from the host key + bridge
+    /// security defaults. Pure (no I/O); the listen() entry consumes
+    /// the result.
+    ///
+    /// Security defaults enforced here:
+    ///   * `methods = PUBLICKEY` only — disables password + keyboard-
+    ///     interactive at the protocol layer
+    ///   * `auth_rejection_time = 2s` — uniform reject delay so
+    ///     known/unknown-key timing leaks stay bounded
+    ///   * `max_auth_attempts = 3` — defeats trivial enumeration
+    ///   * `inactivity_timeout = 60s` — idle sessions reaped fast;
+    ///     cycle-5 will pair this with the cgroup CPU ceiling
+    ///   * `keys = [Ed25519]` ONLY — no RSA / ECDSA keypair ever
+    ///     installed (load-bearing on the Marvin Attack SHIP-DECISION)
+    #[must_use]
+    pub fn build_russh_config(&self) -> russh::server::Config {
+        let mut cfg = russh::server::Config::default();
+        cfg.methods = russh::MethodSet::PUBLICKEY;
+        cfg.auth_rejection_time = Duration::from_secs(2);
+        cfg.auth_rejection_time_initial = Some(Duration::from_secs(2));
+        cfg.max_auth_attempts = 3;
+        cfg.inactivity_timeout = Some(Duration::from_secs(60));
+        cfg.keys = vec![russh::keys::key::KeyPair::Ed25519(
+            self.host_key.signing_key().clone(),
+        )];
+        cfg
+    }
+
+    /// Async entry point. Binds the configured `listen_addr` and runs
+    /// the russh accept loop indefinitely. Returns when the underlying
+    /// `tokio::net::TcpListener` accept loop terminates (typically on
+    /// signal-driven shutdown).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::Bind`] when the socket can't be bound,
+    /// or [`BridgeError::Russh`] when the russh accept loop errors.
+    ///
+    /// BUG ASSUMPTION: caller has already cap-dropped / chrooted /
+    /// applied the privilege-drop they wanted BEFORE invoking
+    /// listen() — the bridge doesn't run as root and doesn't try to
+    /// shed capabilities itself (that's the runner's responsibility,
+    /// e.g., systemd unit `CapabilityBoundingSet=`).
+    pub async fn listen(mut self) -> Result<(), BridgeError> {
+        use russh::server::Server as _;
+        let addr = self.listen_addr;
+        let listener = tokio::net::TcpListener::bind(addr)
+            .await
+            .map_err(|source| BridgeError::Bind { addr, source })?;
+        let cfg = Arc::new(self.build_russh_config());
+        // run_on_socket borrows the listener and drives the accept
+        // loop until the listener errors or the program exits.
+        self.run_on_socket(cfg, &listener)
+            .await
+            .map_err(|e: std::io::Error| BridgeError::Russh(e.to_string()))?;
+        Ok(())
     }
 }
 
@@ -284,6 +361,10 @@ mod tests {
         (sk, vk, b64)
     }
 
+    fn fresh_host_key() -> BridgeHostKey {
+        BridgeHostKey::from_signing_key(SigningKey::generate(&mut OsRng))
+    }
+
     fn registry_with(tenant: &str, key_b64: &str) -> Arc<TenantRegistry> {
         let mut r = TenantRegistry::empty();
         let id = TenantId::new(tenant).unwrap();
@@ -300,7 +381,7 @@ mod tests {
     fn config_constructs() {
         let r = Arc::new(TenantRegistry::empty());
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-        let cfg = BridgeServerConfig::new(r, addr);
+        let cfg = BridgeServerConfig::new(r, addr, fresh_host_key());
         assert_eq!(cfg.listen_addr.port(), 0);
     }
 
@@ -365,7 +446,7 @@ mod tests {
     fn server_mints_fresh_handler_per_client() {
         let r = Arc::new(TenantRegistry::empty());
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-        let mut s = BridgeServer::new(BridgeServerConfig::new(r, addr));
+        let mut s = BridgeServer::new(BridgeServerConfig::new(r, addr, fresh_host_key()));
         let h1 = s.new_client(None);
         let h2 = s.new_client(None);
         // Each handler is independent — auth state on one doesn't
@@ -408,5 +489,82 @@ mod tests {
         let e: BridgeError = russh::Error::Disconnect.into();
         let msg = e.to_string();
         assert!(msg.contains("russh error"));
+    }
+
+    #[test]
+    fn build_russh_config_has_single_ed25519_keypair() {
+        let r = Arc::new(TenantRegistry::empty());
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+        let hk = fresh_host_key();
+        let hk_bytes = hk.verifying_key_bytes();
+        let s = BridgeServer::new(BridgeServerConfig::new(r, addr, hk));
+        let cfg = s.build_russh_config();
+        assert_eq!(cfg.keys.len(), 1, "exactly one host keypair");
+        match &cfg.keys[0] {
+            russh::keys::key::KeyPair::Ed25519(kp) => {
+                assert_eq!(
+                    kp.verifying_key().to_bytes(),
+                    hk_bytes,
+                    "russh keypair must wrap the BridgeHostKey signing key"
+                );
+            }
+            #[allow(unreachable_patterns)]
+            _ => panic!("russh keys::KeyPair must be Ed25519"),
+        }
+    }
+
+    #[test]
+    fn build_russh_config_methods_is_publickey_only() {
+        // SECURITY: backstops the Marvin Attack SHIP-DECISION. If
+        // methods ever includes PASSWORD or KEYBOARD_INTERACTIVE we
+        // open a class of credential-stuffing + timing attacks that
+        // the cycle-3 ed25519-only handler can't catch — those
+        // methods never call into auth_publickey.
+        let r = Arc::new(TenantRegistry::empty());
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+        let s = BridgeServer::new(BridgeServerConfig::new(r, addr, fresh_host_key()));
+        let cfg = s.build_russh_config();
+        assert_eq!(
+            cfg.methods,
+            russh::MethodSet::PUBLICKEY,
+            "auth methods must be PUBLICKEY only"
+        );
+    }
+
+    #[test]
+    fn build_russh_config_uniform_reject_time() {
+        // SECURITY: reject time should be the SAME for initial vs
+        // subsequent attempts so a timing observer can't differentiate
+        // a known-unknown-user from a known-known-user without-key.
+        let r = Arc::new(TenantRegistry::empty());
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+        let s = BridgeServer::new(BridgeServerConfig::new(r, addr, fresh_host_key()));
+        let cfg = s.build_russh_config();
+        assert_eq!(cfg.auth_rejection_time, Duration::from_secs(2));
+        assert_eq!(
+            cfg.auth_rejection_time_initial,
+            Some(Duration::from_secs(2))
+        );
+    }
+
+    #[test]
+    fn build_russh_config_caps_auth_attempts() {
+        let r = Arc::new(TenantRegistry::empty());
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+        let s = BridgeServer::new(BridgeServerConfig::new(r, addr, fresh_host_key()));
+        let cfg = s.build_russh_config();
+        assert!(
+            cfg.max_auth_attempts <= 3,
+            "bridge should cap auth attempts low to defeat enumeration; got {}",
+            cfg.max_auth_attempts
+        );
+    }
+
+    #[test]
+    fn server_listen_addr_accessor_returns_config_addr() {
+        let r = Arc::new(TenantRegistry::empty());
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 4242);
+        let s = BridgeServer::new(BridgeServerConfig::new(r, addr, fresh_host_key()));
+        assert_eq!(s.listen_addr(), addr);
     }
 }

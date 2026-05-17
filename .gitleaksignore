@@ -1,0 +1,11 @@
+# gitleaks fingerprint allowlist for INTENTIONAL test fixtures.
+# Format: <commit>:<file>:<rule>:<line>
+# Every entry MUST be a test fixture; never use this to silence a real
+# secret leak — rotate the secret instead.
+
+# loom-bridge/src/host_key.rs: rejects_truncated_pem_block + rejects_rsa_pkcs8_pem
+# tests contain literal "-----BEGIN PRIVATE KEY-----" headers as
+# fixtures to verify the parser's error path. The bodies are
+# truncated / RSA-OID-only PEM blocks with NO real key material.
+# Reviewed da0a72d wda 2026-05-17.
+da0a72dd0c5097db22efedd1d9c4474979b6f969:loom-bridge/src/host_key.rs:private-key:139
