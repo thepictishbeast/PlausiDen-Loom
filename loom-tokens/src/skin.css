@@ -5335,3 +5335,267 @@ body[data-loom-drawer-open] .loom-drawer-scrim {
 .loom-link-list > li > a:hover {
   text-decoration: underline;
 }
+
+/* ============================================================
+ * Data primitives — vocabulary batch 6 (task #46).
+ *
+ * Tables / definition lists / metrics / KPI cards / progress
+ * bars + rings / meters. Data-density-aware: data-density="compact"
+ * / "comfortable" / "spacious" on tables for the three reading
+ * registers operators need.
+ *
+ * Composes inside .loom-card-* + .loom-panel surfaces from
+ * batch 3.
+ * ============================================================ */
+
+/* Tables — semantic HTML <table> with explicit class on
+ * the table element. Variants via data-attrs.
+ */
+.loom-table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+  color: var(--loom-color-ink);
+  background: var(--loom-color-surface);
+}
+.loom-table th,
+.loom-table td {
+  padding: var(--loom-space-3) var(--loom-space-4);
+  text-align: start;
+  vertical-align: middle;
+}
+.loom-table thead th {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+  border-block-end: 1px solid var(--loom-color-border, var(--loom-color-ink));
+}
+.loom-table tbody tr + tr td {
+  border-block-start: 1px solid var(--loom-color-border, var(--loom-color-ink));
+}
+.loom-table[data-density="compact"] th,
+.loom-table[data-density="compact"] td {
+  padding: var(--loom-space-2) var(--loom-space-3);
+  font-size: 0.875rem;
+}
+.loom-table[data-density="spacious"] th,
+.loom-table[data-density="spacious"] td {
+  padding: var(--loom-space-4) var(--loom-space-5, var(--loom-space-4));
+}
+.loom-table[data-striped="true"] tbody tr:nth-child(odd) td {
+  background: var(--loom-color-surface-subtle, var(--loom-color-surface));
+}
+.loom-table[data-bordered="true"] {
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  border-radius: var(--loom-radius-md, 0.5rem);
+  overflow: hidden;
+}
+.loom-table[data-bordered="true"] th,
+.loom-table[data-bordered="true"] td {
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+}
+.loom-table[data-hover="true"] tbody tr:hover td {
+  background: var(--loom-color-surface-subtle, var(--loom-color-surface));
+}
+
+/* Table action row + utility states.
+ */
+.loom-table-empty,
+.loom-table-loading {
+  padding: var(--loom-space-6) var(--loom-space-4);
+  text-align: center;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+}
+
+/* Key/value pair — single labelled datum.
+ */
+.loom-key-value {
+  display: flex;
+  flex-direction: column;
+  gap: var(--loom-space-1);
+}
+.loom-key-value > [data-slot="key"] {
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+}
+.loom-key-value > [data-slot="value"] {
+  font-size: 1rem;
+  color: var(--loom-color-ink);
+}
+
+/* Definition list — semantic <dl> wrapper.
+ */
+.loom-dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--loom-space-2) var(--loom-space-4);
+  margin: 0;
+}
+.loom-dt {
+  font-weight: 500;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+}
+.loom-dd {
+  margin: 0;
+  color: var(--loom-color-ink);
+}
+
+/* Metric — single KPI display. Value + label + optional trend.
+ */
+.loom-metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--loom-space-1);
+}
+.loom-metric-value {
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--loom-color-ink);
+  font-feature-settings: "tnum" 1; /* tabular nums for stable digit widths */
+}
+.loom-metric-label {
+  font-size: 0.875rem;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+}
+.loom-metric-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--loom-space-1);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+.loom-metric-trend[data-direction="up"]   { color: var(--loom-color-success, var(--loom-color-ink)); }
+.loom-metric-trend[data-direction="down"] { color: var(--loom-color-danger, var(--loom-color-ink)); }
+.loom-metric-trend[data-direction="flat"] { color: var(--loom-color-ink-muted, var(--loom-color-ink)); }
+
+/* Stat card — metric wrapped in a card surface.
+ */
+.loom-stat-card {
+  padding: var(--loom-space-4) var(--loom-space-5, var(--loom-space-4));
+  background: var(--loom-color-surface);
+  border-radius: var(--loom-radius-md, 0.5rem);
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  display: flex;
+  flex-direction: column;
+  gap: var(--loom-space-2);
+}
+
+/* Progress bar — linear indeterminate or determinate.
+ */
+.loom-progress-bar {
+  display: block;
+  inline-size: 100%;
+  block-size: 0.5rem;
+  background: var(--loom-color-surface-subtle, var(--loom-color-surface));
+  border-radius: var(--loom-radius-pill, 999px);
+  overflow: hidden;
+}
+.loom-progress-bar-fill {
+  display: block;
+  block-size: 100%;
+  background: var(--loom-color-accent);
+  border-radius: inherit;
+  /* Width is set inline via style="--fill: X%" */
+  inline-size: var(--loom-progress-fill, 0%);
+}
+.loom-progress-bar[data-tone="success"] .loom-progress-bar-fill {
+  background: var(--loom-color-success, var(--loom-color-accent));
+}
+.loom-progress-bar[data-tone="warning"] .loom-progress-bar-fill {
+  background: var(--loom-color-warning, var(--loom-color-accent));
+}
+.loom-progress-bar[data-tone="danger"] .loom-progress-bar-fill {
+  background: var(--loom-color-danger, var(--loom-color-accent));
+}
+.loom-progress-bar[data-size="lg"] { block-size: 0.75rem; }
+.loom-progress-bar[data-size="sm"] { block-size: 0.25rem; }
+
+/* Progress ring — circular SVG progress. Stroke-dashoffset
+ * controlled by --loom-progress-fill (0..1).
+ *
+ * Consumer markup:
+ *   <svg class="loom-progress-ring" viewBox="0 0 36 36" style="--loom-progress-fill: 0.75">
+ *     <circle class="loom-progress-ring-track" cx="18" cy="18" r="15.9"/>
+ *     <circle class="loom-progress-ring-bar"   cx="18" cy="18" r="15.9"/>
+ *   </svg>
+ */
+.loom-progress-ring {
+  display: inline-block;
+  inline-size: 3rem;
+  block-size: 3rem;
+}
+.loom-progress-ring-track {
+  fill: none;
+  stroke: var(--loom-color-surface-subtle, var(--loom-color-surface));
+  stroke-width: 3.5;
+}
+.loom-progress-ring-bar {
+  fill: none;
+  stroke: var(--loom-color-accent);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  /* circumference ≈ 99.9 (r=15.9, 2πr); dasharray = circumference,
+   * dashoffset = circumference * (1 - fill). */
+  stroke-dasharray: 99.9;
+  stroke-dashoffset: calc(99.9 * (1 - var(--loom-progress-fill, 0)));
+  transform: rotate(-90deg);
+  transform-origin: center;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .loom-progress-ring-bar {
+    transition: stroke-dashoffset 300ms ease;
+  }
+}
+
+/* Meter — semantic <meter> styling. Closed-enum data-tone.
+ */
+.loom-meter {
+  inline-size: 100%;
+  block-size: 0.625rem;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--loom-color-surface-subtle, var(--loom-color-surface));
+  border-radius: var(--loom-radius-pill, 999px);
+  border: 0;
+}
+.loom-meter::-webkit-meter-bar {
+  background: var(--loom-color-surface-subtle, var(--loom-color-surface));
+  border-radius: var(--loom-radius-pill, 999px);
+  border: 0;
+}
+.loom-meter::-webkit-meter-optimum-value {
+  background: var(--loom-color-success, var(--loom-color-accent));
+  border-radius: var(--loom-radius-pill, 999px);
+}
+.loom-meter::-webkit-meter-suboptimum-value {
+  background: var(--loom-color-warning, var(--loom-color-accent));
+  border-radius: var(--loom-radius-pill, 999px);
+}
+.loom-meter::-webkit-meter-even-less-good-value {
+  background: var(--loom-color-danger, var(--loom-color-accent));
+  border-radius: var(--loom-radius-pill, 999px);
+}
+.loom-meter::-moz-meter-bar {
+  background: var(--loom-color-success, var(--loom-color-accent));
+  border-radius: var(--loom-radius-pill, 999px);
+}
+
+/* Sparkline placeholder — host element for inline <svg> sparkline.
+ */
+.loom-sparkline {
+  display: inline-block;
+  block-size: 2rem;
+  inline-size: 6rem;
+  color: var(--loom-color-accent);
+}
+.loom-sparkline > svg {
+  inline-size: 100%;
+  block-size: 100%;
+  display: block;
+}
