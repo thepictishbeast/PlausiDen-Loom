@@ -35,6 +35,7 @@ pub mod bwrap;
 pub mod cgroup;
 pub mod exec_spec;
 pub mod host_key;
+pub mod resolver;
 pub mod resource;
 pub mod sandbox;
 pub mod tenant;
@@ -44,6 +45,9 @@ pub mod transport;
 
 pub use exec_spec::{ClaudeExecSpec, ClaudeSessionId, ExecSpecError, TenantUid};
 pub use host_key::{BridgeHostKey, HostKeyError};
+pub use resolver::{
+    ResolverError, SharedResolver, StaticTenantEntry, StaticTenantResolver, TenantResolver,
+};
 pub use resource::{ResourceCeilings, ResourceCeilingsBuilder, ResourceCeilingsError};
 pub use sandbox::{SandboxLint, SandboxSpec};
 pub use tenant::{Tenant, TenantError, TenantId, TenantRegistry};
