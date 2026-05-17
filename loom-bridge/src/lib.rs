@@ -33,6 +33,7 @@
 
 pub mod bwrap;
 pub mod cgroup;
+pub mod host_key;
 pub mod resource;
 pub mod sandbox;
 pub mod tenant;
@@ -40,6 +41,7 @@ pub mod tenant;
 #[cfg(feature = "russh-transport")]
 pub mod transport;
 
+pub use host_key::{BridgeHostKey, HostKeyError};
 pub use resource::{ResourceCeilings, ResourceCeilingsBuilder, ResourceCeilingsError};
 pub use sandbox::{SandboxLint, SandboxSpec};
 pub use tenant::{Tenant, TenantError, TenantId, TenantRegistry};

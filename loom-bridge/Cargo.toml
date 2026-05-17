@@ -19,7 +19,7 @@ anyhow = { workspace = true }
 # in cycle 3 once the protocol contract stabilises — gating russh
 # behind a feature flag keeps the dep graph (and CI build time)
 # bounded for the early-cycle iteration.
-ed25519-dalek = { version = "2", features = ["pem"] }
+ed25519-dalek = { version = "2", features = ["pem", "rand_core"] }
 base64 = "0.22"
 thiserror = "1"
 # Constant-time byte comparison for any auth-path equality check that
