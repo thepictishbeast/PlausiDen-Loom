@@ -266,6 +266,19 @@ pub enum CmsSection {
         /// Brand entries, left-to-right then wrap.
         items: Vec<CmsLogoItem>,
     },
+    /// T660 P2 Quote — testimonial card. Surfaced in 3 of 3 T660
+    /// marketing rebuilds (Stripe, Linear, Vercel) — second-highest
+    /// dedup-priority. Single quote per section; multi-quote
+    /// carousels = multiple Quote sections (deliberate, lets
+    /// downstream operators reorder via the picker).
+    Quote {
+        /// The quoted text. Auto-escaped on render.
+        body: String,
+        /// Speaker name (e.g. "Patrick Collison").
+        attribution: String,
+        /// Speaker role / company (e.g. "CEO, Stripe").
+        role: Option<String>,
+    },
 }
 
 /// FORGE_ROADMAP item 41: one entry in a [`CmsSection::KvPair`].
@@ -1135,6 +1148,27 @@ pub fn render_section(section: &CmsSection) -> Markup {
                                     span class="loom-logo-wall-name" { (item.name) }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        },
+        // T660 P2: Quote / testimonial. Semantic <blockquote> with
+        // <cite> attribution row; auto-escaped throughout.
+        CmsSection::Quote {
+            body,
+            attribution,
+            role,
+        } => html! {
+            section class="loom-quote" {
+                blockquote class="loom-quote-body" {
+                    p { (body) }
+                }
+                footer class="loom-quote-footer" {
+                    cite class="loom-quote-cite" {
+                        span class="loom-quote-attribution" { (attribution) }
+                        @if let Some(r) = role {
+                            span class="loom-quote-role" { (r) }
                         }
                     }
                 }
@@ -2897,6 +2931,98 @@ mod tests {
         let para_pos = html.find("Vote on entries").expect("paragraph");
         assert!(composer_pos < h2_pos, "composer before heading");
         assert!(h2_pos < para_pos, "heading before paragraph");
+    }
+
+    // ----------------------------------------------------------
+    // T660 P2 — Quote tests
+    // ----------------------------------------------------------
+
+    fn quote_page(body: &str, attribution: &str, role: Option<&str>) -> CmsPage {
+        CmsPage {
+            schema: None,
+            title: "Q".to_owned(),
+            description: "q-test".to_owned(),
+            path: "/q".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::Quote {
+                body: body.to_owned(),
+                attribution: attribution.to_owned(),
+                role: role.map(|s| s.to_owned()),
+            }],
+        }
+    }
+
+    #[test]
+    fn quote_renders_blockquote_and_cite() {
+        let p = quote_page(
+            "Linear is the standard for product velocity.",
+            "Patrick Collison",
+            Some("CEO, Stripe"),
+        );
+        let html = render_to_string(&p);
+        assert!(html.contains("<blockquote"));
+        assert!(html.contains("<cite"));
+        assert!(html.contains("Linear is the standard"));
+        assert!(html.contains("Patrick Collison"));
+        assert!(html.contains("CEO, Stripe"));
+    }
+
+    #[test]
+    fn quote_role_optional() {
+        let p = quote_page("Solid product.", "Anon", None);
+        let html = render_to_string(&p);
+        assert!(html.contains("Anon"));
+        // No role span when role is None.
+        assert!(!html.contains("loom-quote-role"));
+    }
+
+    #[test]
+    fn quote_auto_escapes_body_and_attribution() {
+        let p = quote_page(
+            "<script>alert(1)</script>",
+            "<img src=x onerror=alert(2)>",
+            Some("</cite>"),
+        );
+        let html = render_to_string(&p);
+        // XSS-relevant assertions: every angle bracket escaped → no
+        // executable element survives. The literal text 'onerror='
+        // stays as plain text (harmless without a parent <img>).
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(!html.contains("<img src=x onerror"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("&lt;img"));
+        // The literal </cite> in the role MUST be escaped — Maud auto-escapes.
+        assert!(html.contains("&lt;/cite&gt;"));
+    }
+
+    #[test]
+    fn quote_serde_round_trip() {
+        let p = quote_page("Body", "Attr", Some("Role"));
+        let j = serde_json::to_string(&p).unwrap();
+        let parsed: CmsPage = serde_json::from_str(&j).unwrap();
+        assert_eq!(parsed.sections.len(), 1);
+        match &parsed.sections[0] {
+            CmsSection::Quote {
+                body,
+                attribution,
+                role,
+            } => {
+                assert_eq!(body, "Body");
+                assert_eq!(attribution, "Attr");
+                assert_eq!(role.as_deref(), Some("Role"));
+            }
+            _ => panic!("not a Quote"),
+        }
+    }
+
+    #[test]
+    fn quote_renders_semantic_landmarks() {
+        let p = quote_page("Body", "Attr", None);
+        let html = render_to_string(&p);
+        // semantic structure: section > blockquote > p; section > footer > cite
+        assert!(html.contains("class=\"loom-quote\""));
+        assert!(html.contains("class=\"loom-quote-body\""));
+        assert!(html.contains("class=\"loom-quote-footer\""));
     }
 
     // ----------------------------------------------------------

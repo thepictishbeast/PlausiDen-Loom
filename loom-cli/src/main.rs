@@ -7514,6 +7514,15 @@ fn handle_add_section(
                 {"name": "Brand B"},
             ],
         }),
+        // T62 cycle 6 + T660 P2 (advances #615 + closes T70 P2):
+        // quote / testimonial section picker. Defaults seed a placeholder
+        // quote so the operator can replace inline via serve_edit_form.
+        "quote" => serde_json::json!({
+            "kind": "quote",
+            "body": "Replace with the actual customer quote.",
+            "attribution": "Customer name",
+            "role": "Title, Company",
+        }),
         // T62 cycle 4 (advances #615): card_feed section picker.
         // Mirrors CmsSection::CardFeed { heading?, items: Vec<CmsCard> }.
         // The CmsCard schema has many optional fields (host_sub,
