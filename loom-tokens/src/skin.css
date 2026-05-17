@@ -3837,3 +3837,228 @@ body[data-loom-drawer-open] .loom-drawer-scrim {
   .loom-attention-pulse[data-speed="slow"] { animation-duration: 4s; }
   .loom-attention-pulse[data-speed="fast"] { animation-duration: 1.2s; }
 }
+
+/* ============================================================
+ * Foundational layout primitives — Every-Layout family
+ * (task #46, batch 1 of N).
+ *
+ * Pickering / Bell's "Every Layout" gave us a small set of
+ * compositional layout primitives that any modern site can
+ * be built from. We adopt the canonical names + add a few
+ * extensions of our own, all driven by --loom-space-* tokens
+ * + responsive at container-query granularity where supported.
+ *
+ * Each primitive:
+ *   * uses --loom-space-* tokens (no magic numbers)
+ *   * accepts a closed-enum size via data attributes
+ *   * has bounded reflow behavior (no horizontal scroll
+ *     surprises)
+ *   * composes with itself and the existing primitives
+ *
+ * Naming kept tight + 1:1 with the literature so future
+ * documentation can reference well-known names.
+ * ============================================================ */
+
+/* loom-box — semantic container with bounded padding +
+ * border-radius. The base every other primitive composes
+ * inside.
+ */
+.loom-box {
+  padding: var(--loom-space-4);
+  border-radius: var(--loom-radius-md, 0.5rem);
+  background: var(--loom-color-surface);
+  color: var(--loom-color-ink);
+}
+.loom-box[data-pad="0"] { padding: 0; }
+.loom-box[data-pad="2"] { padding: var(--loom-space-2); }
+.loom-box[data-pad="6"] { padding: var(--loom-space-6); }
+.loom-box[data-pad="8"] { padding: var(--loom-space-8); }
+
+/* loom-cluster — horizontal flow that wraps when out of space.
+ * Used for tag rows, navigation chips, action button rows.
+ * Gap driven by --loom-space-3 by default.
+ */
+.loom-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--loom-space-3);
+  align-items: center;
+  justify-content: flex-start;
+}
+.loom-cluster[data-align="center"]  { justify-content: center; }
+.loom-cluster[data-align="end"]     { justify-content: flex-end; }
+.loom-cluster[data-align="between"] { justify-content: space-between; }
+.loom-cluster[data-gap="2"] { gap: var(--loom-space-2); }
+.loom-cluster[data-gap="4"] { gap: var(--loom-space-4); }
+.loom-cluster[data-gap="6"] { gap: var(--loom-space-6); }
+
+/* loom-center — max-width content rail centered horizontally.
+ * For long-form reading + form column layouts.
+ */
+.loom-center {
+  box-sizing: content-box;
+  margin-inline: auto;
+  max-width: 60ch;
+  padding-inline: var(--loom-space-4);
+}
+.loom-center[data-max="40"] { max-width: 40ch; }
+.loom-center[data-max="80"] { max-width: 80ch; }
+.loom-center[data-max="prose"]   { max-width: 65ch; }
+.loom-center[data-max="page"]    { max-width: 72rem; }
+.loom-center[data-max="full"]    { max-width: 100%; padding-inline: 0; }
+
+/* loom-cover — viewport-cover with optional centered child.
+ * Used for hero sections + landing splashes.
+ */
+.loom-cover {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 100svh;
+  padding: var(--loom-space-6);
+}
+.loom-cover > * {
+  margin-block: var(--loom-space-4);
+}
+.loom-cover > [data-center] {
+  margin-block: auto;
+}
+.loom-cover[data-min="50"] { min-block-size: 50svh; }
+.loom-cover[data-min="75"] { min-block-size: 75svh; }
+
+/* loom-sidebar — asymmetric "content + sidebar" pair.
+ * Wraps when below the side-by-side threshold.
+ */
+.loom-sidebar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--loom-space-6);
+}
+.loom-sidebar > :first-child {
+  flex-basis: 20rem;
+  flex-grow: 1;
+}
+.loom-sidebar > :last-child {
+  flex-basis: 0;
+  flex-grow: 999;
+  min-inline-size: 50%;
+}
+.loom-sidebar[data-side="right"] > :first-child {
+  flex-basis: 0;
+  flex-grow: 999;
+  min-inline-size: 50%;
+}
+.loom-sidebar[data-side="right"] > :last-child {
+  flex-basis: 20rem;
+  flex-grow: 1;
+}
+
+/* loom-switcher — content row that collapses to a stack when
+ * the container drops below a threshold. Threshold driven by
+ * --loom-switcher-threshold (default 40rem).
+ */
+.loom-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--loom-space-4);
+}
+.loom-switcher > * {
+  flex-grow: 1;
+  flex-basis: calc((var(--loom-switcher-threshold, 40rem) - 100%) * 999);
+}
+
+/* loom-grid — auto-fit responsive grid. Cell minimum driven
+ * by --loom-grid-min (default 16rem); shrinks gracefully on
+ * narrow screens.
+ */
+.loom-grid {
+  display: grid;
+  gap: var(--loom-space-4);
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(var(--loom-grid-min, 16rem), 100%), 1fr)
+  );
+}
+.loom-grid[data-min="12"] { --loom-grid-min: 12rem; }
+.loom-grid[data-min="20"] { --loom-grid-min: 20rem; }
+.loom-grid[data-min="24"] { --loom-grid-min: 24rem; }
+
+/* loom-frame — aspect-ratio media wrapper. Defaults 16:9.
+ * Use for cards / cover images / video embeds.
+ */
+.loom-frame {
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.loom-frame > img,
+.loom-frame > video,
+.loom-frame > picture {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+.loom-frame[data-ratio="1-1"] { aspect-ratio: 1 / 1; }
+.loom-frame[data-ratio="3-2"] { aspect-ratio: 3 / 2; }
+.loom-frame[data-ratio="4-3"] { aspect-ratio: 4 / 3; }
+.loom-frame[data-ratio="21-9"] { aspect-ratio: 21 / 9; }
+
+/* loom-reel — horizontal-scroll strip. Used for carousels,
+ * filter pills, thumbnail strips. Snap on the items.
+ */
+.loom-reel {
+  display: flex;
+  block-size: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  gap: var(--loom-space-3);
+  padding-block: var(--loom-space-2);
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+}
+.loom-reel > * {
+  flex-shrink: 0;
+  scroll-snap-align: start;
+}
+.loom-reel[data-snap="none"] { scroll-snap-type: none; }
+
+/* loom-imposter — absolute-positioned overlay that centers
+ * over a positioned ancestor. Use for modal anchors, hover
+ * tooltips, focus rings. Pair with .loom-overlap or any
+ * .loom-* container with position:relative.
+ */
+.loom-imposter {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  transform: translate(-50%, -50%);
+  max-inline-size: 100%;
+  max-block-size: 100%;
+}
+.loom-imposter[data-anchor="top"] {
+  inset-block-start: 0;
+  transform: translate(-50%, 0);
+}
+.loom-imposter[data-anchor="bottom"] {
+  inset-block-start: auto;
+  inset-block-end: 0;
+  transform: translate(-50%, 0);
+}
+
+/* loom-icon — square icon wrapper with consistent sizing.
+ * Closed-enum size keyword.
+ */
+.loom-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.25em;
+  block-size: 1.25em;
+  flex-shrink: 0;
+}
+.loom-icon > svg { inline-size: 100%; block-size: 100%; }
+.loom-icon[data-size="sm"] { inline-size: 1em;    block-size: 1em; }
+.loom-icon[data-size="md"] { inline-size: 1.25em; block-size: 1.25em; }
+.loom-icon[data-size="lg"] { inline-size: 1.5em;  block-size: 1.5em; }
+.loom-icon[data-size="xl"] { inline-size: 2em;    block-size: 2em; }
