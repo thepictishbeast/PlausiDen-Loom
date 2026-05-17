@@ -1,0 +1,44 @@
+[package]
+name = "loom-bridge"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PlausiDen-Loom — sandboxed per-tenant Claude Code SSH bridge (T46). Routes admin-portal chat sessions to a jailed `claude --resume` invocation under a per-tenant unix user with cgroup CPU+memory ceilings and an anthropic+GitHub-only egress allowlist."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+# T46 cycle 2 (advances #598): only the public ed25519 key store
+# + per-tenant identity model lands this cycle. Russh wiring comes
+# in cycle 3 once the protocol contract stabilises — gating russh
+# behind a feature flag keeps the dep graph (and CI build time)
+# bounded for the early-cycle iteration.
+ed25519-dalek = { version = "2", features = ["pem"] }
+base64 = "0.22"
+thiserror = "1"
+
+[features]
+# Default: no SSH transport, just the typed tenant + key model
+# the loom-cli already wires in. The russh transport feature
+# pulls in tokio + the full russh stack; opting in is a separate
+# cycle so the lean-mode build stays fast.
+default = []
+russh-transport = ["dep:russh", "dep:tokio"]
+
+[dependencies.russh]
+version = "0.45"
+optional = true
+
+[dependencies.tokio]
+version = "1"
+features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"]
+optional = true
+
+[dev-dependencies]
+tempfile = "3"

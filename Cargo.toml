@@ -7,6 +7,11 @@ members = [
     "loom-cms-render",
     "loom-lint",
     "loom-cli",
+    # T46 cycle 2 (advances #598): typed tenant + resource-ceiling
+    # model for the sandboxed Claude Code SSH bridge. The russh
+    # transport lives behind the `russh-transport` feature so the
+    # default workspace build stays fast and tokio-free.
+    "loom-bridge",
 ]
 exclude = [
     # loom-audit will land in a follow-up; reserved here so the
