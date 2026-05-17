@@ -279,6 +279,26 @@ pub enum CmsSection {
         /// Speaker role / company (e.g. "CEO, Stripe").
         role: Option<String>,
     },
+    /// T660 P3 Code — fenced code or terminal-output block. Surfaced
+    /// in 2 of 3 T660 marketing rebuilds (Stripe API callouts +
+    /// Vercel `npx vercel` snippets). Renders as semantic
+    /// `<pre><code class="language-<lang>">`; the typed `lang` field
+    /// keeps callers honest about syntax-highlighting hints without
+    /// shipping a runtime highlighter in v1.
+    Code {
+        /// Fence language hint. Empty = generic. Examples: "bash",
+        /// "rust", "javascript", "terminal".
+        #[serde(default)]
+        lang: String,
+        /// Body of the block. Auto-escaped via Maud. Multi-line OK.
+        body: String,
+        /// Optional caption rendered above the block.
+        caption: Option<String>,
+        /// True if the block represents terminal/shell output (sets
+        /// data-loom-terminal so the skin can render a chrome bar).
+        #[serde(default)]
+        terminal: bool,
+    },
 }
 
 /// FORGE_ROADMAP item 41: one entry in a [`CmsSection::KvPair`].
@@ -1170,6 +1190,27 @@ pub fn render_section(section: &CmsSection) -> Markup {
                         @if let Some(r) = role {
                             span class="loom-quote-role" { (r) }
                         }
+                    }
+                }
+            }
+        },
+        // T660 P3: Code / terminal block. Semantic <pre><code> with
+        // a language class for any downstream syntax highlighter +
+        // data-loom-terminal for terminal-style chrome. Body text
+        // auto-escapes via Maud.
+        CmsSection::Code {
+            lang,
+            body,
+            caption,
+            terminal,
+        } => html! {
+            section class="loom-code" data-loom-terminal=[terminal.then_some("true")] {
+                @if let Some(c) = caption {
+                    figcaption class="loom-code-caption" { (c) }
+                }
+                pre class="loom-code-pre" {
+                    code class={ "loom-code-body language-" (lang) } {
+                        (body)
                     }
                 }
             }
@@ -2931,6 +2972,96 @@ mod tests {
         let para_pos = html.find("Vote on entries").expect("paragraph");
         assert!(composer_pos < h2_pos, "composer before heading");
         assert!(h2_pos < para_pos, "heading before paragraph");
+    }
+
+    // ----------------------------------------------------------
+    // T660 P3 — Code tests
+    // ----------------------------------------------------------
+
+    fn code_page(lang: &str, body: &str, caption: Option<&str>, terminal: bool) -> CmsPage {
+        CmsPage {
+            schema: None,
+            title: "C".to_owned(),
+            description: "code-test".to_owned(),
+            path: "/c".to_owned(),
+            nav_links: vec![],
+            sections: vec![CmsSection::Code {
+                lang: lang.to_owned(),
+                body: body.to_owned(),
+                caption: caption.map(|s| s.to_owned()),
+                terminal,
+            }],
+        }
+    }
+
+    #[test]
+    fn code_renders_pre_code_with_language_class() {
+        let p = code_page("rust", "fn main() {}", None, false);
+        let html = render_to_string(&p);
+        assert!(html.contains("<pre"));
+        assert!(html.contains("<code"));
+        assert!(html.contains("language-rust"));
+        assert!(html.contains("fn main()"));
+    }
+
+    #[test]
+    fn code_terminal_flag_sets_data_attr() {
+        let p = code_page("bash", "echo hi", None, true);
+        let html = render_to_string(&p);
+        assert!(html.contains("data-loom-terminal"));
+    }
+
+    #[test]
+    fn code_no_terminal_omits_data_attr() {
+        let p = code_page("bash", "echo hi", None, false);
+        let html = render_to_string(&p);
+        assert!(!html.contains("data-loom-terminal"));
+    }
+
+    #[test]
+    fn code_caption_renders_above_block() {
+        let p = code_page("bash", "echo hi", Some("Quickstart"), true);
+        let html = render_to_string(&p);
+        assert!(html.contains("Quickstart"));
+        assert!(html.contains("loom-code-caption"));
+    }
+
+    #[test]
+    fn code_body_auto_escaped() {
+        let p = code_page("html", "<script>alert(1)</script>", None, false);
+        let html = render_to_string(&p);
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn code_empty_lang_renders_generic_class() {
+        let p = code_page("", "x", None, false);
+        let html = render_to_string(&p);
+        // lang empty → class is "language-" with no suffix; still valid.
+        assert!(html.contains("language-"));
+    }
+
+    #[test]
+    fn code_serde_round_trip() {
+        let p = code_page("rust", "fn main(){}", Some("Demo"), true);
+        let j = serde_json::to_string(&p).unwrap();
+        let parsed: CmsPage = serde_json::from_str(&j).unwrap();
+        assert_eq!(parsed.sections.len(), 1);
+        match &parsed.sections[0] {
+            CmsSection::Code {
+                lang,
+                body,
+                caption,
+                terminal,
+            } => {
+                assert_eq!(lang, "rust");
+                assert_eq!(body, "fn main(){}");
+                assert_eq!(caption.as_deref(), Some("Demo"));
+                assert!(*terminal);
+            }
+            _ => panic!("not a Code"),
+        }
     }
 
     // ----------------------------------------------------------

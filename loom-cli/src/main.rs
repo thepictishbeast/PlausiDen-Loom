@@ -7523,6 +7523,15 @@ fn handle_add_section(
             "attribution": "Customer name",
             "role": "Title, Company",
         }),
+        // T62 cycle 7 + T660 P3 (advances #615 + closes T70 P3):
+        // code / terminal block picker.
+        "code" => serde_json::json!({
+            "kind": "code",
+            "lang": "bash",
+            "body": "echo hello",
+            "caption": null,
+            "terminal": true,
+        }),
         // T62 cycle 4 (advances #615): card_feed section picker.
         // Mirrors CmsSection::CardFeed { heading?, items: Vec<CmsCard> }.
         // The CmsCard schema has many optional fields (host_sub,
