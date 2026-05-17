@@ -34,6 +34,7 @@
 
 #![cfg(feature = "russh-transport")]
 
+use crate::bridge_session::spawn_claude_session;
 use crate::exec_spec::ClaudeSessionId;
 use crate::host_key::BridgeHostKey;
 use crate::resolver::SharedResolver;
@@ -250,6 +251,117 @@ impl BridgeHandler {
     pub fn tenant(&self) -> Option<&TenantId> {
         self.authenticated_as.as_ref()
     }
+
+    /// T46 cycle 5t (2026-05-17): take a [`crate::spawn::PreparedLaunch`]
+    /// and bring up a live bridge session backed by it. Spawns the
+    /// sandboxed claude child + two background pump tasks that
+    /// forward stdout/stderr to the russh channel, plus a reaper
+    /// task that closes the channel when the child exits.
+    ///
+    /// SECURITY: by the time this returns, the child PID is alive
+    /// inside the bwrap+cgroup+nftables sandbox. The reaper task
+    /// is the ONLY thing that closes the channel — if it dies
+    /// without closing, russh will eventually GC the channel on
+    /// connection-tear-down; defence-in-depth says always have a
+    /// channel-close path.
+    ///
+    /// Stdin (inbound channel `data()` → child stdin) lands in
+    /// cycle 5u. For now stdin is dropped post-spawn, child sees
+    /// EOF immediately, and most claude-like sessions exit quickly.
+    async fn spawn_session_for_channel(
+        &mut self,
+        channel: russh::Channel<russh::server::Msg>,
+        session: &mut russh::server::Session,
+        prepared: crate::spawn::PreparedLaunch,
+        tenant: &TenantId,
+    ) -> Result<(), BridgeError> {
+        let chan_id = channel.id();
+        let handle = session.handle();
+        let tenant_log = tenant.clone();
+        match spawn_claude_session(prepared) {
+            Ok(mut bridge_session) => {
+                tracing::info!(tenant = %tenant_log, "session spawned");
+                // stdout pump → channel data
+                if let Some(mut stdout) = bridge_session.stdout.take() {
+                    let h = handle.clone();
+                    tokio::spawn(async move {
+                        use tokio::io::AsyncReadExt;
+                        let mut buf = vec![0u8; 4096];
+                        loop {
+                            match stdout.read(&mut buf).await {
+                                Ok(0) => break,
+                                Ok(n) => {
+                                    if h.data(chan_id, russh::CryptoVec::from_slice(&buf[..n]))
+                                        .await
+                                        .is_err()
+                                    {
+                                        break;
+                                    }
+                                }
+                                Err(_) => break,
+                            }
+                        }
+                    });
+                }
+                // stderr pump → channel extended_data (ext=1 = SSH stderr)
+                if let Some(mut stderr) = bridge_session.stderr.take() {
+                    let h = handle.clone();
+                    tokio::spawn(async move {
+                        use tokio::io::AsyncReadExt;
+                        let mut buf = vec![0u8; 4096];
+                        loop {
+                            match stderr.read(&mut buf).await {
+                                Ok(0) => break,
+                                Ok(n) => {
+                                    if h.extended_data(
+                                        chan_id,
+                                        1,
+                                        russh::CryptoVec::from_slice(&buf[..n]),
+                                    )
+                                    .await
+                                    .is_err()
+                                    {
+                                        break;
+                                    }
+                                }
+                                Err(_) => break,
+                            }
+                        }
+                    });
+                }
+                // Drop stdin for now — cycle 5u stores + pumps it.
+                let _ = bridge_session.stdin.take();
+                // Reaper task: wait + EOF + close.
+                if let Some(mut child) = bridge_session.child.take() {
+                    let h = handle.clone();
+                    let tenant_reap = tenant_log.clone();
+                    tokio::spawn(async move {
+                        let exit = child.wait().await;
+                        tracing::info!(
+                            tenant = %tenant_reap,
+                            exit = ?exit,
+                            "session child exited"
+                        );
+                        let _ = h.eof(chan_id).await;
+                        let _ = h.close(chan_id).await;
+                    });
+                }
+            }
+            Err(e) => {
+                tracing::warn!(tenant = %tenant_log, error = %e, "session spawn failed");
+                let banner = format!("session: SPAWN-FAILED ({e})\n");
+                channel
+                    .data(banner.as_bytes())
+                    .await
+                    .map_err(|e| BridgeError::Russh(format!("spawn-fail banner: {e}")))?;
+                channel
+                    .close()
+                    .await
+                    .map_err(|e| BridgeError::Russh(format!("spawn-fail close: {e}")))?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Render the cycle-5a hello banner sent to a newly opened session
@@ -317,7 +429,7 @@ impl russh::server::Handler for BridgeHandler {
     async fn channel_open_session(
         &mut self,
         channel: russh::Channel<russh::server::Msg>,
-        _session: &mut russh::server::Session,
+        session: &mut russh::server::Session,
     ) -> Result<bool, Self::Error> {
         let Some(tenant) = self.authenticated_as.clone() else {
             // SECURITY: russh's auth gate runs BEFORE channel_open,
@@ -386,18 +498,14 @@ impl russh::server::Handler for BridgeHandler {
         // + bidirectional stdio bridging.
         if let (Some(params), Ok(spec)) = (&self.sandbox_params, &resolve) {
             let launch = params.build_launch(spec.clone());
-            let prepare_line = match prepare_blocking_async(launch).await {
+            match prepare_blocking_async(launch).await {
                 Ok(prepared) => {
                     tracing::info!(
                         tenant = %tenant,
                         argv_len = prepared.audit_argv.len(),
                         "launch prepared"
                     );
-                    // Cycle 5s (2026-05-17): surface the egress-
-                    // allowlist resolution outcome so the operator's
-                    // session log captures EXACTLY what IP set the
-                    // sandboxed claude can talk to. None = empty
-                    // allowlist (DROP-by-default in force).
+                    // Cycle 5s: allowlist summary in the banner.
                     let allowlist_summary = match &prepared.resolved_allowlist {
                         Some(r) => format!(
                             "ipv4={}, ipv6={}, failed_hosts={}",
@@ -407,26 +515,45 @@ impl russh::server::Handler for BridgeHandler {
                         ),
                         None => "EMPTY (drop-by-default)".to_owned(),
                     };
-                    format!(
+                    let banner = format!(
                         "launch: prepared, argv_len={}, allowlist=[{}], audit_argv={:?}\n",
                         prepared.audit_argv.len(),
                         allowlist_summary,
                         prepared.audit_argv
-                    )
+                    );
+                    channel
+                        .data(banner.as_bytes())
+                        .await
+                        .map_err(|e| BridgeError::Russh(format!("launch banner: {e}")))?;
+
+                    // Cycle 5t (2026-05-17): actually spawn the
+                    // sandboxed claude. Stdout/stderr pump to
+                    // channel data/extended_data; reaper closes
+                    // the channel when child exits. Stdin pump
+                    // (inbound `data()` → child stdin) lands in
+                    // cycle 5u — for now stdin is dropped, child
+                    // sees EOF immediately and exits quickly.
+                    self.spawn_session_for_channel(channel, session, prepared, &tenant)
+                        .await?;
+                    return Ok(true);
                 }
                 Err(PrepareAsyncError::Launch(e)) => {
                     tracing::warn!(tenant = %tenant, error = %e, "launch prepare failed");
-                    format!("launch: FAILED ({e})\n")
+                    let banner = format!("launch: FAILED ({e})\n");
+                    channel
+                        .data(banner.as_bytes())
+                        .await
+                        .map_err(|e| BridgeError::Russh(format!("fail banner: {e}")))?;
                 }
                 Err(PrepareAsyncError::JoinPanic(msg)) => {
                     tracing::error!(tenant = %tenant, panic_msg = %msg, "launch prepare panicked");
-                    format!("launch: PANICKED ({msg})\n")
+                    let banner = format!("launch: PANICKED ({msg})\n");
+                    channel
+                        .data(banner.as_bytes())
+                        .await
+                        .map_err(|e| BridgeError::Russh(format!("panic banner: {e}")))?;
                 }
-            };
-            channel
-                .data(prepare_line.as_bytes())
-                .await
-                .map_err(|e| BridgeError::Russh(format!("prepare-line write: {e}")))?;
+            }
         }
 
         channel
