@@ -47,6 +47,8 @@
 use crate::sandbox::SandboxSpec;
 use crate::tenant::TenantId;
 use serde::{Deserialize, Serialize};
+use std::io::Write;
+use std::process::{Command, Stdio};
 
 /// One rendered nftables ruleset for a tenant + companion `nft`
 /// invocation argv. The executor pipes the ruleset into stdin while
@@ -126,6 +128,120 @@ pub fn render_nftables_ruleset(spec: &SandboxSpec) -> NftablesRuleset {
 #[must_use]
 pub fn nft_apply_argv() -> Vec<&'static str> {
     vec!["nft", "-f", "-"]
+}
+
+/// Errors raised by the egress executor.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum EgressApplyError {
+    /// Could not spawn the configured `nft` (or substitute) binary.
+    /// Usually means nftables isn't installed or the binary isn't on PATH.
+    #[error("spawn {binary}: {source}")]
+    Spawn {
+        /// The binary we tried to spawn.
+        binary: String,
+        /// Underlying I/O failure.
+        #[source]
+        source: std::io::Error,
+    },
+    /// Could not write the ruleset bytes to the child's stdin.
+    #[error("write ruleset to {binary} stdin: {source}")]
+    StdinWrite {
+        /// The binary stdin was being piped to.
+        binary: String,
+        /// Underlying I/O failure.
+        #[source]
+        source: std::io::Error,
+    },
+    /// `wait()` on the child process failed.
+    #[error("wait on {binary}: {source}")]
+    Wait {
+        /// The binary we waited on.
+        binary: String,
+        /// Underlying I/O failure.
+        #[source]
+        source: std::io::Error,
+    },
+    /// Child process exited non-zero. nft prints parse errors to
+    /// stderr — operators must read the captured stderr to debug.
+    #[error("{binary} exited with status {status} (stderr: {stderr_excerpt:?})")]
+    NonZeroExit {
+        /// The binary that failed.
+        binary: String,
+        /// Exit status code (None for signal-terminated).
+        status: String,
+        /// First 200 chars of stderr for log readability.
+        stderr_excerpt: String,
+    },
+}
+
+/// T46.7 / cycle 5i (2026-05-17): apply a rendered nftables
+/// ruleset via `nft -f -`. Spawns nft, pipes the ruleset to its
+/// stdin, waits for exit. Sync (uses std::process not tokio) so
+/// the executor stays in the default-features tree and matches
+/// the cgroup executor's shape.
+///
+/// `binary` is configurable so tests can substitute a stand-in
+/// (`/bin/cat` echoes the ruleset to stdout; non-zero exit codes
+/// can be exercised via `/bin/false`). Production callers pass
+/// `"nft"`.
+///
+/// BUG ASSUMPTION: caller has CAP_NET_ADMIN, OR the bridge is
+/// running under sudo policy that lets it apply nftables tables
+/// for its tenants. The function does NOT shell-out — argv-mode
+/// only, so a malicious binary path can't inject extra args.
+///
+/// # Errors
+///
+/// Returns one of the [`EgressApplyError`] variants. nft parse
+/// errors (most common operator-side failure) materialise as
+/// `NonZeroExit` with the parser's stderr in `stderr_excerpt`.
+pub fn apply_nftables_ruleset(
+    binary: &str,
+    ruleset: &NftablesRuleset,
+) -> Result<(), EgressApplyError> {
+    let mut child = Command::new(binary)
+        .arg("-f")
+        .arg("-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|source| EgressApplyError::Spawn {
+            binary: binary.to_owned(),
+            source,
+        })?;
+    {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| EgressApplyError::Spawn {
+                binary: binary.to_owned(),
+                source: std::io::Error::other("piped stdin handle missing"),
+            })?;
+        stdin
+            .write_all(ruleset.ruleset.as_bytes())
+            .map_err(|source| EgressApplyError::StdinWrite {
+                binary: binary.to_owned(),
+                source,
+            })?;
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|source| EgressApplyError::Wait {
+            binary: binary.to_owned(),
+            source,
+        })?;
+    if !output.status.success() {
+        let stderr_full = String::from_utf8_lossy(&output.stderr);
+        let stderr_excerpt: String = stderr_full.chars().take(200).collect();
+        return Err(EgressApplyError::NonZeroExit {
+            binary: binary.to_owned(),
+            status: output.status.to_string(),
+            stderr_excerpt,
+        });
+    }
+    Ok(())
 }
 
 /// Sanitize tenant id for set-name use. nft set names must match
@@ -274,5 +390,112 @@ mod tests {
         // table) gets caught at test time.
         let r = render_nftables_ruleset(&spec("acme"));
         assert!(r.ruleset.contains("type filter hook output priority 0;"));
+    }
+
+    // ---------- T46.7 / cycle 5i executor tests ----------
+
+    // Note: the happy-path 'spawn succeeds, stdin pipes, wait exits 0'
+    // is covered by `apply_pipes_full_ruleset_bytes` below, which uses
+    // a sh wrapper that captures stdin to a file then exits zero. (An
+    // earlier cat-based test was removed because `cat -f -` errors —
+    // cat doesn't accept the -f flag; the apply_nftables_ruleset
+    // function always passes -f, so any stand-in must accept that.)
+
+    #[test]
+    fn apply_with_false_returns_non_zero_exit() {
+        if !std::path::Path::new("/bin/false").exists() {
+            return;
+        }
+        let r = render_nftables_ruleset(&spec("acme"));
+        let err = apply_nftables_ruleset("/bin/false", &r).expect_err("false returns non-zero");
+        match err {
+            EgressApplyError::NonZeroExit { binary, .. } => {
+                assert_eq!(binary, "/bin/false");
+            }
+            other => panic!("expected NonZeroExit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn apply_with_missing_binary_returns_spawn_error() {
+        let r = render_nftables_ruleset(&spec("acme"));
+        let err =
+            apply_nftables_ruleset("/this/does/not/exist/at/all/nft-deliberately-missing", &r)
+                .expect_err("missing binary fails to spawn");
+        assert!(matches!(err, EgressApplyError::Spawn { .. }));
+    }
+
+    #[test]
+    fn apply_stderr_excerpt_capped_at_200_chars() {
+        // Use /bin/sh -c 'echo <long stderr>; exit 1' shape... but
+        // apply_nftables_ruleset doesn't take arbitrary args. Inline:
+        // write a small wrapper to a tempfile that emits long stderr.
+        if !std::path::Path::new("/bin/sh").exists() {
+            return;
+        }
+        let tmp = tempfile::tempdir().expect("tmp");
+        let wrapper = tmp.path().join("emit_long_stderr.sh");
+        // -f - causes sh to read script from stdin → ignore. Spit
+        // a long stderr message and exit 1.
+        std::fs::write(
+            &wrapper,
+            "#!/bin/sh\ncat >/dev/null; echo \"$(yes 'x' | head -c 500)\" 1>&2; exit 1\n",
+        )
+        .expect("write wrapper");
+        let mut perms = std::fs::metadata(&wrapper).unwrap().permissions();
+        use std::os::unix::fs::PermissionsExt;
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&wrapper, perms).expect("chmod");
+        let r = render_nftables_ruleset(&spec("acme"));
+        let err = apply_nftables_ruleset(wrapper.to_str().unwrap(), &r)
+            .expect_err("wrapper exits non-zero");
+        if let EgressApplyError::NonZeroExit { stderr_excerpt, .. } = err {
+            assert!(
+                stderr_excerpt.chars().count() <= 200,
+                "stderr_excerpt not capped, got {} chars",
+                stderr_excerpt.chars().count()
+            );
+        } else {
+            panic!("expected NonZeroExit");
+        }
+    }
+
+    #[test]
+    fn apply_pipes_full_ruleset_bytes() {
+        // Verify the ruleset actually reaches stdin by sending it
+        // through `tee` to a known file, then reading it back.
+        if !std::path::Path::new("/usr/bin/tee").exists()
+            && !std::path::Path::new("/bin/tee").exists()
+        {
+            return;
+        }
+        let tee = if std::path::Path::new("/usr/bin/tee").exists() {
+            "/usr/bin/tee"
+        } else {
+            "/bin/tee"
+        };
+        let tmp = tempfile::tempdir().expect("tmp");
+        let _out = tmp.path().join("nft.stdin.captured");
+        // tee with -f - would write to "-f -" path; not what we want.
+        // Easier: use a sh wrapper that captures stdin to a known file.
+        if !std::path::Path::new("/bin/sh").exists() {
+            return;
+        }
+        let cap = tmp.path().join("captured");
+        let wrapper = tmp.path().join("capture.sh");
+        std::fs::write(
+            &wrapper,
+            format!("#!/bin/sh\ncat > {} ; exit 0\n", cap.to_string_lossy()),
+        )
+        .expect("write wrapper");
+        let mut perms = std::fs::metadata(&wrapper).unwrap().permissions();
+        use std::os::unix::fs::PermissionsExt;
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&wrapper, perms).expect("chmod");
+        let r = render_nftables_ruleset(&spec("acme"));
+        apply_nftables_ruleset(wrapper.to_str().unwrap(), &r).expect("wrapper exits 0");
+        let got = std::fs::read_to_string(&cap).expect("captured");
+        assert_eq!(got, r.ruleset, "byte-mismatch on piped stdin");
+        let _ = tee;
     }
 }
