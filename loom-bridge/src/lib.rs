@@ -41,6 +41,8 @@ pub mod resolver;
 pub mod resource;
 pub mod sandbox;
 pub mod spawn;
+#[cfg(feature = "russh-transport")]
+pub mod spawn_async;
 pub mod tenant;
 
 #[cfg(feature = "russh-transport")]
