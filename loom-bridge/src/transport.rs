@@ -379,6 +379,39 @@ impl BridgeHandler {
     }
 }
 
+/// T46 cycle 5w (2026-05-17): render the prepare-line banner
+/// sent on the channel after `BridgeLaunch::prepare` succeeds.
+/// Pure so unit tests can pin the format without standing a real
+/// russh session + prepared command pipeline.
+///
+/// Format (load-bearing for operator log greppability):
+///   `launch: prepared, argv_len=N, allowlist=[…], audit_argv=[…]\n`
+///
+/// `allowlist=` is either `EMPTY (drop-by-default)` (no hosts in
+/// the sandbox spec) or `ipv4=A, ipv6=B, failed_hosts=C` from the
+/// per-session resolver pass.
+#[must_use]
+pub fn format_prepare_banner(
+    audit_argv: &[String],
+    resolved: Option<&crate::egress::ResolvedAllowlist>,
+) -> String {
+    let allowlist_summary = match resolved {
+        Some(r) => format!(
+            "ipv4={}, ipv6={}, failed_hosts={}",
+            r.ipv4.len(),
+            r.ipv6.len(),
+            r.failed.len()
+        ),
+        None => "EMPTY (drop-by-default)".to_owned(),
+    };
+    format!(
+        "launch: prepared, argv_len={}, allowlist=[{}], audit_argv={:?}\n",
+        audit_argv.len(),
+        allowlist_summary,
+        audit_argv
+    )
+}
+
 /// Render the cycle-5a hello banner sent to a newly opened session
 /// channel. Pure function so unit tests can pin the exact bytes
 /// without standing a real russh session.
@@ -520,21 +553,12 @@ impl russh::server::Handler for BridgeHandler {
                         argv_len = prepared.audit_argv.len(),
                         "launch prepared"
                     );
-                    // Cycle 5s: allowlist summary in the banner.
-                    let allowlist_summary = match &prepared.resolved_allowlist {
-                        Some(r) => format!(
-                            "ipv4={}, ipv6={}, failed_hosts={}",
-                            r.ipv4.len(),
-                            r.ipv6.len(),
-                            r.failed.len()
-                        ),
-                        None => "EMPTY (drop-by-default)".to_owned(),
-                    };
-                    let banner = format!(
-                        "launch: prepared, argv_len={}, allowlist=[{}], audit_argv={:?}\n",
-                        prepared.audit_argv.len(),
-                        allowlist_summary,
-                        prepared.audit_argv
+                    // Cycle 5s/5w: allowlist summary + audit_argv
+                    // in the channel banner, via the pure helper so
+                    // tests can pin the exact format.
+                    let banner = format_prepare_banner(
+                        &prepared.audit_argv,
+                        prepared.resolved_allowlist.as_ref(),
                     );
                     channel
                         .data(banner.as_bytes())
@@ -1027,6 +1051,44 @@ mod tests {
         for &b in &bytes {
             assert!(b.is_ascii(), "non-ascii byte: {b}");
         }
+    }
+
+    // ---------- cycle 5w: format_prepare_banner ----------
+
+    #[test]
+    fn format_prepare_banner_with_no_allowlist_says_drop_by_default() {
+        let argv = vec!["bwrap".to_owned(), "--".to_owned(), "claude".to_owned()];
+        let s = format_prepare_banner(&argv, None);
+        assert!(s.starts_with("launch: prepared, argv_len=3, "));
+        assert!(s.contains("allowlist=[EMPTY (drop-by-default)]"));
+        assert!(s.ends_with("\n"));
+    }
+
+    #[test]
+    fn format_prepare_banner_with_resolved_allowlist_surfaces_counts() {
+        use crate::egress::ResolvedAllowlist;
+        use std::net::{Ipv4Addr, Ipv6Addr};
+        let argv = vec!["bwrap".to_owned(), "claude".to_owned()];
+        let resolved = ResolvedAllowlist {
+            ipv4: vec![Ipv4Addr::new(1, 1, 1, 1), Ipv4Addr::new(8, 8, 8, 8)],
+            ipv6: vec![Ipv6Addr::LOCALHOST],
+            failed: vec!["unreachable.example".to_owned()],
+        };
+        let s = format_prepare_banner(&argv, Some(&resolved));
+        assert!(
+            s.contains("ipv4=2, ipv6=1, failed_hosts=1"),
+            "should surface resolved counts: {s}"
+        );
+        assert!(s.contains("argv_len=2"));
+    }
+
+    #[test]
+    fn format_prepare_banner_audit_argv_format_is_debug_array() {
+        // {:?} format → operator can paste into a `let argv = …;`
+        // for reproduction.
+        let argv = vec!["bwrap".to_owned(), "/sites/acme".to_owned()];
+        let s = format_prepare_banner(&argv, None);
+        assert!(s.contains(r#"audit_argv=["bwrap", "/sites/acme"]"#));
     }
 
     #[test]
