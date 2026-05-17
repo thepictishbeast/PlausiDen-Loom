@@ -31,6 +31,8 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+#[cfg(feature = "russh-transport")]
+pub mod bridge_session;
 pub mod bwrap;
 pub mod cgroup;
 pub mod cookie_bridge;
