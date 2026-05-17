@@ -3230,15 +3230,26 @@ pub fn csp_sha256(bytes: &[u8]) -> String {
     format!("sha256-{b64}")
 }
 
+/// Map the always-escape HTML metacharacters (`&`, `<`, `>`) to
+/// their entity form. The shared base for [`escape_html_text`] and
+/// [`escape_html_attr`] — those wrap this with their additional
+/// context-specific characters.
+fn escape_html_base(c: char) -> Option<&'static str> {
+    match c {
+        '&' => Some("&amp;"),
+        '<' => Some("&lt;"),
+        '>' => Some("&gt;"),
+        _ => None,
+    }
+}
+
 /// Escape a text node (HTML body text or `<title>` content).
 #[must_use]
 pub fn escape_html_text(s: &str) -> String {
     s.chars()
-        .map(|c| match c {
-            '&' => "&amp;".to_owned(),
-            '<' => "&lt;".to_owned(),
-            '>' => "&gt;".to_owned(),
-            other => other.to_string(),
+        .map(|c| match escape_html_base(c) {
+            Some(ent) => ent.to_owned(),
+            None => c.to_string(),
         })
         .collect()
 }
@@ -3247,13 +3258,11 @@ pub fn escape_html_text(s: &str) -> String {
 #[must_use]
 pub fn escape_html_attr(s: &str) -> String {
     s.chars()
-        .map(|c| match c {
-            '&' => "&amp;".to_owned(),
-            '<' => "&lt;".to_owned(),
-            '>' => "&gt;".to_owned(),
-            '"' => "&quot;".to_owned(),
-            '\'' => "&#39;".to_owned(),
-            other => other.to_string(),
+        .map(|c| match (escape_html_base(c), c) {
+            (Some(ent), _) => ent.to_owned(),
+            (None, '"') => "&quot;".to_owned(),
+            (None, '\'') => "&#39;".to_owned(),
+            (None, other) => other.to_string(),
         })
         .collect()
 }
