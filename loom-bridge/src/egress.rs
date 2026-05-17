@@ -357,6 +357,77 @@ pub fn resolve_egress_allowlist(
     })
 }
 
+/// T46.7 / cycle 5m (2026-05-17): apply a list of `nft add element`
+/// commands (from [`render_set_population_commands`]) by piping
+/// them through `nft -f -`. Mirrors [`apply_nftables_ruleset`]'s
+/// shape — sync, stdin-piped, typed errors.
+///
+/// Empty `commands` is a no-op (returns `Ok(())`).
+///
+/// # Errors
+///
+/// Returns [`EgressApplyError`] variants identical to
+/// [`apply_nftables_ruleset`].
+pub fn apply_set_population_commands(
+    binary: &str,
+    commands: &[String],
+) -> Result<(), EgressApplyError> {
+    if commands.is_empty() {
+        return Ok(());
+    }
+    // Join the commands into a single nft input stream — nft -f -
+    // reads sequential statements separated by newlines.
+    let joined: String = commands
+        .iter()
+        .map(|c| format!("{c}\n"))
+        .collect::<String>();
+    // Stitch into an NftablesRuleset-like shape so we can reuse the
+    // executor. Build a temporary ruleset wrapper for the
+    // already-existing apply_nftables_ruleset spawn path.
+    let mut child = Command::new(binary)
+        .arg("-f")
+        .arg("-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|source| EgressApplyError::Spawn {
+            binary: binary.to_owned(),
+            source,
+        })?;
+    {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| EgressApplyError::Spawn {
+                binary: binary.to_owned(),
+                source: std::io::Error::other("piped stdin handle missing"),
+            })?;
+        stdin
+            .write_all(joined.as_bytes())
+            .map_err(|source| EgressApplyError::StdinWrite {
+                binary: binary.to_owned(),
+                source,
+            })?;
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|source| EgressApplyError::Wait {
+            binary: binary.to_owned(),
+            source,
+        })?;
+    if !output.status.success() {
+        let stderr_full = String::from_utf8_lossy(&output.stderr);
+        let stderr_excerpt: String = stderr_full.chars().take(200).collect();
+        return Err(EgressApplyError::NonZeroExit {
+            binary: binary.to_owned(),
+            status: output.status.to_string(),
+            stderr_excerpt,
+        });
+    }
+    Ok(())
+}
+
 /// T46.7 / cycle 5l (2026-05-17): render the `nft add element`
 /// commands that populate the rendered ruleset's allow-sets.
 /// Pure; the executor pipes the output through `nft` (separate
@@ -729,6 +800,74 @@ mod tests {
         let cmds = render_set_population_commands(&ruleset, &resolved);
         assert_eq!(cmds.len(), 1);
         assert!(cmds[0].contains("1.1.1.1, 8.8.8.8"));
+    }
+
+    // ---------- T46.7 / cycle 5m set-population executor tests ----------
+
+    #[test]
+    fn apply_set_pop_empty_is_noop() {
+        // No commands = no spawn = no error. The binary name is
+        // never even resolved, so we can pass a definitely-bogus
+        // path and still get Ok.
+        let r = apply_set_population_commands(
+            "/this/binary/does/not/exist/at/all/no-spawn-should-happen",
+            &[],
+        );
+        assert!(r.is_ok());
+    }
+
+    #[test]
+    fn apply_set_pop_pipes_commands_correctly() {
+        // Capture the piped stdin with a sh wrapper and verify the
+        // bytes match the joined commands.
+        if !std::path::Path::new("/bin/sh").exists() {
+            return;
+        }
+        let tmp = tempfile::tempdir().expect("tmp");
+        let cap = tmp.path().join("captured");
+        let wrapper = tmp.path().join("capture.sh");
+        std::fs::write(
+            &wrapper,
+            format!("#!/bin/sh\ncat > {} ; exit 0\n", cap.to_string_lossy()),
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&wrapper).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&wrapper, perms).unwrap();
+        let commands = vec![
+            "add element inet loom-bridge-acme loom_acme_allow { 1.1.1.1, 8.8.8.8 }".to_owned(),
+            "add element inet loom-bridge-acme loom_acme_allow6 { ::1 }".to_owned(),
+        ];
+        apply_set_population_commands(wrapper.to_str().unwrap(), &commands).expect("apply ok");
+        let got = std::fs::read_to_string(&cap).expect("read");
+        // Both commands separated by newlines + trailing newline per cmd.
+        assert!(got.contains("loom_acme_allow {"));
+        assert!(got.contains("loom_acme_allow6 {"));
+        // Each command followed by \n.
+        let lines: Vec<&str> = got.lines().collect();
+        assert_eq!(lines.len(), 2);
+    }
+
+    #[test]
+    fn apply_set_pop_returns_non_zero_exit_on_failure() {
+        if !std::path::Path::new("/bin/sh").exists() {
+            return;
+        }
+        let tmp = tempfile::tempdir().expect("tmp");
+        let wrapper = fresh_non_zero_exit_wrapper_local(&tmp);
+        let err =
+            apply_set_population_commands(wrapper.to_str().unwrap(), &["dummy command".to_owned()])
+                .expect_err("wrapper exits non-zero");
+        assert!(matches!(err, EgressApplyError::NonZeroExit { .. }));
+    }
+
+    #[test]
+    fn apply_set_pop_missing_binary_returns_spawn_error() {
+        let err =
+            apply_set_population_commands("/no/such/binary/exists-here-set-pop", &["x".to_owned()])
+                .expect_err("missing binary");
+        assert!(matches!(err, EgressApplyError::Spawn { .. }));
     }
 
     #[test]
