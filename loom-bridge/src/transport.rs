@@ -205,6 +205,14 @@ pub struct BridgeHandler {
     /// config. `None` preserves cycle-5d behaviour; `Some(_)` triggers
     /// the `prepare_blocking_async` call on channel-open.
     sandbox_params: Option<BridgeSandboxParams>,
+    /// T46 cycle 5u: live child stdin. Populated when
+    /// `spawn_session_for_channel` succeeds; consumed by the russh
+    /// `data()` handler to forward inbound bytes to the sandboxed
+    /// claude. `Arc<Mutex<_>>` because the russh framework calls
+    /// `data()` with `&mut self` but our pump tasks (spawned in
+    /// cycle 5t) need to coexist with potential future stdin-pump
+    /// patterns.
+    active_stdin: Option<Arc<tokio::sync::Mutex<tokio::process::ChildStdin>>>,
 }
 
 impl BridgeHandler {
@@ -220,6 +228,7 @@ impl BridgeHandler {
             authenticated_as: None,
             resolver,
             sandbox_params,
+            active_stdin: None,
         }
     }
 
@@ -329,8 +338,14 @@ impl BridgeHandler {
                         }
                     });
                 }
-                // Drop stdin for now — cycle 5u stores + pumps it.
-                let _ = bridge_session.stdin.take();
+                // Cycle 5u (2026-05-17): stash stdin so the russh
+                // `data()` handler can forward inbound channel
+                // bytes to it. Arc/Mutex because Rust's borrow
+                // checker insists `data()` cannot borrow self while
+                // an inflight write is pending.
+                if let Some(stdin) = bridge_session.stdin.take() {
+                    self.active_stdin = Some(Arc::new(tokio::sync::Mutex::new(stdin)));
+                }
                 // Reaper task: wait + EOF + close.
                 if let Some(mut child) = bridge_session.child.take() {
                     let h = handle.clone();
@@ -561,6 +576,55 @@ impl russh::server::Handler for BridgeHandler {
             .await
             .map_err(|e| BridgeError::Russh(format!("hello-banner close: {e}")))?;
         Ok(true)
+    }
+
+    /// T46 cycle 5u (2026-05-17): forward inbound channel data to
+    /// the sandboxed child's stdin.
+    ///
+    /// Russh calls this hook for every chunk the client sends after
+    /// the channel is open. When `active_stdin` is populated (i.e.,
+    /// cycle 5t's spawn_session_for_channel succeeded), each chunk
+    /// is written to the child's stdin pipe. A write error is logged
+    /// + the stdin handle dropped so subsequent chunks short-circuit.
+    ///
+    /// When `active_stdin` is None (no sandbox_params, or prepare/
+    /// spawn failed), inbound data is silently dropped — preserves
+    /// the cycle-5d / cycle-5q dry-run behaviour.
+    async fn data(
+        &mut self,
+        _channel: russh::ChannelId,
+        data: &[u8],
+        _session: &mut russh::server::Session,
+    ) -> Result<(), Self::Error> {
+        if let Some(stdin_arc) = self.active_stdin.clone() {
+            use tokio::io::AsyncWriteExt;
+            let mut stdin = stdin_arc.lock().await;
+            if let Err(e) = stdin.write_all(data).await {
+                tracing::warn!(
+                    error = %e,
+                    bytes = data.len(),
+                    "child stdin write failed; dropping handle"
+                );
+                drop(stdin);
+                self.active_stdin = None;
+            }
+        }
+        Ok(())
+    }
+
+    /// T46 cycle 5u: client signalled EOF on the channel — drop
+    /// our stdin handle so the child sees EOF and can shut down
+    /// gracefully (claude --resume will flush + exit).
+    async fn channel_eof(
+        &mut self,
+        _channel: russh::ChannelId,
+        _session: &mut russh::server::Session,
+    ) -> Result<(), Self::Error> {
+        if self.active_stdin.is_some() {
+            tracing::info!("channel eof; dropping child stdin so child sees EOF");
+            self.active_stdin = None;
+        }
+        Ok(())
     }
 }
 
