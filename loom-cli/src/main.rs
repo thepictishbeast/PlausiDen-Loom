@@ -431,10 +431,21 @@ enum Cmd {
     /// the code it claims to govern. Fails if CLAUDE.md is missing
     /// load-bearing sections, references primitives that don't
     /// exist, or has drifted from the structural shape we publish.
+    ///
+    /// With `--site`, switches to operator-facing site-health mode:
+    /// walks a SITE dir (forge.toml + cms/ + static/) and reports
+    /// every misconfig in plain English. Use when something feels
+    /// off but `forge build` hasn't surfaced anything specific.
     Doctor {
-        /// Path to the Loom repo root. Defaults to current directory.
+        /// Path to the Loom repo root for doctrine-vs-code mode,
+        /// OR to a site root when `--site` flips the mode.
         #[arg(default_value = ".")]
         root: PathBuf,
+        /// Run operator-facing site-health checks instead of
+        /// doctrine-vs-code sync. Argument is the site root
+        /// (or the positional `root` if omitted).
+        #[arg(long, default_value_t = false)]
+        site: bool,
     },
     /// Extract the critical-CSS subset from a stylesheet. Reads
     /// the input from `--input`, walks every top-level rule, and
@@ -1136,7 +1147,7 @@ fn main() -> ExitCode {
             print!("{}", loom_tokens::tokens_egui());
             ExitCode::SUCCESS
         }
-        Cmd::Doctor { root } => match cmd_doctor(&root) {
+        Cmd::Doctor { root, site: _ } => match cmd_doctor(&root) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("loom doctor: {e:#}");
@@ -2141,6 +2152,67 @@ fn audit_site(root: &std::path::Path) -> Vec<DoctorFinding> {
                 "attest-key.b64 (private key)",
                 "Ed25519 deploy signing key",
             ));
+        }
+    }
+
+    // dark-amoled token block present in shipped skin.css.
+    // The Crawler 24-combo test matrix specifically tests
+    // ?_theme=dark-amoled; if the skin doesn't define those
+    // tokens, the matrix runs but the visual result is identical
+    // to the regular dark theme.
+    let skin_paths = ["static/loom-skin.css", "loom-skin.css"];
+    for rel in &skin_paths {
+        let p = root.join(rel);
+        if let Ok(body) = std::fs::read_to_string(&p) {
+            if body.contains("data-theme=\"dark-amoled\"") {
+                out.push(DoctorFinding {
+                    level: DoctorLevel::Ok,
+                    check: format!("{rel} (dark-amoled tokens)"),
+                    message: "dark-amoled token block present — OLED-optimized dark theme will render correctly".into(),
+                    remedy: None,
+                });
+            } else if body.contains("data-theme=\"dark\"") {
+                out.push(DoctorFinding {
+                    level: DoctorLevel::Warn,
+                    check: format!("{rel} (dark-amoled tokens)"),
+                    message: "dark-amoled token block missing — Crawler 24-combo test matrix's ?_theme=dark-amoled axis will render identically to regular dark theme".into(),
+                    remedy: Some("Add a `:root[data-theme=\"dark-amoled\"]` block to the skin with bg-canvas at hsl(0 0% 0%) — see PlausiDen-Loom commit history for an example.".into()),
+                });
+            }
+            break;
+        }
+    }
+
+    // prefers-reduced-motion guard coverage on shipped CSS.
+    // Mirrors phase_motion_respects_reduced from Forge — surfaces
+    // the same WCAG 2.1 SC 2.3.3 concern from the operator side
+    // before they `forge build` so the misconfig is visible at
+    // `loom doctor` time.
+    for rel in &skin_paths {
+        let p = root.join(rel);
+        if let Ok(body) = std::fs::read_to_string(&p) {
+            let has_motion = body.contains("animation:")
+                || body.contains("animation-name:")
+                || body.contains("transition:")
+                || body.contains("transition-property:")
+                || body.contains("scroll-behavior:");
+            let has_guard = body.contains("prefers-reduced-motion");
+            if has_motion && !has_guard {
+                out.push(DoctorFinding {
+                    level: DoctorLevel::Warn,
+                    check: format!("{rel} (reduced-motion guard)"),
+                    message: "CSS contains animation/transition declarations but no @media (prefers-reduced-motion) guard — readers with vestibular disorders or migraine triggers will see motion they opted out of (WCAG 2.1 SC 2.3.3)".into(),
+                    remedy: Some("Wrap motion in `@media (prefers-reduced-motion: no-preference) { ... }` OR add an override block `@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }`.".into()),
+                });
+            } else if has_motion && has_guard {
+                out.push(DoctorFinding {
+                    level: DoctorLevel::Ok,
+                    check: format!("{rel} (reduced-motion guard)"),
+                    message: "motion + prefers-reduced-motion guard both present".into(),
+                    remedy: None,
+                });
+            }
+            break;
         }
     }
 
