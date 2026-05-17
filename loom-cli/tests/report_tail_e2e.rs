@@ -56,27 +56,38 @@ fn report_tail_prints_classified_lines_with_human_timestamp() {
     // 1736380800 = 2025-01-09 00:00:00 UTC (chosen as a
     // round-number anchor; the date math doesn't depend on
     // a specific epoch alignment but a sanity-check helps).
-    write_jsonl(&log, &[
-        r#"{"ts":1736380800,"endpoint":"csp-report","content_type":"application/csp-report","body":"{\"csp-report\":{\"violated-directive\":\"script-src\"}}"}"#,
-        r#"{"ts":1736380900,"endpoint":"reports","content_type":"application/reports+json","body":"[{\"type\":\"deprecation\",\"body\":{\"id\":\"X\"}}]"}"#,
-        r#"{"ts":1736381000,"endpoint":"reports","content_type":"application/reports+json","body":"[{\"type\":\"network-error\",\"body\":{\"phase\":\"connection\"}}]"}"#,
-    ]);
+    write_jsonl(
+        &log,
+        &[
+            r#"{"ts":1736380800,"endpoint":"csp-report","content_type":"application/csp-report","body":"{\"csp-report\":{\"violated-directive\":\"script-src\"}}"}"#,
+            r#"{"ts":1736380900,"endpoint":"reports","content_type":"application/reports+json","body":"[{\"type\":\"deprecation\",\"body\":{\"id\":\"X\"}}]"}"#,
+            r#"{"ts":1736381000,"endpoint":"reports","content_type":"application/reports+json","body":"[{\"type\":\"network-error\",\"body\":{\"phase\":\"connection\"}}]"}"#,
+        ],
+    );
     let (status, out) = run_tail(&f.join("reports"), &[]);
     assert_eq!(status, 0, "report-tail must exit 0; got {status}\n{out}");
 
     // Timestamp: 1736380800 = 2025-01-09 00:00:00 UTC. Verify
     // the human format appears in the output.
-    assert!(out.contains("2025-01-09 00:00:00Z"),
-        "expected human timestamp in output:\n{out}");
+    assert!(
+        out.contains("2025-01-09 00:00:00Z"),
+        "expected human timestamp in output:\n{out}"
+    );
 
     // Classification: legacy csp-report → csp-violation,
     // deprecation type → deprecation, network-error → network-error.
-    assert!(out.contains("csp-violation"),
-        "expected csp-violation classification:\n{out}");
-    assert!(out.contains("deprecation"),
-        "expected deprecation classification:\n{out}");
-    assert!(out.contains("network-error"),
-        "expected network-error classification:\n{out}");
+    assert!(
+        out.contains("csp-violation"),
+        "expected csp-violation classification:\n{out}"
+    );
+    assert!(
+        out.contains("deprecation"),
+        "expected deprecation classification:\n{out}"
+    );
+    assert!(
+        out.contains("network-error"),
+        "expected network-error classification:\n{out}"
+    );
 
     let _ = std::fs::remove_dir_all(&f);
 }
@@ -99,12 +110,16 @@ fn report_tail_lines_flag_truncates_old_entries() {
 
     // Should contain the LAST 3 (lines 7, 8, 9) but not 0..=6.
     for keep in 7..=9 {
-        assert!(out.contains(&format!("line-{keep}")),
-            "expected last 3 entries (line-{keep}):\n{out}");
+        assert!(
+            out.contains(&format!("line-{keep}")),
+            "expected last 3 entries (line-{keep}):\n{out}"
+        );
     }
     for drop in 0..=6 {
-        assert!(!out.contains(&format!("line-{drop}\"")),
-            "did not expect old entry (line-{drop}):\n{out}");
+        assert!(
+            !out.contains(&format!("line-{drop}\"")),
+            "did not expect old entry (line-{drop}):\n{out}"
+        );
     }
 
     let _ = std::fs::remove_dir_all(&f);
@@ -114,19 +129,28 @@ fn report_tail_lines_flag_truncates_old_entries() {
 fn report_tail_kind_filter_drops_non_matching() {
     let f = fixture_dir("kind");
     let log = f.join("reports").join("violations.jsonl");
-    write_jsonl(&log, &[
-        r#"{"ts":1700000000,"endpoint":"reports","content_type":"application/reports+json","body":"[{\"type\":\"deprecation\"}]"}"#,
-        r#"{"ts":1700000001,"endpoint":"reports","content_type":"application/reports+json","body":"[{\"type\":\"csp-violation\"}]"}"#,
-        r#"{"ts":1700000002,"endpoint":"reports","content_type":"application/reports+json","body":"[{\"type\":\"network-error\"}]"}"#,
-    ]);
+    write_jsonl(
+        &log,
+        &[
+            r#"{"ts":1700000000,"endpoint":"reports","content_type":"application/reports+json","body":"[{\"type\":\"deprecation\"}]"}"#,
+            r#"{"ts":1700000001,"endpoint":"reports","content_type":"application/reports+json","body":"[{\"type\":\"csp-violation\"}]"}"#,
+            r#"{"ts":1700000002,"endpoint":"reports","content_type":"application/reports+json","body":"[{\"type\":\"network-error\"}]"}"#,
+        ],
+    );
     let (status, out) = run_tail(&f.join("reports"), &["--kind", "csp-violation"]);
     assert_eq!(status, 0);
-    assert!(out.contains("csp-violation"),
-        "expected csp-violation line in filtered output:\n{out}");
-    assert!(!out.contains("deprecation"),
-        "did not expect deprecation in filtered output:\n{out}");
-    assert!(!out.contains("network-error"),
-        "did not expect network-error in filtered output:\n{out}");
+    assert!(
+        out.contains("csp-violation"),
+        "expected csp-violation line in filtered output:\n{out}"
+    );
+    assert!(
+        !out.contains("deprecation"),
+        "did not expect deprecation in filtered output:\n{out}"
+    );
+    assert!(
+        !out.contains("network-error"),
+        "did not expect network-error in filtered output:\n{out}"
+    );
 
     let _ = std::fs::remove_dir_all(&f);
 }

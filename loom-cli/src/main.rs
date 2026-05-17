@@ -1200,11 +1200,19 @@ fn main() -> ExitCode {
             backends,
             crate_dir,
         } => match cmd_backend_stub_all(&backends, &crate_dir) {
-            Ok(BackendStubAllReport { ok, skipped, failed }) => {
+            Ok(BackendStubAllReport {
+                ok,
+                skipped,
+                failed,
+            }) => {
                 println!(
                     "  ok     {ok} minted, {skipped} skipped (already had impl), {failed} failed"
                 );
-                if failed > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS }
+                if failed > 0 {
+                    ExitCode::from(1)
+                } else {
+                    ExitCode::SUCCESS
+                }
             }
             Err(BackendStubError::Toml(e)) => {
                 eprintln!("loom backend-stub-all: toml error: {e}");
@@ -1613,7 +1621,12 @@ fn cmd_ssh_key(db_path: &std::path::Path, op: SshKeyOp) -> Result<(), String> {
             } else {
                 println!("# tenant '{slug}': {n} active key(s)", n = keys.len());
                 for k in &keys {
-                    println!("{fp}  {comment}  added={added}", fp = k.fingerprint, comment = k.comment, added = k.added_at);
+                    println!(
+                        "{fp}  {comment}  added={added}",
+                        fp = k.fingerprint,
+                        comment = k.comment,
+                        added = k.added_at
+                    );
                 }
             }
             Ok(())
@@ -1850,8 +1863,8 @@ fn cmd_doctor(root: &std::path::Path) -> Result<()> {
     // forge.toml. Some operators may have both (development
     // root). Run whichever applies; show explicit "skipped"
     // findings for the other set.
-    let is_loom_repo = root.join("CLAUDE.md").is_file()
-        && root.join("loom-components/src/lib.rs").is_file();
+    let is_loom_repo =
+        root.join("CLAUDE.md").is_file() && root.join("loom-components/src/lib.rs").is_file();
     let is_site = root.join("cms").is_dir() || root.join("forge.toml").is_file();
 
     let mut findings: Vec<DoctorFinding> = Vec::new();
@@ -1875,11 +1888,23 @@ fn cmd_doctor(root: &std::path::Path) -> Result<()> {
         });
     }
 
-    let n_fail = findings.iter().filter(|f| f.level == DoctorLevel::Fail).count();
-    let n_warn = findings.iter().filter(|f| f.level == DoctorLevel::Warn).count();
-    let n_ok = findings.iter().filter(|f| f.level == DoctorLevel::Ok).count();
+    let n_fail = findings
+        .iter()
+        .filter(|f| f.level == DoctorLevel::Fail)
+        .count();
+    let n_warn = findings
+        .iter()
+        .filter(|f| f.level == DoctorLevel::Warn)
+        .count();
+    let n_ok = findings
+        .iter()
+        .filter(|f| f.level == DoctorLevel::Ok)
+        .count();
 
-    println!("loom doctor: {n_ok} ok · {n_warn} warn · {n_fail} fail · root={}", root.display());
+    println!(
+        "loom doctor: {n_ok} ok · {n_warn} warn · {n_fail} fail · root={}",
+        root.display()
+    );
     println!();
     for f in &findings {
         println!("  [{}] {} — {}", f.level.label(), f.check, f.message);
@@ -1998,7 +2023,11 @@ fn audit_site(root: &std::path::Path) -> Vec<DoctorFinding> {
                 if path.extension().and_then(|s| s.to_str()) != Some("json") {
                     continue;
                 }
-                let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("").to_owned();
+                let name = path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_owned();
                 if name == "cms-schema.json" {
                     continue; // schema companion, not a page
                 }
@@ -2020,7 +2049,10 @@ fn audit_site(root: &std::path::Path) -> Vec<DoctorFinding> {
                 level: DoctorLevel::Warn,
                 check: "cms/*.json".into(),
                 message: "no page files found".into(),
-                remedy: Some("Edit pages via `loom edit-serve` or copy a sample from `loom site init`.".into()),
+                remedy: Some(
+                    "Edit pages via `loom edit-serve` or copy a sample from `loom site init`."
+                        .into(),
+                ),
             });
         } else if bad.is_empty() {
             out.push(DoctorFinding {
@@ -2089,7 +2121,9 @@ fn audit_site(root: &std::path::Path) -> Vec<DoctorFinding> {
             level: DoctorLevel::Warn,
             check: "static/".into(),
             message: "missing — Forge build creates it on first run".into(),
-            remedy: Some("Run `cargo run -p forge-cli` (or `forge build`) and the directory appears.".into()),
+            remedy: Some(
+                "Run `cargo run -p forge-cli` (or `forge build`) and the directory appears.".into(),
+            ),
         });
     }
 
@@ -2102,7 +2136,11 @@ fn audit_site(root: &std::path::Path) -> Vec<DoctorFinding> {
     // attest-key.b64 — if present, mode 0600.
     if let Some(key_path) = doctor_attest_key_path() {
         if key_path.is_file() {
-            out.extend(check_secret_perms(&key_path, "attest-key.b64 (private key)", "Ed25519 deploy signing key"));
+            out.extend(check_secret_perms(
+                &key_path,
+                "attest-key.b64 (private key)",
+                "Ed25519 deploy signing key",
+            ));
         }
     }
 
@@ -2138,7 +2176,10 @@ fn check_secret_perms(path: &std::path::Path, label: &str, kind: &str) -> Vec<Do
             level: DoctorLevel::Fail,
             check: label.into(),
             message: format!("mode {mode:o} — should be 0600 for {kind}"),
-            remedy: Some(format!("Run `chmod 600 {}` to lock it down.", path.display())),
+            remedy: Some(format!(
+                "Run `chmod 600 {}` to lock it down.",
+                path.display()
+            )),
         }]
     }
 }
@@ -2207,10 +2248,8 @@ fn cmd_state_matrix(out: &std::path::Path) -> Result<()> {
             _ => "Auto (OS preference)",
         };
         themed_page.title = format!("{} — {}", page.title, theme_label_display);
-        themed_page.description = format!(
-            "{} Variant: {}.",
-            page.description, theme_label_display,
-        );
+        themed_page.description =
+            format!("{} Variant: {}.", page.description, theme_label_display,);
         let html = loom_cms_render::page_shell_themed(
             &themed_page,
             // Use the relative path so the file works from `file://`
@@ -2230,7 +2269,10 @@ fn cmd_state_matrix(out: &std::path::Path) -> Result<()> {
         written += 1;
     }
     println!("loom state-matrix:");
-    println!("  ok  rendered {} CmsSection variant(s)", page.sections.len());
+    println!(
+        "  ok  rendered {} CmsSection variant(s)",
+        page.sections.len()
+    );
     println!("  ok  loom-skin.css written ({} bytes)", skin_css.len());
     println!("  ok  {written} HTML file(s) written to {}/", out.display());
     println!("       state-matrix-auto.html   (OS prefers-color-scheme)");
@@ -2248,8 +2290,8 @@ fn cmd_state_matrix(out: &std::path::Path) -> Result<()> {
 /// review + visual-regression.
 fn build_state_matrix_page() -> loom_cms_render::CmsPage {
     use loom_cms_render::{
-        CmsBannerTone, CmsCard, CmsNavLink, CmsPage, CmsPanel, CmsPanelBody,
-        CmsSection, HeadingLevel, HeroCta,
+        CmsBannerTone, CmsCard, CmsNavLink, CmsPage, CmsPanel, CmsPanelBody, CmsSection,
+        HeadingLevel, HeroCta,
     };
     CmsPage {
         schema: None,
@@ -2710,11 +2752,9 @@ fn cmd_cms_render(
 // PlausiDen-Forge can call them via the public render API
 // and inherit the same WCAG-AA dual-theme defaults Loom uses.
 use loom_cms_render::{
-    page_shell, render_nav_links, csp_sha256,
-    escape_html_text, escape_html_attr,
-    BASE_THEME_CSS, DEFER_ONLOAD_JS,
+    BASE_THEME_CSS, DEFER_ONLOAD_JS, csp_sha256, escape_html_attr, escape_html_text, page_shell,
+    render_nav_links,
 };
-
 
 #[cfg(test)]
 mod cms_render_tests {
@@ -2846,7 +2886,14 @@ mod cms_render_tests {
             }"#,
         )
         .expect("write input");
-        cmd_cms_render(&input, output.to_str().unwrap(), "/loom-skin.css", None, None).expect("renders");
+        cmd_cms_render(
+            &input,
+            output.to_str().unwrap(),
+            "/loom-skin.css",
+            None,
+            None,
+        )
+        .expect("renders");
         let html = std::fs::read_to_string(&output).expect("read output");
         assert!(html.contains("<title>Demo</title>"));
         assert!(html.contains("Welcome"));
@@ -2981,8 +3028,14 @@ mod cms_render_tests {
         let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
         assert!(s.contains("sha256-"), "base-theme should be CSP-pinned");
         assert!(!s.contains("'unsafe-inline'"), "no unsafe-inline allowed");
-        assert!(!s.contains("'unsafe-hashes'"), "no unsafe-hashes without critical CSS");
-        assert!(s.contains("<style>"), "base-theme <style> block must be present");
+        assert!(
+            !s.contains("'unsafe-hashes'"),
+            "no unsafe-hashes without critical CSS"
+        );
+        assert!(
+            s.contains("<style>"),
+            "base-theme <style> block must be present"
+        );
         assert!(s.contains(r#"<link rel="stylesheet" href="/loom-skin.css">"#));
     }
 
@@ -3484,10 +3537,7 @@ impl WriteCapability {
     /// Read a file within the confined root. Read-only operations
     /// also flow through the capability so a future audit can grep
     /// for every site that touches the filesystem.
-    pub fn read_file(
-        &self,
-        rel_path: &std::path::Path,
-    ) -> Result<Vec<u8>, CapabilityError> {
+    pub fn read_file(&self, rel_path: &std::path::Path) -> Result<Vec<u8>, CapabilityError> {
         let abs = self.resolve(rel_path)?;
         Ok(std::fs::read(&abs)?)
     }
@@ -3531,10 +3581,12 @@ impl WriteCapability {
         };
         let tmp_abs = match final_abs.parent() {
             Some(p) => p.join(&tmp_name),
-            None => return Err(CapabilityError::EscapesScope {
-                attempted: final_abs,
-                confined_root: self.confined_root.clone(),
-            }),
+            None => {
+                return Err(CapabilityError::EscapesScope {
+                    attempted: final_abs,
+                    confined_root: self.confined_root.clone(),
+                });
+            }
         };
         // Re-validate the temp path is inside the capability — paranoid
         // (we just built it from validated parts) but cheap.
@@ -3627,10 +3679,7 @@ mod write_capability_tests {
         std::fs::create_dir_all(dir.join("inner")).expect("mkdir");
         let cap = WriteCapability::for_dir(&dir.join("inner")).expect("cap");
         // Attempt to escape: ../../../tmp/pwn
-        let r = cap.write_file(
-            std::path::Path::new("../../../../../tmp/pwn"),
-            b"x",
-        );
+        let r = cap.write_file(std::path::Path::new("../../../../../tmp/pwn"), b"x");
         assert!(matches!(r, Err(CapabilityError::EscapesScope { .. })));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -3665,7 +3714,8 @@ mod write_capability_tests {
         std::fs::create_dir_all(&dir).expect("mkdir");
         let cap = WriteCapability::for_dir(&dir).expect("cap");
         assert!(!cap.file_exists(std::path::Path::new("nope.txt")));
-        cap.write_file(std::path::Path::new("real.txt"), b"x").expect("write");
+        cap.write_file(std::path::Path::new("real.txt"), b"x")
+            .expect("write");
         assert!(cap.file_exists(std::path::Path::new("real.txt")));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -3709,11 +3759,7 @@ mod write_capability_tests {
         let leftover: Vec<_> = std::fs::read_dir(&dir)
             .expect("readdir")
             .flatten()
-            .filter(|e| {
-                e.file_name()
-                    .to_string_lossy()
-                    .contains(".tmp.")
-            })
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
             .collect();
         assert!(leftover.is_empty(), "no .tmp leftover after atomic write");
         let _ = std::fs::remove_dir_all(&dir);
@@ -3726,10 +3772,7 @@ mod write_capability_tests {
         let dir = unique("atomic-trav");
         std::fs::create_dir_all(&dir).expect("mkdir");
         let cap = WriteCapability::for_dir(&dir).expect("cap");
-        let r = cap.write_atomic(
-            std::path::Path::new("../../tmp/escape.txt"),
-            b"x",
-        );
+        let r = cap.write_atomic(std::path::Path::new("../../tmp/escape.txt"), b"x");
         assert!(matches!(r, Err(CapabilityError::EscapesScope { .. })));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -3740,8 +3783,10 @@ mod write_capability_tests {
         let dir = unique("atomic-over");
         std::fs::create_dir_all(&dir).expect("mkdir");
         let cap = WriteCapability::for_dir(&dir).expect("cap");
-        cap.write_atomic(std::path::Path::new("x.txt"), b"old").expect("first");
-        cap.write_atomic(std::path::Path::new("x.txt"), b"new").expect("second");
+        cap.write_atomic(std::path::Path::new("x.txt"), b"old")
+            .expect("first");
+        cap.write_atomic(std::path::Path::new("x.txt"), b"new")
+            .expect("second");
         let p = cap.resolve(std::path::Path::new("x.txt")).expect("resolve");
         assert_eq!(std::fs::read(&p).expect("read"), b"new");
         let _ = std::fs::remove_dir_all(&dir);
@@ -3823,9 +3868,7 @@ fn cmd_backend_stub(
     // apply to the mod.rs write as to the handler file.
     let mod_changed = register_handler_module(&cap, &file_stem)?;
     if mod_changed {
-        println!(
-            "  ok     handlers/mod.rs += {file_stem:?}",
-        );
+        println!("  ok     handlers/mod.rs += {file_stem:?}",);
     }
 
     println!("  ok     scaffolded {}", abs_path.display());
@@ -4181,10 +4224,10 @@ impl_files = []
         let dir = unique("reg-mod-create");
         std::fs::create_dir_all(&dir).expect("mkdir");
         let changed =
-            register_handler_module(&WriteCapability::for_dir(&dir).expect("cap"), "sign_in").expect("ok");
+            register_handler_module(&WriteCapability::for_dir(&dir).expect("cap"), "sign_in")
+                .expect("ok");
         assert!(changed);
-        let body =
-            std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
+        let body = std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
         assert!(body.contains("//! Handler module list."));
         assert!(body.contains("pub mod sign_in;"));
         let _ = std::fs::remove_dir_all(&dir);
@@ -4200,10 +4243,10 @@ impl_files = []
         )
         .expect("seed");
         let changed =
-            register_handler_module(&WriteCapability::for_dir(&dir).expect("cap"), "delta").expect("ok");
+            register_handler_module(&WriteCapability::for_dir(&dir).expect("cap"), "delta")
+                .expect("ok");
         assert!(changed);
-        let body =
-            std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
+        let body = std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
         // Alphabetical ordering, even when seed was unsorted.
         let alpha_pos = body.find("pub mod alpha;").expect("alpha");
         let beta_pos = body.find("pub mod beta;").expect("beta");
@@ -4222,10 +4265,10 @@ impl_files = []
             "//! header\n\npub mod sign_in;\n",
         )
         .expect("seed");
-        let r1 = register_handler_module(&WriteCapability::for_dir(&dir).expect("cap"), "sign_in").expect("first");
+        let r1 = register_handler_module(&WriteCapability::for_dir(&dir).expect("cap"), "sign_in")
+            .expect("first");
         assert!(!r1, "second declaration of same module must be a no-op");
-        let body =
-            std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
+        let body = std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
         // Exactly one occurrence of the line — no duplicate.
         assert_eq!(
             body.matches("pub mod sign_in;").count(),
@@ -4239,16 +4282,15 @@ impl_files = []
     fn register_preserves_doc_block() {
         let dir = unique("reg-mod-doc");
         std::fs::create_dir_all(dir.join("src/handlers")).expect("mkdir");
-        let initial_header =
-            "//! line one\n//! line two — non-ASCII —\n//! line three";
+        let initial_header = "//! line one\n//! line two — non-ASCII —\n//! line three";
         std::fs::write(
             dir.join("src/handlers/mod.rs"),
             format!("{initial_header}\n\npub mod existing;\n"),
         )
         .expect("seed");
-        register_handler_module(&WriteCapability::for_dir(&dir).expect("cap"), "added").expect("ok");
-        let body =
-            std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
+        register_handler_module(&WriteCapability::for_dir(&dir).expect("cap"), "added")
+            .expect("ok");
+        let body = std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
         assert!(body.starts_with(initial_header));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -4259,8 +4301,7 @@ impl_files = []
         // into mod.rs, not just write the .rs file.
         let (backends, dir) = fixture();
         cmd_backend_stub("sign-in", &backends, &dir, false).expect("ok");
-        let mod_rs =
-            std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
+        let mod_rs = std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
         assert!(mod_rs.contains("pub mod sign_in;"));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -4269,8 +4310,7 @@ impl_files = []
     fn stub_all_registers_every_module() {
         let (backends, dir) = fixture_all();
         cmd_backend_stub_all(&backends, &dir).expect("ok");
-        let mod_rs =
-            std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
+        let mod_rs = std::fs::read_to_string(dir.join("src/handlers/mod.rs")).expect("read");
         assert!(mod_rs.contains("pub mod sign_in;"));
         assert!(mod_rs.contains("pub mod cast_vote;"));
         // view-profile was already-IMPL in the fixture so its
@@ -4284,7 +4324,14 @@ impl_files = []
 
     #[test]
     fn backend_key_accepts_valid_schemas() {
-        for valid in ["sign-in", "view-profile", "list-challenges", "a", "a1", "x-9-y"] {
+        for valid in [
+            "sign-in",
+            "view-profile",
+            "list-challenges",
+            "a",
+            "a1",
+            "x-9-y",
+        ] {
             assert!(BackendKey::new(valid).is_ok(), "should accept {valid:?}");
         }
     }
@@ -4315,10 +4362,10 @@ impl_files = []
         for bad in [
             "../etc/passwd",
             "sign;rm",
-            "sign in",  // space
-            "sign/in",  // slash
-            "sign_in",  // underscore disallowed in source key
-            "sign.in",  // dot disallowed
+            "sign in", // space
+            "sign/in", // slash
+            "sign_in", // underscore disallowed in source key
+            "sign.in", // dot disallowed
             "9-leading",
         ] {
             assert!(BackendKey::new(bad).is_err(), "should reject {bad:?}");
@@ -4351,10 +4398,7 @@ impl_files = []
         // either label silently breaks alignment for downstream
         // grep/awk users.
         assert_eq!(BackendStatus::Stub.label(), "STUB");
-        assert_eq!(
-            BackendStatus::Impl(vec!["x".to_owned()]).label(),
-            "IMPL",
-        );
+        assert_eq!(BackendStatus::Impl(vec!["x".to_owned()]).label(), "IMPL",);
     }
 
     #[test]
@@ -4448,7 +4492,11 @@ impl_files = []
         };
         assert_eq!(after("sign-in"), 1);
         assert_eq!(after("cast-vote"), 1);
-        assert_eq!(after("view-profile"), 1, "must not regress already-impl entry");
+        assert_eq!(
+            after("view-profile"),
+            1,
+            "must not regress already-impl entry"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -4531,8 +4579,8 @@ fn cmd_backend_stub_all(
         return Err(BackendStubError::CrateNotDir(crate_dir.to_path_buf()));
     }
     let raw = std::fs::read_to_string(backends_path)?;
-    let parsed: toml::Value = toml::from_str(&raw)
-        .map_err(|e| BackendStubError::Toml(format!("parse: {e}")))?;
+    let parsed: toml::Value =
+        toml::from_str(&raw).map_err(|e| BackendStubError::Toml(format!("parse: {e}")))?;
     let backends = parsed
         .get("backends")
         .and_then(|v| v.as_table())
@@ -4630,7 +4678,10 @@ impl std::fmt::Display for BackendKeyError {
                 write!(f, "backend key must start with a-z (got {c:?})")
             }
             BackendKeyError::InvalidChar(c) => {
-                write!(f, "backend key contains invalid character {c:?} (allowed: a-z, 0-9, -)")
+                write!(
+                    f,
+                    "backend key contains invalid character {c:?} (allowed: a-z, 0-9, -)"
+                )
             }
         }
     }
@@ -4855,9 +4906,8 @@ fn cmd_report_tail(
         std::collections::VecDeque::with_capacity(lines.max(1));
     let mut last_pos: u64 = 0;
     if exists {
-        let f = std::fs::File::open(&log_path).map_err(|e| {
-            anyhow::anyhow!("open {}: {e}", log_path.display())
-        })?;
+        let f = std::fs::File::open(&log_path)
+            .map_err(|e| anyhow::anyhow!("open {}: {e}", log_path.display()))?;
         let metadata = f.metadata().ok();
         let reader = BufReader::new(f);
         for line in reader.lines() {
@@ -4904,13 +4954,11 @@ fn cmd_report_tail(
         if len <= last_pos {
             continue;
         }
-        let mut f = std::fs::File::open(&log_path).map_err(|e| {
-            anyhow::anyhow!("re-open {}: {e}", log_path.display())
-        })?;
+        let mut f = std::fs::File::open(&log_path)
+            .map_err(|e| anyhow::anyhow!("re-open {}: {e}", log_path.display()))?;
         use std::io::{Read as _, Seek as _, SeekFrom};
-        f.seek(SeekFrom::Start(last_pos)).map_err(|e| {
-            anyhow::anyhow!("seek {}: {e}", log_path.display())
-        })?;
+        f.seek(SeekFrom::Start(last_pos))
+            .map_err(|e| anyhow::anyhow!("seek {}: {e}", log_path.display()))?;
         let mut buf = String::new();
         f.read_to_string(&mut buf).ok();
         for line in buf.lines() {
@@ -5063,7 +5111,10 @@ fn cmd_report_stats(
     let mut kinds: Vec<(&String, &KindStats)> = by_kind.iter().collect();
     kinds.sort_by(|a, b| b.1.count.cmp(&a.1.count));
     if kinds.is_empty() {
-        println!("loom report-stats: no entries match (files_read={}, since={since})", files.len());
+        println!(
+            "loom report-stats: no entries match (files_read={}, since={since})",
+            files.len()
+        );
         return Ok(());
     }
     println!(
@@ -5071,20 +5122,25 @@ fn cmd_report_stats(
         "kind", "count", "first-seen", "last-seen", "top-url"
     );
     for (k, v) in &kinds {
-        let first = report_log_format_unix(v.first as i64)
-            .unwrap_or_else(|| v.first.to_string());
-        let last = report_log_format_unix(v.last as i64)
-            .unwrap_or_else(|| v.last.to_string());
+        let first = report_log_format_unix(v.first as i64).unwrap_or_else(|| v.first.to_string());
+        let last = report_log_format_unix(v.last as i64).unwrap_or_else(|| v.last.to_string());
         let top = top_url(&v.url_counts).unwrap_or_else(|| "—".to_owned());
         let top_short: String = top.chars().take(60).collect();
-        println!("{:<16}  {:>6}  {:<22}  {:<22}  {}", k, v.count, first, last, top_short);
+        println!(
+            "{:<16}  {:>6}  {:<22}  {:<22}  {}",
+            k, v.count, first, last, top_short
+        );
     }
     println!();
     println!(
         "(read {} file(s), {} lines{}{})",
         files.len(),
         total_lines,
-        if since > 0 { format!(", since={}", since) } else { String::new() },
+        if since > 0 {
+            format!(", since={}", since)
+        } else {
+            String::new()
+        },
         if !kind_filter.is_empty() {
             format!(", kind~{kind_filter:?}")
         } else {
@@ -5317,14 +5373,15 @@ fn review_action_write(
     f.sync_all()
         .map_err(|e| anyhow::anyhow!("fsync review-state: {e}"))?;
 
-    println!("loom report-review: {action} {} (note={:?})", resolved, note);
+    println!(
+        "loom report-review: {action} {} (note={:?})",
+        resolved, note
+    );
     Ok(())
 }
 
 /// Read all triage decisions, return latest-wins per signature.
-fn review_state_read(
-    dir: &std::path::Path,
-) -> std::collections::HashMap<String, ReviewLogRecord> {
+fn review_state_read(dir: &std::path::Path) -> std::collections::HashMap<String, ReviewLogRecord> {
     use std::collections::HashMap;
     use std::io::{BufRead as _, BufReader};
 
@@ -5429,7 +5486,11 @@ fn review_resolve_sig(entries: &[ReviewEntry], input: &str) -> Result<String> {
     if sigs.contains(input) {
         return Ok(input.to_owned());
     }
-    let matches: Vec<&str> = sigs.iter().filter(|s| s.starts_with(input)).copied().collect();
+    let matches: Vec<&str> = sigs
+        .iter()
+        .filter(|s| s.starts_with(input))
+        .copied()
+        .collect();
     match matches.len() {
         0 => anyhow::bail!("no report matches signature {input:?}"),
         1 => Ok(matches[0].to_owned()),
@@ -5444,11 +5505,7 @@ fn review_resolve_sig(entries: &[ReviewEntry], input: &str) -> Result<String> {
 
 /// `loom report-review list` — pretty-print recent reports with
 /// triage status.
-fn review_list(
-    dir: &std::path::Path,
-    lines: usize,
-    status_filter: &str,
-) -> Result<()> {
+fn review_list(dir: &std::path::Path, lines: usize, status_filter: &str) -> Result<()> {
     let entries = review_collect_entries(dir)?;
     let state = review_state_read(dir);
 
@@ -5461,8 +5518,7 @@ fn review_list(
     }
 
     let filter_lc = status_filter.to_ascii_lowercase();
-    let mut rows: Vec<(String, &'static str, String, String, String, String)> =
-        Vec::new();
+    let mut rows: Vec<(String, &'static str, String, String, String, String)> = Vec::new();
     for e in entries.iter().rev() {
         let decision = state.get(&e.sig);
         let action = decision.map(|r| r.action.as_str()).unwrap_or("");
@@ -5482,8 +5538,7 @@ fn review_list(
                 continue;
             }
         }
-        let when =
-            report_log_format_unix(e.ts as i64).unwrap_or_else(|| e.ts.to_string());
+        let when = report_log_format_unix(e.ts as i64).unwrap_or_else(|| e.ts.to_string());
         let url_short: String = e.url.chars().take(56).collect();
         let note = decision.map(|r| r.note.clone()).unwrap_or_default();
         rows.push((e.sig.clone(), label, when, e.kind.clone(), url_short, note));
@@ -5505,9 +5560,7 @@ fn review_list(
         "sig", "status", "ts", "kind", "url"
     );
     for (sig, label, when, kind, url, note) in &rows {
-        println!(
-            "{sig:<13}  {label:<10}  {when:<22}  {kind:<16}  {url}"
-        );
+        println!("{sig:<13}  {label:<10}  {when:<22}  {kind:<16}  {url}");
         if !note.is_empty() {
             println!("{:<13}  └─ note: {}", "", note);
         }
@@ -5530,8 +5583,7 @@ fn review_status(dir: &std::path::Path) -> Result<()> {
     let mut new_n: u64 = 0;
     let mut ack_n: u64 = 0;
     let mut dismiss_n: u64 = 0;
-    let mut seen: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for e in &entries {
         if !seen.insert(e.sig.clone()) {
             continue;
@@ -5556,14 +5608,10 @@ fn review_status(dir: &std::path::Path) -> Result<()> {
 fn cmd_report_review(action: ReviewAction) -> Result<()> {
     match action {
         ReviewAction::List { dir, lines, status } => review_list(&dir, lines, &status),
-        ReviewAction::Ack { dir, sig, note } => {
-            review_action_write(&dir, &sig, "ack", &note)
-        }
+        ReviewAction::Ack { dir, sig, note } => review_action_write(&dir, &sig, "ack", &note),
         ReviewAction::Dismiss { dir, sig, note } => {
             if note.trim().is_empty() {
-                anyhow::bail!(
-                    "loom report-review dismiss: --note is required and cannot be empty"
-                );
+                anyhow::bail!("loom report-review dismiss: --note is required and cannot be empty");
             }
             review_action_write(&dir, &sig, "dismiss", &note)
         }
@@ -5584,9 +5632,8 @@ fn cmd_edit_serve(
         ));
     }
     let bind = format!("127.0.0.1:{port}");
-    let server = tiny_http::Server::http(&bind).map_err(|e| {
-        std::io::Error::other(format!("tiny_http bind {bind}: {e}"))
-    })?;
+    let server = tiny_http::Server::http(&bind)
+        .map_err(|e| std::io::Error::other(format!("tiny_http bind {bind}: {e}")))?;
     println!("loom edit serve: listening on http://{bind}/");
     println!("  cms      = {}", cms_root.display());
     println!("  static   = {}", static_root.display());
@@ -5598,14 +5645,7 @@ fn cmd_edit_serve(
     for request in server.incoming_requests() {
         let method = request.method().clone();
         let url = request.url().to_owned();
-        match handle_edit_request(
-            request,
-            cms_root,
-            static_root,
-            forge_path,
-            &method,
-            &url,
-        ) {
+        match handle_edit_request(request, cms_root, static_root, forge_path, &method, &url) {
             Ok(()) => {}
             Err(e) => eprintln!("  err   {method:?} {url} -> {e}"),
         }
@@ -5691,11 +5731,9 @@ fn handle_edit_request(
         } else {
             // Verify session cookie.
             let key_b64 = store.secret.hmac_key_b64.as_str();
-            let key_bytes = base64::Engine::decode(
-                &base64::engine::general_purpose::STANDARD,
-                key_b64,
-            )
-            .unwrap_or_default();
+            let key_bytes =
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, key_b64)
+                    .unwrap_or_default();
             let cookie = extract_session_cookie(&request);
             let user = cookie
                 .as_deref()
@@ -5812,8 +5850,7 @@ fn handle_edit_request(
 /// link, every forge admin nav.
 fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
     // SUPERSOCIETY cycle 56: hash-pinned CSP for the tutorial.
-    const TUTORIAL_PAGE_CSS: &str =
-         "body{font:16px/1.65 system-ui;max-width:42rem;margin:2rem auto;padding:0 1rem;color:#222}\
+    const TUTORIAL_PAGE_CSS: &str = "body{font:16px/1.65 system-ui;max-width:42rem;margin:2rem auto;padding:0 1rem;color:#222}\
          h1{margin-top:0;font-size:1.6em}\
          h2{margin-top:2rem;font-size:1.2em;border-bottom:1px solid #ddd;padding-bottom:.25rem}\
          h3{margin-top:1.5rem;font-size:1em}\
@@ -5855,7 +5892,9 @@ fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
     body.push_str("<meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\"><title>loom — tutorial</title>");
     body.push_str(&format!("<style>{ADMIN_SKIP_LINK_CSS}</style>"));
     body.push_str(&format!("<style>{TUTORIAL_PAGE_CSS}</style>"));
-    body.push_str("<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
+    body.push_str(
+        "<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>",
+    );
     body.push_str(
         "<nav class=\"tut\"><a href=\"/\">← back to pages</a> · <a href=\"/forge\">forge admin</a></nav>\
          <h1>loom — tutorial</h1>\
@@ -5875,7 +5914,7 @@ fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
            <code>about</code>, or <code>contact</code>. Each starts you with a \
            sensible structure.\
          </div>\
-         <p>Click <kbd>Create</kbd>. You'll be redirected to the page's editor.</p>"
+         <p>Click <kbd>Create</kbd>. You'll be redirected to the page's editor.</p>",
     );
 
     body.push_str(
@@ -5898,7 +5937,7 @@ fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
                danger) with title + body.</li>\
          </ul>\
          <p>Each section's fields edit inline. Type, then click <kbd>Save</kbd> at \
-            the bottom — the preview reloads automatically.</p>"
+            the bottom — the preview reloads automatically.</p>",
     );
 
     body.push_str(
@@ -5912,7 +5951,7 @@ fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
          <p>To <b>add a new section</b> at the bottom, scroll past the existing \
             ones to the <b>Add a section</b> form, pick a kind from the dropdown, \
             and click <kbd>Append</kbd>. The new section appears with default \
-            placeholders you can immediately edit.</p>"
+            placeholders you can immediately edit.</p>",
     );
 
     body.push_str(
@@ -5920,7 +5959,7 @@ fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
          <p>The right pane is an iframe loading the rendered page. After every \
             save it reloads automatically. Click <kbd>open ↗</kbd> in the preview \
             bar to break it out into a separate tab — useful for testing on \
-            different screen sizes.</p>"
+            different screen sizes.</p>",
     );
 
     body.push_str(
@@ -5935,7 +5974,7 @@ fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
            <li><b>Backends</b> — declared backend keys + their implementation status \
                (STUB or IMPL).</li>\
            <li><b>Audit</b> — last crawler audit results.</li>\
-         </ul>"
+         </ul>",
     );
 
     body.push_str(
@@ -5958,7 +5997,7 @@ fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
                previous report's hash — every build is tamper-evident.</li>\
          </ol>\
          <p>If any check fails, the build refuses and the previous version stays \
-            live.</p>"
+            live.</p>",
     );
 
     body.push_str(
@@ -5978,14 +6017,14 @@ fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
          <p>Forge will refuse to publish a broken page. Your previous published \
             version stays live until the build passes. Worst case, you can edit \
             the JSON files in <code>cms/</code> directly with any text editor — \
-            they're plain JSON.</p>"
+            they're plain JSON.</p>",
     );
 
     body.push_str(
         "<h2>That's it</h2>\
          <p>Go to <a href=\"/\">the main page list</a> and create your first page. \
             Come back here any time you forget how something works — link is in \
-            every page header.</p>"
+            every page header.</p>",
     );
 
     respond_html(request, 200, &body)
@@ -5993,10 +6032,7 @@ fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
 
 /// T43: render the login form. `error` shows above the form
 /// when present (e.g. after a failed login attempt).
-fn serve_login_form(
-    request: tiny_http::Request,
-    error: Option<&str>,
-) -> std::io::Result<()> {
+fn serve_login_form(request: tiny_http::Request, error: Option<&str>) -> std::io::Result<()> {
     let mut body = String::new();
     body.push_str("<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\"><title>loom — sign in</title><style>.loom-skip-edit{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.loom-skip-edit:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;background:#fff;color:#003;border:2px solid #003;border-radius:4px;z-index:1000}</style><body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
     body.push_str(
@@ -6010,7 +6046,7 @@ fn serve_login_form(
                 border-radius:4px;background:#003;color:#fff;cursor:pointer;width:100%}\
          .err{padding:.5rem 1rem;background:#fee;color:#b00020;border-radius:4px;\
               margin-bottom:1rem}\
-         </style>"
+         </style>",
     );
     body.push_str("<h1>loom — sign in</h1>");
     if let Some(msg) = error {
@@ -6027,17 +6063,14 @@ fn serve_login_form(
          <input id=\"p\" name=\"password\" type=\"password\" required \
                 autocomplete=\"current-password\">\
          <button type=\"submit\">Sign in</button>\
-         </form>"
+         </form>",
     );
     respond_html(request, 200, &body)
 }
 
 /// T43: POST /login — verify credentials, set session cookie,
 /// redirect to /.
-fn handle_login_post(
-    mut request: tiny_http::Request,
-    store: &AuthStore,
-) -> std::io::Result<()> {
+fn handle_login_post(mut request: tiny_http::Request, store: &AuthStore) -> std::io::Result<()> {
     let mut body = String::new();
     request.as_reader().read_to_string(&mut body)?;
     let mut fields = std::collections::BTreeMap::<String, String>::new();
@@ -6060,9 +6093,12 @@ fn handle_login_post(
             // Run argon2 against a dummy hash anyway to keep
             // login latency constant whether or not the user
             // exists — basic timing-oracle defense.
-            let _ = verify_password(password, "$argon2id$v=19$m=19456,t=2,p=1$\
+            let _ = verify_password(
+                password,
+                "$argon2id$v=19$m=19456,t=2,p=1$\
                 cmFuZG9tc2FsdHRoYXRpc2Zha2U$\
-                7P4Hh9MHXkCmcgkPXh7CeEM5dCEzCx7sjBmh5jzpYU0");
+                7P4Hh9MHXkCmcgkPXh7CeEM5dCEzCx7sjBmh5jzpYU0",
+            );
             false
         }
     };
@@ -6071,11 +6107,8 @@ fn handle_login_post(
     }
     // Build signed cookie.
     let key_b64 = store.secret.hmac_key_b64.as_str();
-    let key_bytes = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        key_b64,
-    )
-    .unwrap_or_default();
+    let key_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, key_b64)
+        .unwrap_or_default();
     let cookie = build_session_cookie(user, &key_bytes);
 
     let mut resp = tiny_http::Response::empty(303);
@@ -6110,10 +6143,7 @@ fn handle_logout(request: tiny_http::Request) -> std::io::Result<()> {
     Ok(())
 }
 
-fn serve_index(
-    request: tiny_http::Request,
-    cms_root: &std::path::Path,
-) -> std::io::Result<()> {
+fn serve_index(request: tiny_http::Request, cms_root: &std::path::Path) -> std::io::Result<()> {
     let mut entries: Vec<String> = Vec::new();
     for e in std::fs::read_dir(cms_root)? {
         let entry = e?;
@@ -6128,8 +6158,7 @@ fn serve_index(
     // SUPERSOCIETY cycle 56: hash-pinned CSP for the index page.
     // Two inline <style> blocks (shared skip-link + page-layout);
     // sha256 hashes pinned in CSP `style-src`. No inline scripts.
-    const INDEX_PAGE_CSS: &str =
-         "body{font:16px/1.5 system-ui;max-width:36rem;margin:3rem auto;padding:0 1rem}\
+    const INDEX_PAGE_CSS: &str = "body{font:16px/1.5 system-ui;max-width:36rem;margin:3rem auto;padding:0 1rem}\
          a{display:flex;align-items:center;min-height:44px;padding:.5rem 0;text-decoration:underline;color:#003}\
          a:hover,a:focus-visible{background:#f4f4f4;text-decoration:none;outline:2px solid #003;outline-offset:2px}\
          input,select,textarea,button{min-height:44px;font:inherit;box-sizing:border-box}";
@@ -6164,12 +6193,14 @@ fn serve_index(
     // index page is the operator's daily landing — bigger
     // targets reduce thumb-mis-tap on touch devices.
     body.push_str(&format!("<style>{INDEX_PAGE_CSS}</style>"));
-    body.push_str("<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
+    body.push_str(
+        "<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>",
+    );
     body.push_str(
         "<p style=\"margin:0 0 1rem;font-size:.9em\">\
          <a href=\"/tutorial\">📖 Tutorial</a> · \
          <a href=\"/uploads\">🖼 Uploads</a> · \
-         <a href=\"/forge\">forge admin →</a></p>"
+         <a href=\"/forge\">forge admin →</a></p>",
     );
     body.push_str("<h1>loom edit</h1><p>Choose a page:</p>");
     for slug in &entries {
@@ -6420,7 +6451,8 @@ fn serve_forge_dashboard(
 
     if latest.is_file() {
         let raw = std::fs::read_to_string(&latest).unwrap_or_default();
-        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::Value::Null);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&raw).unwrap_or(serde_json::Value::Null);
         let strict = parsed
             .get("strict_count")
             .and_then(|v| v.as_u64())
@@ -6429,10 +6461,7 @@ fn serve_forge_dashboard(
             .get("warn_count")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
-        let mode = parsed
-            .get("mode")
-            .and_then(|v| v.as_str())
-            .unwrap_or("?");
+        let mode = parsed.get("mode").and_then(|v| v.as_str()).unwrap_or("?");
         let started = parsed
             .get("started")
             .and_then(|v| v.as_str())
@@ -6520,7 +6549,9 @@ fn serve_forge_themes(
         themes.len(),
         refs.len()
     ));
-    body.push_str("<table><tr><th>Theme</th><th>Tokens</th><th>Sample (--loom-color-bg-canvas)</th></tr>");
+    body.push_str(
+        "<table><tr><th>Theme</th><th>Tokens</th><th>Sample (--loom-color-bg-canvas)</th></tr>",
+    );
     for t in &themes {
         let sample = t
             .tokens
@@ -6559,8 +6590,8 @@ fn serve_forge_backends(
         return respond_html(request, 200, &html);
     }
     let raw = std::fs::read_to_string(&backends_path)?;
-    let value: toml::Value = toml::from_str(&raw)
-        .map_err(|e| std::io::Error::other(format!("backends.toml: {e}")))?;
+    let value: toml::Value =
+        toml::from_str(&raw).map_err(|e| std::io::Error::other(format!("backends.toml: {e}")))?;
     let backends = match value.get("backends").and_then(|v| v.as_table()) {
         Some(t) => t,
         None => {
@@ -6572,13 +6603,27 @@ fn serve_forge_backends(
     let mut rows: Vec<(String, BackendStatus, String, String)> = Vec::new();
     for (k, v) in backends {
         let Some(t) = v.as_table() else { continue };
-        let Ok(key) = BackendKey::new(k) else { continue };
-        let method = t.get("method").and_then(|v| v.as_str()).unwrap_or("?").to_owned();
-        let purpose = t.get("purpose").and_then(|v| v.as_str()).unwrap_or("").to_owned();
+        let Ok(key) = BackendKey::new(k) else {
+            continue;
+        };
+        let method = t
+            .get("method")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?")
+            .to_owned();
+        let purpose = t
+            .get("purpose")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_owned();
         let impl_files: Vec<String> = t
             .get("impl_files")
             .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_owned))
+                    .collect()
+            })
             .unwrap_or_default();
         let status = BackendStatus::from_impl_files(impl_files);
         rows.push((key.as_str().to_owned(), status, method, purpose));
@@ -6589,7 +6634,11 @@ fn serve_forge_backends(
     body.push_str(&format!(
         "<p class=\"muted\">{total} declared, {impls} implemented ({pct}%), {stubs} stub.</p>",
         impls = total - stubs,
-        pct = if total > 0 { (total - stubs) * 100 / total } else { 0 },
+        pct = if total > 0 {
+            (total - stubs) * 100 / total
+        } else {
+            0
+        },
     ));
     body.push_str("<table><tr><th>Key</th><th>Method</th><th>Status</th><th>Purpose</th></tr>");
     for (k, s, m, p) in &rows {
@@ -6621,12 +6670,14 @@ fn serve_forge_audit(
     let latest = site_root.join("reports/latest.json");
     if latest.is_file() {
         let raw = std::fs::read_to_string(&latest).unwrap_or_default();
-        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::Value::Null);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&raw).unwrap_or(serde_json::Value::Null);
         let phases = parsed.get("phases").and_then(|v| v.as_array());
         if let Some(phases) = phases {
-            if let Some(crawl) = phases.iter().find(|p| {
-                p.get("name").and_then(|v| v.as_str()) == Some("crawl")
-            }) {
+            if let Some(crawl) = phases
+                .iter()
+                .find(|p| p.get("name").and_then(|v| v.as_str()) == Some("crawl"))
+            {
                 let findings = crawl
                     .get("findings")
                     .and_then(|v| v.as_array())
@@ -6664,14 +6715,10 @@ fn serve_edit_form(
         return respond_text(request, 404, "page not found");
     }
     let raw = std::fs::read_to_string(&json_path)?;
-    let parsed: serde_json::Value = serde_json::from_str(&raw).map_err(|e| {
-        std::io::Error::other(format!("parse {}: {e}", json_path.display()))
-    })?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| std::io::Error::other(format!("parse {}: {e}", json_path.display())))?;
 
-    let title = parsed
-        .get("title")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let title = parsed.get("title").and_then(|v| v.as_str()).unwrap_or("");
     let description = parsed
         .get("description")
         .and_then(|v| v.as_str())
@@ -6694,8 +6741,7 @@ fn serve_edit_form(
     // (Move-up / Move-down / Delete / Append / Save), theme-
     // picker mini-buttons in the preview bar, and the preview-
     // bar "open ↗" link.
-    const EDIT_PAGE_CSS: &str =
-         "body{font:16px/1.5 system-ui;margin:0;padding:0;display:grid;\
+    const EDIT_PAGE_CSS: &str = "body{font:16px/1.5 system-ui;margin:0;padding:0;display:grid;\
               grid-template-columns:minmax(0,1fr) minmax(0,1fr);\
               gap:1rem;min-height:100vh}\
          @media(max-width:60rem){body{grid-template-columns:1fr}}\
@@ -6998,7 +7044,9 @@ form.submit();\
     // POST because the server returns 303 → editor re-renders →
     // iframe `src` is fetched again.
     body.push_str(&format!("<style>{EDIT_PAGE_CSS}</style>"));
-    body.push_str("<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
+    body.push_str(
+        "<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>",
+    );
     body.push_str("<div class=\"editor\">");
     body.push_str(&format!(
         "<p><a href=\"/\">&larr; all pages</a> · \
@@ -7091,9 +7139,7 @@ form.submit();\
                     ));
                     for lvl in 1..=6u64 {
                         let sel = if lvl == level { " selected" } else { "" };
-                        body.push_str(&format!(
-                            "<option value=\"{lvl}\"{sel}>H{lvl}</option>"
-                        ));
+                        body.push_str(&format!("<option value=\"{lvl}\"{sel}>H{lvl}</option>"));
                     }
                     body.push_str("</select></label>");
                     body.push_str(&format!(
@@ -7115,9 +7161,7 @@ form.submit();\
                     ));
                     for opt in ["info", "success", "warn", "danger"] {
                         let sel = if opt == tone { " selected" } else { "" };
-                        body.push_str(&format!(
-                            "<option value=\"{opt}\"{sel}>{opt}</option>"
-                        ));
+                        body.push_str(&format!("<option value=\"{opt}\"{sel}>{opt}</option>"));
                     }
                     body.push_str("</select></label>");
                     body.push_str(&format!(
@@ -7202,7 +7246,9 @@ form.submit();\
             // `formaction` overrides the main form's action; the
             // main form's `required` validators don't fire because
             // `formnovalidate` is set.
-            body.push_str("<div style=\"margin-top:.75rem;display:flex;gap:.5rem;align-items:center\">");
+            body.push_str(
+                "<div style=\"margin-top:.75rem;display:flex;gap:.5rem;align-items:center\">",
+            );
             if i > 0 {
                 body.push_str(&format!(
                     "<button type=\"submit\" formaction=\"/{slug}/sections/{i}/up\" \
@@ -7296,7 +7342,11 @@ form.submit();\
         _ => "",
     };
     let active = |t: &str| -> &'static str {
-        if Some(t) == preview_theme { " aria-current=\"true\"" } else { "" }
+        if Some(t) == preview_theme {
+            " aria-current=\"true\""
+        } else {
+            ""
+        }
     };
     let back_path = format!("/{slug}", slug = html_escape(slug));
     // REGRESSION-GUARD cycle 55: theme-picker buttons inherit
@@ -7446,11 +7496,9 @@ fn handle_add_section(
         _ => std::io::Error::other("read failed"),
     })?;
     let raw = String::from_utf8(raw_bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
-    let mut parsed: serde_json::Value = serde_json::from_str(&raw)
-        .map_err(|e| std::io::Error::other(format!("parse: {e}")))?;
-    let sections = parsed
-        .get_mut("sections")
-        .and_then(|v| v.as_array_mut());
+    let mut parsed: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| std::io::Error::other(format!("parse: {e}")))?;
+    let sections = parsed.get_mut("sections").and_then(|v| v.as_array_mut());
     match sections {
         Some(arr) => arr.push(new_section),
         None => {
@@ -7501,7 +7549,12 @@ fn handle_add_section(
 /// reversible — the cycle 80 ladder has no terminal step.
 fn cmd_revisions(action: RevisionsAction) -> Result<()> {
     match action {
-        RevisionsAction::List { cms, slug, all_slugs, lines } => {
+        RevisionsAction::List {
+            cms,
+            slug,
+            all_slugs,
+            lines,
+        } => {
             if all_slugs {
                 revisions_list_all_slugs(&cms, lines)
             } else if slug.is_empty() {
@@ -7524,8 +7577,8 @@ fn cmd_revisions(action: RevisionsAction) -> Result<()> {
 ///
 /// Output format mirrors cycle 70/72/81 viewer commands.
 fn revisions_list_all_slugs(cms: &std::path::Path, lines: usize) -> Result<()> {
-    let entries = std::fs::read_dir(cms)
-        .map_err(|e| anyhow::anyhow!("read {}: {e}", cms.display()))?;
+    let entries =
+        std::fs::read_dir(cms).map_err(|e| anyhow::anyhow!("read {}: {e}", cms.display()))?;
     let mut all: Vec<(std::path::PathBuf, i64, String)> = Vec::new();
     for entry in entries.flatten() {
         let p = entry.path();
@@ -7579,13 +7632,9 @@ fn revisions_list_all_slugs(cms: &std::path::Path, lines: usize) -> Result<()> {
     }
     println!();
     if total > shown_count {
-        println!(
-            "(showing {shown_count} of {total} total; pass `--lines N` to see more)",
-        );
+        println!("(showing {shown_count} of {total} total; pass `--lines N` to see more)",);
     } else {
-        println!(
-            "(showed all {total} revisions across the CMS)",
-        );
+        println!("(showed all {total} revisions across the CMS)",);
     }
     Ok(())
 }
@@ -7632,10 +7681,13 @@ fn revisions_parse_ts(path: &std::path::Path) -> Option<i64> {
 }
 
 fn revisions_list(cms: &std::path::Path, slug: &str) -> Result<()> {
-    let revs = revisions_for(cms, slug)
-        .map_err(|e| anyhow::anyhow!("read {}: {e}", cms.display()))?;
+    let revs =
+        revisions_for(cms, slug).map_err(|e| anyhow::anyhow!("read {}: {e}", cms.display()))?;
     if revs.is_empty() {
-        println!("loom revisions list: no backups for '{slug}' in {}", cms.display());
+        println!(
+            "loom revisions list: no backups for '{slug}' in {}",
+            cms.display()
+        );
         return Ok(());
     }
     println!("{:>3}  {:<22}  {:>8}  {}", "n", "when", "bytes", "filename");
@@ -7648,25 +7700,22 @@ fn revisions_list(cms: &std::path::Path, slug: &str) -> Result<()> {
         println!("{:>3}  {:<22}  {:>8}  {}", i + 1, ts, bytes, name);
     }
     println!();
-    println!(
-        "(use `loom revisions show {slug} N` / `... diff {slug} N` / `... restore {slug} N`)",
-    );
+    println!("(use `loom revisions show {slug} N` / `... diff {slug} N` / `... restore {slug} N`)",);
     Ok(())
 }
 
 /// Resolve a 1-based index into the revisions list.
-fn revisions_pick(
-    cms: &std::path::Path,
-    slug: &str,
-    index: usize,
-) -> Result<std::path::PathBuf> {
+fn revisions_pick(cms: &std::path::Path, slug: &str, index: usize) -> Result<std::path::PathBuf> {
     if index == 0 {
         return Err(anyhow::anyhow!("revision index is 1-based; 0 is invalid"));
     }
-    let revs = revisions_for(cms, slug)
-        .map_err(|e| anyhow::anyhow!("read {}: {e}", cms.display()))?;
+    let revs =
+        revisions_for(cms, slug).map_err(|e| anyhow::anyhow!("read {}: {e}", cms.display()))?;
     if revs.is_empty() {
-        return Err(anyhow::anyhow!("no backups for '{slug}' in {}", cms.display()));
+        return Err(anyhow::anyhow!(
+            "no backups for '{slug}' in {}",
+            cms.display()
+        ));
     }
     if index > revs.len() {
         return Err(anyhow::anyhow!(
@@ -7679,8 +7728,8 @@ fn revisions_pick(
 
 fn revisions_show(cms: &std::path::Path, slug: &str, index: usize) -> Result<()> {
     let p = revisions_pick(cms, slug, index)?;
-    let content = std::fs::read_to_string(&p)
-        .map_err(|e| anyhow::anyhow!("read {}: {e}", p.display()))?;
+    let content =
+        std::fs::read_to_string(&p).map_err(|e| anyhow::anyhow!("read {}: {e}", p.display()))?;
     print!("{content}");
     Ok(())
 }
@@ -7715,8 +7764,7 @@ fn revisions_diff(cms: &std::path::Path, slug: &str, index: usize) -> Result<()>
     let active_path = cms.join(format!("{slug}.json"));
     let revision = std::fs::read_to_string(&rev_path)
         .map_err(|e| anyhow::anyhow!("read {}: {e}", rev_path.display()))?;
-    let active = std::fs::read_to_string(&active_path)
-        .unwrap_or_default();
+    let active = std::fs::read_to_string(&active_path).unwrap_or_default();
 
     println!("--- {} (revision {})", rev_path.display(), index);
     println!("+++ {} (active)", active_path.display());
@@ -7740,9 +7788,7 @@ fn revisions_diff(cms: &std::path::Path, slug: &str, index: usize) -> Result<()>
 
     // Fall back to cycle 81's line-set diff for non-JSON
     // files. Same shape, same bluntness, same disclaimer.
-    eprintln!(
-        "[revisions diff] one side didn't parse as JSON; falling back to line-set diff",
-    );
+    eprintln!("[revisions diff] one side didn't parse as JSON; falling back to line-set diff",);
     let rev_lines: Vec<&str> = revision.lines().collect();
     let act_lines: Vec<&str> = active.lines().collect();
     let rev_set: std::collections::HashSet<&str> = rev_lines.iter().copied().collect();
@@ -7794,7 +7840,8 @@ fn json_walk_diff(
         (Object(r), Object(a)) => {
             // Stable key order: union of both, sorted, for
             // deterministic output regardless of map iteration.
-            let mut keys: std::collections::BTreeSet<&::std::string::String> = std::collections::BTreeSet::new();
+            let mut keys: std::collections::BTreeSet<&::std::string::String> =
+                std::collections::BTreeSet::new();
             for k in r.keys() {
                 keys.insert(k);
             }
@@ -7870,14 +7917,12 @@ fn revisions_restore(cms: &std::path::Path, slug: &str, index: usize) -> Result<
     // pattern but without going through the capability —
     // this command is operator-invoked, not request-driven,
     // and runs outside the auth surface.
-    let tmp = active_path.with_extension(format!(
-        "json.restore.{}.tmp",
-        std::process::id(),
-    ));
+    let tmp = active_path.with_extension(format!("json.restore.{}.tmp", std::process::id(),));
     std::fs::write(&tmp, &revision)
         .map_err(|e| anyhow::anyhow!("write tmp {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, &active_path)
-        .map_err(|e| anyhow::anyhow!("rename {} -> {}: {e}", tmp.display(), active_path.display()))?;
+    std::fs::rename(&tmp, &active_path).map_err(|e| {
+        anyhow::anyhow!("rename {} -> {}: {e}", tmp.display(), active_path.display())
+    })?;
     println!(
         "loom revisions restore: '{slug}' restored from revision {index} ({} bytes)",
         revision.len(),
@@ -7922,10 +7967,7 @@ fn save_cms_revision(cms_root: &std::path::Path, slug: &str, prior_content: &str
     let bak_name = format!("{slug}.bak.{suffix}.json");
     let bak_path = cms_root.join(&bak_name);
     if let Err(e) = std::fs::write(&bak_path, prior_content) {
-        eprintln!(
-            "[loom revisions] write {} failed: {e}",
-            bak_path.display(),
-        );
+        eprintln!("[loom revisions] write {} failed: {e}", bak_path.display(),);
         return;
     }
     // Prune older revisions for THIS slug only.
@@ -7958,10 +8000,7 @@ fn prune_cms_revisions(cms_root: &std::path::Path, slug: &str) {
     let drop_count = revisions.len() - keep;
     for path in revisions.iter().take(drop_count) {
         if let Err(e) = std::fs::remove_file(path) {
-            eprintln!(
-                "[loom revisions] prune {} failed: {e}",
-                path.display(),
-            );
+            eprintln!("[loom revisions] prune {} failed: {e}", path.display(),);
         }
     }
 }
@@ -7996,7 +8035,9 @@ fn handle_edit_post(
     let mut fields = std::collections::BTreeMap::<String, String>::new();
     for pair in body.split('&').filter(|s| !s.is_empty()) {
         let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
-        let key = urlencoding::decode(k).map_err(|e| std::io::Error::other(format!("decode key: {e}")))?.into_owned();
+        let key = urlencoding::decode(k)
+            .map_err(|e| std::io::Error::other(format!("decode key: {e}")))?
+            .into_owned();
         let val = urlencoding::decode(&v.replace('+', " "))
             .map_err(|e| std::io::Error::other(format!("decode val: {e}")))?
             .into_owned();
@@ -8006,17 +8047,12 @@ fn handle_edit_post(
     // Mutate the JSON in place — read THROUGH the capability.
     let raw_bytes = cap.read_file(&rel).map_err(|e| match e {
         CapabilityError::Io(i) => i,
-        CapabilityError::EscapesScope { .. } => {
-            std::io::Error::other("path escapes cms scope")
-        }
-        CapabilityError::NotADir(_) => {
-            std::io::Error::other("cms root not a directory")
-        }
+        CapabilityError::EscapesScope { .. } => std::io::Error::other("path escapes cms scope"),
+        CapabilityError::NotADir(_) => std::io::Error::other("cms root not a directory"),
     })?;
     let raw = String::from_utf8(raw_bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
-    let mut parsed: serde_json::Value = serde_json::from_str(&raw).map_err(|e| {
-        std::io::Error::other(format!("parse {}: {e}", rel.display()))
-    })?;
+    let mut parsed: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| std::io::Error::other(format!("parse {}: {e}", rel.display())))?;
     if let Some(t) = fields.get("title") {
         parsed["title"] = serde_json::Value::String(t.clone());
     }
@@ -8028,7 +8064,11 @@ fn handle_edit_post(
     // (arrays). The match below mirrors the GET-side editor.
     if let Some(sections) = parsed.get_mut("sections").and_then(|v| v.as_array_mut()) {
         for (i, sec) in sections.iter_mut().enumerate() {
-            let kind = sec.get("kind").and_then(|v| v.as_str()).unwrap_or("").to_owned();
+            let kind = sec
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_owned();
             match kind.as_str() {
                 "hero" => {
                     // SCHEMA: see new_section seed — Hero's body
@@ -8141,15 +8181,14 @@ fn handle_edit_post(
     // boundary-checked.
     let serialized = serde_json::to_string_pretty(&parsed)
         .map_err(|e| std::io::Error::other(format!("serialize: {e}")))?;
-    cap.write_atomic(&rel, serialized.as_bytes()).map_err(|e| match e {
-        CapabilityError::Io(i) => i,
-        CapabilityError::EscapesScope { .. } => {
-            std::io::Error::other("write attempt escapes cms scope")
-        }
-        CapabilityError::NotADir(_) => {
-            std::io::Error::other("cms root not a directory")
-        }
-    })?;
+    cap.write_atomic(&rel, serialized.as_bytes())
+        .map_err(|e| match e {
+            CapabilityError::Io(i) => i,
+            CapabilityError::EscapesScope { .. } => {
+                std::io::Error::other("write attempt escapes cms scope")
+            }
+            CapabilityError::NotADir(_) => std::io::Error::other("cms root not a directory"),
+        })?;
 
     // Trigger forge rebuild. Honour empty string = disabled (tests).
     if !forge_path.is_empty() {
@@ -8200,9 +8239,8 @@ fn serve_preview(
         // real file because `p.is_file()` returns true and this
         // branch is skipped. Self-contained editor doctrine.
         if rel == "loom-skin.css" {
-            let mut resp = tiny_http::Response::from_data(
-                loom_cms_render::BASE_THEME_CSS.as_bytes().to_vec(),
-            );
+            let mut resp =
+                tiny_http::Response::from_data(loom_cms_render::BASE_THEME_CSS.as_bytes().to_vec());
             resp.add_header(
                 tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/css"[..])
                     .map_err(|_| std::io::Error::other("header"))?,
@@ -8231,11 +8269,7 @@ fn serve_preview(
     Ok(())
 }
 
-fn respond_html(
-    request: tiny_http::Request,
-    code: u16,
-    body: &str,
-) -> std::io::Result<()> {
+fn respond_html(request: tiny_http::Request, code: u16, body: &str) -> std::io::Result<()> {
     let mut resp = tiny_http::Response::from_string(body.to_owned()).with_status_code(code);
     resp.add_header(
         tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
@@ -8257,11 +8291,8 @@ fn respond_html(
     //   admin pages always land at the top after navigation
     //   (predictable UX, no surprise jumps from back-nav).
     resp.add_header(
-        tiny_http::Header::from_bytes(
-            &b"Document-Policy"[..],
-            &b"force-load-at-top"[..],
-        )
-        .map_err(|_| std::io::Error::other("header"))?,
+        tiny_http::Header::from_bytes(&b"Document-Policy"[..], &b"force-load-at-top"[..])
+            .map_err(|_| std::io::Error::other("header"))?,
     );
     // SUPERSOCIETY cycle 61: defense-in-depth response headers
     // that aren't expressible via meta http-equiv:
@@ -8277,32 +8308,20 @@ fn respond_html(
     //     cluster (process-level isolation distinct from
     //     COOP/COEP cross-origin isolation; cycle 45 detector).
     resp.add_header(
-        tiny_http::Header::from_bytes(
-            &b"X-Content-Type-Options"[..],
-            &b"nosniff"[..],
-        )
-        .map_err(|_| std::io::Error::other("header"))?,
+        tiny_http::Header::from_bytes(&b"X-Content-Type-Options"[..], &b"nosniff"[..])
+            .map_err(|_| std::io::Error::other("header"))?,
     );
     resp.add_header(
-        tiny_http::Header::from_bytes(
-            &b"Cross-Origin-Opener-Policy"[..],
-            &b"same-origin"[..],
-        )
-        .map_err(|_| std::io::Error::other("header"))?,
+        tiny_http::Header::from_bytes(&b"Cross-Origin-Opener-Policy"[..], &b"same-origin"[..])
+            .map_err(|_| std::io::Error::other("header"))?,
     );
     resp.add_header(
-        tiny_http::Header::from_bytes(
-            &b"Cross-Origin-Resource-Policy"[..],
-            &b"same-origin"[..],
-        )
-        .map_err(|_| std::io::Error::other("header"))?,
+        tiny_http::Header::from_bytes(&b"Cross-Origin-Resource-Policy"[..], &b"same-origin"[..])
+            .map_err(|_| std::io::Error::other("header"))?,
     );
     resp.add_header(
-        tiny_http::Header::from_bytes(
-            &b"Origin-Agent-Cluster"[..],
-            &b"?1"[..],
-        )
-        .map_err(|_| std::io::Error::other("header"))?,
+        tiny_http::Header::from_bytes(&b"Origin-Agent-Cluster"[..], &b"?1"[..])
+            .map_err(|_| std::io::Error::other("header"))?,
     );
     // SUPERSOCIETY cycle 63: Reporting-Endpoints header (CSP-L3
     // / Reporting API). Names a "default" endpoint that the
@@ -8315,16 +8334,14 @@ fn respond_html(
     // that haven't migrated to Reporting-Endpoints yet (Chrome
     // 96+ supports Reporting-Endpoints; older only Report-To).
     resp.add_header(
-        tiny_http::Header::from_bytes(
-            &b"Reporting-Endpoints"[..],
-            &b"default=\"/reports\""[..],
-        )
-        .map_err(|_| std::io::Error::other("header"))?,
+        tiny_http::Header::from_bytes(&b"Reporting-Endpoints"[..], &b"default=\"/reports\""[..])
+            .map_err(|_| std::io::Error::other("header"))?,
     );
     resp.add_header(
         tiny_http::Header::from_bytes(
             &b"Report-To"[..],
-            &b"{\"group\":\"default\",\"max_age\":10886400,\"endpoints\":[{\"url\":\"/reports\"}]}"[..],
+            &b"{\"group\":\"default\",\"max_age\":10886400,\"endpoints\":[{\"url\":\"/reports\"}]}"
+                [..],
         )
         .map_err(|_| std::io::Error::other("header"))?,
     );
@@ -8630,9 +8647,7 @@ fn handle_security_report(
             .replace('\n', "\\n")
             .replace('\r', "\\r")
             .replace('\t', "\\t");
-        let escaped_ct = content_type
-            .replace('\\', "\\\\")
-            .replace('"', "\\\"");
+        let escaped_ct = content_type.replace('\\', "\\\\").replace('"', "\\\"");
         let line = format!(
             "{{\"ts\":{now},\"endpoint\":\"{endpoint}\",\"content_type\":\"{escaped_ct}\",\"body\":\"{escaped_body}\"}}\n"
         );
@@ -8827,7 +8842,12 @@ fn render_section_for_edit(sec: &loom_cms_render::CmsSection) -> String {
             "<p class=\"loom-prose\" data-edit-field=\"text\">{}</p>",
             escape_html_text(text)
         ),
-        CmsSection::Hero { eyebrow, title, lede, cta: _ } => {
+        CmsSection::Hero {
+            eyebrow,
+            title,
+            lede,
+            cta: _,
+        } => {
             let mut out = String::from("<section class=\"loom-section-hero\" data-loom-hero>");
             if let Some(e) = eyebrow.as_deref().filter(|s| !s.is_empty()) {
                 out.push_str(&format!(
@@ -8997,7 +9017,9 @@ fn serve_preview_edit(
         .split_once('?')
         .map(|(p, _)| p)
         .unwrap_or(slug_with_html);
-    let slug_str = slug_with_html.strip_suffix(".html").unwrap_or(slug_with_html);
+    let slug_str = slug_with_html
+        .strip_suffix(".html")
+        .unwrap_or(slug_with_html);
     let slug = match SlugName::new(slug_str) {
         Ok(s) => s,
         Err(why) => return respond_text(request, 400, why),
@@ -9161,10 +9183,7 @@ fn handle_inline_edit(
         Ok(v) => v,
         Err(e) => return respond_text(request, 500, &format!("parse cms: {e}")),
     };
-    let sections = match parsed
-        .get_mut("sections")
-        .and_then(|v| v.as_array_mut())
-    {
+    let sections = match parsed.get_mut("sections").and_then(|v| v.as_array_mut()) {
         Some(a) => a,
         None => return respond_text(request, 500, "cms has no sections array"),
     };
@@ -9217,11 +9236,7 @@ fn handle_inline_edit(
     respond_text(request, 200, &value)
 }
 
-fn respond_text(
-    request: tiny_http::Request,
-    code: u16,
-    body: &str,
-) -> std::io::Result<()> {
+fn respond_text(request: tiny_http::Request, code: u16, body: &str) -> std::io::Result<()> {
     let resp = tiny_http::Response::from_string(body.to_owned()).with_status_code(code);
     request.respond(resp)?;
     Ok(())
@@ -9240,7 +9255,12 @@ fn respond_text(
 fn webauthn_stores() -> &'static (WebAuthnChallengeStore, WebAuthnCredentialStore) {
     static STORES: std::sync::OnceLock<(WebAuthnChallengeStore, WebAuthnCredentialStore)> =
         std::sync::OnceLock::new();
-    STORES.get_or_init(|| (WebAuthnChallengeStore::new(), WebAuthnCredentialStore::new()))
+    STORES.get_or_init(|| {
+        (
+            WebAuthnChallengeStore::new(),
+            WebAuthnCredentialStore::new(),
+        )
+    })
 }
 
 const WEBAUTHN_BODY_CAP: usize = 16 * 1024;
@@ -9296,8 +9316,14 @@ fn handle_webauthn_request(
     // scheme + authority. tiny_http listens plain HTTP, but for
     // localhost the WebAuthn spec permits secure-context
     // exemption.
-    let host_full = extract_header(&request, "host").unwrap_or("127.0.0.1").to_owned();
-    let rp_id = host_full.split(':').next().unwrap_or("127.0.0.1").to_owned();
+    let host_full = extract_header(&request, "host")
+        .unwrap_or("127.0.0.1")
+        .to_owned();
+    let rp_id = host_full
+        .split(':')
+        .next()
+        .unwrap_or("127.0.0.1")
+        .to_owned();
     let scheme = if rp_id == "localhost" || rp_id == "127.0.0.1" || rp_id == "::1" {
         "http"
     } else {
@@ -9342,11 +9368,7 @@ fn handle_webauthn_request(
     respond_json(request, resp.status, &resp.body)
 }
 
-fn respond_json(
-    request: tiny_http::Request,
-    code: u16,
-    body: &str,
-) -> std::io::Result<()> {
+fn respond_json(request: tiny_http::Request, code: u16, body: &str) -> std::io::Result<()> {
     let header = tiny_http::Header::from_bytes(
         &b"Content-Type"[..],
         &b"application/json; charset=utf-8"[..],
@@ -9424,11 +9446,9 @@ document.getElementById('auth').onclick = async () => {{
 </body></html>"#,
         webauthn_js = WEBAUTHN_BROWSER_JS,
     );
-    let header = tiny_http::Header::from_bytes(
-        &b"Content-Type"[..],
-        &b"text/html; charset=utf-8"[..],
-    )
-    .map_err(|_| std::io::Error::other("bad header"))?;
+    let header =
+        tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
+            .map_err(|_| std::io::Error::other("bad header"))?;
     let resp = tiny_http::Response::from_string(html)
         .with_status_code(200)
         .with_header(header);
@@ -9578,11 +9598,8 @@ fn handle_new_page(
 
     let mut resp = tiny_http::Response::empty(303);
     resp.add_header(
-        tiny_http::Header::from_bytes(
-            &b"Location"[..],
-            format!("/{}", slug.as_str()).as_bytes(),
-        )
-        .map_err(|_| std::io::Error::other("header"))?,
+        tiny_http::Header::from_bytes(&b"Location"[..], format!("/{}", slug.as_str()).as_bytes())
+            .map_err(|_| std::io::Error::other("header"))?,
     );
     request.respond(resp)?;
     Ok(())
@@ -9666,10 +9683,12 @@ fn handle_section_reorder(
     }
 
     // Load, splice, write.
-    let raw_bytes = cap.read_file(&rel).map_err(|_| std::io::Error::other("read"))?;
+    let raw_bytes = cap
+        .read_file(&rel)
+        .map_err(|_| std::io::Error::other("read"))?;
     let raw = String::from_utf8(raw_bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
-    let mut parsed: serde_json::Value = serde_json::from_str(&raw)
-        .map_err(|e| std::io::Error::other(format!("parse: {e}")))?;
+    let mut parsed: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| std::io::Error::other(format!("parse: {e}")))?;
     let sections = match parsed.get_mut("sections").and_then(|v| v.as_array_mut()) {
         Some(arr) => arr,
         None => return respond_text(request, 400, "no sections array"),
@@ -9727,7 +9746,9 @@ fn handle_section_op(
     if !cap.file_exists(&rel) {
         return respond_text(request, 404, "page not found");
     }
-    let raw_bytes = cap.read_file(&rel).map_err(|_| std::io::Error::other("read"))?;
+    let raw_bytes = cap
+        .read_file(&rel)
+        .map_err(|_| std::io::Error::other("read"))?;
     let raw = String::from_utf8(raw_bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
     let mut parsed: serde_json::Value =
         serde_json::from_str(&raw).map_err(|e| std::io::Error::other(format!("parse: {e}")))?;
@@ -9776,9 +9797,10 @@ fn handle_section_op(
                 match arr {
                     Some(a) => a.push(serde_json::Value::String(String::new())),
                     None => {
-                        sec["body"] = serde_json::Value::Array(vec![
-                            serde_json::Value::String(String::new()),
-                        ]);
+                        sec["body"] =
+                            serde_json::Value::Array(vec![
+                                serde_json::Value::String(String::new()),
+                            ]);
                     }
                 }
             }
@@ -9835,7 +9857,10 @@ mod edit_serve_tests {
 
     #[test]
     fn html_escape_handles_attr_chars() {
-        assert_eq!(html_escape("a&b<c>d\"e'f"), "a&amp;b&lt;c&gt;d&quot;e&#39;f");
+        assert_eq!(
+            html_escape("a&b<c>d\"e'f"),
+            "a&amp;b&lt;c&gt;d&quot;e&#39;f"
+        );
     }
 
     #[test]
@@ -9874,9 +9899,7 @@ fn strip_css_comments(raw: &str) -> String {
     out
 }
 
-fn parse_skin_themes(
-    raw: &str,
-) -> (Vec<ThemeBlock>, std::collections::BTreeSet<String>) {
+fn parse_skin_themes(raw: &str) -> (Vec<ThemeBlock>, std::collections::BTreeSet<String>) {
     let mut themes = Vec::<ThemeBlock>::new();
     let mut referenced_vars = std::collections::BTreeSet::<String>::new();
 
@@ -9896,9 +9919,10 @@ fn parse_skin_themes(
         if let Some(end) = rest.find(|c: char| c == ')' || c == ',' || c.is_whitespace()) {
             let name = &rest[..end];
             if !name.is_empty()
-                && name
-                    .strip_prefix("--")
-                    .is_some_and(|tail| tail.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
+                && name.strip_prefix("--").is_some_and(|tail| {
+                    tail.chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+                })
             {
                 referenced_vars.insert(name.to_owned());
             }
@@ -10105,9 +10129,7 @@ fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (f64, f64, f64) {
 /// hsl() syntax.
 fn parse_css_color(raw: &str) -> Option<(f64, f64, f64)> {
     let raw = raw.trim();
-    let inner = raw
-        .strip_prefix("hsl(")
-        .and_then(|s| s.strip_suffix(')'))?;
+    let inner = raw.strip_prefix("hsl(").and_then(|s| s.strip_suffix(')'))?;
     // Drop alpha if present (split on `/` once).
     let (color_part, _alpha) = inner.split_once('/').unwrap_or((inner, ""));
     // Split on whitespace OR comma.
@@ -10153,12 +10175,32 @@ fn check_pair(fg_raw: &str, bg_raw: &str, min_ratio: f64) -> Option<(f64, bool)>
 /// foreground/background combos that visitors actually see
 /// rendered together.
 const CONTRAST_PAIRS: &[(&str, &str, &str)] = &[
-    ("--loom-color-ink", "--loom-color-bg-canvas", "ink-on-canvas"),
+    (
+        "--loom-color-ink",
+        "--loom-color-bg-canvas",
+        "ink-on-canvas",
+    ),
     ("--loom-color-ink", "--loom-color-surface", "ink-on-surface"),
-    ("--loom-color-ink", "--loom-color-surface-muted", "ink-on-surface-muted"),
-    ("--loom-color-ink-muted", "--loom-color-bg-canvas", "ink-muted-on-canvas"),
-    ("--loom-color-ink-muted", "--loom-color-surface", "ink-muted-on-surface"),
-    ("--loom-color-primary-fg", "--loom-color-primary", "primary-fg-on-primary"),
+    (
+        "--loom-color-ink",
+        "--loom-color-surface-muted",
+        "ink-on-surface-muted",
+    ),
+    (
+        "--loom-color-ink-muted",
+        "--loom-color-bg-canvas",
+        "ink-muted-on-canvas",
+    ),
+    (
+        "--loom-color-ink-muted",
+        "--loom-color-surface",
+        "ink-muted-on-surface",
+    ),
+    (
+        "--loom-color-primary-fg",
+        "--loom-color-primary",
+        "primary-fg-on-primary",
+    ),
 ];
 
 fn cmd_theme_contrast(
@@ -10176,18 +10218,11 @@ fn cmd_theme_contrast(
     }
     // Base block provides fallback values when a named theme
     // doesn't declare a specific token (cascade behaviour).
-    let base = themes
-        .iter()
-        .find(|t| t.name == "default")
-        .cloned();
+    let base = themes.iter().find(|t| t.name == "default").cloned();
 
     let mut failures = 0usize;
-    println!(
-        "  theme           pair                          ratio   status"
-    );
-    println!(
-        "  --------------  ----------------------------  ------  ------"
-    );
+    println!("  theme           pair                          ratio   status");
+    println!("  --------------  ----------------------------  ------  ------");
     for theme in &themes {
         for (fg_tok, bg_tok, label) in CONTRAST_PAIRS {
             let lookup = |tok: &str| -> Option<String> {
@@ -10308,9 +10343,11 @@ mod theme_contrast_tests {
 
     #[test]
     fn check_pair_grey_on_white_fails_aa() {
-        let (ratio, passed) =
-            check_pair("hsl(0 0% 70%)", "hsl(0 0% 100%)", 4.5).expect("ok");
-        assert!(!passed, "70% grey on white should fail AA, got ratio {ratio}");
+        let (ratio, passed) = check_pair("hsl(0 0% 70%)", "hsl(0 0% 100%)", 4.5).expect("ok");
+        assert!(
+            !passed,
+            "70% grey on white should fail AA, got ratio {ratio}"
+        );
     }
 }
 
@@ -10507,7 +10544,10 @@ mod theme_tests {
     #[test]
     fn parser_extracts_color_tokens_only() {
         let (themes, _) = parse_skin_themes(FIXTURE);
-        let default = themes.iter().find(|t| t.name == "default").expect("default");
+        let default = themes
+            .iter()
+            .find(|t| t.name == "default")
+            .expect("default");
         assert_eq!(default.tokens.len(), 3);
         assert!(default.tokens.contains_key("--loom-color-bg-canvas"));
         assert!(default.tokens.contains_key("--loom-color-ink"));
@@ -10548,10 +10588,7 @@ mod theme_tests {
 }
 .x { color: var(--loom-color-missing); }
 "#;
-        let dir = std::env::temp_dir().join(format!(
-            "loom-theme-undef-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("loom-theme-undef-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("mkdir");
         let path = dir.join("skin.css");
         std::fs::write(&path, raw).expect("write");
@@ -10572,10 +10609,7 @@ mod theme_tests {
 }
 .x { background: var(--loom-color-bg-canvas); color: var(--loom-color-ink); }
 "#;
-        let dir = std::env::temp_dir().join(format!(
-            "loom-theme-miss-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("loom-theme-miss-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("mkdir");
         let path = dir.join("skin.css");
         std::fs::write(&path, raw).expect("write");
@@ -10596,10 +10630,7 @@ mod theme_tests {
   --loom-color-orphan: red;
 }
 "#;
-        let dir = std::env::temp_dir().join(format!(
-            "loom-theme-orph-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("loom-theme-orph-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("mkdir");
         let path = dir.join("skin.css");
         std::fs::write(&path, raw).expect("write");
@@ -12029,8 +12060,8 @@ fn read_auth_store() -> std::io::Result<Option<AuthStore>> {
         return Ok(None);
     }
     let raw = std::fs::read_to_string(&path)?;
-    let parsed: AuthStore = toml::from_str(&raw)
-        .map_err(|e| std::io::Error::other(format!("parse auth.toml: {e}")))?;
+    let parsed: AuthStore =
+        toml::from_str(&raw).map_err(|e| std::io::Error::other(format!("parse auth.toml: {e}")))?;
     Ok(Some(parsed))
 }
 
@@ -12054,8 +12085,8 @@ fn write_auth_store(store: &AuthStore) -> std::io::Result<()> {
 
 fn cmd_auth_init(user: &str, force: bool) -> std::io::Result<()> {
     // Validate username via SlugName (same character class).
-    let user_validated = SlugName::new(user)
-        .map_err(|e| std::io::Error::other(format!("invalid user: {e}")))?;
+    let user_validated =
+        SlugName::new(user).map_err(|e| std::io::Error::other(format!("invalid user: {e}")))?;
     let path = auth_store_path();
     if path.is_file() && !force {
         return Err(std::io::Error::other(format!(
@@ -12094,7 +12125,9 @@ fn cmd_auth_init(user: &str, force: bool) -> std::io::Result<()> {
             name: user_validated.as_str().to_owned(),
             password_hash: hash,
         }],
-        secret: AuthSecret { hmac_key_b64: key_b64 },
+        secret: AuthSecret {
+            hmac_key_b64: key_b64,
+        },
     };
     write_auth_store(&store)?;
     println!("loom auth init:");
@@ -12148,12 +12181,11 @@ fn build_session_cookie(user: &str, hmac_key: &[u8]) -> String {
     use hmac::{Hmac, Mac};
     let expiry = current_unix_secs().saturating_add(SESSION_LIFETIME_SECS);
     let payload = format!("{user}.{expiry}");
-    let mut mac = <Hmac<sha2::Sha256> as Mac>::new_from_slice(hmac_key)
-        .expect("hmac accepts any key length");
+    let mut mac =
+        <Hmac<sha2::Sha256> as Mac>::new_from_slice(hmac_key).expect("hmac accepts any key length");
     mac.update(payload.as_bytes());
     let sig = mac.finalize().into_bytes();
-    let sig_b64 =
-        base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, sig);
+    let sig_b64 = base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, sig);
     format!("{payload}.{sig_b64}")
 }
 
@@ -12173,11 +12205,8 @@ fn verify_session_cookie(cookie_value: &str, hmac_key: &[u8]) -> Option<String> 
     if expiry < current_unix_secs() {
         return None;
     }
-    let provided_sig = base64::Engine::decode(
-        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-        sig_b64,
-    )
-    .ok()?;
+    let provided_sig =
+        base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, sig_b64).ok()?;
     let payload = format!("{user}.{expiry}");
     let mut mac = <Hmac<sha2::Sha256> as Mac>::new_from_slice(hmac_key).ok()?;
     mac.update(payload.as_bytes());
@@ -12285,9 +12314,7 @@ fn handle_theme_post(mut request: tiny_http::Request) -> std::io::Result<()> {
         }
     }
     let cookie_attrs = match theme {
-        Some(t) => format!(
-            "loom-theme={t}; Path=/; SameSite=Strict; Max-Age=31536000"
-        ),
+        Some(t) => format!("loom-theme={t}; Path=/; SameSite=Strict; Max-Age=31536000"),
         None => {
             // Clear the cookie by setting Max-Age=0.
             "loom-theme=; Path=/; SameSite=Strict; Max-Age=0".to_owned()
@@ -12327,7 +12354,10 @@ mod auth_tests {
     fn session_cookie_round_trip() {
         let key = b"thirty-two bytes long key !!!!!1";
         let cookie = build_session_cookie("alice", key);
-        assert_eq!(verify_session_cookie(&cookie, key).as_deref(), Some("alice"));
+        assert_eq!(
+            verify_session_cookie(&cookie, key).as_deref(),
+            Some("alice")
+        );
     }
 
     #[test]
@@ -12551,8 +12581,10 @@ impl WebAuthnChallengeStore {
             return Err(WebAuthnChallengeError::Mismatch);
         }
         use subtle::ConstantTimeEq as _;
-        let eq: subtle::Choice =
-            stored.encoded.as_bytes().ct_eq(candidate_encoded.as_bytes());
+        let eq: subtle::Choice = stored
+            .encoded
+            .as_bytes()
+            .ct_eq(candidate_encoded.as_bytes());
         if bool::from(eq) {
             Ok(stored)
         } else {
@@ -12574,9 +12606,7 @@ impl WebAuthnChallengeStore {
             Err(_) => return 0,
         };
         let before = guard.len();
-        guard.retain(|_, c| {
-            now.saturating_sub(c.issued_at) <= WEBAUTHN_CHALLENGE_TTL_SECS
-        });
+        guard.retain(|_, c| now.saturating_sub(c.issued_at) <= WEBAUTHN_CHALLENGE_TTL_SECS);
         before - guard.len()
     }
 
@@ -12679,9 +12709,7 @@ enum WebAuthnClientDataError {
 /// Use `verify_client_data()` after parsing to enforce equality
 /// against the issued challenge + expected RP origin + expected
 /// op-type.
-fn parse_client_data_json(
-    bytes: &[u8],
-) -> Result<WebAuthnClientData, WebAuthnClientDataError> {
+fn parse_client_data_json(bytes: &[u8]) -> Result<WebAuthnClientData, WebAuthnClientDataError> {
     if bytes.len() > WEBAUTHN_CLIENT_DATA_MAX_BYTES {
         return Err(WebAuthnClientDataError::TooLarge);
     }
@@ -12717,7 +12745,11 @@ fn parse_client_data_json(
         }
     }
 
-    Ok(WebAuthnClientData { op_type, challenge, origin })
+    Ok(WebAuthnClientData {
+        op_type,
+        challenge,
+        origin,
+    })
 }
 
 /// Verify a parsed clientDataJSON matches the expected ceremony
@@ -12743,8 +12775,10 @@ fn verify_client_data(
         return Err(WebAuthnClientDataError::ChallengeMismatch);
     }
     use subtle::ConstantTimeEq as _;
-    let eq: subtle::Choice =
-        parsed.challenge.as_bytes().ct_eq(expected_challenge.as_bytes());
+    let eq: subtle::Choice = parsed
+        .challenge
+        .as_bytes()
+        .ct_eq(expected_challenge.as_bytes());
     if bool::from(eq) {
         Ok(())
     } else {
@@ -12799,17 +12833,16 @@ mod webauthn_client_data_tests {
 
     #[test]
     fn parse_missing_type_rejected() {
-        let err = parse_client_data_json(br#"{"challenge":"x","origin":"y"}"#)
-            .expect_err("no type");
+        let err =
+            parse_client_data_json(br#"{"challenge":"x","origin":"y"}"#).expect_err("no type");
         assert_eq!(err, WebAuthnClientDataError::MissingField("type"));
     }
 
     #[test]
     fn parse_unknown_type_rejected() {
-        let err = parse_client_data_json(
-            br#"{"type":"webauthn.unknown","challenge":"x","origin":"y"}"#,
-        )
-        .expect_err("unknown type");
+        let err =
+            parse_client_data_json(br#"{"type":"webauthn.unknown","challenge":"x","origin":"y"}"#)
+                .expect_err("unknown type");
         assert_eq!(err, WebAuthnClientDataError::UnknownType);
     }
 
@@ -12887,13 +12920,8 @@ mod webauthn_client_data_tests {
     #[test]
     fn verify_challenge_wrong_length_rejected_before_compare() {
         let p = parse_client_data_json(&ok_create()).unwrap();
-        let err = verify_client_data(
-            &p,
-            "webauthn.create",
-            "https://example.com",
-            "short",
-        )
-        .expect_err("wrong length");
+        let err = verify_client_data(&p, "webauthn.create", "https://example.com", "short")
+            .expect_err("wrong length");
         assert_eq!(err, WebAuthnClientDataError::ChallengeMismatch);
     }
 }
@@ -13025,9 +13053,7 @@ enum WebAuthnAuthDataError {
 ///   * Replay-checking sign_count > stored count.
 ///   * Decoding credential_pubkey_cose via cycle 95b CBOR
 ///     module + verifying signature via cycle 95c ES256.
-fn parse_authenticator_data(
-    bytes: &[u8],
-) -> Result<WebAuthnAuthData, WebAuthnAuthDataError> {
+fn parse_authenticator_data(bytes: &[u8]) -> Result<WebAuthnAuthData, WebAuthnAuthDataError> {
     if bytes.len() > WEBAUTHN_AUTH_DATA_MAX_BYTES {
         return Err(WebAuthnAuthDataError::TooLarge);
     }
@@ -13055,8 +13081,7 @@ fn parse_authenticator_data(
         let mut aaguid = [0u8; 16];
         aaguid.copy_from_slice(&bytes[offset..offset + 16]);
         offset += 16;
-        let cred_id_len =
-            u16::from_be_bytes([bytes[offset], bytes[offset + 1]]) as usize;
+        let cred_id_len = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]) as usize;
         offset += 2;
         // Spec caps credentialIdLength at 1023; we enforce that
         // AND ensure the claimed length fits in remaining bytes.
@@ -13277,10 +13302,7 @@ mod webauthn_auth_data_tests {
     #[test]
     fn parse_flag_accessors_distinct_bits() {
         // Every flag bit independent.
-        let bytes = minimal(
-            WEBAUTHN_FLAG_UP | WEBAUTHN_FLAG_UV | WEBAUTHN_FLAG_ED,
-            0,
-        );
+        let bytes = minimal(WEBAUTHN_FLAG_UP | WEBAUTHN_FLAG_UV | WEBAUTHN_FLAG_ED, 0);
         let mut v = bytes.clone();
         v.extend_from_slice(b"\xa0");
         let p = parse_authenticator_data(&v).expect("parse ok");
@@ -13822,10 +13844,10 @@ fn verify_es256_signature(
     client_data_json: &[u8],
     signature_der: &[u8],
 ) -> Result<(), WebAuthnVerifyError> {
+    use p256::EncodedPoint;
     use p256::ecdsa::signature::Verifier as _;
     use p256::ecdsa::{Signature, VerifyingKey};
     use p256::elliptic_curve::generic_array::GenericArray;
-    use p256::EncodedPoint;
     use sha2::{Digest as _, Sha256};
 
     // SEC1-uncompressed encoded point: 0x04 || X || Y.
@@ -13837,16 +13859,15 @@ fn verify_es256_signature(
     let verifying_key = VerifyingKey::from_encoded_point(&encoded)
         .map_err(|_| WebAuthnVerifyError::InvalidPubkey)?;
 
-    let signature = Signature::from_der(signature_der)
-        .map_err(|_| WebAuthnVerifyError::InvalidSignatureDer)?;
+    let signature =
+        Signature::from_der(signature_der).map_err(|_| WebAuthnVerifyError::InvalidSignatureDer)?;
 
     // The data signed is auth_data || sha256(client_data_json).
     // We compute sha256(client_data_json) and concatenate;
     // p256's `verify` then takes the SHA-256 of the WHOLE thing
     // internally. Net result: sig over sha256(auth_data ||
     // sha256(client_data_json)) — matches WebAuthn spec.
-    let mut signed_bytes: Vec<u8> =
-        Vec::with_capacity(authenticator_data.len() + 32);
+    let mut signed_bytes: Vec<u8> = Vec::with_capacity(authenticator_data.len() + 32);
     signed_bytes.extend_from_slice(authenticator_data);
     let mut hasher = Sha256::new();
     hasher.update(client_data_json);
@@ -13861,8 +13882,8 @@ fn verify_es256_signature(
 #[cfg(test)]
 mod webauthn_es256_verify_tests {
     use super::*;
-    use p256::ecdsa::signature::Signer as _;
     use p256::ecdsa::SigningKey;
+    use p256::ecdsa::signature::Signer as _;
     use p256::elliptic_curve::generic_array::GenericArray;
 
     /// Build a fresh test key + the matching CoseEs256PublicKey.
@@ -13879,11 +13900,7 @@ mod webauthn_es256_verify_tests {
 
     /// Sign per WebAuthn spec: signature over
     /// authenticator_data || sha256(client_data_json).
-    fn sign_webauthn(
-        sk: &SigningKey,
-        auth_data: &[u8],
-        client_data_json: &[u8],
-    ) -> Vec<u8> {
+    fn sign_webauthn(sk: &SigningKey, auth_data: &[u8], client_data_json: &[u8]) -> Vec<u8> {
         use p256::ecdsa::Signature;
         use sha2::{Digest as _, Sha256};
         let mut hasher = Sha256::new();
@@ -13912,8 +13929,8 @@ mod webauthn_es256_verify_tests {
         let cdj = br#"{"type":"webauthn.get"}"#;
         let sig = sign_webauthn(&sk, auth, cdj);
         let tampered = b"auth-data-test-byteX"; // last byte changed
-        let err = verify_es256_signature(&cose, tampered, cdj, &sig)
-            .expect_err("tampered must fail");
+        let err =
+            verify_es256_signature(&cose, tampered, cdj, &sig).expect_err("tampered must fail");
         assert_eq!(err, WebAuthnVerifyError::SignatureMismatch);
     }
 
@@ -13936,8 +13953,8 @@ mod webauthn_es256_verify_tests {
         let auth = b"auth";
         let cdj = br#"{}"#;
         let sig = sign_webauthn(&sk, auth, cdj);
-        let err = verify_es256_signature(&cose_b, auth, cdj, &sig)
-            .expect_err("wrong key must fail");
+        let err =
+            verify_es256_signature(&cose_b, auth, cdj, &sig).expect_err("wrong key must fail");
         assert_eq!(err, WebAuthnVerifyError::SignatureMismatch);
     }
 
@@ -13947,8 +13964,7 @@ mod webauthn_es256_verify_tests {
         let auth = b"auth";
         let cdj = br#"{}"#;
         let bogus = b"not-der-at-all";
-        let err = verify_es256_signature(&cose, auth, cdj, bogus)
-            .expect_err("bogus sig must fail");
+        let err = verify_es256_signature(&cose, auth, cdj, bogus).expect_err("bogus sig must fail");
         assert_eq!(err, WebAuthnVerifyError::InvalidSignatureDer);
     }
 
@@ -13956,18 +13972,20 @@ mod webauthn_es256_verify_tests {
     fn verify_invalid_pubkey_off_curve_rejected() {
         // x=0, y=0 is not on the P-256 curve; from_encoded_point
         // should reject.
-        let bad_key = CoseEs256PublicKey { x: [0u8; 32], y: [0u8; 32] };
+        let bad_key = CoseEs256PublicKey {
+            x: [0u8; 32],
+            y: [0u8; 32],
+        };
         let sig = vec![0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01];
-        let err = verify_es256_signature(&bad_key, b"x", b"y", &sig)
-            .expect_err("off-curve must fail");
+        let err =
+            verify_es256_signature(&bad_key, b"x", b"y", &sig).expect_err("off-curve must fail");
         assert_eq!(err, WebAuthnVerifyError::InvalidPubkey);
     }
 
     #[test]
     fn verify_empty_signature_rejected() {
         let (_, cose) = fresh_key();
-        let err = verify_es256_signature(&cose, b"a", b"b", &[])
-            .expect_err("empty sig");
+        let err = verify_es256_signature(&cose, b"a", b"b", &[]).expect_err("empty sig");
         assert_eq!(err, WebAuthnVerifyError::InvalidSignatureDer);
     }
 
@@ -13981,15 +13999,13 @@ mod webauthn_es256_verify_tests {
         if sig.len() > 12 {
             sig[10] ^= 0x10;
         }
-        let err = verify_es256_signature(&cose, auth, cdj, &sig)
-            .expect_err("byte flip");
+        let err = verify_es256_signature(&cose, auth, cdj, &sig).expect_err("byte flip");
         // Could be either InvalidSignatureDer (if we hit a length
         // byte) or SignatureMismatch (if we hit a value byte).
         assert!(
             matches!(
                 err,
-                WebAuthnVerifyError::SignatureMismatch
-                    | WebAuthnVerifyError::InvalidSignatureDer
+                WebAuthnVerifyError::SignatureMismatch | WebAuthnVerifyError::InvalidSignatureDer
             ),
             "got {err:?}"
         );
@@ -14007,8 +14023,7 @@ mod webauthn_es256_verify_tests {
             r#"{{"type":"webauthn.get","challenge":"{}","origin":"https://example.com"}}"#,
             challenge.encoded
         );
-        let parsed_cdj = parse_client_data_json(cdj_bytes.as_bytes())
-            .expect("parse cdj");
+        let parsed_cdj = parse_client_data_json(cdj_bytes.as_bytes()).expect("parse cdj");
         verify_client_data(
             &parsed_cdj,
             "webauthn.get",
@@ -14021,8 +14036,7 @@ mod webauthn_es256_verify_tests {
         let mut auth_data = vec![0u8; 32];
         auth_data.push(WEBAUTHN_FLAG_UP);
         auth_data.extend_from_slice(&1u32.to_be_bytes());
-        let parsed_auth =
-            parse_authenticator_data(&auth_data).expect("parse auth");
+        let parsed_auth = parse_authenticator_data(&auth_data).expect("parse auth");
         assert_eq!(parsed_auth.sign_count, 1);
         assert!(parsed_auth.user_present());
 
@@ -14035,7 +14049,9 @@ mod webauthn_es256_verify_tests {
         // Consume the challenge so a replay fails.
         let _ = store.consume("user-1", &challenge.encoded).unwrap();
         // Second consume = replay → NotFound.
-        let err = store.consume("user-1", &challenge.encoded).expect_err("replay");
+        let err = store
+            .consume("user-1", &challenge.encoded)
+            .expect_err("replay");
         assert_eq!(err, WebAuthnChallengeError::NotFound);
     }
 }
@@ -14094,9 +14110,7 @@ enum WebAuthnCredentialError {
 /// Thread-safe credential registry.
 #[derive(Debug, Default)]
 struct WebAuthnCredentialStore {
-    inner: std::sync::Mutex<
-        std::collections::HashMap<String, Vec<WebAuthnRegisteredCredential>>,
-    >,
+    inner: std::sync::Mutex<std::collections::HashMap<String, Vec<WebAuthnRegisteredCredential>>>,
 }
 
 impl WebAuthnCredentialStore {
@@ -14131,8 +14145,7 @@ impl WebAuthnCredentialStore {
         use subtle::ConstantTimeEq as _;
         for existing in entry.iter() {
             if existing.credential_id.len() == credential_id.len() {
-                let eq: subtle::Choice =
-                    existing.credential_id.as_slice().ct_eq(&credential_id);
+                let eq: subtle::Choice = existing.credential_id.as_slice().ct_eq(&credential_id);
                 if bool::from(eq) {
                     return Err(WebAuthnCredentialError::DuplicateCredentialId);
                 }
@@ -14164,12 +14177,12 @@ impl WebAuthnCredentialStore {
             .inner
             .lock()
             .map_err(|_| WebAuthnCredentialError::NotFound)?;
-        let entries =
-            guard.get(user_handle).ok_or(WebAuthnCredentialError::NotFound)?;
+        let entries = guard
+            .get(user_handle)
+            .ok_or(WebAuthnCredentialError::NotFound)?;
         for cred in entries {
             if cred.credential_id.len() == credential_id.len() {
-                let eq: subtle::Choice =
-                    cred.credential_id.as_slice().ct_eq(credential_id);
+                let eq: subtle::Choice = cred.credential_id.as_slice().ct_eq(credential_id);
                 if bool::from(eq) {
                     return Ok(cred.clone());
                 }
@@ -14197,8 +14210,7 @@ impl WebAuthnCredentialStore {
             .ok_or(WebAuthnCredentialError::NotFound)?;
         for cred in entries.iter_mut() {
             if cred.credential_id.len() == credential_id.len() {
-                let eq: subtle::Choice =
-                    cred.credential_id.as_slice().ct_eq(credential_id);
+                let eq: subtle::Choice = cred.credential_id.as_slice().ct_eq(credential_id);
                 if bool::from(eq) {
                     if new_sign_count <= cred.sign_count {
                         return Err(WebAuthnCredentialError::StaleSignCount);
@@ -14227,7 +14239,10 @@ mod webauthn_credential_store_tests {
     use super::*;
 
     fn fake_pubkey() -> CoseEs256PublicKey {
-        CoseEs256PublicKey { x: [0xAA; 32], y: [0xBB; 32] }
+        CoseEs256PublicKey {
+            x: [0xAA; 32],
+            y: [0xBB; 32],
+        }
     }
 
     #[test]
@@ -14247,12 +14262,7 @@ mod webauthn_credential_store_tests {
         let store = WebAuthnCredentialStore::new();
         for i in 0..5u8 {
             store
-                .register(
-                    "alice",
-                    vec![i, i, i, i],
-                    fake_pubkey(),
-                    0,
-                )
+                .register("alice", vec![i, i, i, i], fake_pubkey(), 0)
                 .expect("register");
         }
         assert_eq!(store.count("alice"), 5);
@@ -14569,13 +14579,7 @@ mod webauthn_register_options_tests {
     #[test]
     fn unicode_user_display_name_preserved() {
         let store = WebAuthnChallengeStore::new();
-        let v = webauthn_register_options(
-            "R",
-            "r.example",
-            "user-1",
-            "Аня Иванова",
-            &store,
-        );
+        let v = webauthn_register_options("R", "r.example", "user-1", "Аня Иванова", &store);
         assert_eq!(v["user"]["displayName"], "Аня Иванова");
     }
 }
@@ -14642,9 +14646,7 @@ enum WebAuthnRegisterError {
 /// attestationObject CBOR map. attStmt + fmt are walked past.
 /// Returns None if the map doesn't contain an "authData" key
 /// or the value isn't a byte string.
-fn parse_attestation_object_authdata(
-    bytes: &[u8],
-) -> Result<Vec<u8>, WebAuthnRegisterError> {
+fn parse_attestation_object_authdata(bytes: &[u8]) -> Result<Vec<u8>, WebAuthnRegisterError> {
     if bytes.is_empty() || bytes.len() > WEBAUTHN_REGISTER_BLOB_MAX_BYTES {
         return Err(WebAuthnRegisterError::BadAttestationObject);
     }
@@ -14713,8 +14715,8 @@ fn webauthn_register_verify(
     }
 
     // 2. Parse + verify clientDataJSON (type/origin/challenge).
-    let parsed_cdj =
-        parse_client_data_json(&client_data_json).map_err(|_| WebAuthnRegisterError::BadClientData)?;
+    let parsed_cdj = parse_client_data_json(&client_data_json)
+        .map_err(|_| WebAuthnRegisterError::BadClientData)?;
     if parsed_cdj.op_type != "webauthn.create" {
         return Err(WebAuthnRegisterError::BadClientData);
     }
@@ -14883,9 +14885,8 @@ mod webauthn_register_verify_tests {
         let origin = "https://example.com";
 
         // Server issues options → challenge stored.
-        let opts = webauthn_register_options(
-            "ACME", "example.com", user, "Alice", &challenge_store,
-        );
+        let opts =
+            webauthn_register_options("ACME", "example.com", user, "Alice", &challenge_store);
         let challenge_b64 = opts["challenge"].as_str().unwrap().to_owned();
 
         // Client builds CDJ + attestation.
@@ -14939,10 +14940,8 @@ mod webauthn_register_verify_tests {
         let cs = WebAuthnChallengeStore::new();
         let creds = WebAuthnCredentialStore::new();
         let huge = "A".repeat(WEBAUTHN_REGISTER_BLOB_MAX_BYTES + 1);
-        let err = webauthn_register_verify(
-            &huge, "x", "x", "u", "https://e.example", &cs, &creds,
-        )
-        .expect_err("too large");
+        let err = webauthn_register_verify(&huge, "x", "x", "u", "https://e.example", &cs, &creds)
+            .expect_err("too large");
         assert_eq!(err, WebAuthnRegisterError::BlobTooLarge);
     }
 
@@ -14971,8 +14970,13 @@ mod webauthn_register_verify_tests {
         let creds = WebAuthnCredentialStore::new();
         let cdj = br#"{"type":"webauthn.get","challenge":"x","origin":"https://e.example"}"#;
         let err = webauthn_register_verify(
-            &b64(b"id"), &b64(cdj), &b64(&[0xA0]),
-            "u", "https://e.example", &cs, &creds,
+            &b64(b"id"),
+            &b64(cdj),
+            &b64(&[0xA0]),
+            "u",
+            "https://e.example",
+            &cs,
+            &creds,
         )
         .expect_err("wrong type");
         assert_eq!(err, WebAuthnRegisterError::BadClientData);
@@ -15009,7 +15013,8 @@ mod webauthn_register_verify_tests {
         let cred_id_in_auth = b"id-A";
         let cred_id_in_body = b"id-B"; // DIFFERENT
         let cdj_str = format!(
-            r#"{{"type":"webauthn.create","challenge":"{}","origin":"{}"}}"#, chal, origin
+            r#"{{"type":"webauthn.create","challenge":"{}","origin":"{}"}}"#,
+            chal, origin
         );
         let auth_data = build_auth_data(cred_id_in_auth, &cose_bytes, 0);
         let attn_obj = build_attestation_object(&auth_data);
@@ -15017,7 +15022,10 @@ mod webauthn_register_verify_tests {
             &b64(cred_id_in_body),
             &b64(cdj_str.as_bytes()),
             &b64(&attn_obj),
-            user, origin, &cs, &creds,
+            user,
+            origin,
+            &cs,
+            &creds,
         )
         .expect_err("id mismatch");
         assert_eq!(err, WebAuthnRegisterError::BadAuthData);
@@ -15036,7 +15044,8 @@ mod webauthn_register_verify_tests {
         let (_, _, cose_bytes) = fresh_es256_key();
         let cred_id = b"replay-test";
         let cdj_str = format!(
-            r#"{{"type":"webauthn.create","challenge":"{}","origin":"{}"}}"#, chal, origin
+            r#"{{"type":"webauthn.create","challenge":"{}","origin":"{}"}}"#,
+            chal, origin
         );
         let auth_data = build_auth_data(cred_id, &cose_bytes, 0);
         let attn_obj = build_attestation_object(&auth_data);
@@ -15045,14 +15054,20 @@ mod webauthn_register_verify_tests {
             &b64(cred_id),
             &b64(cdj_str.as_bytes()),
             &b64(&attn_obj),
-            user, origin, &cs, &creds,
+            user,
+            origin,
+            &cs,
+            &creds,
         )
         .expect("first ok");
         let err = webauthn_register_verify(
             &b64(cred_id),
             &b64(cdj_str.as_bytes()),
             &b64(&attn_obj),
-            user, origin, &cs, &creds,
+            user,
+            origin,
+            &cs,
+            &creds,
         )
         .expect_err("replay");
         assert_eq!(err, WebAuthnRegisterError::ChallengeReject);
@@ -15072,13 +15087,17 @@ mod webauthn_register_verify_tests {
         auth_data.extend_from_slice(&0u32.to_be_bytes());
         let attn_obj = build_attestation_object(&auth_data);
         let cdj_str = format!(
-            r#"{{"type":"webauthn.create","challenge":"{}","origin":"{}"}}"#, chal, origin
+            r#"{{"type":"webauthn.create","challenge":"{}","origin":"{}"}}"#,
+            chal, origin
         );
         let err = webauthn_register_verify(
             &b64(b"id"),
             &b64(cdj_str.as_bytes()),
             &b64(&attn_obj),
-            user, origin, &cs, &creds,
+            user,
+            origin,
+            &cs,
+            &creds,
         )
         .expect_err("no AT");
         assert_eq!(err, WebAuthnRegisterError::NoAttestedCredential);
@@ -15284,9 +15303,7 @@ mod webauthn_authenticate_tests {
         let cs = WebAuthnChallengeStore::new();
         let creds = WebAuthnCredentialStore::new();
         let (_, pk) = fresh_key();
-        creds
-            .register("alice", b"cred-1".to_vec(), pk, 0)
-            .unwrap();
+        creds.register("alice", b"cred-1".to_vec(), pk, 0).unwrap();
         let v = webauthn_authenticate_options("example.com", "alice", &creds, &cs);
         assert_eq!(v["rpId"], "example.com");
         let allow = v["allowCredentials"].as_array().unwrap();
@@ -15364,8 +15381,14 @@ mod webauthn_authenticate_tests {
         let creds = WebAuthnCredentialStore::new();
         let cdj = br#"{"type":"webauthn.get","challenge":"x","origin":"https://attacker.com"}"#;
         let err = webauthn_authenticate_verify(
-            &b64(b"id"), &b64(cdj), &b64(b"auth"), &b64(b"sig"),
-            "u", "https://example.com", &cs, &creds,
+            &b64(b"id"),
+            &b64(cdj),
+            &b64(b"auth"),
+            &b64(b"sig"),
+            "u",
+            "https://example.com",
+            &cs,
+            &creds,
         )
         .expect_err("wrong origin");
         assert_eq!(err, WebAuthnAuthenticateError::BadClientData);
@@ -15377,8 +15400,14 @@ mod webauthn_authenticate_tests {
         let creds = WebAuthnCredentialStore::new();
         let cdj = br#"{"type":"webauthn.create","challenge":"x","origin":"https://example.com"}"#;
         let err = webauthn_authenticate_verify(
-            &b64(b"id"), &b64(cdj), &b64(b"auth"), &b64(b"sig"),
-            "u", "https://example.com", &cs, &creds,
+            &b64(b"id"),
+            &b64(cdj),
+            &b64(b"auth"),
+            &b64(b"sig"),
+            "u",
+            "https://example.com",
+            &cs,
+            &creds,
         )
         .expect_err("wrong type");
         assert_eq!(err, WebAuthnAuthenticateError::BadClientData);
@@ -15393,13 +15422,18 @@ mod webauthn_authenticate_tests {
         let opts = webauthn_authenticate_options("example.com", "u", &creds, &cs);
         let chal = opts["challenge"].as_str().unwrap().to_owned();
         let cdj = format!(
-            r#"{{"type":"webauthn.get","challenge":"{}","origin":"{}"}}"#, chal, origin
+            r#"{{"type":"webauthn.get","challenge":"{}","origin":"{}"}}"#,
+            chal, origin
         );
         let err = webauthn_authenticate_verify(
             &b64(b"unknown-cred"),
             &b64(cdj.as_bytes()),
-            &b64(b"auth"), &b64(b"sig"),
-            "u", origin, &cs, &creds,
+            &b64(b"auth"),
+            &b64(b"sig"),
+            "u",
+            origin,
+            &cs,
+            &creds,
         )
         .expect_err("unknown cred");
         assert_eq!(err, WebAuthnAuthenticateError::UnknownCredential);
@@ -15417,7 +15451,8 @@ mod webauthn_authenticate_tests {
         let opts = webauthn_authenticate_options("example.com", user, &creds, &cs);
         let chal = opts["challenge"].as_str().unwrap().to_owned();
         let cdj = format!(
-            r#"{{"type":"webauthn.get","challenge":"{}","origin":"{}"}}"#, chal, origin
+            r#"{{"type":"webauthn.get","challenge":"{}","origin":"{}"}}"#,
+            chal, origin
         );
         let auth_data = build_auth_data_no_attestation(1);
         // bogus signature
@@ -15426,7 +15461,10 @@ mod webauthn_authenticate_tests {
             &b64(cdj.as_bytes()),
             &b64(&auth_data),
             &b64(b"bogus-not-der"),
-            user, origin, &cs, &creds,
+            user,
+            origin,
+            &cs,
+            &creds,
         )
         .expect_err("bad sig");
         assert_eq!(err, WebAuthnAuthenticateError::SignatureMismatch);
@@ -15445,7 +15483,8 @@ mod webauthn_authenticate_tests {
         let opts = webauthn_authenticate_options("example.com", user, &creds, &cs);
         let chal = opts["challenge"].as_str().unwrap().to_owned();
         let cdj = format!(
-            r#"{{"type":"webauthn.get","challenge":"{}","origin":"{}"}}"#, chal, origin
+            r#"{{"type":"webauthn.get","challenge":"{}","origin":"{}"}}"#,
+            chal, origin
         )
         .into_bytes();
         // New auth_data with sign_count = 5 (LESS than stored 10).
@@ -15465,7 +15504,10 @@ mod webauthn_authenticate_tests {
             &b64(&cdj),
             &b64(&auth_data),
             &b64(&sig_der),
-            user, origin, &cs, &creds,
+            user,
+            origin,
+            &cs,
+            &creds,
         )
         .expect_err("stale sign count");
         assert_eq!(err, WebAuthnAuthenticateError::StaleSignCount);
@@ -15489,7 +15531,7 @@ mod webauthn_authenticate_tests {
 // - rusqlite "bundled" feature = pure-Rust libsqlite3 vendored
 //   at build time (no system dep).
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Tenant {
@@ -15525,8 +15567,8 @@ struct TenantStore {
 
 impl TenantStore {
     fn open(path: &str) -> Result<Self, TenantError> {
-        let conn = Connection::open(path)
-            .map_err(|e| TenantError::Sql(format!("open {path}: {e}")))?;
+        let conn =
+            Connection::open(path).map_err(|e| TenantError::Sql(format!("open {path}: {e}")))?;
         conn.execute_batch(
             "PRAGMA foreign_keys = ON;
              PRAGMA journal_mode = WAL;",
@@ -15580,14 +15622,20 @@ impl TenantStore {
                 ON tenant_ssh_keys(tenant_id) WHERE revoked_at IS NULL;",
         )
         .map_err(|e| TenantError::Sql(format!("schema: {e}")))?;
-        Ok(Self { conn: std::sync::Mutex::new(conn) })
+        Ok(Self {
+            conn: std::sync::Mutex::new(conn),
+        })
     }
 
     fn validate_slug(slug: &str) -> Result<(), TenantError> {
         if slug.is_empty() || slug.len() > 63 {
             return Err(TenantError::BadSlug);
         }
-        if !slug.chars().next().map_or(false, |c| c.is_ascii_lowercase()) {
+        if !slug
+            .chars()
+            .next()
+            .map_or(false, |c| c.is_ascii_lowercase())
+        {
             return Err(TenantError::BadSlug);
         }
         for c in slug.chars() {
@@ -15604,7 +15652,9 @@ impl TenantStore {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let conn = self.conn.lock()
+        let conn = self
+            .conn
+            .lock()
             .map_err(|_| TenantError::Sql("mutex poisoned".to_owned()))?;
         conn.execute(
             "INSERT INTO tenants (slug, name, owner, created_at) VALUES (?1, ?2, ?3, ?4)",
@@ -15614,43 +15664,52 @@ impl TenantStore {
     }
 
     fn get_tenant(&self, slug: &str) -> Result<Tenant, TenantError> {
-        let conn = self.conn.lock()
+        let conn = self
+            .conn
+            .lock()
             .map_err(|_| TenantError::Sql("mutex poisoned".to_owned()))?;
         conn.query_row(
             "SELECT id, slug, name, owner, created_at FROM tenants WHERE slug = ?1",
             params![slug],
-            |row| Ok(Tenant {
-                id: row.get(0)?,
-                slug: row.get(1)?,
-                name: row.get(2)?,
-                owner: row.get(3)?,
-                created_at: row.get::<_, i64>(4)? as u64,
-            }),
+            |row| {
+                Ok(Tenant {
+                    id: row.get(0)?,
+                    slug: row.get(1)?,
+                    name: row.get(2)?,
+                    owner: row.get(3)?,
+                    created_at: row.get::<_, i64>(4)? as u64,
+                })
+            },
         )
         .optional()?
         .ok_or(TenantError::NotFound)
     }
 
     fn list_tenants(&self) -> Result<Vec<Tenant>, TenantError> {
-        let conn = self.conn.lock()
+        let conn = self
+            .conn
+            .lock()
             .map_err(|_| TenantError::Sql("mutex poisoned".to_owned()))?;
-        let mut stmt = conn.prepare(
-            "SELECT id, slug, name, owner, created_at FROM tenants ORDER BY slug ASC",
-        )?;
+        let mut stmt = conn
+            .prepare("SELECT id, slug, name, owner, created_at FROM tenants ORDER BY slug ASC")?;
         let rows = stmt
-            .query_map([], |row| Ok(Tenant {
-                id: row.get(0)?,
-                slug: row.get(1)?,
-                name: row.get(2)?,
-                owner: row.get(3)?,
-                created_at: row.get::<_, i64>(4)? as u64,
-            }))?
+            .query_map([], |row| {
+                Ok(Tenant {
+                    id: row.get(0)?,
+                    slug: row.get(1)?,
+                    name: row.get(2)?,
+                    owner: row.get(3)?,
+                    created_at: row.get::<_, i64>(4)? as u64,
+                })
+            })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
     }
 
     fn delete_tenant(&self, slug: &str) -> Result<(), TenantError> {
-        let conn = self.conn.lock()
+        let conn = self
+            .conn
+            .lock()
             .map_err(|_| TenantError::Sql("mutex poisoned".to_owned()))?;
         let n = conn.execute("DELETE FROM tenants WHERE slug = ?1", params![slug])?;
         if n == 0 {
@@ -15683,7 +15742,9 @@ mod tenant_store_tests {
     #[test]
     fn register_and_get() {
         let s = store();
-        let id = s.register_tenant("alice-co", "Alice Co", "alice@e.com").unwrap();
+        let id = s
+            .register_tenant("alice-co", "Alice Co", "alice@e.com")
+            .unwrap();
         assert!(id > 0);
         let t = s.get_tenant("alice-co").unwrap();
         assert_eq!(t.slug, "alice-co");
@@ -15732,7 +15793,14 @@ mod tenant_store_tests {
     #[test]
     fn slug_validation_rejects_bad() {
         let s = store();
-        for bad in &["", "Cap", "1starts", "with space", "with_underscore", "with.dot"] {
+        for bad in &[
+            "",
+            "Cap",
+            "1starts",
+            "with space",
+            "with_underscore",
+            "with.dot",
+        ] {
             let err = s.register_tenant(bad, "x", "y").expect_err(bad);
             assert!(matches!(err, TenantError::BadSlug), "{bad}: {err:?}");
         }
@@ -15742,7 +15810,8 @@ mod tenant_store_tests {
     fn slug_validation_accepts_good() {
         let s = store();
         for good in &["a", "alpha", "alice-co", "site-2026"] {
-            s.register_tenant(good, "x", "y").unwrap_or_else(|e| panic!("{good}: {e:?}"));
+            s.register_tenant(good, "x", "y")
+                .unwrap_or_else(|e| panic!("{good}: {e:?}"));
         }
     }
 
@@ -15762,8 +15831,12 @@ mod tenant_store_tests {
         drop(conn);
         s.delete_tenant("ten").unwrap();
         let conn = s.conn.lock().unwrap();
-        let c: i64 = conn.query_row("SELECT COUNT(*) FROM tenant_credentials", [], |r| r.get(0)).unwrap();
-        let se: i64 = conn.query_row("SELECT COUNT(*) FROM tenant_sessions", [], |r| r.get(0)).unwrap();
+        let c: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tenant_credentials", [], |r| r.get(0))
+            .unwrap();
+        let se: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tenant_sessions", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(c, 0);
         assert_eq!(se, 0);
     }
@@ -15817,7 +15890,11 @@ fn webauthn_handle_http(
     match path {
         "/webauthn/register/options" => {
             let v = webauthn_register_options(
-                rp_name, rp_id, user_handle, user_handle, challenge_store,
+                rp_name,
+                rp_id,
+                user_handle,
+                user_handle,
+                challenge_store,
             );
             WebAuthnHttpResponse {
                 status: 200,
@@ -15843,9 +15920,13 @@ fn webauthn_handle_http(
                 None => return error_response(400, "missing_attestation_object"),
             };
             match webauthn_register_verify(
-                cid, cdj, attn,
-                user_handle, expected_origin,
-                challenge_store, credential_store,
+                cid,
+                cdj,
+                attn,
+                user_handle,
+                expected_origin,
+                challenge_store,
+                credential_store,
             ) {
                 Ok(()) => WebAuthnHttpResponse {
                     status: 204,
@@ -15857,7 +15938,10 @@ fn webauthn_handle_http(
         }
         "/webauthn/authenticate/options" => {
             let v = webauthn_authenticate_options(
-                rp_id, user_handle, credential_store, challenge_store,
+                rp_id,
+                user_handle,
+                credential_store,
+                challenge_store,
             );
             WebAuthnHttpResponse {
                 status: 200,
@@ -15887,9 +15971,14 @@ fn webauthn_handle_http(
                 None => return error_response(400, "missing_signature"),
             };
             match webauthn_authenticate_verify(
-                cid, cdj, auth, sig,
-                user_handle, expected_origin,
-                challenge_store, credential_store,
+                cid,
+                cdj,
+                auth,
+                sig,
+                user_handle,
+                expected_origin,
+                challenge_store,
+                credential_store,
             ) {
                 Ok(()) => WebAuthnHttpResponse {
                     status: 204,
@@ -15948,15 +16037,25 @@ mod webauthn_http_tests {
     use super::*;
 
     fn stores() -> (WebAuthnChallengeStore, WebAuthnCredentialStore) {
-        (WebAuthnChallengeStore::new(), WebAuthnCredentialStore::new())
+        (
+            WebAuthnChallengeStore::new(),
+            WebAuthnCredentialStore::new(),
+        )
     }
 
     #[test]
     fn unknown_path_returns_404() {
         let (cs, creds) = stores();
         let r = webauthn_handle_http(
-            "/webauthn/unknown", "POST", "", "u", "R", "r.example", "https://r.example",
-            &cs, &creds,
+            "/webauthn/unknown",
+            "POST",
+            "",
+            "u",
+            "R",
+            "r.example",
+            "https://r.example",
+            &cs,
+            &creds,
         );
         assert_eq!(r.status, 404);
     }
@@ -15965,8 +16064,15 @@ mod webauthn_http_tests {
     fn non_post_returns_405() {
         let (cs, creds) = stores();
         let r = webauthn_handle_http(
-            "/webauthn/register/options", "GET", "", "u", "R", "r.example", "https://r.example",
-            &cs, &creds,
+            "/webauthn/register/options",
+            "GET",
+            "",
+            "u",
+            "R",
+            "r.example",
+            "https://r.example",
+            &cs,
+            &creds,
         );
         assert_eq!(r.status, 405);
     }
@@ -15975,9 +16081,15 @@ mod webauthn_http_tests {
     fn register_options_returns_200_with_challenge() {
         let (cs, creds) = stores();
         let r = webauthn_handle_http(
-            "/webauthn/register/options", "POST", "{}", "alice",
-            "ACME", "example.com", "https://example.com",
-            &cs, &creds,
+            "/webauthn/register/options",
+            "POST",
+            "{}",
+            "alice",
+            "ACME",
+            "example.com",
+            "https://example.com",
+            &cs,
+            &creds,
         );
         assert_eq!(r.status, 200);
         assert!(r.body.contains("\"challenge\":"));
@@ -15988,8 +16100,15 @@ mod webauthn_http_tests {
     fn register_verify_invalid_json_returns_400() {
         let (cs, creds) = stores();
         let r = webauthn_handle_http(
-            "/webauthn/register/verify", "POST", "{not json", "u",
-            "R", "r.example", "https://r.example", &cs, &creds,
+            "/webauthn/register/verify",
+            "POST",
+            "{not json",
+            "u",
+            "R",
+            "r.example",
+            "https://r.example",
+            &cs,
+            &creds,
         );
         assert_eq!(r.status, 400);
         assert!(r.body.contains("invalid_json"));
@@ -15999,9 +16118,15 @@ mod webauthn_http_tests {
     fn register_verify_missing_field_returns_400() {
         let (cs, creds) = stores();
         let r = webauthn_handle_http(
-            "/webauthn/register/verify", "POST",
-            r#"{"credential_id":"a"}"#, "u",
-            "R", "r.example", "https://r.example", &cs, &creds,
+            "/webauthn/register/verify",
+            "POST",
+            r#"{"credential_id":"a"}"#,
+            "u",
+            "R",
+            "r.example",
+            "https://r.example",
+            &cs,
+            &creds,
         );
         assert_eq!(r.status, 400);
         assert!(r.body.contains("missing_client_data_json"));
@@ -16011,9 +16136,15 @@ mod webauthn_http_tests {
     fn authenticate_options_returns_200() {
         let (cs, creds) = stores();
         let r = webauthn_handle_http(
-            "/webauthn/authenticate/options", "POST", "{}", "alice",
-            "R", "example.com", "https://example.com",
-            &cs, &creds,
+            "/webauthn/authenticate/options",
+            "POST",
+            "{}",
+            "alice",
+            "R",
+            "example.com",
+            "https://example.com",
+            &cs,
+            &creds,
         );
         assert_eq!(r.status, 200);
         assert!(r.body.contains("\"rpId\":"));
@@ -16041,8 +16172,15 @@ mod webauthn_http_tests {
 
         // Register options via HTTP.
         let r = webauthn_handle_http(
-            "/webauthn/register/options", "POST", "{}", user,
-            "ACME", "example.com", origin, &cs, &creds,
+            "/webauthn/register/options",
+            "POST",
+            "{}",
+            user,
+            "ACME",
+            "example.com",
+            origin,
+            &cs,
+            &creds,
         );
         assert_eq!(r.status, 200);
         let opts: serde_json::Value = serde_json::from_str(&r.body).unwrap();
@@ -16095,11 +16233,19 @@ mod webauthn_http_tests {
             "credential_id": b.encode(cred_id),
             "client_data_json": b.encode(cdj.as_bytes()),
             "attestation_object": b.encode(&attn),
-        }).to_string();
+        })
+        .to_string();
 
         let r = webauthn_handle_http(
-            "/webauthn/register/verify", "POST", &body, user,
-            "ACME", "example.com", origin, &cs, &creds,
+            "/webauthn/register/verify",
+            "POST",
+            &body,
+            user,
+            "ACME",
+            "example.com",
+            origin,
+            &cs,
+            &creds,
         );
         assert_eq!(r.status, 204, "register verify status: body={}", r.body);
 
@@ -16237,7 +16383,9 @@ fn ssh_authorized_key_parse(line: &str) -> Result<([u8; 32], String), SshKeyErro
     use base64::Engine as _;
     let line = line.trim();
     let mut parts = line.splitn(3, char::is_whitespace);
-    let alg = parts.next().ok_or(SshKeyError::BadFormat("missing algorithm"))?;
+    let alg = parts
+        .next()
+        .ok_or(SshKeyError::BadFormat("missing algorithm"))?;
     if alg != "ssh-ed25519" {
         return Err(SshKeyError::UnsupportedAlgorithm(alg.to_owned()));
     }
@@ -16291,11 +16439,7 @@ impl TenantStore {
     /// Add an OpenSSH-format public key to a tenant. Returns the
     /// new row ID. Duplicate fingerprints (same tenant, same key)
     /// return `DuplicateKey`.
-    fn add_ssh_key(
-        &self,
-        tenant_id: i64,
-        authorized_keys_line: &str,
-    ) -> Result<i64, SshKeyError> {
+    fn add_ssh_key(&self, tenant_id: i64, authorized_keys_line: &str) -> Result<i64, SshKeyError> {
         let (pubkey, comment_from_line) = ssh_authorized_key_parse(authorized_keys_line)?;
         let comment = if comment_from_line.is_empty() {
             "(no comment)".to_owned()
@@ -16315,7 +16459,13 @@ impl TenantStore {
             "INSERT INTO tenant_ssh_keys
                 (tenant_id, comment, public_key, fingerprint, added_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![tenant_id, comment, pubkey.as_slice(), fingerprint, now as i64],
+            params![
+                tenant_id,
+                comment,
+                pubkey.as_slice(),
+                fingerprint,
+                now as i64
+            ],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -16377,11 +16527,7 @@ impl TenantStore {
 
     /// Look up a tenant's active SSH key by fingerprint. Returns
     /// `NotFound` if no active key matches.
-    fn find_ssh_key(
-        &self,
-        tenant_id: i64,
-        fingerprint: &str,
-    ) -> Result<TenantSshKey, SshKeyError> {
+    fn find_ssh_key(&self, tenant_id: i64, fingerprint: &str) -> Result<TenantSshKey, SshKeyError> {
         let conn = self
             .conn
             .lock()
@@ -16506,7 +16652,9 @@ mod tenant_ssh_keys_tests {
     fn revoke_then_list_excludes_key() {
         let (store, tid) = store_with_tenant();
         let (_sk, pk) = sample_keypair();
-        store.add_ssh_key(tid, &authorized_keys_line(&pk, "k1")).unwrap();
+        store
+            .add_ssh_key(tid, &authorized_keys_line(&pk, "k1"))
+            .unwrap();
         let fp = ssh_ed25519_fingerprint(&pk);
         store.revoke_ssh_key(tid, &fp).unwrap();
         assert_eq!(store.list_ssh_keys(tid).unwrap().len(), 0);
@@ -16523,7 +16671,9 @@ mod tenant_ssh_keys_tests {
     fn find_ssh_key_returns_active_only() {
         let (store, tid) = store_with_tenant();
         let (_sk, pk) = sample_keypair();
-        store.add_ssh_key(tid, &authorized_keys_line(&pk, "k1")).unwrap();
+        store
+            .add_ssh_key(tid, &authorized_keys_line(&pk, "k1"))
+            .unwrap();
         let fp = ssh_ed25519_fingerprint(&pk);
         let k = store.find_ssh_key(tid, &fp).unwrap();
         assert_eq!(k.public_key, pk);
@@ -16574,7 +16724,9 @@ mod tenant_ssh_keys_tests {
         let mut csprng = rand_core::OsRng;
         let sk = SigningKey::generate(&mut csprng);
         let pk: [u8; 32] = sk.verifying_key().to_bytes();
-        store.add_ssh_key(tid, &authorized_keys_line(&pk, "alice")).unwrap();
+        store
+            .add_ssh_key(tid, &authorized_keys_line(&pk, "alice"))
+            .unwrap();
         let fp = ssh_ed25519_fingerprint(&pk);
         let challenge = b"loom-ssh-challenge-2026-05-15";
         let sig = sk.sign(challenge);
@@ -16593,7 +16745,9 @@ mod tenant_ssh_keys_tests {
         let sk_a = SigningKey::generate(&mut csprng);
         let pk_a: [u8; 32] = sk_a.verifying_key().to_bytes();
         let sk_b = SigningKey::generate(&mut csprng);
-        store.add_ssh_key(tid, &authorized_keys_line(&pk_a, "alice")).unwrap();
+        store
+            .add_ssh_key(tid, &authorized_keys_line(&pk_a, "alice"))
+            .unwrap();
         let fp_a = ssh_ed25519_fingerprint(&pk_a);
         // Sign with sk_b but claim to be alice (fp_a).
         let sig = sk_b.sign(b"impostor");
@@ -16604,12 +16758,7 @@ mod tenant_ssh_keys_tests {
     #[test]
     fn authenticate_unknown_fingerprint_returns_not_found() {
         let (store, tid) = store_with_tenant();
-        let r = store.authenticate_ssh_signature(
-            tid,
-            "SHA256:does-not-exist",
-            b"x",
-            &[0u8; 64],
-        );
+        let r = store.authenticate_ssh_signature(tid, "SHA256:does-not-exist", b"x", &[0u8; 64]);
         assert_eq!(r, Err(SshKeyError::NotFound));
     }
 
@@ -16618,8 +16767,12 @@ mod tenant_ssh_keys_tests {
         let (store, tid) = store_with_tenant();
         let (_sk1, pk1) = sample_keypair();
         let (_sk2, pk2) = sample_keypair();
-        store.add_ssh_key(tid, &authorized_keys_line(&pk1, "k1")).unwrap();
-        store.add_ssh_key(tid, &authorized_keys_line(&pk2, "k2")).unwrap();
+        store
+            .add_ssh_key(tid, &authorized_keys_line(&pk1, "k1"))
+            .unwrap();
+        store
+            .add_ssh_key(tid, &authorized_keys_line(&pk2, "k2"))
+            .unwrap();
         let body = store.export_authorized_keys(tid).unwrap();
         let lines: Vec<&str> = body.lines().collect();
         assert_eq!(lines.len(), 2);
@@ -16636,7 +16789,9 @@ mod tenant_ssh_keys_tests {
     fn cascade_delete_tenant_removes_ssh_keys() {
         let (store, tid) = store_with_tenant();
         let (_sk, pk) = sample_keypair();
-        store.add_ssh_key(tid, &authorized_keys_line(&pk, "k")).unwrap();
+        store
+            .add_ssh_key(tid, &authorized_keys_line(&pk, "k"))
+            .unwrap();
         store.delete_tenant("acme").unwrap();
         // Use raw SQL: list_ssh_keys would scope by tenant_id and
         // miss the orphan-row case (the table CASCADE-deletes, so
@@ -16690,16 +16845,27 @@ mod webauthn_challenge_tests {
         let store = WebAuthnChallengeStore::new();
         let c = store.generate("alice");
         // 32 bytes base64url-no-padding = ceil(32*4/3) - padding = 44 - 1 = 43.
-        assert_eq!(c.encoded.len(), 43, "expected 43-char encoding; got {:?}", c.encoded);
+        assert_eq!(
+            c.encoded.len(),
+            43,
+            "expected 43-char encoding; got {:?}",
+            c.encoded
+        );
         // base64url alphabet: A-Z a-z 0-9 - _
         for ch in c.encoded.chars() {
             assert!(
                 ch.is_ascii_alphanumeric() || ch == '-' || ch == '_',
-                "non-base64url char {:?} in {:?}", ch, c.encoded
+                "non-base64url char {:?} in {:?}",
+                ch,
+                c.encoded
             );
         }
         // No padding.
-        assert!(!c.encoded.contains('='), "padding '=' not allowed: {:?}", c.encoded);
+        assert!(
+            !c.encoded.contains('='),
+            "padding '=' not allowed: {:?}",
+            c.encoded
+        );
     }
 
     #[test]
@@ -16731,9 +16897,13 @@ mod webauthn_challenge_tests {
     fn second_consume_is_replay_rejected_as_not_found() {
         let store = WebAuthnChallengeStore::new();
         let c = store.generate("alice");
-        let _ = store.consume("alice", &c.encoded).expect("first consume ok");
+        let _ = store
+            .consume("alice", &c.encoded)
+            .expect("first consume ok");
         // Same challenge bytes, same user — must fail.
-        let err = store.consume("alice", &c.encoded).expect_err("second consume must fail");
+        let err = store
+            .consume("alice", &c.encoded)
+            .expect_err("second consume must fail");
         // Doctrine: NotFound and Replay are observationally
         // identical to a caller. NotFound is what the impl
         // returns (because the entry was removed atomically on
@@ -16745,7 +16915,8 @@ mod webauthn_challenge_tests {
     fn consume_unknown_user_returns_not_found() {
         let store = WebAuthnChallengeStore::new();
         let _ = store.generate("alice");
-        let err = store.consume("bob", "x".repeat(43).as_str())
+        let err = store
+            .consume("bob", "x".repeat(43).as_str())
             .expect_err("unknown user must fail");
         assert_eq!(err, WebAuthnChallengeError::NotFound);
     }
@@ -16761,7 +16932,9 @@ mod webauthn_challenge_tests {
             .map(|d| d.as_secs())
             .unwrap_or(0);
         store.set_issued_at_for_test("alice", now.saturating_sub(WEBAUTHN_CHALLENGE_TTL_SECS + 1));
-        let err = store.consume("alice", &c.encoded).expect_err("expired must fail");
+        let err = store
+            .consume("alice", &c.encoded)
+            .expect_err("expired must fail");
         assert_eq!(err, WebAuthnChallengeError::Expired);
         // Expired entry MUST also be removed from the store
         // (consume runs the remove BEFORE the TTL check).
@@ -16774,7 +16947,9 @@ mod webauthn_challenge_tests {
         let _c = store.generate("alice");
         // 43-char candidate that won't match the real one.
         let candidate: String = "A".repeat(43);
-        let err = store.consume("alice", &candidate).expect_err("mismatch must fail");
+        let err = store
+            .consume("alice", &candidate)
+            .expect_err("mismatch must fail");
         assert_eq!(err, WebAuthnChallengeError::Mismatch);
         // The entry is ALSO removed on mismatch — single-use,
         // any consume attempt clears the slot to prevent
@@ -16801,7 +16976,9 @@ mod webauthn_challenge_tests {
         // second one overwrites the first.
         assert_eq!(store.outstanding(), 1);
         // The first challenge must NOT be consumable.
-        let err = store.consume("alice", &c1.encoded).expect_err("c1 must be overwritten");
+        let err = store
+            .consume("alice", &c1.encoded)
+            .expect_err("c1 must be overwritten");
         assert_eq!(err, WebAuthnChallengeError::Mismatch);
         // The second IS consumable (with the same user_handle).
         // We re-generate because the first consume removed it.
@@ -16824,7 +17001,10 @@ mod webauthn_challenge_tests {
             .map(|d| d.as_secs())
             .unwrap_or(0);
         // Age alice's and bob's challenges past the TTL boundary.
-        store.set_issued_at_for_test("alice", now.saturating_sub(WEBAUTHN_CHALLENGE_TTL_SECS + 10));
+        store.set_issued_at_for_test(
+            "alice",
+            now.saturating_sub(WEBAUTHN_CHALLENGE_TTL_SECS + 10),
+        );
         store.set_issued_at_for_test("bob", now.saturating_sub(WEBAUTHN_CHALLENGE_TTL_SECS + 1));
         let evicted = store.evict_expired();
         assert_eq!(evicted, 2);
@@ -16956,7 +17136,11 @@ impl ImportedSection {
         // differ from the JSON keys (lede, text) — the rename
         // happens here so the rust-side type stays stable.
         match self {
-            Self::Hero { eyebrow, title, subtitle } => serde_json::json!({
+            Self::Hero {
+                eyebrow,
+                title,
+                subtitle,
+            } => serde_json::json!({
                 "kind": "hero",
                 "eyebrow": eyebrow,
                 "title": title,
@@ -17171,11 +17355,7 @@ fn cmd_import_dispatch(
                 let no_query = no_scheme.split('?').next().unwrap_or(no_scheme);
                 let no_frag = no_query.split('#').next().unwrap_or(no_query);
                 let path = no_frag.splitn(2, '/').nth(1).unwrap_or("");
-                let cleaned = path
-                    .trim_end_matches('/')
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or("");
+                let cleaned = path.trim_end_matches('/').rsplit('/').next().unwrap_or("");
                 // Strip common HTML extensions BEFORE char-filtering
                 // so the trim sees the literal "." separator.
                 let trimmed = cleaned
@@ -17188,7 +17368,11 @@ fn cmd_import_dispatch(
                     .collect();
                 // Slug must start with a-z. If the URL doesn't
                 // give us that, fall back to "index".
-                if safe.chars().next().map_or(false, |c| c.is_ascii_lowercase()) {
+                if safe
+                    .chars()
+                    .next()
+                    .map_or(false, |c| c.is_ascii_lowercase())
+                {
                     safe
                 } else {
                     "index".to_owned()
@@ -17228,14 +17412,13 @@ fn cmd_import(
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect::<String>();
     let raw_slug = explicit_slug.unwrap_or(&derived_slug);
-    let slug = SlugName::new(raw_slug)
-        .map_err(|e| std::io::Error::other(format!("invalid slug: {e}")))?;
+    let slug =
+        SlugName::new(raw_slug).map_err(|e| std::io::Error::other(format!("invalid slug: {e}")))?;
 
     // Ensure target dir + capability scope.
     std::fs::create_dir_all(into)?;
-    let cap = WriteCapability::for_dir(into).map_err(|_| {
-        std::io::Error::other(format!("cms root {} unreadable", into.display()))
-    })?;
+    let cap = WriteCapability::for_dir(into)
+        .map_err(|_| std::io::Error::other(format!("cms root {} unreadable", into.display())))?;
     let rel = std::path::PathBuf::from(format!("{}.json", slug.as_str()));
     if cap.file_exists(&rel) && !force {
         return Err(std::io::Error::other(format!(
@@ -17261,9 +17444,8 @@ fn cmd_import(
     });
     let serialized = serde_json::to_string_pretty(&page)
         .map_err(|e| std::io::Error::other(format!("serialize: {e}")))?;
-    cap.write_atomic(&rel, serialized.as_bytes()).map_err(|_| {
-        std::io::Error::other("write")
-    })?;
+    cap.write_atomic(&rel, serialized.as_bytes())
+        .map_err(|_| std::io::Error::other("write"))?;
 
     println!("loom import:");
     println!("  source:    {}", from.display());
@@ -17279,7 +17461,10 @@ fn cmd_import(
     }
     println!();
     println!("Open in the editor:");
-    println!("  loom edit-serve --cms {} --static-dir static --forge ''", into.display());
+    println!(
+        "  loom edit-serve --cms {} --static-dir static --forge ''",
+        into.display()
+    );
     println!("  then visit http://127.0.0.1:8124/{}", slug.as_str());
     Ok(())
 }
@@ -17370,19 +17555,28 @@ mod import_tests {
     fn import_body_emits_todo_for_script() {
         let html = "<header><h1>x</h1></header><script>alert(1)</script>";
         let secs = import_body(html);
-        assert!(secs.iter().any(|s| matches!(s, ImportedSection::Todo { .. })));
+        assert!(
+            secs.iter()
+                .any(|s| matches!(s, ImportedSection::Todo { .. }))
+        );
     }
 
     #[test]
     fn import_body_emits_todo_for_svg() {
         let html = "<svg><circle/></svg>";
         let secs = import_body(html);
-        assert!(secs.iter().any(|s| matches!(s, ImportedSection::Todo { .. })));
+        assert!(
+            secs.iter()
+                .any(|s| matches!(s, ImportedSection::Todo { .. }))
+        );
     }
 
     #[test]
     fn imported_section_to_json_shapes_match_cms_schema() {
-        let h = ImportedSection::Heading { level: 2, text: "A".into() };
+        let h = ImportedSection::Heading {
+            level: 2,
+            text: "A".into(),
+        };
         let v = h.to_json();
         assert_eq!(v["kind"], "heading");
         assert_eq!(v["level"], 2);
@@ -17405,9 +17599,18 @@ mod import_tests {
 // declaring another const + another row in BUNDLED_TEMPLATES.
 
 const BUNDLED_TEMPLATES: &[(&str, &str)] = &[
-    ("basic", "single landing page + about page; minimal forge.toml"),
-    ("portfolio", "hero + project grid + about + contact; freelancer / designer / photographer"),
-    ("blog", "feed of posts + about + per-post pages; writer / personal site"),
+    (
+        "basic",
+        "single landing page + about page; minimal forge.toml",
+    ),
+    (
+        "portfolio",
+        "hero + project grid + about + contact; freelancer / designer / photographer",
+    ),
+    (
+        "blog",
+        "feed of posts + about + per-post pages; writer / personal site",
+    ),
 ];
 
 const TEMPLATE_BASIC: &[(&str, &str)] = &[
@@ -17528,7 +17731,9 @@ mode = "poc"
 
 /// Resolve a bundled template by name. Returns the file list if
 /// found; returns a list of available template names otherwise.
-fn resolve_template(name: &str) -> Result<&'static [(&'static str, &'static str)], Vec<&'static str>> {
+fn resolve_template(
+    name: &str,
+) -> Result<&'static [(&'static str, &'static str)], Vec<&'static str>> {
     match name {
         "basic" => Ok(TEMPLATE_BASIC),
         "portfolio" => Ok(TEMPLATE_PORTFOLIO),
@@ -18109,8 +18314,8 @@ fn cmd_site_init_in(
     force: bool,
     theme: Option<&str>,
 ) -> std::io::Result<()> {
-    let slug = SlugName::new(name)
-        .map_err(|e| std::io::Error::other(format!("invalid name: {e}")))?;
+    let slug =
+        SlugName::new(name).map_err(|e| std::io::Error::other(format!("invalid name: {e}")))?;
     // T37 v3.b: validate theme against the same closed allow-list
     // page_shell_themed enforces. Reject unknown values BEFORE any
     // file is written — fail closed rather than scaffold a half-
@@ -18167,14 +18372,20 @@ fn cmd_site_init_in(
     }
 
     println!("loom site init:");
-    println!("  ok  template '{template}' written to {}/", target.display());
+    println!(
+        "  ok  template '{template}' written to {}/",
+        target.display()
+    );
     if let Some(t) = theme {
         println!("  ok  theme '{t}' baked into forge.toml [render] entry");
     }
     println!("  ok  {written} file(s) created");
     println!();
     println!("Next:");
-    println!("  cd {} && loom edit-serve --cms cms --static-dir static --forge ''", target.display());
+    println!(
+        "  cd {} && loom edit-serve --cms cms --static-dir static --forge ''",
+        target.display()
+    );
     println!("  Visit http://127.0.0.1:8124/ in a browser to start editing.");
     Ok(())
 }
@@ -18267,10 +18478,16 @@ mod site_init_tests {
         std::fs::create_dir_all(&tmp).expect("mk tmp");
         let r = cmd_site_init_in(&tmp, "darksite", "basic", false, Some("dark"));
         assert!(r.is_ok(), "scaffold should succeed: {:?}", r);
-        let forge_toml = std::fs::read_to_string(tmp.join("darksite/forge.toml"))
-            .expect("forge.toml exists");
-        assert!(forge_toml.contains("[render]"), "missing [render]: {forge_toml}");
-        assert!(forge_toml.contains("theme = \"dark\""), "missing entry: {forge_toml}");
+        let forge_toml =
+            std::fs::read_to_string(tmp.join("darksite/forge.toml")).expect("forge.toml exists");
+        assert!(
+            forge_toml.contains("[render]"),
+            "missing [render]: {forge_toml}"
+        );
+        assert!(
+            forge_toml.contains("theme = \"dark\""),
+            "missing entry: {forge_toml}"
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -18280,8 +18497,8 @@ mod site_init_tests {
         std::fs::create_dir_all(&tmp).expect("mk tmp");
         let r = cmd_site_init_in(&tmp, "lightsite", "portfolio", false, Some("light"));
         assert!(r.is_ok());
-        let forge_toml = std::fs::read_to_string(tmp.join("lightsite/forge.toml"))
-            .expect("forge.toml exists");
+        let forge_toml =
+            std::fs::read_to_string(tmp.join("lightsite/forge.toml")).expect("forge.toml exists");
         assert!(forge_toml.contains("theme = \"light\""));
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -18292,9 +18509,12 @@ mod site_init_tests {
         std::fs::create_dir_all(&tmp).expect("mk tmp");
         let r = cmd_site_init_in(&tmp, "autosite", "basic", false, None);
         assert!(r.is_ok());
-        let forge_toml = std::fs::read_to_string(tmp.join("autosite/forge.toml"))
-            .expect("forge.toml exists");
-        assert!(!forge_toml.contains("[render]"), "no theme = no [render]: {forge_toml}");
+        let forge_toml =
+            std::fs::read_to_string(tmp.join("autosite/forge.toml")).expect("forge.toml exists");
+        assert!(
+            !forge_toml.contains("[render]"),
+            "no theme = no [render]: {forge_toml}"
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -18321,7 +18541,10 @@ mod site_init_tests {
         let s = std::fs::read_to_string(tmp.join("rt/forge.toml")).expect("read");
         let parsed: toml::Value = s.parse().expect("forge.toml must be valid TOML");
         assert_eq!(
-            parsed.get("render").and_then(|r| r.get("theme")).and_then(|t| t.as_str()),
+            parsed
+                .get("render")
+                .and_then(|r| r.get("theme"))
+                .and_then(|t| t.as_str()),
             Some("dark")
         );
         let _ = std::fs::remove_dir_all(&tmp);
@@ -18389,9 +18612,7 @@ fn sniff_image_format(bytes: &[u8]) -> Option<AcceptedImage> {
         return Some(AcceptedImage::Jpeg);
     }
     // PNG: 89 50 4E 47 0D 0A 1A 0A
-    if bytes.len() >= 8
-        && &bytes[..8] == b"\x89PNG\r\n\x1a\n"
-    {
+    if bytes.len() >= 8 && &bytes[..8] == b"\x89PNG\r\n\x1a\n" {
         return Some(AcceptedImage::Png);
     }
     // GIF: 47 49 46 38 37/39 61
@@ -18403,10 +18624,7 @@ fn sniff_image_format(bytes: &[u8]) -> Option<AcceptedImage> {
         return Some(AcceptedImage::Gif);
     }
     // WebP: RIFF....WEBP
-    if bytes.len() >= 12
-        && &bytes[..4] == b"RIFF"
-        && &bytes[8..12] == b"WEBP"
-    {
+    if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
         return Some(AcceptedImage::Webp);
     }
     None
@@ -18474,10 +18692,7 @@ fn strip_image_metadata(format: AcceptedImage, input: &[u8]) -> Result<Vec<u8>, 
 /// SECURITY: bounds-check every chunk length against remaining
 /// input. A malformed length never reads past the buffer.
 fn strip_webp_metadata(input: &[u8]) -> Result<Vec<u8>, &'static str> {
-    if input.len() < 12
-        || &input[..4] != b"RIFF"
-        || &input[8..12] != b"WEBP"
-    {
+    if input.len() < 12 || &input[..4] != b"RIFF" || &input[8..12] != b"WEBP" {
         return Err("not a WebP (bad RIFF/WEBP header)");
     }
     let mut out: Vec<u8> = Vec::with_capacity(input.len());
@@ -18490,8 +18705,8 @@ fn strip_webp_metadata(input: &[u8]) -> Result<Vec<u8>, &'static str> {
     let mut i = 12usize;
     while i + 8 <= input.len() {
         let tag = &input[i..i + 4];
-        let chunk_len = u32::from_le_bytes([input[i + 4], input[i + 5], input[i + 6], input[i + 7]])
-            as usize;
+        let chunk_len =
+            u32::from_le_bytes([input[i + 4], input[i + 5], input[i + 6], input[i + 7]]) as usize;
         // RIFF chunks are padded to even length.
         let padded_len = chunk_len + (chunk_len & 1);
         let chunk_total = 8 + padded_len;
@@ -18728,8 +18943,7 @@ fn strip_png_metadata(input: &[u8]) -> Result<Vec<u8>, &'static str> {
     out.extend_from_slice(PNG_SIG);
     let mut i = 8usize;
     while i + 8 <= input.len() {
-        let len = u32::from_be_bytes([input[i], input[i + 1], input[i + 2], input[i + 3]])
-            as usize;
+        let len = u32::from_be_bytes([input[i], input[i + 1], input[i + 2], input[i + 3]]) as usize;
         let kind = &input[i + 4..i + 8];
         // Length-cap: PNG spec allows up to 2^31 - 1, but anything
         // close to that in our editor uploads is hostile. The
@@ -18786,10 +19000,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 ///
 /// Limits: rejects bodies larger than MAX_UPLOAD_BYTES at parse
 /// time. Multi-file uploads silently take only the FIRST file.
-fn parse_multipart_first_file<'a>(
-    body: &'a [u8],
-    boundary: &str,
-) -> Option<(String, &'a [u8])> {
+fn parse_multipart_first_file<'a>(body: &'a [u8], boundary: &str) -> Option<(String, &'a [u8])> {
     let delim = format!("--{boundary}");
     let delim_b = delim.as_bytes();
     let start = find_subseq(body, delim_b)? + delim_b.len();
@@ -18799,18 +19010,16 @@ fn parse_multipart_first_file<'a>(
     let header_block =
         std::str::from_utf8(&body[after_first_crlf..after_first_crlf + header_end]).ok()?;
     // Extract filename.
-    let filename = header_block
-        .lines()
-        .find_map(|l| {
-            let lower = l.to_lowercase();
-            if !lower.contains("content-disposition") {
-                return None;
-            }
-            let i = lower.find("filename=\"")? + "filename=\"".len();
-            let rest = &l[i..];
-            let end = rest.find('"')?;
-            Some(rest[..end].to_owned())
-        })?;
+    let filename = header_block.lines().find_map(|l| {
+        let lower = l.to_lowercase();
+        if !lower.contains("content-disposition") {
+            return None;
+        }
+        let i = lower.find("filename=\"")? + "filename=\"".len();
+        let rest = &l[i..];
+        let end = rest.find('"')?;
+        Some(rest[..end].to_owned())
+    })?;
     let body_start = after_first_crlf + header_end + 4;
     // Find the trailing --boundary delimiter.
     let trailing_delim = format!("\r\n--{boundary}");
@@ -18822,9 +19031,7 @@ fn find_subseq(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || needle.len() > haystack.len() {
         return None;
     }
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 fn handle_upload_image(
@@ -18840,7 +19047,8 @@ fn handle_upload_image(
         .unwrap_or_default();
     let boundary = match content_type.split(';').find_map(|p| {
         let p = p.trim();
-        p.strip_prefix("boundary=").map(|s| s.trim_matches('"').to_owned())
+        p.strip_prefix("boundary=")
+            .map(|s| s.trim_matches('"').to_owned())
     }) {
         Some(b) => b,
         None => return respond_text(request, 400, "missing multipart boundary"),
@@ -18973,8 +19181,7 @@ fn serve_uploads_gallery(
     };
     entries.sort();
     // SUPERSOCIETY cycle 56: hash-pinned CSP for the uploads page.
-    const UPLOADS_PAGE_CSS: &str =
-         "body{font:16px/1.5 system-ui;max-width:48rem;margin:2rem auto;padding:0 1rem}\
+    const UPLOADS_PAGE_CSS: &str = "body{font:16px/1.5 system-ui;max-width:48rem;margin:2rem auto;padding:0 1rem}\
          h1{margin-top:0}\
          .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1rem}\
          .grid figure{margin:0;padding:.5rem;border:1px solid #ddd;border-radius:6px;\
@@ -19021,10 +19228,12 @@ fn serve_uploads_gallery(
     body.push_str("<meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23003'/%3E%3Ctext x='8' y='12' font-size='11' font-family='system-ui' fill='white' text-anchor='middle' font-weight='bold'%3EL%3C/text%3E%3C/svg%3E\"><meta name=description content=\"Loom edit — typed CMS editor for PlausiDen sites. Server-rendered, no-JS admin surface.\"><title>uploads</title>");
     body.push_str(&format!("<style>{ADMIN_SKIP_LINK_CSS}</style>"));
     body.push_str(&format!("<style>{UPLOADS_PAGE_CSS}</style>"));
-    body.push_str("<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>");
+    body.push_str(
+        "<body><a class=loom-skip-edit href=#main>Skip to main content</a><main id=main>",
+    );
     body.push_str(
         "<p><a href=\"/\">← all pages</a> · <a href=\"/tutorial\">📖 tutorial</a></p>\
-         <h1>uploads</h1>"
+         <h1>uploads</h1>",
     );
     body.push_str(
         "<form method=\"POST\" action=\"/upload-image\" enctype=\"multipart/form-data\">\
@@ -19062,7 +19271,7 @@ fn serve_uploads_gallery(
          Uploads are content-addressed (sha256 of bytes is the filename) so the same image \
          uploaded twice yields one stored file. Embed in a CmsSection by editing the JSON \
          to include the URL.\
-         </p>"
+         </p>",
     );
     respond_html(request, 200, &body)
 }
@@ -19172,9 +19381,15 @@ mod upload_tests {
     fn sha256_hex_is_64_lowercase_hex() {
         let h = sha256_hex(b"hello");
         assert_eq!(h.len(), 64);
-        assert!(h.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert!(
+            h.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        );
         // Known sha256("hello").
-        assert_eq!(h, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+        assert_eq!(
+            h,
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
     }
 
     #[test]
@@ -19241,7 +19456,9 @@ struct FileEntry {
 }
 
 /// Walk `src` recursively, computing per-file sha256.
-fn walk_and_hash(src: &std::path::Path) -> std::io::Result<std::collections::BTreeMap<String, FileEntry>> {
+fn walk_and_hash(
+    src: &std::path::Path,
+) -> std::io::Result<std::collections::BTreeMap<String, FileEntry>> {
     let mut out = std::collections::BTreeMap::new();
     walk_inner(src, src, &mut out)?;
     Ok(out)
@@ -19292,10 +19509,7 @@ fn copy_tree(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()
 /// Atomic symlink replace: write the new symlink to a temp
 /// path then rename over the target. POSIX guarantees rename(2)
 /// across the same filesystem is atomic.
-fn atomic_symlink_swap(
-    target: &std::path::Path,
-    link: &std::path::Path,
-) -> std::io::Result<()> {
+fn atomic_symlink_swap(target: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         // tmp link adjacent to the final link (same dir).
@@ -19371,9 +19585,9 @@ fn cmd_deploy_publish(
     // target. Refuse early.
     if let Some(r) = remote {
         let to_str = to.to_string_lossy();
-        let path_safe = to_str.chars().all(|c| {
-            c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-')
-        });
+        let path_safe = to_str
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-'));
         if !path_safe || to_str.contains("..") {
             return Err(std::io::Error::other(format!(
                 "remote --to path {to_str:?} contains characters that aren't allowed in a deploy target \
@@ -19381,9 +19595,10 @@ fn cmd_deploy_publish(
             )));
         }
         if r.host.is_empty()
-            || !r.host.chars().all(|c| {
-                c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')
-            })
+            || !r
+                .host
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
         {
             return Err(std::io::Error::other(format!(
                 "ssh-host {:?} contains characters that aren't a hostname (A-Z a-z 0-9 . - _)",
@@ -19392,9 +19607,9 @@ fn cmd_deploy_publish(
         }
         if let Some(u) = &r.user {
             if u.is_empty()
-                || !u.chars().all(|c| {
-                    c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')
-                })
+                || !u
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
             {
                 return Err(std::io::Error::other(format!(
                     "ssh-user {u:?} contains characters that aren't a unix user (A-Z a-z 0-9 . - _)"
@@ -19496,10 +19711,7 @@ fn cmd_deploy_publish(
         let prev_target = std::fs::read_link(&current_link).ok();
         atomic_symlink_swap(std::path::Path::new(&bundle_subdir), &current_link)?;
         if let Some(prev) = prev_target {
-            std::fs::write(
-                to.join(".loom-deploy-history"),
-                prev.display().to_string(),
-            )?;
+            std::fs::write(to.join(".loom-deploy-history"), prev.display().to_string())?;
         }
         println!("loom deploy publish:");
         println!("  ok  bundled {} file(s)", manifest.files.len());
@@ -19507,7 +19719,10 @@ fn cmd_deploy_publish(
         println!("  ok  bundle:      {}", bundle_dir.display());
         println!("  ok  current ->   {bundle_subdir}");
         println!();
-        println!("Verify:  loom deploy verify --at {}", current_link.display());
+        println!(
+            "Verify:  loom deploy verify --at {}",
+            current_link.display()
+        );
         println!("Roll back: loom deploy rollback --at {}", to.display());
         return Ok(());
     }
@@ -19555,7 +19770,11 @@ fn cmd_deploy_publish(
     let rsync_status = std::process::Command::new("rsync")
         .args(rsync_args)
         .status()
-        .map_err(|e| std::io::Error::other(format!("rsync spawn: {e}; install rsync to use remote deploy")))?;
+        .map_err(|e| {
+            std::io::Error::other(format!(
+                "rsync spawn: {e}; install rsync to use remote deploy"
+            ))
+        })?;
     if !rsync_status.success() {
         return Err(std::io::Error::other(format!(
             "rsync failed (exit {:?}); check ssh + remote disk space + path perms",
@@ -19615,8 +19834,11 @@ fn cmd_deploy_publish(
     );
     println!("  ok  remote current -> {bundle_subdir}");
     println!();
-    println!("Verify (on remote): ssh {} 'cd {} && loom deploy verify --at current'",
-        remote.endpoint(), remote_to.display());
+    println!(
+        "Verify (on remote): ssh {} 'cd {} && loom deploy verify --at current'",
+        remote.endpoint(),
+        remote_to.display()
+    );
     Ok(())
 }
 
@@ -19764,14 +19986,15 @@ mod deploy_tests {
 
         // current symlink exists.
         let current = dst.join("current");
-        assert!(current.is_symlink() || current.is_dir(), "current should resolve");
+        assert!(
+            current.is_symlink() || current.is_dir(),
+            "current should resolve"
+        );
         // Bundle dir exists.
         let bundles: Vec<_> = std::fs::read_dir(&dst)
             .expect("readdir")
             .flatten()
-            .filter(|e| {
-                e.file_name().to_string_lossy().starts_with("publish-")
-            })
+            .filter(|e| e.file_name().to_string_lossy().starts_with("publish-"))
             .collect();
         assert_eq!(bundles.len(), 1);
         // manifest.json present.
@@ -19849,8 +20072,7 @@ mod deploy_tests {
         assert!(dst.join(".loom-deploy-history").is_file());
 
         // current resolves to the v2 bundle.
-        let current_target_v2 =
-            std::fs::read_link(dst.join("current")).expect("v2 link");
+        let current_target_v2 = std::fs::read_link(dst.join("current")).expect("v2 link");
 
         // Rollback.
         cmd_deploy_rollback(&dst).expect("rollback");
@@ -20002,10 +20224,7 @@ mod deploy_tests {
         };
         let path = std::path::PathBuf::from("/var/www/site");
         // CRITICAL: rsync uses `host:/path` not `host/path`.
-        assert_eq!(
-            r.rsync_target(&path),
-            "opsbot@deploy.example:/var/www/site"
-        );
+        assert_eq!(r.rsync_target(&path), "opsbot@deploy.example:/var/www/site");
     }
 }
 
@@ -20052,10 +20271,8 @@ fn cmd_loom_attest_init(force: bool) -> std::io::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let key = SigningKey::generate(&mut OsRng);
-    let priv_b64 = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        key.to_bytes(),
-    );
+    let priv_b64 =
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, key.to_bytes());
     let pub_b64 = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
         key.verifying_key().as_bytes(),
@@ -20101,11 +20318,8 @@ fn cmd_loom_attest_pubkey() -> std::io::Result<()> {
 /// check without reading 44 base64 chars over the phone.
 fn pubkey_fingerprint(pub_b64: &str) -> Result<String, String> {
     use sha2::{Digest as _, Sha256};
-    let bytes = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        pub_b64.trim(),
-    )
-    .map_err(|e| format!("base64 decode: {e}"))?;
+    let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, pub_b64.trim())
+        .map_err(|e| format!("base64 decode: {e}"))?;
     let mut hasher = Sha256::new();
     hasher.update(&bytes);
     let digest = hasher.finalize();
@@ -20128,8 +20342,7 @@ fn cmd_loom_attest_export(fingerprint_only: bool) -> std::io::Result<()> {
     }
     let pub_b64 = std::fs::read_to_string(&path)?;
     let pub_b64 = pub_b64.trim();
-    let fp = pubkey_fingerprint(pub_b64)
-        .map_err(std::io::Error::other)?;
+    let fp = pubkey_fingerprint(pub_b64).map_err(std::io::Error::other)?;
     if fingerprint_only {
         println!("{fp}");
     } else {
@@ -20153,20 +20366,14 @@ fn try_sign_manifest(manifest_bytes: &[u8]) -> Option<String> {
 }
 
 /// Test-friendly variant: explicit key path.
-fn try_sign_manifest_with_key(
-    key_path: &std::path::Path,
-    manifest_bytes: &[u8],
-) -> Option<String> {
+fn try_sign_manifest_with_key(key_path: &std::path::Path, manifest_bytes: &[u8]) -> Option<String> {
     use ed25519_dalek::{Signer as _, SigningKey};
     if !key_path.is_file() {
         return None;
     }
     let raw = std::fs::read_to_string(key_path).ok()?;
-    let bytes = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        raw.trim(),
-    )
-    .ok()?;
+    let bytes =
+        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, raw.trim()).ok()?;
     if bytes.len() != ed25519_dalek::SECRET_KEY_LENGTH {
         return None;
     }
@@ -20231,7 +20438,7 @@ fn verify_manifest_signature(
     bundle_dir: &std::path::Path,
     trust_anchor_path: &std::path::Path,
 ) -> Result<SigStatus, String> {
-    use ed25519_dalek::{Signature, Verifier as _, VerifyingKey, SIGNATURE_LENGTH};
+    use ed25519_dalek::{SIGNATURE_LENGTH, Signature, Verifier as _, VerifyingKey};
     let sig_path = bundle_dir.join("manifest.sig");
     if !sig_path.is_file() {
         return Ok(SigStatus::Unsigned);
@@ -20294,11 +20501,9 @@ fn verify_manifest_signature(
     pub_arr.copy_from_slice(&pub_bytes);
     let pubkey = VerifyingKey::from_bytes(&pub_arr).map_err(|e| e.to_string())?;
     let sig_b64 = std::fs::read_to_string(&sig_path).map_err(|e| e.to_string())?;
-    let sig_bytes = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        sig_b64.trim(),
-    )
-    .map_err(|e| format!("decode signature: {e}"))?;
+    let sig_bytes =
+        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, sig_b64.trim())
+            .map_err(|e| format!("decode signature: {e}"))?;
     if sig_bytes.len() != SIGNATURE_LENGTH {
         return Err("signature wrong length".into());
     }
@@ -20330,10 +20535,8 @@ mod deploy_signing_tests {
         use ed25519_dalek::SigningKey;
         use rand_core::OsRng;
         let key = SigningKey::generate(&mut OsRng);
-        let priv_b64 = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            key.to_bytes(),
-        );
+        let priv_b64 =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, key.to_bytes());
         let pub_b64 = base64::Engine::encode(
             &base64::engine::general_purpose::STANDARD,
             key.verifying_key().as_bytes(),
@@ -20418,10 +20621,8 @@ mod deploy_signing_tests {
     #[test]
     fn pubkey_fingerprint_is_8_hex_chars() {
         // Use a deterministic pubkey to lock in the fingerprint.
-        let pub_b64 = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            [0x00u8; 32],
-        );
+        let pub_b64 =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0x00u8; 32]);
         let fp = pubkey_fingerprint(&pub_b64).expect("fingerprint");
         assert_eq!(fp.len(), 8);
         assert!(fp.chars().all(|c| c.is_ascii_hexdigit()));
@@ -20429,14 +20630,8 @@ mod deploy_signing_tests {
 
     #[test]
     fn pubkey_fingerprint_changes_with_pubkey() {
-        let a = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            [0x00u8; 32],
-        );
-        let b = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            [0x01u8; 32],
-        );
+        let a = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0x00u8; 32]);
+        let b = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0x01u8; 32]);
         assert_ne!(
             pubkey_fingerprint(&a).expect("a"),
             pubkey_fingerprint(&b).expect("b")
@@ -20453,10 +20648,8 @@ mod deploy_signing_tests {
     fn pubkey_fingerprint_known_value_for_zeros() {
         // SHA-256 of 32 zero bytes starts with 66687aad…
         // (well-known test vector for SHA-256 over null-bytes).
-        let pub_b64 = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            [0x00u8; 32],
-        );
+        let pub_b64 =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0x00u8; 32]);
         let fp = pubkey_fingerprint(&pub_b64).expect("fingerprint");
         assert_eq!(fp, "66687aad");
     }
@@ -20527,14 +20720,16 @@ mod image_strip_tests {
     #[test]
     fn jpeg_strip_removes_app1_exif() {
         let original = build_jpeg(&[
-            (0xE0, b"JFIF\0"),                // APP0  — keep
-            (0xE1, b"Exif\0\0BIG SECRETS"),   // APP1  — drop
-            (0xDB, b"qtable"),                // DQT   — keep
+            (0xE0, b"JFIF\0"),              // APP0  — keep
+            (0xE1, b"Exif\0\0BIG SECRETS"), // APP1  — drop
+            (0xDB, b"qtable"),              // DQT   — keep
         ]);
         let cleaned = strip_jpeg_metadata(&original).expect("strip ok");
         assert!(cleaned.len() < original.len(), "must be smaller");
         assert!(
-            !cleaned.windows(b"BIG SECRETS".len()).any(|w| w == b"BIG SECRETS"),
+            !cleaned
+                .windows(b"BIG SECRETS".len())
+                .any(|w| w == b"BIG SECRETS"),
             "EXIF payload must be stripped"
         );
         // APP0 + DQT + SOS + EOI must survive.
@@ -20551,11 +20746,15 @@ mod image_strip_tests {
         ]);
         let cleaned = strip_jpeg_metadata(&original).expect("strip ok");
         assert!(
-            cleaned.windows(b"color data".len()).any(|w| w == b"color data"),
+            cleaned
+                .windows(b"color data".len())
+                .any(|w| w == b"color data"),
             "ICC profile (APP2) must be preserved for color fidelity"
         );
         assert!(
-            !cleaned.windows(b"gps coords".len()).any(|w| w == b"gps coords"),
+            !cleaned
+                .windows(b"gps coords".len())
+                .any(|w| w == b"gps coords"),
             "EXIF must be dropped"
         );
     }
@@ -20607,10 +20806,7 @@ mod image_strip_tests {
             (b"IEND", b""),
         ]);
         let cleaned = strip_png_metadata(&original).expect("strip ok");
-        for needle in [
-            &b"Photoshop CS6"[..],
-            b"lat=1,lng=2",
-        ] {
+        for needle in [&b"Photoshop CS6"[..], b"lat=1,lng=2"] {
             assert!(
                 !cleaned.windows(needle.len()).any(|w| w == needle),
                 "must drop: {needle:?}"
@@ -20632,7 +20828,9 @@ mod image_strip_tests {
         ]);
         let cleaned = strip_png_metadata(&original).expect("strip ok");
         assert!(
-            cleaned.windows(b"sentinel-icc-bytes".len()).any(|w| w == b"sentinel-icc-bytes"),
+            cleaned
+                .windows(b"sentinel-icc-bytes".len())
+                .any(|w| w == b"sentinel-icc-bytes"),
             "iCCP color profile must be preserved"
         );
     }
@@ -20648,15 +20846,13 @@ mod image_strip_tests {
 
     #[test]
     fn png_strip_drops_trailing_bytes_after_iend() {
-        let mut original = build_png(&[
-            (b"IHDR", b"header"),
-            (b"IDAT", b"pixels"),
-            (b"IEND", b""),
-        ]);
+        let mut original = build_png(&[(b"IHDR", b"header"), (b"IDAT", b"pixels"), (b"IEND", b"")]);
         original.extend_from_slice(b"HIDDEN PAYLOAD");
         let cleaned = strip_png_metadata(&original).expect("strip ok");
         assert!(
-            !cleaned.windows(b"HIDDEN PAYLOAD".len()).any(|w| w == b"HIDDEN PAYLOAD"),
+            !cleaned
+                .windows(b"HIDDEN PAYLOAD".len())
+                .any(|w| w == b"HIDDEN PAYLOAD"),
             "trailing bytes after IEND must be dropped"
         );
     }
@@ -20692,8 +20888,14 @@ mod image_strip_tests {
             (b"VP8L", b"lossless image data"),
         ]);
         let cleaned = strip_webp_metadata(&original).expect("strip");
-        assert!(cleaned.windows(b"VP8X".len()).any(|w| w == b"VP8X"), "VP8X must survive");
-        assert!(cleaned.windows(b"VP8L".len()).any(|w| w == b"VP8L"), "VP8L must survive");
+        assert!(
+            cleaned.windows(b"VP8X".len()).any(|w| w == b"VP8X"),
+            "VP8X must survive"
+        );
+        assert!(
+            cleaned.windows(b"VP8L".len()).any(|w| w == b"VP8L"),
+            "VP8L must survive"
+        );
         assert!(
             !cleaned.windows(b"GPS:lat".len()).any(|w| w == b"GPS:lat"),
             "EXIF payload must be stripped"
@@ -20708,10 +20910,20 @@ mod image_strip_tests {
             (b"ALPH", b"alpha plane"),
         ]);
         let cleaned = strip_webp_metadata(&original).expect("strip");
-        assert!(cleaned.windows(b"frame data".len()).any(|w| w == b"frame data"));
-        assert!(cleaned.windows(b"alpha plane".len()).any(|w| w == b"alpha plane"));
         assert!(
-            !cleaned.windows(b"secret xmp".len()).any(|w| w == b"secret xmp"),
+            cleaned
+                .windows(b"frame data".len())
+                .any(|w| w == b"frame data")
+        );
+        assert!(
+            cleaned
+                .windows(b"alpha plane".len())
+                .any(|w| w == b"alpha plane")
+        );
+        assert!(
+            !cleaned
+                .windows(b"secret xmp".len())
+                .any(|w| w == b"secret xmp"),
             "XMP must be stripped"
         );
     }
@@ -20725,21 +20937,24 @@ mod image_strip_tests {
         ]);
         let cleaned = strip_webp_metadata(&original).expect("strip");
         assert!(
-            cleaned.windows(b"sRGB IEC61966".len()).any(|w| w == b"sRGB IEC61966"),
+            cleaned
+                .windows(b"sRGB IEC61966".len())
+                .any(|w| w == b"sRGB IEC61966"),
             "ICCP color profile must survive"
         );
     }
 
     #[test]
     fn webp_strip_patches_riff_size_field() {
-        let original = build_webp(&[
-            (b"VP8 ", b"frame"),
-            (b"EXIF", b"junk to be dropped"),
-        ]);
+        let original = build_webp(&[(b"VP8 ", b"frame"), (b"EXIF", b"junk to be dropped")]);
         let cleaned = strip_webp_metadata(&original).expect("strip");
         // Cleaned size should match the new content length.
         let claimed = u32::from_le_bytes([cleaned[4], cleaned[5], cleaned[6], cleaned[7]]) as usize;
-        assert_eq!(claimed + 8, cleaned.len(), "RIFF size field must match cleaned length");
+        assert_eq!(
+            claimed + 8,
+            cleaned.len(),
+            "RIFF size field must match cleaned length"
+        );
     }
 
     #[test]
@@ -20786,12 +21001,12 @@ mod image_strip_tests {
 
     #[test]
     fn gif_strip_drops_comment_extension() {
-        let original = build_minimal_gif_with_extensions(&[
-            (0xFE, b"SECRET COMMENT WITH PII"),
-        ]);
+        let original = build_minimal_gif_with_extensions(&[(0xFE, b"SECRET COMMENT WITH PII")]);
         let cleaned = strip_gif_metadata(&original).expect("strip");
         assert!(
-            !cleaned.windows(b"SECRET COMMENT".len()).any(|w| w == b"SECRET COMMENT"),
+            !cleaned
+                .windows(b"SECRET COMMENT".len())
+                .any(|w| w == b"SECRET COMMENT"),
             "comment extension must be dropped"
         );
         // Trailer must still be there.
@@ -20800,12 +21015,12 @@ mod image_strip_tests {
 
     #[test]
     fn gif_strip_drops_application_extension() {
-        let original = build_minimal_gif_with_extensions(&[
-            (0xFF, b"XMP DataXMP_metadata_here"),
-        ]);
+        let original = build_minimal_gif_with_extensions(&[(0xFF, b"XMP DataXMP_metadata_here")]);
         let cleaned = strip_gif_metadata(&original).expect("strip");
         assert!(
-            !cleaned.windows(b"XMP_metadata_here".len()).any(|w| w == b"XMP_metadata_here"),
+            !cleaned
+                .windows(b"XMP_metadata_here".len())
+                .any(|w| w == b"XMP_metadata_here"),
             "application extension (XMP) must be dropped"
         );
     }
@@ -20813,9 +21028,8 @@ mod image_strip_tests {
     #[test]
     fn gif_strip_keeps_graphic_control_extension() {
         // 0xF9 graphic control is required for animation timing.
-        let original = build_minimal_gif_with_extensions(&[
-            (0xF9, &[0x04, 0x00, 0x0a, 0x00, 0x00]),
-        ]);
+        let original =
+            build_minimal_gif_with_extensions(&[(0xF9, &[0x04, 0x00, 0x0a, 0x00, 0x00])]);
         let cleaned = strip_gif_metadata(&original).expect("strip");
         // The 0xF9 marker should still appear in the output.
         assert!(
@@ -20895,48 +21109,63 @@ mod editor_schema_tests {
 
     #[test]
     fn new_section_seed_hero_parses() {
-        assert_parses("hero seed", serde_json::json!({
-            "kind": "hero",
-            "eyebrow": "",
-            "title": "New hero section",
-            "lede": "Edit this lede.",
-            "cta": null,
-        }));
+        assert_parses(
+            "hero seed",
+            serde_json::json!({
+                "kind": "hero",
+                "eyebrow": "",
+                "title": "New hero section",
+                "lede": "Edit this lede.",
+                "cta": null,
+            }),
+        );
     }
 
     #[test]
     fn new_section_seed_paragraph_parses() {
-        assert_parses("paragraph seed", serde_json::json!({
-            "kind": "paragraph",
-            "text": "Edit this paragraph.",
-        }));
+        assert_parses(
+            "paragraph seed",
+            serde_json::json!({
+                "kind": "paragraph",
+                "text": "Edit this paragraph.",
+            }),
+        );
     }
 
     #[test]
     fn new_section_seed_banner_parses() {
-        assert_parses("banner seed", serde_json::json!({
-            "kind": "banner",
-            "tone": "info",
-            "text": "Edit this banner.",
-        }));
+        assert_parses(
+            "banner seed",
+            serde_json::json!({
+                "kind": "banner",
+                "tone": "info",
+                "text": "Edit this banner.",
+            }),
+        );
     }
 
     #[test]
     fn new_section_seed_heading_parses() {
-        assert_parses("heading seed", serde_json::json!({
-            "kind": "heading",
-            "level": 2,
-            "text": "New heading",
-        }));
+        assert_parses(
+            "heading seed",
+            serde_json::json!({
+                "kind": "heading",
+                "level": 2,
+                "text": "New heading",
+            }),
+        );
     }
 
     #[test]
     fn new_section_seed_group_parses() {
-        assert_parses("group seed", serde_json::json!({
-            "kind": "group",
-            "title": "New group",
-            "body": ["First paragraph.", "Second paragraph."],
-        }));
+        assert_parses(
+            "group seed",
+            serde_json::json!({
+                "kind": "group",
+                "title": "New group",
+                "body": ["First paragraph.", "Second paragraph."],
+            }),
+        );
     }
 
     #[test]
@@ -20951,13 +21180,17 @@ mod editor_schema_tests {
             eyebrow: "tag".into(),
             title: "title".into(),
             subtitle: "sub".into(),
-        }.to_json();
+        }
+        .to_json();
         assert_parses("imported hero", j);
     }
 
     #[test]
     fn imported_todo_paragraph_parses() {
-        let j = ImportedSection::Todo { raw: "<details>...".into() }.to_json();
+        let j = ImportedSection::Todo {
+            raw: "<details>...".into(),
+        }
+        .to_json();
         assert_parses("imported todo", j);
     }
 
@@ -21094,7 +21327,11 @@ mod editor_schema_tests {
             }
             _ => return None,
         };
-        Some((bytes.0 as f64 / 255.0, bytes.1 as f64 / 255.0, bytes.2 as f64 / 255.0))
+        Some((
+            bytes.0 as f64 / 255.0,
+            bytes.1 as f64 / 255.0,
+            bytes.2 as f64 / 255.0,
+        ))
     }
 
     fn contrast_ratio_hex(fg: &str, bg: &str) -> Option<f64> {
@@ -21160,7 +21397,10 @@ mod editor_schema_tests {
     fn page_shell_styles_focus_and_skip_link() {
         let s = page_shell(&empty_cms_page(), "/loom-skin.css", "", None);
         assert!(s.contains(":focus-visible"), "missing :focus-visible rule");
-        assert!(s.contains(".loom-skip:focus"), "skip link must surface on focus");
+        assert!(
+            s.contains(".loom-skip:focus"),
+            "skip link must surface on focus"
+        );
     }
 
     /// T48c v2: every base-theme colour pair MUST clear WCAG
@@ -21460,26 +21700,28 @@ mod edit_overlay_tests {
     fn build_edit_preview_html_emits_data_theme_when_dark() {
         let page = one_section_page(1);
         let html = build_edit_preview_html(&page, "/preview/loom-skin.css", "test", Some("dark"));
-        assert!(html.contains("data-theme=\"dark\""), "missing data-theme=dark");
+        assert!(
+            html.contains("data-theme=\"dark\""),
+            "missing data-theme=dark"
+        );
     }
 
     #[test]
     fn build_edit_preview_html_emits_data_theme_when_light() {
         let page = one_section_page(1);
         let html = build_edit_preview_html(&page, "/preview/loom-skin.css", "test", Some("light"));
-        assert!(html.contains("data-theme=\"light\""), "missing data-theme=light");
+        assert!(
+            html.contains("data-theme=\"light\""),
+            "missing data-theme=light"
+        );
     }
 
     #[test]
     fn build_edit_preview_html_drops_unknown_theme() {
         let page = one_section_page(1);
         for hostile in ["evil", "'><script>", "../etc/passwd", "DARK"] {
-            let html = build_edit_preview_html(
-                &page,
-                "/preview/loom-skin.css",
-                "test",
-                Some(hostile),
-            );
+            let html =
+                build_edit_preview_html(&page, "/preview/loom-skin.css", "test", Some(hostile));
             // The <html ...> opening tag must not carry a data-theme
             // attribute for unknown values. (BASE_THEME_CSS itself
             // contains [data-theme="..."] selectors, so we narrow
@@ -21506,13 +21748,22 @@ mod edit_overlay_tests {
             "BASE_THEME_CSS light rule must be inlined"
         );
         // CSP must pin both inline blocks (base-theme + overlay).
-        assert!(html.matches("'sha256-").count() >= 2, "CSP must pin two style blocks + the script");
+        assert!(
+            html.matches("'sha256-").count() >= 2,
+            "CSP must pin two style blocks + the script"
+        );
     }
 
     #[test]
     fn parse_theme_query_accepts_light_and_dark() {
-        assert_eq!(parse_theme_query("/preview-edit/home.html?theme=light"), Some("light"));
-        assert_eq!(parse_theme_query("/preview-edit/home.html?theme=dark"), Some("dark"));
+        assert_eq!(
+            parse_theme_query("/preview-edit/home.html?theme=light"),
+            Some("light")
+        );
+        assert_eq!(
+            parse_theme_query("/preview-edit/home.html?theme=dark"),
+            Some("dark")
+        );
         assert_eq!(parse_theme_query("/x?a=1&theme=dark&b=2"), Some("dark"));
     }
 
@@ -21625,7 +21876,10 @@ mod edit_overlay_tests {
     fn render_tour_overlay_emits_step_n_of_6() {
         for step in 1..=6u8 {
             let html = render_tour_overlay(step, "/");
-            assert!(html.contains(&format!("Step {step}/6")), "missing Step {step}/6 marker");
+            assert!(
+                html.contains(&format!("Step {step}/6")),
+                "missing Step {step}/6 marker"
+            );
         }
     }
 

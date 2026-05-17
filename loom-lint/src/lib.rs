@@ -383,9 +383,7 @@ pub fn run_css(root: &Path, extra_allowlist_substrings: &[&str]) -> Result<Vec<C
             // animation / transition durations belong in
             // `var(--loom-motion-*)` tokens.
             let time_caps: Vec<_> = time_literal.captures_iter(line).collect();
-            if !time_caps.is_empty()
-                && !line.contains("var(--loom-motion-")
-            {
+            if !time_caps.is_empty() && !line.contains("var(--loom-motion-") {
                 let all_zero = time_caps.iter().all(|cap| {
                     let val: f32 = cap[1].parse().unwrap_or(0.0);
                     val == 0.0
@@ -699,7 +697,8 @@ mod tests {
         );
         let v = run_css_default(tmp.path()).unwrap();
         assert!(
-            v.iter().any(|cv| matches!(cv.kind, CssViolationKind::RawTime)),
+            v.iter()
+                .any(|cv| matches!(cv.kind, CssViolationKind::RawTime)),
             "missing RawTime for 200ms: {v:?}"
         );
     }
@@ -714,7 +713,8 @@ mod tests {
         );
         let v = run_css_default(tmp.path()).unwrap();
         assert!(
-            v.iter().any(|cv| matches!(cv.kind, CssViolationKind::RawTime)),
+            v.iter()
+                .any(|cv| matches!(cv.kind, CssViolationKind::RawTime)),
             "missing RawTime for 1.5s: {v:?}"
         );
     }
@@ -731,7 +731,8 @@ mod tests {
         );
         let v = run_css_default(tmp.path()).unwrap();
         assert!(
-            !v.iter().any(|cv| matches!(cv.kind, CssViolationKind::RawTime)),
+            !v.iter()
+                .any(|cv| matches!(cv.kind, CssViolationKind::RawTime)),
             "0ms / 0s must not flag (instant marker): {v:?}"
         );
     }
@@ -746,7 +747,8 @@ mod tests {
         );
         let v = run_css_default(tmp.path()).unwrap();
         assert!(
-            !v.iter().any(|cv| matches!(cv.kind, CssViolationKind::RawTime)),
+            !v.iter()
+                .any(|cv| matches!(cv.kind, CssViolationKind::RawTime)),
             "var(--loom-motion-*) must not flag: {v:?}"
         );
     }
@@ -786,7 +788,8 @@ mod tests {
         );
         let v = run_css_default(tmp.path()).unwrap();
         assert!(
-            !v.iter().any(|cv| matches!(cv.kind, CssViolationKind::RawTime)),
+            !v.iter()
+                .any(|cv| matches!(cv.kind, CssViolationKind::RawTime)),
             "time literals inside :root are token definitions: {v:?}"
         );
     }

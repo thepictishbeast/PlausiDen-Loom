@@ -90,7 +90,11 @@ fn spawn_server() -> ServerGuard {
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
         if TcpStream::connect(("127.0.0.1", port)).is_ok() {
-            return ServerGuard { child, port, fixture };
+            return ServerGuard {
+                child,
+                port,
+                fixture,
+            };
         }
         sleep(Duration::from_millis(50));
     }
@@ -98,8 +102,7 @@ fn spawn_server() -> ServerGuard {
 }
 
 fn post(port: u16, path: &str, body: &str) -> (u16, String) {
-    let mut stream = TcpStream::connect(("127.0.0.1", port))
-        .expect("connect");
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
     let request = format!(
         "POST {path} HTTP/1.1\r\n\
          Host: 127.0.0.1:{port}\r\n\
@@ -132,8 +135,8 @@ fn post(port: u16, path: &str, body: &str) -> (u16, String) {
 /// optional whitespace between `:` and the value's opening
 /// quote.
 fn read_section_texts(fixture: &std::path::Path) -> Vec<String> {
-    let raw = std::fs::read_to_string(fixture.join("cms").join("reorder.json"))
-        .expect("read fixture");
+    let raw =
+        std::fs::read_to_string(fixture.join("cms").join("reorder.json")).expect("read fixture");
     let mut out = Vec::new();
     let mut search = raw.as_str();
     let needle = "\"text\"";

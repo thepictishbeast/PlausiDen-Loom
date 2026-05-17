@@ -60,8 +60,7 @@ pub fn enumerate_stock_photos<P: AsRef<Path>>(
 ) -> std::io::Result<Vec<StockPhotoEntry>> {
     let mut by_name: std::collections::BTreeMap<String, StockPhotoEntry> =
         std::collections::BTreeMap::new();
-    let mut at2x: std::collections::BTreeMap<String, String> =
-        std::collections::BTreeMap::new();
+    let mut at2x: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
 
     let entries = match std::fs::read_dir(dir.as_ref()) {
         Ok(e) => e,
@@ -95,10 +94,7 @@ pub fn enumerate_stock_photos<P: AsRef<Path>>(
         };
         // Detect @2x variants.
         if let Some(base) = stem.strip_suffix("@2x") {
-            at2x.insert(
-                base.to_owned(),
-                format!("{web_path_prefix}/{fname}"),
-            );
+            at2x.insert(base.to_owned(), format!("{web_path_prefix}/{fname}"));
             continue;
         }
         by_name.insert(

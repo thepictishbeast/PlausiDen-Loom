@@ -374,9 +374,8 @@ impl schemars::JsonSchema for HeadingLevel {
             serde_json::json!(5),
             serde_json::json!(6),
         ]);
-        obj.metadata().description = Some(
-            "Heading level (h2-h6). h1 is reserved for the page-shell.".to_owned(),
-        );
+        obj.metadata().description =
+            Some("Heading level (h2-h6). h1 is reserved for the page-shell.".to_owned());
         schemars::schema::Schema::Object(obj)
     }
 }
@@ -1070,7 +1069,13 @@ fn render_card(card: &CmsCard) -> Markup {
     // is restricted to the ALLOWED_VIDEO_MIME allowlist.
     let media_markup: Markup = match &card.media {
         None => html! {},
-        Some(CmsCardMedia::Image { src, alt, srcset, width, height }) => {
+        Some(CmsCardMedia::Image {
+            src,
+            alt,
+            srcset,
+            width,
+            height,
+        }) => {
             if !is_safe_url(src) {
                 html! {
                     div class="loom-card-feed-item__media" data-empty="true" aria-hidden="true" {}
@@ -1090,7 +1095,12 @@ fn render_card(card: &CmsCard) -> Markup {
                 }
             }
         }
-        Some(CmsCardMedia::Video { poster, src, mime, alt }) => {
+        Some(CmsCardMedia::Video {
+            poster,
+            src,
+            mime,
+            alt,
+        }) => {
             let poster_safe = poster.as_deref().map(is_safe_url).unwrap_or(true);
             let src_safe = is_safe_url(src);
             let mime_ok = ALLOWED_VIDEO_MIME.contains(&mime.as_str());
@@ -1463,8 +1473,10 @@ mod tests {
         };
         let html = render_to_string(&p);
         assert!(html.contains(r#"<div class="loom-page""#));
-        assert!(!html.contains(r#"<main class="loom-page""#),
-            "render_page must NOT emit <main> — page_shell owns the landmark");
+        assert!(
+            !html.contains(r#"<main class="loom-page""#),
+            "render_page must NOT emit <main> — page_shell owns the landmark"
+        );
         assert!(html.contains(r#"data-cms-path="/""#));
     }
 
@@ -2835,7 +2847,11 @@ mod tests {
     #[test]
     fn kv_pair_optional_heading_renders_when_some() {
         let p = kv_page(
-            vec![CmsKvItem { key: "k".into(), value: "v".into(), hint: None }],
+            vec![CmsKvItem {
+                key: "k".into(),
+                value: "v".into(),
+                hint: None,
+            }],
             Some("Match details"),
         );
         let html = render_to_string(&p);
@@ -2845,7 +2861,11 @@ mod tests {
     #[test]
     fn kv_pair_omits_heading_element_when_none() {
         let p = kv_page(
-            vec![CmsKvItem { key: "k".into(), value: "v".into(), hint: None }],
+            vec![CmsKvItem {
+                key: "k".into(),
+                value: "v".into(),
+                hint: None,
+            }],
             None,
         );
         let html = render_to_string(&p);
@@ -2869,7 +2889,11 @@ mod tests {
     #[test]
     fn kv_pair_hint_absent_emits_no_hint_span() {
         let p = kv_page(
-            vec![CmsKvItem { key: "k".into(), value: "v".into(), hint: None }],
+            vec![CmsKvItem {
+                key: "k".into(),
+                value: "v".into(),
+                hint: None,
+            }],
             None,
         );
         let html = render_to_string(&p);
@@ -2880,9 +2904,21 @@ mod tests {
     fn kv_pair_emits_one_row_per_item_in_order() {
         let p = kv_page(
             vec![
-                CmsKvItem { key: "A".into(), value: "1".into(), hint: None },
-                CmsKvItem { key: "B".into(), value: "2".into(), hint: None },
-                CmsKvItem { key: "C".into(), value: "3".into(), hint: None },
+                CmsKvItem {
+                    key: "A".into(),
+                    value: "1".into(),
+                    hint: None,
+                },
+                CmsKvItem {
+                    key: "B".into(),
+                    value: "2".into(),
+                    hint: None,
+                },
+                CmsKvItem {
+                    key: "C".into(),
+                    value: "3".into(),
+                    hint: None,
+                },
             ],
             None,
         );
@@ -2941,7 +2977,11 @@ mod tests {
     #[test]
     fn kv_pair_json_skips_none_hint_on_serialize() {
         let p = kv_page(
-            vec![CmsKvItem { key: "k".into(), value: "v".into(), hint: None }],
+            vec![CmsKvItem {
+                key: "k".into(),
+                value: "v".into(),
+                hint: None,
+            }],
             None,
         );
         let j = serde_json::to_string(&p).expect("serialize");
@@ -3213,9 +3253,17 @@ pub fn render_nav_links(links: &[CmsNavLink]) -> String {
         } else {
             "#invalid-nav-link".to_owned()
         };
-        let invalid_attr = if href_safe { "" } else { " data-invalid=\"true\"" };
+        let invalid_attr = if href_safe {
+            ""
+        } else {
+            " data-invalid=\"true\""
+        };
         let backend = escape_html_attr(&link.data_backend);
-        let current = if link.current { " aria-current=\"page\"" } else { "" };
+        let current = if link.current {
+            " aria-current=\"page\""
+        } else {
+            ""
+        };
         out.push_str(&format!(
             "<a class=\"loom-page-nav__link\" href=\"{href}\"{invalid_attr} data-backend=\"{backend}\"{current}>{label}</a>"
         ));
@@ -3311,11 +3359,12 @@ pub fn page_shell_themed(
     // value is dropped rather than escaped-and-emitted —
     // defence in depth on top of attribute-escape.
     let html_open = match theme {
-        Some(t) if matches!(
-            t,
-            "light" | "dark" | "auto" |
-            "warm" | "ocean" | "forest" | "violet" | "rose"
-        ) => {
+        Some(t)
+            if matches!(
+                t,
+                "light" | "dark" | "auto" | "warm" | "ocean" | "forest" | "violet" | "rose"
+            ) =>
+        {
             format!("<html lang=\"en\" data-theme=\"{t}\">")
         }
         _ => "<html lang=\"en\">".to_owned(),
@@ -3378,7 +3427,10 @@ mod page_shell_tests {
         let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
         let combined = format!("{BASE_THEME_CSS}{THEME_TOGGLE_CSS}");
         let hash = csp_sha256(combined.as_bytes());
-        assert!(s.contains(&hash), "combined base-theme + toggle hash must appear in CSP");
+        assert!(
+            s.contains(&hash),
+            "combined base-theme + toggle hash must appear in CSP"
+        );
         assert!(!s.contains("'unsafe-inline'"));
         assert!(s.contains("<style>"));
         assert!(s.contains("--loom-bg"));
@@ -3431,7 +3483,10 @@ mod page_shell_tests {
         let main_open = s.find("<main").expect("main");
         let main_close = s.find("</main>").expect("/main");
         let inside = &s[main_open..main_close];
-        assert!(inside.contains("<p>hello</p>"), "body must land inside <main>");
+        assert!(
+            inside.contains("<p>hello</p>"),
+            "body must land inside <main>"
+        );
     }
 
     #[test]
@@ -3448,20 +3503,29 @@ mod page_shell_tests {
     #[test]
     fn page_shell_themed_emits_data_theme_when_dark() {
         let s = page_shell_themed(&empty_page(), "/loom-skin.css", "", None, Some("dark"));
-        assert!(s.contains("data-theme=\"dark\""), "missing data-theme=dark: {s}");
+        assert!(
+            s.contains("data-theme=\"dark\""),
+            "missing data-theme=dark: {s}"
+        );
     }
 
     #[test]
     fn page_shell_themed_emits_data_theme_when_light() {
         let s = page_shell_themed(&empty_page(), "/loom-skin.css", "", None, Some("light"));
-        assert!(s.contains("data-theme=\"light\""), "missing data-theme=light");
+        assert!(
+            s.contains("data-theme=\"light\""),
+            "missing data-theme=light"
+        );
     }
 
     #[test]
     fn page_shell_themed_with_none_matches_unthemed_shell() {
         let a = page_shell(&empty_page(), "/loom-skin.css", "", None);
         let b = page_shell_themed(&empty_page(), "/loom-skin.css", "", None, None);
-        assert_eq!(a, b, "page_shell(...) must equal page_shell_themed(..., None)");
+        assert_eq!(
+            a, b,
+            "page_shell(...) must equal page_shell_themed(..., None)"
+        );
     }
 
     // T76 (Crawler dogfood 2026-05-14): every page emits a default
@@ -3491,13 +3555,7 @@ mod page_shell_tests {
         // BASE_THEME_CSS itself contains [data-theme="..."] selectors,
         // so we narrow the assertion to the <html ...> opening tag.
         for hostile in ["evil", "'><script>", "../etc/passwd", "DARK", "Light"] {
-            let s = page_shell_themed(
-                &empty_page(),
-                "/loom-skin.css",
-                "",
-                None,
-                Some(hostile),
-            );
+            let s = page_shell_themed(&empty_page(), "/loom-skin.css", "", None, Some(hostile));
             assert!(
                 s.contains("<html lang=\"en\">\n"),
                 "unknown theme value `{hostile}` must produce bare <html lang=\"en\">"
@@ -3534,7 +3592,8 @@ mod page_shell_tests {
         // data-theme="light" overrides the OS preference, since
         // the OS-driven dark rule is scoped to the auto block.
         assert!(
-            BASE_THEME_CSS.contains("@media (prefers-color-scheme:dark){:root[data-theme=\"auto\"]"),
+            BASE_THEME_CSS
+                .contains("@media (prefers-color-scheme:dark){:root[data-theme=\"auto\"]"),
             "OS-dark media block must be scoped to data-theme=auto so explicit light wins"
         );
         // The explicit dark block stands on its own.
@@ -3548,7 +3607,8 @@ mod page_shell_tests {
             .expect("media block must be present");
         let after_media = &BASE_THEME_CSS[media_idx..];
         assert!(
-            after_media.starts_with("@media (prefers-color-scheme:dark){:root[data-theme=\"auto\"]"),
+            after_media
+                .starts_with("@media (prefers-color-scheme:dark){:root[data-theme=\"auto\"]"),
             "media block must IMMEDIATELY scope to data-theme=auto"
         );
     }
@@ -3564,13 +3624,19 @@ mod page_shell_tests {
             description: "T".into(),
             path: "/".into(),
             nav_links: vec![],
-            sections: vec![CmsSection::Heading { level: HeadingLevel::H2, text: "x".into() }],
+            sections: vec![CmsSection::Heading {
+                level: HeadingLevel::H2,
+                text: "x".into(),
+            }],
         };
         let body = render_page(&p).into_string();
         let composed = page_shell(&p, "/loom-skin.css", &body, None);
         let main_open_count = composed.matches("<main").count();
         let main_close_count = composed.matches("</main>").count();
-        assert_eq!(main_open_count, 1, "exactly one <main> open: composed = {composed}");
+        assert_eq!(
+            main_open_count, 1,
+            "exactly one <main> open: composed = {composed}"
+        );
         assert_eq!(main_close_count, 1, "exactly one </main> close");
     }
 }

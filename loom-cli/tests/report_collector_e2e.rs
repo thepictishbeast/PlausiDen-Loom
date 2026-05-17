@@ -90,8 +90,7 @@ fn spawn_server_with_env(env: &[(&str, &str)]) -> ServerGuard {
         "title":"Test","description":"Test fixture","path":"/test.html",
         "sections":[]
     }"#;
-    std::fs::write(cms_dir.join("test.json"), page_json)
-        .expect("write fixture page");
+    std::fs::write(cms_dir.join("test.json"), page_json).expect("write fixture page");
 
     // Locate the `loom` binary. Cargo sets `CARGO_BIN_EXE_<name>`
     // for integration tests so we can use the just-built bin.
@@ -112,7 +111,11 @@ fn spawn_server_with_env(env: &[(&str, &str)]) -> ServerGuard {
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
         if TcpStream::connect(("127.0.0.1", port)).is_ok() {
-            return ServerGuard { child, port, fixture };
+            return ServerGuard {
+                child,
+                port,
+                fixture,
+            };
         }
         sleep(Duration::from_millis(50));
     }
@@ -122,8 +125,7 @@ fn spawn_server_with_env(env: &[(&str, &str)]) -> ServerGuard {
 /// POST `body` to `path` on the running server with the given
 /// content-type. Returns (status_code, response_body).
 fn post(port: u16, path: &str, content_type: &str, body: &[u8]) -> (u16, String) {
-    let mut stream = TcpStream::connect(("127.0.0.1", port))
-        .expect("connect to edit-serve");
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect to edit-serve");
     let request = format!(
         "POST {path} HTTP/1.1\r\n\
          Host: 127.0.0.1:{port}\r\n\
@@ -133,7 +135,9 @@ fn post(port: u16, path: &str, content_type: &str, body: &[u8]) -> (u16, String)
          \r\n",
         len = body.len(),
     );
-    stream.write_all(request.as_bytes()).expect("write request line+headers");
+    stream
+        .write_all(request.as_bytes())
+        .expect("write request line+headers");
     stream.write_all(body).expect("write body");
     let mut response = Vec::new();
     stream.read_to_end(&mut response).expect("read response");
@@ -152,7 +156,10 @@ fn collector_accepts_legacy_csp_report_returns_204_and_logs_jsonl() {
     let g = spawn_server();
     let csp_body = br#"{"csp-report":{"document-uri":"https://test.example/","violated-directive":"script-src","blocked-uri":"https://evil.example/x.js"}}"#;
     let (status, _) = post(g.port, "/csp-report", "application/csp-report", csp_body);
-    assert_eq!(status, 204, "legacy /csp-report should return 204 No Content");
+    assert_eq!(
+        status, 204,
+        "legacy /csp-report should return 204 No Content"
+    );
 
     // The collector writes to <cms_root>/../reports/violations.jsonl.
     // Our fixture's cms_root is fixture/cms, so reports lives at
@@ -160,22 +167,33 @@ fn collector_accepts_legacy_csp_report_returns_204_and_logs_jsonl() {
     let log = g.fixture.join("reports").join("violations.jsonl");
     // Give the server a moment to flush the write.
     for _ in 0..20 {
-        if log.exists() && std::fs::metadata(&log).map(|m| m.len() > 0).unwrap_or(false) {
+        if log.exists()
+            && std::fs::metadata(&log)
+                .map(|m| m.len() > 0)
+                .unwrap_or(false)
+        {
             break;
         }
         sleep(Duration::from_millis(50));
     }
-    let contents = std::fs::read_to_string(&log)
-        .expect("violations.jsonl exists after POST");
+    let contents = std::fs::read_to_string(&log).expect("violations.jsonl exists after POST");
     let line = contents.lines().last().expect("at least one JSONL line");
-    assert!(line.contains("\"endpoint\":\"csp-report\""),
-        "JSONL line should record the endpoint: {line}");
-    assert!(line.contains("\"content_type\":\"application/csp-report\""),
-        "JSONL line should record the content type: {line}");
-    assert!(line.contains("violated-directive"),
-        "JSONL line should preserve the report body: {line}");
-    assert!(line.starts_with("{\"ts\":"),
-        "JSONL line should start with the timestamp field: {line}");
+    assert!(
+        line.contains("\"endpoint\":\"csp-report\""),
+        "JSONL line should record the endpoint: {line}"
+    );
+    assert!(
+        line.contains("\"content_type\":\"application/csp-report\""),
+        "JSONL line should record the content type: {line}"
+    );
+    assert!(
+        line.contains("violated-directive"),
+        "JSONL line should preserve the report body: {line}"
+    );
+    assert!(
+        line.starts_with("{\"ts\":"),
+        "JSONL line should start with the timestamp field: {line}"
+    );
 }
 
 #[test]
@@ -187,20 +205,29 @@ fn collector_accepts_modern_reports_api_returns_204_and_logs_jsonl() {
 
     let log = g.fixture.join("reports").join("violations.jsonl");
     for _ in 0..20 {
-        if log.exists() && std::fs::metadata(&log).map(|m| m.len() > 0).unwrap_or(false) {
+        if log.exists()
+            && std::fs::metadata(&log)
+                .map(|m| m.len() > 0)
+                .unwrap_or(false)
+        {
             break;
         }
         sleep(Duration::from_millis(50));
     }
-    let contents = std::fs::read_to_string(&log)
-        .expect("violations.jsonl exists after POST");
+    let contents = std::fs::read_to_string(&log).expect("violations.jsonl exists after POST");
     let line = contents.lines().last().expect("at least one JSONL line");
-    assert!(line.contains("\"endpoint\":\"reports\""),
-        "JSONL line should record the endpoint: {line}");
-    assert!(line.contains("\"content_type\":\"application/reports+json\""),
-        "JSONL line should record the content type: {line}");
-    assert!(line.contains("effectiveDirective"),
-        "JSONL line should preserve the report body: {line}");
+    assert!(
+        line.contains("\"endpoint\":\"reports\""),
+        "JSONL line should record the endpoint: {line}"
+    );
+    assert!(
+        line.contains("\"content_type\":\"application/reports+json\""),
+        "JSONL line should record the content type: {line}"
+    );
+    assert!(
+        line.contains("effectiveDirective"),
+        "JSONL line should preserve the report body: {line}"
+    );
 }
 
 #[test]
@@ -211,27 +238,37 @@ fn collector_body_cap_silently_truncates_oversized_payloads() {
     let g = spawn_server();
     let huge = vec![b'a'; 100 * 1024];
     let (status, _) = post(g.port, "/csp-report", "application/csp-report", &huge);
-    assert_eq!(status, 204,
-        "oversized body should still return 204; never 4xx so browsers don't retry-storm");
+    assert_eq!(
+        status, 204,
+        "oversized body should still return 204; never 4xx so browsers don't retry-storm"
+    );
 
     let log = g.fixture.join("reports").join("violations.jsonl");
     for _ in 0..20 {
-        if log.exists() && std::fs::metadata(&log).map(|m| m.len() > 0).unwrap_or(false) {
+        if log.exists()
+            && std::fs::metadata(&log)
+                .map(|m| m.len() > 0)
+                .unwrap_or(false)
+        {
             break;
         }
         sleep(Duration::from_millis(50));
     }
-    let contents = std::fs::read_to_string(&log)
-        .expect("violations.jsonl exists after POST");
+    let contents = std::fs::read_to_string(&log).expect("violations.jsonl exists after POST");
     let line = contents.lines().last().expect("at least one JSONL line");
     // The body field is JSON-escaped (no `\` escape needed for
     // 'a'), so length of "aaa...aaa" should be capped at ~65536.
     // Allow a margin for the surrounding JSON shape.
-    assert!(line.len() < 70 * 1024,
-        "oversized body should be capped at 64 KiB; got {} bytes", line.len());
+    assert!(
+        line.len() < 70 * 1024,
+        "oversized body should be capped at 64 KiB; got {} bytes",
+        line.len()
+    );
     // The first 100 'a's should definitely be in the body field.
-    assert!(line.contains("aaaaaaaaaa"),
-        "first chunk of oversized body should land in log");
+    assert!(
+        line.contains("aaaaaaaaaa"),
+        "first chunk of oversized body should land in log"
+    );
 }
 
 #[test]
@@ -258,13 +295,16 @@ fn collector_rate_limits_after_100_reports_per_min_same_ip() {
     // own fixture directory.
     let log = g.fixture.join("reports").join("violations.jsonl");
     for _ in 0..20 {
-        if log.exists() && std::fs::metadata(&log).map(|m| m.len() > 0).unwrap_or(false) {
+        if log.exists()
+            && std::fs::metadata(&log)
+                .map(|m| m.len() > 0)
+                .unwrap_or(false)
+        {
             break;
         }
         sleep(Duration::from_millis(50));
     }
-    let contents = std::fs::read_to_string(&log)
-        .expect("violations.jsonl exists after burst");
+    let contents = std::fs::read_to_string(&log).expect("violations.jsonl exists after burst");
     let lines = contents.lines().count();
     assert!(
         lines <= 100,
@@ -287,7 +327,7 @@ fn collector_rotates_log_when_size_threshold_exceeded() {
     //   - LOOM_REPORT_ROTATION_KEEP=2 caps the retained
     //     rotation count.
     let g = spawn_server_with_env(&[
-        ("LOOM_REPORT_ROTATION_BYTES", "1024"),  // 1 KiB ceiling
+        ("LOOM_REPORT_ROTATION_BYTES", "1024"), // 1 KiB ceiling
         ("LOOM_REPORT_ROTATION_KEEP", "2"),
     ]);
     // Send larger bodies to cross the 1 KiB ceiling fast.
@@ -296,8 +336,7 @@ fn collector_rotates_log_when_size_threshold_exceeded() {
     let body: Vec<u8> = vec![b'x'; 600];
     let big_body = body;
     for _ in 0..15 {
-        let (status, _) = post(g.port, "/csp-report",
-            "application/csp-report", &big_body);
+        let (status, _) = post(g.port, "/csp-report", "application/csp-report", &big_body);
         assert_eq!(status, 204);
     }
     // Give the server a moment to flush the last write.
@@ -335,8 +374,10 @@ fn collector_rotates_log_when_size_threshold_exceeded() {
     );
 
     // The active log file should still be present.
-    assert!(reports.join("violations.jsonl").is_file(),
-        "active violations.jsonl should exist after rotation");
+    assert!(
+        reports.join("violations.jsonl").is_file(),
+        "active violations.jsonl should exist after rotation"
+    );
 }
 
 #[test]
@@ -346,8 +387,12 @@ fn collector_endpoints_unauthenticated() {
     // per W3C spec. Confirm both endpoints respond regardless
     // of auth state.
     let g = spawn_server();
-    let (s1, _) = post(g.port, "/csp-report", "application/csp-report",
-        b"{\"csp-report\":{}}");
+    let (s1, _) = post(
+        g.port,
+        "/csp-report",
+        "application/csp-report",
+        b"{\"csp-report\":{}}",
+    );
     assert_eq!(s1, 204, "/csp-report must be unauthenticated");
     let (s2, _) = post(g.port, "/reports", "application/reports+json", b"[]");
     assert_eq!(s2, 204, "/reports must be unauthenticated");

@@ -95,10 +95,16 @@ fn list_shows_three_new_reports_by_default() {
     let g = make_fixture("list_new");
     let (code, stdout, stderr) = run_review(&g.dir, &["list"]);
     assert_eq!(code, 0, "exit=0 expected; stderr={stderr}");
-    assert!(stdout.contains("NEW"), "expected NEW status; stdout={stdout}");
+    assert!(
+        stdout.contains("NEW"),
+        "expected NEW status; stdout={stdout}"
+    );
     let new_count = stdout.matches("NEW").count();
     // 1 header column "status" doesn't say NEW; 3 data rows do.
-    assert!(new_count >= 3, "expected ≥3 NEW rows, got {new_count}; stdout={stdout}");
+    assert!(
+        new_count >= 3,
+        "expected ≥3 NEW rows, got {new_count}; stdout={stdout}"
+    );
 }
 
 #[test]
@@ -107,15 +113,16 @@ fn ack_then_list_shows_ack_status() {
     let (_, list_out, _) = run_review(&g.dir, &["list"]);
     let sig = first_sig(&list_out);
 
-    let (code, _stdout, stderr) =
-        run_review(&g.dir, &["ack", &sig, "--note", "investigated"]);
+    let (code, _stdout, stderr) = run_review(&g.dir, &["ack", &sig, "--note", "investigated"]);
     assert_eq!(code, 0, "ack exit=0 expected; stderr={stderr}");
 
     // State log must exist + contain the sig + note.
     let state_path = g.dir.join("reports/.review-state.jsonl");
-    let state_bytes = std::fs::read_to_string(&state_path)
-        .expect("read state log");
-    assert!(state_bytes.contains(&sig), "state log missing sig; got: {state_bytes}");
+    let state_bytes = std::fs::read_to_string(&state_path).expect("read state log");
+    assert!(
+        state_bytes.contains(&sig),
+        "state log missing sig; got: {state_bytes}"
+    );
     assert!(
         state_bytes.contains("\"action\":\"ack\""),
         "state log missing ack action; got: {state_bytes}"
@@ -144,9 +151,11 @@ fn dismiss_without_note_fails() {
     let (_, list_out, _) = run_review(&g.dir, &["list"]);
     let sig = first_sig(&list_out);
 
-    let (code, _stdout, stderr) =
-        run_review(&g.dir, &["dismiss", &sig, "--note", ""]);
-    assert_ne!(code, 0, "dismiss with empty note must fail; stderr={stderr}");
+    let (code, _stdout, stderr) = run_review(&g.dir, &["dismiss", &sig, "--note", ""]);
+    assert_ne!(
+        code, 0,
+        "dismiss with empty note must fail; stderr={stderr}"
+    );
     assert!(
         stderr.contains("--note is required"),
         "expected note-required error; got: {stderr}"
@@ -169,10 +178,8 @@ fn dismiss_with_note_succeeds_and_shows_dismissed() {
     let (_, list_out, _) = run_review(&g.dir, &["list"]);
     let sig = first_sig(&list_out);
 
-    let (code, _stdout, stderr) = run_review(
-        &g.dir,
-        &["dismiss", &sig, "--note", "extension noise"],
-    );
+    let (code, _stdout, stderr) =
+        run_review(&g.dir, &["dismiss", &sig, "--note", "extension noise"]);
     assert_eq!(code, 0, "dismiss with note exit=0; stderr={stderr}");
 
     let (_, list_out2, _) = run_review(&g.dir, &["list"]);
@@ -201,19 +208,29 @@ fn status_counts_match_actions() {
     }
     assert!(sigs.len() >= 3, "expected ≥3 distinct sigs, got {sigs:?}");
 
-    let (code, _, stderr) =
-        run_review(&g.dir, &["ack", &sigs[0], "--note", "ok"]);
+    let (code, _, stderr) = run_review(&g.dir, &["ack", &sigs[0], "--note", "ok"]);
     assert_eq!(code, 0, "ack failed; stderr={stderr}");
-    let (code, _, stderr) =
-        run_review(&g.dir, &["dismiss", &sigs[1], "--note", "noise"]);
+    let (code, _, stderr) = run_review(&g.dir, &["dismiss", &sigs[1], "--note", "noise"]);
     assert_eq!(code, 0, "dismiss failed; stderr={stderr}");
 
     let (code, status_out, stderr) = run_review(&g.dir, &["status"]);
     assert_eq!(code, 0, "status failed; stderr={stderr}");
-    assert!(status_out.contains("total distinct reports : 3"), "stdout={status_out}");
-    assert!(status_out.contains("NEW (untriaged)        : 1"), "stdout={status_out}");
-    assert!(status_out.contains("ACK                    : 1"), "stdout={status_out}");
-    assert!(status_out.contains("DISMISSED              : 1"), "stdout={status_out}");
+    assert!(
+        status_out.contains("total distinct reports : 3"),
+        "stdout={status_out}"
+    );
+    assert!(
+        status_out.contains("NEW (untriaged)        : 1"),
+        "stdout={status_out}"
+    );
+    assert!(
+        status_out.contains("ACK                    : 1"),
+        "stdout={status_out}"
+    );
+    assert!(
+        status_out.contains("DISMISSED              : 1"),
+        "stdout={status_out}"
+    );
 }
 
 #[test]
@@ -223,15 +240,13 @@ fn latest_wins_when_signature_retriaged() {
     let sig = first_sig(&list_out);
 
     // First dismiss, then ack — latest action (ack) should win.
-    let (code, _, _) =
-        run_review(&g.dir, &["dismiss", &sig, "--note", "initial pass"]);
+    let (code, _, _) = run_review(&g.dir, &["dismiss", &sig, "--note", "initial pass"]);
     assert_eq!(code, 0);
     // 1-second separation to guarantee monotonic ts on the
     // second decision. (The sub-second resolution in
     // review_action_write uses unix-secs.)
     std::thread::sleep(std::time::Duration::from_millis(1100));
-    let (code, _, _) =
-        run_review(&g.dir, &["ack", &sig, "--note", "reviewed harder"]);
+    let (code, _, _) = run_review(&g.dir, &["ack", &sig, "--note", "reviewed harder"]);
     assert_eq!(code, 0);
 
     let (_, list_out2, _) = run_review(&g.dir, &["list"]);
@@ -254,15 +269,14 @@ fn unique_prefix_resolves() {
     let sig = first_sig(&list_out);
     let prefix: String = sig.chars().take(6).collect();
 
-    let (code, _, stderr) = run_review(
-        &g.dir,
-        &["ack", &prefix, "--note", "prefix worked"],
+    let (code, _, stderr) = run_review(&g.dir, &["ack", &prefix, "--note", "prefix worked"]);
+    assert_eq!(
+        code, 0,
+        "unique 6-char prefix should resolve; stderr={stderr}"
     );
-    assert_eq!(code, 0, "unique 6-char prefix should resolve; stderr={stderr}");
 
     let state_bytes =
-        std::fs::read_to_string(g.dir.join("reports/.review-state.jsonl"))
-            .expect("read state log");
+        std::fs::read_to_string(g.dir.join("reports/.review-state.jsonl")).expect("read state log");
     // The audit log MUST record the full 12-char sig, not the prefix.
     assert!(
         state_bytes.contains(&sig),
@@ -300,8 +314,7 @@ fn rotation_files_aggregate_into_one_view() {
     )
     .expect("write rotated fixture");
 
-    let (code, stdout, stderr) =
-        run_review(&g.dir, &["status"]);
+    let (code, stdout, stderr) = run_review(&g.dir, &["status"]);
     assert_eq!(code, 0, "status failed; stderr={stderr}");
     assert!(
         stdout.contains("total distinct reports : 5"),
@@ -329,8 +342,7 @@ fn rotation_files_aggregate_into_one_view() {
     // Ack the very-oldest one — it would be invisible if we
     // only read violations.jsonl.
     let oldest = sigs.last().unwrap().clone();
-    let (code, _, stderr) =
-        run_review(&g.dir, &["ack", &oldest, "--note", "old-but-real"]);
+    let (code, _, stderr) = run_review(&g.dir, &["ack", &oldest, "--note", "old-but-real"]);
     assert_eq!(
         code, 0,
         "ack on rotated-file sig must succeed; stderr={stderr}"
@@ -354,6 +366,12 @@ fn list_purely_additive_does_not_mutate_violations() {
 
     let after = std::fs::metadata(&violations).unwrap().modified().unwrap();
     let after_bytes = std::fs::read_to_string(&violations).unwrap();
-    assert_eq!(before, after, "violations.jsonl mtime changed — review must be read-only");
-    assert_eq!(before_bytes, after_bytes, "violations.jsonl content changed");
+    assert_eq!(
+        before, after,
+        "violations.jsonl mtime changed — review must be read-only"
+    );
+    assert_eq!(
+        before_bytes, after_bytes,
+        "violations.jsonl content changed"
+    );
 }
