@@ -7501,6 +7501,30 @@ fn handle_add_section(
                 {"key": "Third label", "value": "Third value."},
             ],
         }),
+        // T62 cycle 4 (advances #615): card_feed section picker.
+        // Mirrors CmsSection::CardFeed { heading?, items: Vec<CmsCard> }.
+        // The CmsCard schema has many optional fields (host_sub,
+        // stats, body, primary_link, avatar); seed two minimal cards
+        // with just the required fields. Operator extends per-card
+        // via serve_edit_form.
+        "card_feed" => serde_json::json!({
+            "kind": "card_feed",
+            "heading": "New feed",
+            "items": [
+                {
+                    "title": "First card title",
+                    "host_sub": "Subtitle / host line",
+                    "primary_link": {"label": "Open", "href": "/example"},
+                    "avatar": {"kind": "letter", "letter": "A", "color": "violet"},
+                },
+                {
+                    "title": "Second card title",
+                    "host_sub": "Subtitle / host line",
+                    "primary_link": {"label": "Open", "href": "/example-2"},
+                    "avatar": {"kind": "letter", "letter": "B", "color": "indigo"},
+                },
+            ],
+        }),
         _ => return respond_text(request, 400, "unknown section kind"),
     };
 
