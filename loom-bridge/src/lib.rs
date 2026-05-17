@@ -32,12 +32,14 @@
 #![deny(missing_docs)]
 
 pub mod resource;
+pub mod sandbox;
 pub mod tenant;
 
 #[cfg(feature = "russh-transport")]
 pub mod transport;
 
 pub use resource::{ResourceCeilings, ResourceCeilingsBuilder, ResourceCeilingsError};
+pub use sandbox::{SandboxLint, SandboxSpec};
 pub use tenant::{Tenant, TenantError, TenantId, TenantRegistry};
 
 /// Crate-wide error type at the public surface.
