@@ -393,9 +393,24 @@ impl russh::server::Handler for BridgeHandler {
                         argv_len = prepared.audit_argv.len(),
                         "launch prepared"
                     );
+                    // Cycle 5s (2026-05-17): surface the egress-
+                    // allowlist resolution outcome so the operator's
+                    // session log captures EXACTLY what IP set the
+                    // sandboxed claude can talk to. None = empty
+                    // allowlist (DROP-by-default in force).
+                    let allowlist_summary = match &prepared.resolved_allowlist {
+                        Some(r) => format!(
+                            "ipv4={}, ipv6={}, failed_hosts={}",
+                            r.ipv4.len(),
+                            r.ipv6.len(),
+                            r.failed.len()
+                        ),
+                        None => "EMPTY (drop-by-default)".to_owned(),
+                    };
                     format!(
-                        "launch: prepared, argv_len={}, audit_argv={:?}\n",
+                        "launch: prepared, argv_len={}, allowlist=[{}], audit_argv={:?}\n",
                         prepared.audit_argv.len(),
+                        allowlist_summary,
                         prepared.audit_argv
                     )
                 }
