@@ -251,6 +251,149 @@ fn sanitize_set(id: &TenantId) -> String {
     id.as_str().replace('-', "_")
 }
 
+/// IPv4 + IPv6 addresses resolved from the egress allowlist.
+/// These are what cycle 5l pipes into `nft add element` commands
+/// to populate the per-tenant allow-sets.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct ResolvedAllowlist {
+    /// Resolved IPv4 addresses (de-duplicated, sorted).
+    pub ipv4: Vec<std::net::Ipv4Addr>,
+    /// Resolved IPv6 addresses (de-duplicated, sorted).
+    pub ipv6: Vec<std::net::Ipv6Addr>,
+    /// Hostnames that failed to resolve. Caller decides whether to
+    /// fail the launch or proceed with what resolved.
+    pub failed: Vec<String>,
+}
+
+/// Errors raised by the hostname-resolution pass.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ResolveError {
+    /// Every hostname in the allowlist failed to resolve. This is
+    /// almost always a network-layer or DNS misconfiguration, not
+    /// a per-host typo, so we surface it as a single hard error
+    /// rather than per-host failures (those are captured in
+    /// `ResolvedAllowlist.failed` for partial-success).
+    #[error("none of {count} allowlist host(s) resolved (DNS broken?)")]
+    AllHostsFailed {
+        /// How many hostnames were attempted.
+        count: usize,
+    },
+}
+
+/// T46.7 / cycle 5l (2026-05-17): resolve every hostname in the
+/// egress allowlist to its IPv4 + IPv6 addresses. Uses the
+/// system resolver (`std::net::ToSocketAddrs`); the bridge is
+/// allowed DNS egress by the nftables ruleset's
+/// `dport 53 accept` line, so the resolver itself doesn't need
+/// special privileges.
+///
+/// `port` is the port we tack onto each hostname for resolution
+/// (lookup_host requires a `host:port` pair). 443 is the natural
+/// choice since the bridge allows TCP/443 to allowlisted IPs.
+///
+/// Sync (uses `std::net::ToSocketAddrs::to_socket_addrs()`).
+/// Lives in the default-features tree alongside the renderer.
+///
+/// BUG ASSUMPTION: hostname A/AAAA records can change between
+/// resolution time and apply time. The bridge re-runs this
+/// resolution every time a session opens (NOT once at startup) so
+/// short TTLs propagate. Operators who care about stricter
+/// pinning should set hostnames that don't change A records often
+/// (or use IP-only entries — those parse here too).
+///
+/// # Errors
+///
+/// Returns [`ResolveError::AllHostsFailed`] when NO hostname
+/// resolved. Partial failures populate `ResolvedAllowlist.failed`
+/// but the call still returns `Ok` — callers can then decide
+/// whether to fail the launch or proceed with what was resolved.
+pub fn resolve_egress_allowlist(
+    hosts: &[String],
+    port: u16,
+) -> Result<ResolvedAllowlist, ResolveError> {
+    use std::collections::BTreeSet;
+    use std::net::{IpAddr, ToSocketAddrs};
+
+    let mut ipv4_set: BTreeSet<std::net::Ipv4Addr> = BTreeSet::new();
+    let mut ipv6_set: BTreeSet<std::net::Ipv6Addr> = BTreeSet::new();
+    let mut failed: Vec<String> = Vec::new();
+
+    for host in hosts {
+        let target = format!("{host}:{port}");
+        match target.to_socket_addrs() {
+            Ok(iter) => {
+                let mut any = false;
+                for addr in iter {
+                    any = true;
+                    match addr.ip() {
+                        IpAddr::V4(v4) => {
+                            ipv4_set.insert(v4);
+                        }
+                        IpAddr::V6(v6) => {
+                            ipv6_set.insert(v6);
+                        }
+                    }
+                }
+                if !any {
+                    failed.push(host.clone());
+                }
+            }
+            Err(_) => {
+                failed.push(host.clone());
+            }
+        }
+    }
+
+    if ipv4_set.is_empty() && ipv6_set.is_empty() && !hosts.is_empty() {
+        return Err(ResolveError::AllHostsFailed { count: hosts.len() });
+    }
+
+    Ok(ResolvedAllowlist {
+        ipv4: ipv4_set.into_iter().collect(),
+        ipv6: ipv6_set.into_iter().collect(),
+        failed,
+    })
+}
+
+/// T46.7 / cycle 5l (2026-05-17): render the `nft add element`
+/// commands that populate the rendered ruleset's allow-sets.
+/// Pure; the executor pipes the output through `nft` (separate
+/// invocation from the table-apply since `nft -f -` doesn't
+/// support `add element` for sets defined in the same stream
+/// without subtle ordering).
+///
+/// Output: a list of `add element inet <table> <set> { <ip>, … }`
+/// commands (one per set, even if empty so the operator's audit
+/// log captures the intent).
+#[must_use]
+pub fn render_set_population_commands(
+    ruleset: &NftablesRuleset,
+    resolved: &ResolvedAllowlist,
+) -> Vec<String> {
+    let mut out = Vec::with_capacity(2);
+    if !resolved.ipv4.is_empty() {
+        let elems: Vec<String> = resolved.ipv4.iter().map(|ip| ip.to_string()).collect();
+        out.push(format!(
+            "add element inet {} {} {{ {} }}",
+            ruleset.table_name,
+            ruleset.set4_name,
+            elems.join(", ")
+        ));
+    }
+    if !resolved.ipv6.is_empty() {
+        let elems: Vec<String> = resolved.ipv6.iter().map(|ip| ip.to_string()).collect();
+        out.push(format!(
+            "add element inet {} {} {{ {} }}",
+            ruleset.table_name,
+            ruleset.set6_name,
+            elems.join(", ")
+        ));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,6 +581,154 @@ mod tests {
         perms.set_mode(0o755);
         std::fs::set_permissions(&path, perms).unwrap();
         path
+    }
+
+    // ---------- T46.7 / cycle 5l resolver tests ----------
+
+    #[test]
+    fn resolve_loopback_succeeds() {
+        // 'localhost' is always resolvable; on every box it returns
+        // at least 127.0.0.1 (and usually ::1).
+        let hosts = vec!["localhost".to_owned()];
+        let r = resolve_egress_allowlist(&hosts, 443).expect("localhost resolves");
+        assert!(!r.ipv4.is_empty() || !r.ipv6.is_empty());
+        assert!(r.failed.is_empty());
+    }
+
+    #[test]
+    fn resolve_literal_ipv4_passes_through() {
+        let hosts = vec!["1.1.1.1".to_owned()];
+        let r = resolve_egress_allowlist(&hosts, 443).expect("ipv4 literal");
+        assert_eq!(r.ipv4.len(), 1);
+        assert_eq!(r.ipv4[0], std::net::Ipv4Addr::new(1, 1, 1, 1));
+        assert!(r.ipv6.is_empty());
+    }
+
+    #[test]
+    fn resolve_literal_ipv6_passes_through() {
+        let hosts = vec!["[2606:4700:4700::1111]".to_owned()];
+        // ToSocketAddrs accepts [v6]:port form
+        let r = resolve_egress_allowlist(&hosts, 443).expect("ipv6 literal");
+        assert_eq!(r.ipv6.len(), 1);
+        assert!(r.ipv4.is_empty());
+    }
+
+    #[test]
+    fn resolve_unknown_host_captured_in_failed() {
+        // Mix a definitely-bogus host with a working one so we
+        // get partial-success (Ok) not AllHostsFailed.
+        let hosts = vec![
+            "1.1.1.1".to_owned(),
+            "definitely-not-a-real-tld.invalid".to_owned(),
+        ];
+        let r = resolve_egress_allowlist(&hosts, 443).expect("partial success");
+        assert!(!r.ipv4.is_empty());
+        assert_eq!(r.failed, vec!["definitely-not-a-real-tld.invalid"]);
+    }
+
+    #[test]
+    fn resolve_empty_input_returns_empty_ok() {
+        let r = resolve_egress_allowlist(&[], 443).expect("empty input");
+        assert!(r.ipv4.is_empty());
+        assert!(r.ipv6.is_empty());
+        assert!(r.failed.is_empty());
+    }
+
+    #[test]
+    fn resolve_all_failed_returns_error() {
+        let hosts = vec![
+            "not-a-real-tld.invalid".to_owned(),
+            "also-bogus.invalid".to_owned(),
+        ];
+        let err = resolve_egress_allowlist(&hosts, 443).expect_err("all hosts bogus");
+        assert!(matches!(err, ResolveError::AllHostsFailed { count: 2 }));
+    }
+
+    #[test]
+    fn resolve_dedupes_repeated_ips() {
+        // Same literal twice — the set must collapse.
+        let hosts = vec!["1.1.1.1".to_owned(), "1.1.1.1".to_owned()];
+        let r = resolve_egress_allowlist(&hosts, 443).expect("ok");
+        assert_eq!(r.ipv4.len(), 1);
+    }
+
+    #[test]
+    fn resolve_results_sorted_for_deterministic_audit() {
+        let hosts = vec![
+            "8.8.8.8".to_owned(),
+            "1.1.1.1".to_owned(),
+            "9.9.9.9".to_owned(),
+        ];
+        let r = resolve_egress_allowlist(&hosts, 443).expect("ok");
+        assert_eq!(
+            r.ipv4,
+            vec![
+                std::net::Ipv4Addr::new(1, 1, 1, 1),
+                std::net::Ipv4Addr::new(8, 8, 8, 8),
+                std::net::Ipv4Addr::new(9, 9, 9, 9),
+            ]
+        );
+    }
+
+    #[test]
+    fn render_population_commands_includes_table_and_set_names() {
+        let ruleset = render_nftables_ruleset(&spec("acme"));
+        let resolved = ResolvedAllowlist {
+            ipv4: vec![std::net::Ipv4Addr::new(1, 1, 1, 1)],
+            ipv6: vec![],
+            failed: vec![],
+        };
+        let cmds = render_set_population_commands(&ruleset, &resolved);
+        assert_eq!(cmds.len(), 1);
+        assert!(cmds[0].contains("inet loom-bridge-acme"));
+        assert!(cmds[0].contains("loom_acme_allow"));
+        assert!(cmds[0].contains("1.1.1.1"));
+    }
+
+    #[test]
+    fn render_population_commands_renders_both_v4_and_v6() {
+        let ruleset = render_nftables_ruleset(&spec("acme"));
+        let resolved = ResolvedAllowlist {
+            ipv4: vec![std::net::Ipv4Addr::new(1, 1, 1, 1)],
+            ipv6: vec!["::1".parse().unwrap()],
+            failed: vec![],
+        };
+        let cmds = render_set_population_commands(&ruleset, &resolved);
+        assert_eq!(cmds.len(), 2);
+        // ipv4 first per render order
+        assert!(cmds[0].contains("loom_acme_allow "));
+        assert!(cmds[0].contains("1.1.1.1"));
+        // ipv6 second
+        assert!(cmds[1].contains("loom_acme_allow6"));
+        assert!(cmds[1].contains("::1"));
+    }
+
+    #[test]
+    fn render_population_commands_empty_resolved_emits_nothing() {
+        // If the resolver returned zero IPs, we don't emit any
+        // commands — the rendered table still has DROP-by-default
+        // so the tenant has zero egress (and an operator-side
+        // warning fires).
+        let ruleset = render_nftables_ruleset(&spec("acme"));
+        let resolved = ResolvedAllowlist::default();
+        let cmds = render_set_population_commands(&ruleset, &resolved);
+        assert_eq!(cmds.len(), 0);
+    }
+
+    #[test]
+    fn render_population_commands_lists_multiple_ips_comma_separated() {
+        let ruleset = render_nftables_ruleset(&spec("acme"));
+        let resolved = ResolvedAllowlist {
+            ipv4: vec![
+                std::net::Ipv4Addr::new(1, 1, 1, 1),
+                std::net::Ipv4Addr::new(8, 8, 8, 8),
+            ],
+            ipv6: vec![],
+            failed: vec![],
+        };
+        let cmds = render_set_population_commands(&ruleset, &resolved);
+        assert_eq!(cmds.len(), 1);
+        assert!(cmds[0].contains("1.1.1.1, 8.8.8.8"));
     }
 
     #[test]
