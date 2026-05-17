@@ -387,7 +387,7 @@
   .loom-carousel__dot {
     width: 8px;
     height: 8px;
-    border-radius: 9999px;
+    border-radius: var(--loom-radius-pill);
     background: color-mix(in oklab, var(--loom-color-ink) 20%, transparent);
     cursor: pointer;
     transition: background var(--loom-transition-fast, 120ms) var(--loom-ease-out, ease),
@@ -411,7 +411,7 @@
     transform: translateY(-50%);
     width: 40px;
     height: 40px;
-    border-radius: 9999px;
+    border-radius: var(--loom-radius-pill);
     background: color-mix(in oklab, var(--loom-color-surface) 92%, transparent);
     border: 1px solid var(--loom-color-border);
     color: var(--loom-color-ink);
@@ -642,6 +642,19 @@
     --loom-radius-component:    var(--loom-radius-lg);
     --loom-border-component:    1px solid var(--loom-color-border);
     --loom-border-strong:       1px solid var(--loom-color-border-strong);
+
+    /* T660 P-pill (added 2026-05-17): canonical pill-shape radius
+     * for nav-link backgrounds, avatar wrappers, and any tag /
+     * chip / round-button. Was referenced as --loom-radius-full at
+     * 7 sites in this file but never DEFINED — browsers were
+     * silently falling back to the `initial` value (0) on those
+     * declarations. Pinning the token at 9999px (the de-facto pill
+     * idiom — any value > the element's half-side rounds to a pill)
+     * fixes those + gives downstream sites a stable token to
+     * reference instead of hardcoding 999px or 9999px (which the
+     * forge tokens-phase warns on). */
+    --loom-radius-full:         9999px;
+    --loom-radius-pill:         9999px;
 
     /* Layered shadow stack — premium depth.
      * Three rays at different distances + a soft ambient =
@@ -1443,7 +1456,7 @@
     align-items: center;
     gap: var(--loom-space-2);
     padding: var(--loom-space-2) var(--loom-space-3);
-    border-radius: 999px;
+    border-radius: var(--loom-radius-pill);
     background: var(--loom-color-surface-muted);
     color: var(--loom-color-ink-muted, var(--loom-color-ink));
     font-size: var(--loom-font-sm, 0.875rem);
@@ -1887,7 +1900,7 @@
     --tag-color: var(--loom-color-primary);
     align-self: flex-start;
     padding: var(--loom-space-1) var(--loom-space-3);
-    border-radius: 999px;
+    border-radius: var(--loom-radius-pill);
     background: color-mix(in oklab, var(--tag-color) 14%, var(--loom-color-surface));
     color: color-mix(in oklab, var(--tag-color) 80%, var(--loom-color-ink));
     font-family: var(--loom-font-display);
@@ -2041,7 +2054,7 @@
     display: inline-block;
     align-self: flex-start;
     padding: var(--loom-space-1) var(--loom-space-3);
-    border-radius: 999px;
+    border-radius: var(--loom-radius-pill);
     background: color-mix(in oklab, var(--loom-color-primary, currentColor) 12%, transparent);
     color: var(--loom-color-primary, currentColor);
     font-size: var(--loom-font-sm, 0.875rem);
@@ -2081,7 +2094,7 @@
     align-self: flex-start;
     align-items: center;
     padding: var(--loom-space-3) var(--loom-space-6);
-    border-radius: 999px;
+    border-radius: var(--loom-radius-pill);
     background: linear-gradient(135deg,
       var(--loom-color-primary) 0%,
       color-mix(in oklab, var(--loom-color-primary) 70%, var(--loom-color-gradient-b)) 100%);
@@ -2225,7 +2238,7 @@
     padding: var(--loom-space-4) var(--loom-space-5);
     background: var(--loom-color-surface-muted);
     color: var(--loom-color-ink-muted, var(--loom-color-ink));
-    border-radius: 999px;
+    border-radius: var(--loom-radius-pill);
     border: 1px solid var(--loom-color-border);
     text-decoration: none;
     min-height: var(--loom-tap-min);
