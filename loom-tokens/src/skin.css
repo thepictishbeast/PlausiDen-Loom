@@ -4596,3 +4596,399 @@ body[data-loom-drawer-open] .loom-drawer-scrim {
 .loom-avatar[data-size="md"] { inline-size: 2.5rem; block-size: 2.5rem; }
 .loom-avatar[data-size="lg"] { inline-size: 4rem; block-size: 4rem; font-size: 1.5rem; }
 .loom-avatar[data-shape="square"] { border-radius: var(--loom-radius-md, 0.5rem); }
+
+/* ============================================================
+ * Form primitives — vocabulary batch 4 (task #46).
+ *
+ * Inputs / textareas / selects / checkboxes / radios / switches /
+ * fieldsets / labels / helper text / buttons / button groups /
+ * file drops. All accessibility-first: labels are not optional,
+ * error states are typed via data-state="error", focus rings are
+ * visible at every focus-visible.
+ *
+ * No reliance on user-agent native styling beyond what's
+ * accessible — every native control gets explicit focus + hover
+ * + disabled + error visuals tied to --loom-color-* tokens.
+ *
+ * Composes inside .loom-stack / .loom-cluster / .loom-sidebar
+ * layout primitives from batch 1.
+ * ============================================================ */
+
+/* Form container + layout helpers.
+ */
+.loom-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--loom-space-4);
+}
+.loom-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--loom-space-1);
+}
+.loom-form-actions {
+  display: flex;
+  gap: var(--loom-space-3);
+  justify-content: flex-end;
+  margin-block-start: var(--loom-space-4);
+}
+.loom-fieldset {
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  border-radius: var(--loom-radius-md, 0.5rem);
+  padding: var(--loom-space-4);
+  margin: 0;
+}
+.loom-legend {
+  font-weight: 600;
+  font-size: 0.875rem;
+  padding-inline: var(--loom-space-2);
+}
+
+/* Labels — required variant adds a visual indicator on the
+ * marker character so screen readers still get the input's
+ * aria-required attribute as the primary signal.
+ */
+.loom-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--loom-color-ink);
+  margin-block-end: var(--loom-space-1);
+}
+.loom-label-required::after {
+  content: " *";
+  color: var(--loom-color-danger, var(--loom-color-ink));
+}
+
+/* Helper + error text.
+ */
+.loom-helper-text {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+  margin-block-start: var(--loom-space-1);
+}
+.loom-error-text {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--loom-color-danger, var(--loom-color-ink));
+  margin-block-start: var(--loom-space-1);
+}
+
+/* Text inputs — base + states.
+ * data-state="error" enforces the error visuals so consumers
+ * don't have to maintain two separate classnames.
+ */
+.loom-input {
+  display: block;
+  inline-size: 100%;
+  padding: 0.55em 0.85em;
+  font-size: 1rem;
+  line-height: 1.4;
+  color: var(--loom-color-ink);
+  background: var(--loom-color-surface);
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  border-radius: var(--loom-radius-md, 0.5rem);
+  box-sizing: border-box;
+}
+.loom-input:focus-visible {
+  outline: 2px solid var(--loom-color-accent);
+  outline-offset: 2px;
+  border-color: var(--loom-color-accent);
+}
+.loom-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.loom-input[data-state="error"],
+.loom-input[aria-invalid="true"] {
+  border-color: var(--loom-color-danger, var(--loom-color-ink));
+}
+.loom-input[data-state="error"]:focus-visible,
+.loom-input[aria-invalid="true"]:focus-visible {
+  outline-color: var(--loom-color-danger, var(--loom-color-accent));
+}
+
+/* Textarea — inherits .loom-input look but allows resize.
+ */
+.loom-textarea {
+  display: block;
+  inline-size: 100%;
+  min-block-size: 6em;
+  padding: 0.55em 0.85em;
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.45;
+  color: var(--loom-color-ink);
+  background: var(--loom-color-surface);
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  border-radius: var(--loom-radius-md, 0.5rem);
+  resize: vertical;
+  box-sizing: border-box;
+}
+.loom-textarea:focus-visible {
+  outline: 2px solid var(--loom-color-accent);
+  outline-offset: 2px;
+  border-color: var(--loom-color-accent);
+}
+
+/* Select — kept simple; native control kept for accessibility,
+ * caret painted via background-image SVG (data-URI inline).
+ */
+.loom-select {
+  display: block;
+  inline-size: 100%;
+  padding: 0.55em 2em 0.55em 0.85em;
+  font-size: 1rem;
+  line-height: 1.4;
+  color: var(--loom-color-ink);
+  background-color: var(--loom-color-surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath fill='none' stroke='currentColor' stroke-width='1.5' d='M1 1.5l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.85em center;
+  background-size: 0.75em;
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  border-radius: var(--loom-radius-md, 0.5rem);
+  appearance: none;
+  box-sizing: border-box;
+}
+.loom-select:focus-visible {
+  outline: 2px solid var(--loom-color-accent);
+  outline-offset: 2px;
+}
+
+/* Input-group — prefix/suffix slot wrapper.
+ */
+.loom-input-group {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  border-radius: var(--loom-radius-md, 0.5rem);
+  background: var(--loom-color-surface);
+  overflow: hidden;
+}
+.loom-input-group:focus-within {
+  outline: 2px solid var(--loom-color-accent);
+  outline-offset: 2px;
+}
+.loom-input-group > .loom-input {
+  border: 0;
+  border-radius: 0;
+  flex: 1 1 auto;
+}
+.loom-input-group > .loom-input:focus-visible {
+  outline: none;
+}
+.loom-input-group > [data-slot="prefix"],
+.loom-input-group > [data-slot="suffix"] {
+  display: flex;
+  align-items: center;
+  padding-inline: var(--loom-space-3);
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+  background: var(--loom-color-surface-subtle, var(--loom-color-surface));
+}
+
+/* Checkboxes + radios — accessible-by-default custom look.
+ * Native control hidden visually but kept in the layout for
+ * screen-reader access; ::before draws the box.
+ */
+.loom-checkbox,
+.loom-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--loom-space-2);
+  cursor: pointer;
+  user-select: none;
+}
+.loom-checkbox > input,
+.loom-radio > input {
+  position: absolute;
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+  opacity: 0;
+  pointer-events: none;
+}
+.loom-checkbox::before,
+.loom-radio::before {
+  content: "";
+  display: inline-block;
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+  border: 1.5px solid var(--loom-color-border, var(--loom-color-ink));
+  background: var(--loom-color-surface);
+  flex-shrink: 0;
+}
+.loom-checkbox::before { border-radius: 0.25rem; }
+.loom-radio::before    { border-radius: 50%; }
+.loom-checkbox:has(input:checked)::before {
+  background: var(--loom-color-accent);
+  border-color: var(--loom-color-accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' d='M3 7l3 3 5-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 75%;
+}
+.loom-radio:has(input:checked)::before {
+  background: radial-gradient(
+    var(--loom-color-accent) 35%,
+    var(--loom-color-surface) 40%
+  );
+  border-color: var(--loom-color-accent);
+}
+.loom-checkbox:has(input:focus-visible)::before,
+.loom-radio:has(input:focus-visible)::before {
+  outline: 2px solid var(--loom-color-accent);
+  outline-offset: 2px;
+}
+
+/* Switch — toggle (boolean control). Visually distinct from
+ * checkbox because the semantics differ (immediate effect vs
+ * staged).
+ */
+.loom-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--loom-space-2);
+  cursor: pointer;
+  user-select: none;
+}
+.loom-switch > input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.loom-switch::before {
+  content: "";
+  display: inline-block;
+  inline-size: 2.25rem;
+  block-size: 1.25rem;
+  border-radius: 999px;
+  background: var(--loom-color-surface-subtle, var(--loom-color-surface));
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  position: relative;
+  flex-shrink: 0;
+}
+.loom-switch::after {
+  content: "";
+  position: absolute;
+  inline-size: 0.875rem;
+  block-size: 0.875rem;
+  border-radius: 50%;
+  background: var(--loom-color-surface);
+  border: 1px solid var(--loom-color-border, var(--loom-color-ink));
+  inset-block-start: 50%;
+  inset-inline-start: 0.2rem;
+  transform: translateY(-50%);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .loom-switch::after {
+    transition: inset-inline-start 180ms ease;
+  }
+}
+.loom-switch:has(input:checked)::before {
+  background: var(--loom-color-accent);
+  border-color: var(--loom-color-accent);
+}
+.loom-switch:has(input:checked)::after {
+  inset-inline-start: 1.125rem;
+  background: var(--loom-color-on-accent, white);
+  border-color: transparent;
+}
+
+/* Buttons — closed-enum variant + size.
+ */
+.loom-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--loom-space-2);
+  padding: 0.55em 1.1em;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.2;
+  border-radius: var(--loom-radius-md, 0.5rem);
+  border: 1px solid transparent;
+  background: var(--loom-color-accent);
+  color: var(--loom-color-on-accent, white);
+  cursor: pointer;
+  text-decoration: none;
+}
+.loom-button:focus-visible {
+  outline: 2px solid var(--loom-color-accent);
+  outline-offset: 2px;
+}
+.loom-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .loom-button {
+    transition: filter 160ms ease, transform 160ms ease;
+  }
+  .loom-button:hover:not(:disabled) { filter: brightness(1.08); }
+  .loom-button:active:not(:disabled) { transform: translateY(1px); }
+}
+.loom-button[data-variant="secondary"] {
+  background: var(--loom-color-surface-subtle, var(--loom-color-surface));
+  color: var(--loom-color-ink);
+  border-color: var(--loom-color-border, var(--loom-color-ink));
+}
+.loom-button[data-variant="tertiary"] {
+  background: transparent;
+  color: var(--loom-color-accent);
+  border-color: transparent;
+}
+.loom-button[data-variant="ghost"] {
+  background: transparent;
+  color: var(--loom-color-ink);
+  border-color: transparent;
+}
+.loom-button[data-variant="destructive"] {
+  background: var(--loom-color-danger, var(--loom-color-ink));
+  color: var(--loom-color-on-accent, white);
+}
+.loom-button[data-size="sm"] { padding: 0.35em 0.85em; font-size: 0.875rem; }
+.loom-button[data-size="lg"] { padding: 0.7em 1.5em; font-size: 1.125rem; }
+.loom-button[data-block="true"] { inline-size: 100%; }
+
+/* Button-group — segmented control.
+ */
+.loom-button-group {
+  display: inline-flex;
+}
+.loom-button-group > .loom-button {
+  border-radius: 0;
+  border-color: var(--loom-color-border, var(--loom-color-ink));
+}
+.loom-button-group > .loom-button:first-child {
+  border-start-start-radius: var(--loom-radius-md, 0.5rem);
+  border-end-start-radius: var(--loom-radius-md, 0.5rem);
+}
+.loom-button-group > .loom-button:last-child {
+  border-start-end-radius: var(--loom-radius-md, 0.5rem);
+  border-end-end-radius: var(--loom-radius-md, 0.5rem);
+}
+.loom-button-group > .loom-button + .loom-button {
+  margin-inline-start: -1px;
+}
+
+/* File drop zone.
+ */
+.loom-file-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--loom-space-2);
+  padding: var(--loom-space-6);
+  border: 2px dashed var(--loom-color-border, var(--loom-color-ink));
+  border-radius: var(--loom-radius-md, 0.5rem);
+  background: var(--loom-color-surface);
+  color: var(--loom-color-ink-muted, var(--loom-color-ink));
+  text-align: center;
+  cursor: pointer;
+}
+.loom-file-drop[data-state="hover"],
+.loom-file-drop:hover {
+  border-color: var(--loom-color-accent);
+  color: var(--loom-color-ink);
+}
