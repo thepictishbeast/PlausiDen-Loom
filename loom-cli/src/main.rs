@@ -1095,32 +1095,32 @@ fn main() -> ExitCode {
             Ok(0) => ExitCode::SUCCESS,
             Ok(_) => ExitCode::from(1),
             Err(e) => {
-                eprintln!("loom lint: {e:#}");
+                etracing::info!("loom lint: {e:#}");
                 ExitCode::from(2)
             }
         },
         Cmd::Tokens => {
-            println!("{}", loom_tokens::tokens_json());
+            tracing::info!("{}", loom_tokens::tokens_json());
             ExitCode::SUCCESS
         }
         Cmd::Report { root, json } => match cmd_report(&root, json) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("loom report: {e:#}");
+                etracing::info!("loom report: {e:#}");
                 ExitCode::from(2)
             }
         },
         Cmd::Audit { journey, url } => match cmd_audit(&journey, &url) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("loom audit: {e:#}");
+                etracing::info!("loom audit: {e:#}");
                 ExitCode::from(1)
             }
         },
         Cmd::StateMatrix { out } => match cmd_state_matrix(&out) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("loom state-matrix: {e:#}");
+                etracing::info!("loom state-matrix: {e:#}");
                 ExitCode::from(2)
             }
         },
@@ -1131,7 +1131,7 @@ fn main() -> ExitCode {
         } => match cmd_new(&name, &root, &template) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("loom new: {e:#}");
+                etracing::info!("loom new: {e:#}");
                 ExitCode::from(1)
             }
         },
@@ -1150,18 +1150,18 @@ fn main() -> ExitCode {
         Cmd::Doctor { root, site: _ } => match cmd_doctor(&root) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("loom doctor: {e:#}");
+                etracing::info!("loom doctor: {e:#}");
                 ExitCode::from(1)
             }
         },
         Cmd::CriticalCss { input, out } => match cmd_critical_css(&input, &out) {
             Ok(()) => ExitCode::SUCCESS,
             Err(CriticalCssError::Parse(e)) => {
-                eprintln!("loom critical-css: parse error: {e}");
+                etracing::info!("loom critical-css: parse error: {e}");
                 ExitCode::from(1)
             }
             Err(CriticalCssError::Io(e)) => {
-                eprintln!("loom critical-css: i/o error: {e}");
+                etracing::info!("loom critical-css: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1173,33 +1173,33 @@ fn main() -> ExitCode {
         } => match cmd_backend_stub(&key, &backends, &crate_dir, force) {
             Ok(()) => ExitCode::SUCCESS,
             Err(BackendStubError::KeyNotFound(k)) => {
-                eprintln!("loom backend-stub: key {k:?} not found in backends.toml");
+                etracing::info!("loom backend-stub: key {k:?} not found in backends.toml");
                 ExitCode::from(1)
             }
             Err(BackendStubError::Conflict(p)) => {
-                eprintln!(
+                etracing::info!(
                     "loom backend-stub: {} already exists; pass --force",
                     p.display()
                 );
                 ExitCode::from(1)
             }
             Err(BackendStubError::CrateNotDir(p)) => {
-                eprintln!("loom backend-stub: {} is not a directory", p.display());
+                etracing::info!("loom backend-stub: {} is not a directory", p.display());
                 ExitCode::from(1)
             }
             Err(BackendStubError::Toml(e)) => {
-                eprintln!("loom backend-stub: toml error: {e}");
+                etracing::info!("loom backend-stub: toml error: {e}");
                 ExitCode::from(1)
             }
             Err(BackendStubError::Io(e)) => {
-                eprintln!("loom backend-stub: i/o error: {e}");
+                etracing::info!("loom backend-stub: i/o error: {e}");
                 ExitCode::from(2)
             }
             Err(BackendStubError::CapabilityEscape {
                 attempted,
                 confined_root,
             }) => {
-                eprintln!(
+                etracing::info!(
                     "loom backend-stub: SECURITY: write attempt {} escapes capability scope {}",
                     attempted.display(),
                     confined_root.display(),
@@ -1216,7 +1216,7 @@ fn main() -> ExitCode {
                 skipped,
                 failed,
             }) => {
-                println!(
+                tracing::info!(
                     "  ok     {ok} minted, {skipped} skipped (already had impl), {failed} failed"
                 );
                 if failed > 0 {
@@ -1226,22 +1226,22 @@ fn main() -> ExitCode {
                 }
             }
             Err(BackendStubError::Toml(e)) => {
-                eprintln!("loom backend-stub-all: toml error: {e}");
+                etracing::info!("loom backend-stub-all: toml error: {e}");
                 ExitCode::from(2)
             }
             Err(BackendStubError::CrateNotDir(p)) => {
-                eprintln!("loom backend-stub-all: {} is not a directory", p.display());
+                etracing::info!("loom backend-stub-all: {} is not a directory", p.display());
                 ExitCode::from(2)
             }
             Err(BackendStubError::Io(e)) => {
-                eprintln!("loom backend-stub-all: i/o error: {e}");
+                etracing::info!("loom backend-stub-all: i/o error: {e}");
                 ExitCode::from(2)
             }
             Err(BackendStubError::CapabilityEscape {
                 attempted,
                 confined_root,
             }) => {
-                eprintln!(
+                etracing::info!(
                     "loom backend-stub-all: SECURITY: write attempt {} escapes capability scope {}",
                     attempted.display(),
                     confined_root.display(),
@@ -1258,7 +1258,7 @@ fn main() -> ExitCode {
         Cmd::BackendList { backends } => match cmd_backend_list(&backends) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("loom backend list: i/o error: {e}");
+                etracing::info!("loom backend list: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1270,7 +1270,7 @@ fn main() -> ExitCode {
         } => match cmd_edit_serve(&cms, &static_dir, &forge, port) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("loom edit serve: {e}");
+                etracing::info!("loom edit serve: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1282,7 +1282,7 @@ fn main() -> ExitCode {
         } => match cmd_report_tail(&dir, lines, &kind, follow) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("loom report-tail: {e}");
+                etracing::info!("loom report-tail: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1294,21 +1294,21 @@ fn main() -> ExitCode {
         } => match cmd_report_stats(&dir, since, &kind, json) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("loom report-stats: {e}");
+                etracing::info!("loom report-stats: {e}");
                 ExitCode::from(2)
             }
         },
         Cmd::ReportReview { action } => match cmd_report_review(action) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("loom report-review: {e}");
+                etracing::info!("loom report-review: {e}");
                 ExitCode::from(2)
             }
         },
         Cmd::Revisions { action } => match cmd_revisions(action) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("loom revisions: {e}");
+                etracing::info!("loom revisions: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1321,7 +1321,7 @@ fn main() -> ExitCode {
         } => match cmd_import_dispatch(from, url, &into, slug.as_deref(), force) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("loom import: {e}");
+                etracing::info!("loom import: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1329,14 +1329,14 @@ fn main() -> ExitCode {
             LoomAttestAction::Init { force } => match cmd_loom_attest_init(force) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("loom attest init: {e}");
+                    etracing::info!("loom attest init: {e}");
                     ExitCode::from(2)
                 }
             },
             LoomAttestAction::Pubkey => match cmd_loom_attest_pubkey() {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("loom attest pubkey: {e}");
+                    etracing::info!("loom attest pubkey: {e}");
                     ExitCode::from(2)
                 }
             },
@@ -1344,7 +1344,7 @@ fn main() -> ExitCode {
                 match cmd_loom_attest_export(fingerprint_only) {
                     Ok(()) => ExitCode::SUCCESS,
                     Err(e) => {
-                        eprintln!("loom attest export: {e}");
+                        etracing::info!("loom attest export: {e}");
                         ExitCode::from(2)
                     }
                 }
@@ -1367,7 +1367,7 @@ fn main() -> ExitCode {
                 match cmd_deploy_publish(&from, &to, name.as_deref(), remote.as_ref()) {
                     Ok(()) => ExitCode::SUCCESS,
                     Err(e) => {
-                        eprintln!("loom deploy publish: {e}");
+                        etracing::info!("loom deploy publish: {e}");
                         ExitCode::from(2)
                     }
                 }
@@ -1375,18 +1375,18 @@ fn main() -> ExitCode {
             DeployAction::Verify { at } => match cmd_deploy_verify(&at) {
                 Ok(0) => ExitCode::SUCCESS,
                 Ok(n) => {
-                    eprintln!("loom deploy verify: {n} mismatch(es)");
+                    etracing::info!("loom deploy verify: {n} mismatch(es)");
                     ExitCode::from(1)
                 }
                 Err(e) => {
-                    eprintln!("loom deploy verify: {e}");
+                    etracing::info!("loom deploy verify: {e}");
                     ExitCode::from(2)
                 }
             },
             DeployAction::Rollback { at } => match cmd_deploy_rollback(&at) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("loom deploy rollback: {e}");
+                    etracing::info!("loom deploy rollback: {e}");
                     ExitCode::from(2)
                 }
             },
@@ -1400,14 +1400,14 @@ fn main() -> ExitCode {
             } => match cmd_site_init(&name, &template, force, theme.as_deref()) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("loom site init: {e}");
+                    etracing::info!("loom site init: {e}");
                     ExitCode::from(2)
                 }
             },
             SiteAction::Templates => {
-                println!("bundled templates:");
+                tracing::info!("bundled templates:");
                 for (name, desc) in BUNDLED_TEMPLATES {
-                    println!("  {name:<12}  {desc}");
+                    tracing::info!("  {name:<12}  {desc}");
                 }
                 ExitCode::SUCCESS
             }
@@ -1416,19 +1416,19 @@ fn main() -> ExitCode {
             AuthAction::Init { user, force } => match cmd_auth_init(&user, force) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("loom auth init: {e}");
+                    etracing::info!("loom auth init: {e}");
                     ExitCode::from(2)
                 }
             },
             AuthAction::List => match cmd_auth_list() {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("loom auth list: {e}");
+                    etracing::info!("loom auth list: {e}");
                     ExitCode::from(2)
                 }
             },
             AuthAction::Where => {
-                println!("{}", auth_store_path().display());
+                tracing::info!("{}", auth_store_path().display());
                 ExitCode::SUCCESS
             }
         },
@@ -1436,18 +1436,18 @@ fn main() -> ExitCode {
             ThemeAction::List { skin } => match cmd_theme_list(&skin) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("loom theme list: i/o error: {e}");
+                    etracing::info!("loom theme list: i/o error: {e}");
                     ExitCode::from(2)
                 }
             },
             ThemeAction::Validate { skin } => match cmd_theme_validate(&skin) {
                 Ok(0) => ExitCode::SUCCESS,
                 Ok(n) => {
-                    eprintln!("loom theme validate: {n} drift finding(s)");
+                    etracing::info!("loom theme validate: {n} drift finding(s)");
                     ExitCode::from(1)
                 }
                 Err(e) => {
-                    eprintln!("loom theme validate: i/o error: {e}");
+                    etracing::info!("loom theme validate: i/o error: {e}");
                     ExitCode::from(2)
                 }
             },
@@ -1455,11 +1455,11 @@ fn main() -> ExitCode {
                 match cmd_theme_contrast(&skin, min_ratio) {
                     Ok(0) => ExitCode::SUCCESS,
                     Ok(n) => {
-                        eprintln!("loom theme contrast: {n} pair(s) below {min_ratio}:1");
+                        etracing::info!("loom theme contrast: {n} pair(s) below {min_ratio}:1");
                         ExitCode::from(1)
                     }
                     Err(e) => {
-                        eprintln!("loom theme contrast: {e}");
+                        etracing::info!("loom theme contrast: {e}");
                         ExitCode::from(2)
                     }
                 }
@@ -1469,20 +1469,20 @@ fn main() -> ExitCode {
             Ok(0) => ExitCode::SUCCESS,
             Ok(_) => ExitCode::from(1),
             Err(e) => {
-                eprintln!("loom audit-bridge: i/o error: {e}");
+                etracing::info!("loom audit-bridge: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
         Cmd::HooksInstall { target, force } => match cmd_hooks_install(&target, force) {
             Ok(false) => ExitCode::SUCCESS,
             Ok(true) => {
-                eprintln!(
+                etracing::info!(
                     "loom hooks install: pre-commit hook already exists; pass --force to overwrite"
                 );
                 ExitCode::from(1)
             }
             Err(e) => {
-                eprintln!("loom hooks install: {e}");
+                etracing::info!("loom hooks install: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1494,14 +1494,14 @@ fn main() -> ExitCode {
         } => match cmd_journey_from_cms(&cms_dir, &base_url, &out, &name) {
             Ok(()) => ExitCode::SUCCESS,
             Err(JourneyFromCmsError::Schema { file, error }) => {
-                eprintln!(
+                etracing::info!(
                     "loom journey-from-cms: schema error in {}: {error}",
                     file.display()
                 );
                 ExitCode::from(1)
             }
             Err(JourneyFromCmsError::Io(e)) => {
-                eprintln!("loom journey-from-cms: i/o error: {e}");
+                etracing::info!("loom journey-from-cms: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1514,38 +1514,38 @@ fn main() -> ExitCode {
         } => match cmd_cms_new(&kind, &out, &title, &path, force) {
             Ok(()) => ExitCode::SUCCESS,
             Err(CmsNewError::Conflict(p)) => {
-                eprintln!(
+                etracing::info!(
                     "loom cms-new: {} already exists; pass --force to overwrite",
                     p.display()
                 );
                 ExitCode::from(1)
             }
             Err(CmsNewError::UnknownKind(k)) => {
-                eprintln!(
+                etracing::info!(
                     "loom cms-new: unknown template kind {k:?}; expected landing | explainer | form"
                 );
                 ExitCode::from(1)
             }
             Err(CmsNewError::Io(e)) => {
-                eprintln!("loom cms-new: i/o error: {e}");
+                etracing::info!("loom cms-new: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
         Cmd::CmsSchema { out } => match cmd_cms_schema(&out) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("loom cms-schema: i/o error: {e}");
+                etracing::info!("loom cms-schema: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
         Cmd::Validate { input } => match cmd_validate(&input) {
             Ok(false) => ExitCode::SUCCESS,
             Ok(true) => {
-                eprintln!("loom validate: at least one file failed");
+                etracing::info!("loom validate: at least one file failed");
                 ExitCode::from(1)
             }
             Err(e) => {
-                eprintln!("loom validate: i/o error: {e}");
+                etracing::info!("loom validate: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1557,11 +1557,11 @@ fn main() -> ExitCode {
         } => match cmd_image_convert(&input_dir, avif_quality, webp_quality, force) {
             Ok(false) => ExitCode::SUCCESS,
             Ok(true) => {
-                eprintln!("loom image-convert: at least one conversion failed");
+                etracing::info!("loom image-convert: at least one conversion failed");
                 ExitCode::from(1)
             }
             Err(e) => {
-                eprintln!("loom image-convert: i/o error: {e}");
+                etracing::info!("loom image-convert: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1580,18 +1580,18 @@ fn main() -> ExitCode {
         ) {
             Ok(()) => ExitCode::SUCCESS,
             Err(CmsRenderError::Schema(e)) => {
-                eprintln!("loom cms-render: schema error: {e}");
+                etracing::info!("loom cms-render: schema error: {e}");
                 ExitCode::from(1)
             }
             Err(CmsRenderError::Io(e)) => {
-                eprintln!("loom cms-render: i/o error: {e}");
+                etracing::info!("loom cms-render: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
         Cmd::SshKey { db, op } => match cmd_ssh_key(&db, op) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("loom ssh-key: {e}");
+                etracing::info!("loom ssh-key: {e}");
                 ExitCode::from(1)
             }
         },
@@ -1607,7 +1607,7 @@ fn cmd_ssh_key(db_path: &std::path::Path, op: SshKeyOp) -> Result<(), String> {
             let id = store
                 .register_tenant(&slug, &display, &owner)
                 .map_err(|e| format!("register tenant: {e:?}"))?;
-            println!("registered tenant '{slug}' (id={id})");
+            tracing::info!("registered tenant '{slug}' (id={id})");
             Ok(())
         }
         SshKeyOp::Add { slug, line } => {
@@ -1617,7 +1617,7 @@ fn cmd_ssh_key(db_path: &std::path::Path, op: SshKeyOp) -> Result<(), String> {
             let id = store
                 .add_ssh_key(tenant.id, &line)
                 .map_err(|e| format!("add key: {e:?}"))?;
-            println!("added key (row id={id}) to tenant '{slug}'");
+            tracing::info!("added key (row id={id}) to tenant '{slug}'");
             Ok(())
         }
         SshKeyOp::List { slug } => {
@@ -1628,11 +1628,11 @@ fn cmd_ssh_key(db_path: &std::path::Path, op: SshKeyOp) -> Result<(), String> {
                 .list_ssh_keys(tenant.id)
                 .map_err(|e| format!("list keys: {e:?}"))?;
             if keys.is_empty() {
-                println!("(no active keys for tenant '{slug}')");
+                tracing::info!("(no active keys for tenant '{slug}')");
             } else {
-                println!("# tenant '{slug}': {n} active key(s)", n = keys.len());
+                tracing::info!("# tenant '{slug}': {n} active key(s)", n = keys.len());
                 for k in &keys {
-                    println!(
+                    tracing::info!(
                         "{fp}  {comment}  added={added}",
                         fp = k.fingerprint,
                         comment = k.comment,
@@ -1649,7 +1649,7 @@ fn cmd_ssh_key(db_path: &std::path::Path, op: SshKeyOp) -> Result<(), String> {
             store
                 .revoke_ssh_key(tenant.id, &fingerprint)
                 .map_err(|e| format!("revoke: {e:?}"))?;
-            println!("revoked '{fingerprint}' for tenant '{slug}'");
+            tracing::info!("revoked '{fingerprint}' for tenant '{slug}'");
             Ok(())
         }
         SshKeyOp::Export { slug } => {
@@ -1672,13 +1672,13 @@ fn cmd_ssh_key(db_path: &std::path::Path, op: SshKeyOp) -> Result<(), String> {
             // wrapped in a banner so accidental terminal display
             // is loud.
             let sk_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(sk_bytes);
-            println!("-----BEGIN LOOM ED25519 SECRET-----");
-            println!("{sk_b64}");
-            println!("-----END LOOM ED25519 SECRET-----");
+            tracing::info!("-----BEGIN LOOM ED25519 SECRET-----");
+            tracing::info!("{sk_b64}");
+            tracing::info!("-----END LOOM ED25519 SECRET-----");
             // Public key + fingerprint to stderr so a redirect
             // captures only the secret.
-            eprintln!("{pub_line}");
-            eprintln!("# fingerprint: {fp}");
+            etracing::info!("{pub_line}");
+            etracing::info!("# fingerprint: {fp}");
             Ok(())
         }
     }
@@ -1695,7 +1695,7 @@ fn cmd_lint(root: &std::path::Path, json: bool) -> Result<usize> {
             "rust_class_strings": violations,
             "css_raw_values": css_violations,
         });
-        println!(
+        tracing::info!(
             "{}",
             serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".into())
         );
@@ -1703,28 +1703,28 @@ fn cmd_lint(root: &std::path::Path, json: bool) -> Result<usize> {
     }
 
     if total == 0 {
-        println!("loom lint: clean ({})", root.display());
+        tracing::info!("loom lint: clean ({})", root.display());
         return Ok(0);
     }
 
     if !violations.is_empty() {
-        println!(
+        tracing::info!(
             "loom lint: {} Rust class-string violation(s) in {}",
             violations.len(),
             root.display()
         );
         for v in &violations {
-            println!("  {}:{}", v.path.display(), v.line);
-            println!("    \"{}\"", v.class_string);
+            tracing::info!("  {}:{}", v.path.display(), v.line);
+            tracing::info!("    \"{}\"", v.class_string);
         }
-        println!();
-        println!("Each Rust violation = a raw class string in a non-allowlisted file.");
-        println!("Move the styling into a typed component in loom-components.");
+        tracing::info!();
+        tracing::info!("Each Rust violation = a raw class string in a non-allowlisted file.");
+        tracing::info!("Move the styling into a typed component in loom-components.");
     }
 
     if !css_violations.is_empty() {
-        println!();
-        println!(
+        tracing::info!();
+        tracing::info!(
             "loom lint: {} CSS raw-value violation(s) in {}",
             css_violations.len(),
             root.display()
@@ -1735,17 +1735,17 @@ fn cmd_lint(root: &std::path::Path, json: bool) -> Result<usize> {
                 loom_lint::CssViolationKind::RawSpacing => "raw-spacing",
                 loom_lint::CssViolationKind::RawTime => "raw-time",
             };
-            println!("  {}:{} [{}]", cv.path.display(), cv.line, kind);
-            println!("    {}", cv.matched);
+            tracing::info!("  {}:{} [{}]", cv.path.display(), cv.line, kind);
+            tracing::info!("    {}", cv.matched);
         }
-        println!();
-        println!(
+        tracing::info!();
+        tracing::info!(
             "Each CSS violation = a raw colour / spacing literal outside a token-source file."
         );
-        println!(
+        tracing::info!(
             "Replace with a `var(--loom-color-*)` / `var(--loom-space-*)` from loom-tokens.css,",
         );
-        println!("or extend the token set if no role fits.");
+        tracing::info!("or extend the token set if no role fits.");
     }
 
     Ok(total)
@@ -1792,32 +1792,32 @@ fn cmd_report(root: &std::path::Path, json: bool) -> Result<()> {
                 .map(|(p, n)| serde_json::json!({"path": p, "violations": n}))
                 .collect::<Vec<_>>(),
         });
-        println!(
+        tracing::info!(
             "{}",
             serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".into())
         );
         return Ok(());
     }
 
-    println!("loom report — design-system drift in {}", root.display());
-    println!("Total raw-class violations: {}", violations.len());
-    println!("(loom-components/ is sanctioned and excluded from the count.)");
-    println!();
+    tracing::info!("loom report — design-system drift in {}", root.display());
+    tracing::info!("Total raw-class violations: {}", violations.len());
+    tracing::info!("(loom-components/ is sanctioned and excluded from the count.)");
+    tracing::info!();
     if ranked.is_empty() {
-        println!("No drift detected — every view file goes through Loom primitives.");
+        tracing::info!("No drift detected — every view file goes through Loom primitives.");
         return Ok(());
     }
-    println!("Per-file breakdown (descending):");
-    println!();
-    println!("  {:<60}  RAW CLASSES", "FILE");
-    println!("  {:<60}  {}", "-".repeat(60), "-".repeat(11));
+    tracing::info!("Per-file breakdown (descending):");
+    tracing::info!();
+    tracing::info!("  {:<60}  RAW CLASSES", "FILE");
+    tracing::info!("  {:<60}  {}", "-".repeat(60), "-".repeat(11));
     for (path, count) in &ranked {
-        println!("  {path:<60}  {count}");
+        tracing::info!("  {path:<60}  {count}");
     }
-    println!();
-    println!("To resolve: replace the raw class string with a typed");
-    println!("primitive from loom-components/. If a primitive does not");
-    println!("yet exist, propose one in a separate PR (see CLAUDE.md).");
+    tracing::info!();
+    tracing::info!("To resolve: replace the raw class string with a typed");
+    tracing::info!("primitive from loom-components/. If a primitive does not");
+    tracing::info!("yet exist, propose one in a separate PR (see CLAUDE.md).");
     Ok(())
 }
 
@@ -1912,15 +1912,15 @@ fn cmd_doctor(root: &std::path::Path) -> Result<()> {
         .filter(|f| f.level == DoctorLevel::Ok)
         .count();
 
-    println!(
+    tracing::info!(
         "loom doctor: {n_ok} ok · {n_warn} warn · {n_fail} fail · root={}",
         root.display()
     );
-    println!();
+    tracing::info!();
     for f in &findings {
-        println!("  [{}] {} — {}", f.level.label(), f.check, f.message);
+        tracing::info!("  [{}] {} — {}", f.level.label(), f.check, f.message);
         if let Some(r) = &f.remedy {
-            println!("         → {r}");
+            tracing::info!("         → {r}");
         }
     }
 
@@ -2340,19 +2340,19 @@ fn cmd_state_matrix(out: &std::path::Path) -> Result<()> {
             .map_err(|_| anyhow::anyhow!("write state-matrix-{label}.html"))?;
         written += 1;
     }
-    println!("loom state-matrix:");
-    println!(
+    tracing::info!("loom state-matrix:");
+    tracing::info!(
         "  ok  rendered {} CmsSection variant(s)",
         page.sections.len()
     );
-    println!("  ok  loom-skin.css written ({} bytes)", skin_css.len());
-    println!("  ok  {written} HTML file(s) written to {}/", out.display());
-    println!("       state-matrix-auto.html   (OS prefers-color-scheme)");
-    println!("       state-matrix-light.html  (explicit light)");
-    println!("       state-matrix-dark.html   (explicit dark)");
-    println!();
-    println!("Open in a browser, or feed into PlausiDen-Crawler for");
-    println!("visual-regression / pixel-diff against a baseline.");
+    tracing::info!("  ok  loom-skin.css written ({} bytes)", skin_css.len());
+    tracing::info!("  ok  {written} HTML file(s) written to {}/", out.display());
+    tracing::info!("       state-matrix-auto.html   (OS prefers-color-scheme)");
+    tracing::info!("       state-matrix-light.html  (explicit light)");
+    tracing::info!("       state-matrix-dark.html   (explicit dark)");
+    tracing::info!();
+    tracing::info!("Open in a browser, or feed into PlausiDen-Crawler for");
+    tracing::info!("visual-regression / pixel-diff against a baseline.");
     Ok(())
 }
 
@@ -2564,14 +2564,14 @@ fn cmd_audit(journey_path: &str, url: &str) -> Result<()> {
     let pretty =
         serde_json::to_string_pretty(&journey).expect("token tree is finite + serde-clean");
     if journey_path == "-" {
-        println!("{pretty}");
+        tracing::info!("{pretty}");
     } else {
         std::fs::write(journey_path, pretty)
             .map_err(|e| anyhow::anyhow!("write {journey_path}: {e}"))?;
-        println!("loom audit: journey written to {journey_path}");
-        println!("Run with:");
-        println!("  cd /path/to/PlausiDen-Crawler");
-        println!("  node --loader ts-node/esm src/main.ts --journey {journey_path}");
+        tracing::info!("loom audit: journey written to {journey_path}");
+        tracing::info!("Run with:");
+        tracing::info!("  cd /path/to/PlausiDen-Crawler");
+        tracing::info!("  node --loader ts-node/esm src/main.ts --journey {journey_path}");
     }
     Ok(())
 }
@@ -2600,14 +2600,14 @@ fn cmd_new(name: &str, root: &std::path::Path, template: &str) -> Result<()> {
     };
     std::fs::write(&target, template_body)
         .map_err(|e| anyhow::anyhow!("write {}: {e}", target.display()))?;
-    println!("loom new: scaffolded {}", target.display());
-    println!();
-    println!("Next steps (manual — these are per-crate wiring decisions):");
-    println!("  1. Add `pub mod {module_name};` to src/views.rs");
-    println!("  2. Add a handler in src/handlers.rs that calls views::{module_name}::render()");
-    println!("  3. Add `.route(\"/{name}\", get(handlers::{module_name}))` in main.rs");
-    println!("  4. Add the route to SITEMAP_ROUTES if it should be indexed");
-    println!(
+    tracing::info!("loom new: scaffolded {}", target.display());
+    tracing::info!();
+    tracing::info!("Next steps (manual — these are per-crate wiring decisions):");
+    tracing::info!("  1. Add `pub mod {module_name};` to src/views.rs");
+    tracing::info!("  2. Add a handler in src/handlers.rs that calls views::{module_name}::render()");
+    tracing::info!("  3. Add `.route(\"/{name}\", get(handlers::{module_name}))` in main.rs");
+    tracing::info!("  4. Add the route to SITEMAP_ROUTES if it should be indexed");
+    tracing::info!(
         "  5. Add `snap_route!({module_name}, \"/{name}\")` if the crate uses insta snapshots"
     );
     Ok(())
@@ -3249,7 +3249,7 @@ fn cmd_image_convert(
             match magick_convert(src, &dest, ext, quality) {
                 Ok(()) => {
                     converted += 1;
-                    println!(
+                    tracing::info!(
                         "  ok     {src} -> {dest}",
                         src = src.display(),
                         dest = dest.display()
@@ -3257,7 +3257,7 @@ fn cmd_image_convert(
                 }
                 Err(e) => {
                     failed += 1;
-                    eprintln!(
+                    etracing::info!(
                         "  fail   {src} -> {dest}: {e}",
                         src = src.display(),
                         dest = dest.display()
@@ -3266,7 +3266,7 @@ fn cmd_image_convert(
             }
         }
     }
-    println!(
+    tracing::info!(
         "image-convert: {} source(s), {converted} created, {skipped} skipped (already current), {failed} failed",
         sources.len()
     );
@@ -3940,11 +3940,11 @@ fn cmd_backend_stub(
     // apply to the mod.rs write as to the handler file.
     let mod_changed = register_handler_module(&cap, &file_stem)?;
     if mod_changed {
-        println!("  ok     handlers/mod.rs += {file_stem:?}",);
+        tracing::info!("  ok     handlers/mod.rs += {file_stem:?}",);
     }
 
-    println!("  ok     scaffolded {}", abs_path.display());
-    println!(
+    tracing::info!("  ok     scaffolded {}", abs_path.display());
+    tracing::info!(
         "  ok     updated {} (impl_files += {rel_path:?})",
         backends_path.display()
     );
@@ -4681,11 +4681,11 @@ fn cmd_backend_stub_all(
         failed: 0,
     };
     if stub_keys.is_empty() {
-        println!("  ok     no stub backends found — nothing to mint");
+        tracing::info!("  ok     no stub backends found — nothing to mint");
         return Ok(report);
     }
 
-    println!("  ..     minting {} stub backend(s)", stub_keys.len());
+    tracing::info!("  ..     minting {} stub backend(s)", stub_keys.len());
     for key in &stub_keys {
         // T19: re-read backends.toml on every iteration so
         // toml_edit picks up the comment-preserving update from
@@ -4696,7 +4696,7 @@ fn cmd_backend_stub_all(
                 // cmd_backend_stub already printed two ok lines.
             }
             Err(BackendStubError::Conflict(p)) => {
-                println!(
+                tracing::info!(
                     "  skip   [{key}] file {} already exists (use single-key + --force to overwrite)",
                     p.display()
                 );
@@ -4705,11 +4705,11 @@ fn cmd_backend_stub_all(
             Err(BackendStubError::KeyNotFound(_)) => {
                 // Should be impossible — we just enumerated this
                 // key from the same file. Treat as failure.
-                eprintln!("  fail   [{key}] vanished between enumeration and mint");
+                etracing::info!("  fail   [{key}] vanished between enumeration and mint");
                 report.failed += 1;
             }
             Err(e) => {
-                eprintln!("  fail   [{key}] {e:?}");
+                etracing::info!("  fail   [{key}] {e:?}");
                 report.failed += 1;
             }
         }
@@ -4947,7 +4947,7 @@ fn cmd_report_tail(
         } else {
             ""
         };
-        println!(
+        tracing::info!(
             "{dim}{ts_human}{reset}  {kind_col}{kind:<16}{reset}  {dim}[{endpoint}]{reset}  {preview}"
         );
     }
@@ -4966,7 +4966,7 @@ fn cmd_report_tail(
     // genuine "no reports collected yet" message.
     let exists = log_path.is_file();
     if !exists && !follow {
-        println!(
+        tracing::info!(
             "loom report-tail: no reports yet (looking at {})",
             log_path.display()
         );
@@ -5021,7 +5021,7 @@ fn cmd_report_tail(
         let len = metadata.len();
         if len < last_pos {
             last_pos = 0;
-            eprintln!("loom report-tail: log was rotated; resyncing");
+            etracing::info!("loom report-tail: log was rotated; resyncing");
         }
         if len <= last_pos {
             continue;
@@ -5175,7 +5175,7 @@ fn cmd_report_stats(
             ));
         }
         out.push_str("]}");
-        println!("{out}");
+        tracing::info!("{out}");
         return Ok(());
     }
 
@@ -5183,13 +5183,13 @@ fn cmd_report_stats(
     let mut kinds: Vec<(&String, &KindStats)> = by_kind.iter().collect();
     kinds.sort_by(|a, b| b.1.count.cmp(&a.1.count));
     if kinds.is_empty() {
-        println!(
+        tracing::info!(
             "loom report-stats: no entries match (files_read={}, since={since})",
             files.len()
         );
         return Ok(());
     }
-    println!(
+    tracing::info!(
         "{:<16}  {:>6}  {:<22}  {:<22}  {}",
         "kind", "count", "first-seen", "last-seen", "top-url"
     );
@@ -5198,13 +5198,13 @@ fn cmd_report_stats(
         let last = report_log_format_unix(v.last as i64).unwrap_or_else(|| v.last.to_string());
         let top = top_url(&v.url_counts).unwrap_or_else(|| "—".to_owned());
         let top_short: String = top.chars().take(60).collect();
-        println!(
+        tracing::info!(
             "{:<16}  {:>6}  {:<22}  {:<22}  {}",
             k, v.count, first, last, top_short
         );
     }
-    println!();
-    println!(
+    tracing::info!();
+    tracing::info!(
         "(read {} file(s), {} lines{}{})",
         files.len(),
         total_lines,
@@ -5445,7 +5445,7 @@ fn review_action_write(
     f.sync_all()
         .map_err(|e| anyhow::anyhow!("fsync review-state: {e}"))?;
 
-    println!(
+    tracing::info!(
         "loom report-review: {action} {} (note={:?})",
         resolved, note
     );
@@ -5582,7 +5582,7 @@ fn review_list(dir: &std::path::Path, lines: usize, status_filter: &str) -> Resu
     let state = review_state_read(dir);
 
     if entries.is_empty() {
-        println!(
+        tracing::info!(
             "loom report-review: no reports in {} (looked for violations.jsonl + violations-*.jsonl)",
             dir.display()
         );
@@ -5620,25 +5620,25 @@ fn review_list(dir: &std::path::Path, lines: usize, status_filter: &str) -> Resu
     }
 
     if rows.is_empty() {
-        println!(
+        tracing::info!(
             "loom report-review: no entries match status={status_filter:?} (filtered from {})",
             entries.len()
         );
         return Ok(());
     }
 
-    println!(
+    tracing::info!(
         "{:<13}  {:<10}  {:<22}  {:<16}  {}",
         "sig", "status", "ts", "kind", "url"
     );
     for (sig, label, when, kind, url, note) in &rows {
-        println!("{sig:<13}  {label:<10}  {when:<22}  {kind:<16}  {url}");
+        tracing::info!("{sig:<13}  {label:<10}  {when:<22}  {kind:<16}  {url}");
         if !note.is_empty() {
-            println!("{:<13}  └─ note: {}", "", note);
+            tracing::info!("{:<13}  └─ note: {}", "", note);
         }
     }
-    println!();
-    println!(
+    tracing::info!();
+    tracing::info!(
         "(showed {} of {} entries; triage decisions: {})",
         rows.len(),
         entries.len(),
@@ -5667,13 +5667,13 @@ fn review_status(dir: &std::path::Path) -> Result<()> {
         }
     }
 
-    println!("loom report-review status — {}", dir.display());
-    println!("  total distinct reports : {}", seen.len());
-    println!("  NEW (untriaged)        : {new_n}");
-    println!("  ACK                    : {ack_n}");
-    println!("  DISMISSED              : {dismiss_n}");
-    println!("  raw lines              : {}", entries.len());
-    println!("  audit-log decisions    : {}", state.len());
+    tracing::info!("loom report-review status — {}", dir.display());
+    tracing::info!("  total distinct reports : {}", seen.len());
+    tracing::info!("  NEW (untriaged)        : {new_n}");
+    tracing::info!("  ACK                    : {ack_n}");
+    tracing::info!("  DISMISSED              : {dismiss_n}");
+    tracing::info!("  raw lines              : {}", entries.len());
+    tracing::info!("  audit-log decisions    : {}", state.len());
     Ok(())
 }
 
@@ -5706,20 +5706,20 @@ fn cmd_edit_serve(
     let bind = format!("127.0.0.1:{port}");
     let server = tiny_http::Server::http(&bind)
         .map_err(|e| std::io::Error::other(format!("tiny_http bind {bind}: {e}")))?;
-    println!("loom edit serve: listening on http://{bind}/");
-    println!("  cms      = {}", cms_root.display());
-    println!("  static   = {}", static_root.display());
-    println!("  forge    = {}", forge_path);
-    println!();
-    println!("Open http://127.0.0.1:{port}/ in a browser.");
-    println!("Ctrl-C to stop.");
+    tracing::info!("loom edit serve: listening on http://{bind}/");
+    tracing::info!("  cms      = {}", cms_root.display());
+    tracing::info!("  static   = {}", static_root.display());
+    tracing::info!("  forge    = {}", forge_path);
+    tracing::info!();
+    tracing::info!("Open http://127.0.0.1:{port}/ in a browser.");
+    tracing::info!("Ctrl-C to stop.");
 
     for request in server.incoming_requests() {
         let method = request.method().clone();
         let url = request.url().to_owned();
         match handle_edit_request(request, cms_root, static_root, forge_path, &method, &url) {
             Ok(()) => {}
-            Err(e) => eprintln!("  err   {method:?} {url} -> {e}"),
+            Err(e) => etracing::info!("  err   {method:?} {url} -> {e}"),
         }
     }
     Ok(())
@@ -7751,7 +7751,7 @@ fn revisions_list_all_slugs(cms: &std::path::Path, lines: usize) -> Result<()> {
         all.push((p, ts, slug_owned));
     }
     if all.is_empty() {
-        println!(
+        tracing::info!(
             "loom revisions list --all-slugs: no backups found in {}",
             cms.display()
         );
@@ -7761,7 +7761,7 @@ fn revisions_list_all_slugs(cms: &std::path::Path, lines: usize) -> Result<()> {
     all.sort_by(|a, b| b.1.cmp(&a.1));
     let total = all.len();
     let shown_count = all.len().min(lines);
-    println!(
+    tracing::info!(
         "{:<22}  {:>8}  {:<20}  {}",
         "when", "bytes", "slug", "filename"
     );
@@ -7769,13 +7769,13 @@ fn revisions_list_all_slugs(cms: &std::path::Path, lines: usize) -> Result<()> {
         let human = report_log_format_unix(*ts).unwrap_or_else(|| ts.to_string());
         let bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
         let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("?");
-        println!("{:<22}  {:>8}  {:<20}  {}", human, bytes, slug, name);
+        tracing::info!("{:<22}  {:>8}  {:<20}  {}", human, bytes, slug, name);
     }
-    println!();
+    tracing::info!();
     if total > shown_count {
-        println!("(showing {shown_count} of {total} total; pass `--lines N` to see more)",);
+        tracing::info!("(showing {shown_count} of {total} total; pass `--lines N` to see more)",);
     } else {
-        println!("(showed all {total} revisions across the CMS)",);
+        tracing::info!("(showed all {total} revisions across the CMS)",);
     }
     Ok(())
 }
@@ -7825,23 +7825,23 @@ fn revisions_list(cms: &std::path::Path, slug: &str) -> Result<()> {
     let revs =
         revisions_for(cms, slug).map_err(|e| anyhow::anyhow!("read {}: {e}", cms.display()))?;
     if revs.is_empty() {
-        println!(
+        tracing::info!(
             "loom revisions list: no backups for '{slug}' in {}",
             cms.display()
         );
         return Ok(());
     }
-    println!("{:>3}  {:<22}  {:>8}  {}", "n", "when", "bytes", "filename");
+    tracing::info!("{:>3}  {:<22}  {:>8}  {}", "n", "when", "bytes", "filename");
     for (i, p) in revs.iter().enumerate() {
         let ts = revisions_parse_ts(p)
             .and_then(revisions_format_unix)
             .unwrap_or_else(|| "?".to_owned());
         let bytes = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
         let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("?");
-        println!("{:>3}  {:<22}  {:>8}  {}", i + 1, ts, bytes, name);
+        tracing::info!("{:>3}  {:<22}  {:>8}  {}", i + 1, ts, bytes, name);
     }
-    println!();
-    println!("(use `loom revisions show {slug} N` / `... diff {slug} N` / `... restore {slug} N`)",);
+    tracing::info!();
+    tracing::info!("(use `loom revisions show {slug} N` / `... diff {slug} N` / `... restore {slug} N`)",);
     Ok(())
 }
 
@@ -7907,8 +7907,8 @@ fn revisions_diff(cms: &std::path::Path, slug: &str, index: usize) -> Result<()>
         .map_err(|e| anyhow::anyhow!("read {}: {e}", rev_path.display()))?;
     let active = std::fs::read_to_string(&active_path).unwrap_or_default();
 
-    println!("--- {} (revision {})", rev_path.display(), index);
-    println!("+++ {} (active)", active_path.display());
+    tracing::info!("--- {} (revision {})", rev_path.display(), index);
+    tracing::info!("+++ {} (active)", active_path.display());
 
     // Try the JSON-aware path first.
     if let (Ok(rev), Ok(act)) = (
@@ -7918,10 +7918,10 @@ fn revisions_diff(cms: &std::path::Path, slug: &str, index: usize) -> Result<()>
         let mut diffs: Vec<String> = Vec::new();
         json_walk_diff(&rev, &act, "", &mut diffs);
         if diffs.is_empty() {
-            println!("(no semantic differences — revision == active)");
+            tracing::info!("(no semantic differences — revision == active)");
         } else {
             for line in &diffs {
-                println!("{line}");
+                tracing::info!("{line}");
             }
         }
         return Ok(());
@@ -7929,7 +7929,7 @@ fn revisions_diff(cms: &std::path::Path, slug: &str, index: usize) -> Result<()>
 
     // Fall back to cycle 81's line-set diff for non-JSON
     // files. Same shape, same bluntness, same disclaimer.
-    eprintln!("[revisions diff] one side didn't parse as JSON; falling back to line-set diff",);
+    etracing::info!("[revisions diff] one side didn't parse as JSON; falling back to line-set diff",);
     let rev_lines: Vec<&str> = revision.lines().collect();
     let act_lines: Vec<&str> = active.lines().collect();
     let rev_set: std::collections::HashSet<&str> = rev_lines.iter().copied().collect();
@@ -7937,18 +7937,18 @@ fn revisions_diff(cms: &std::path::Path, slug: &str, index: usize) -> Result<()>
     let mut shown = 0;
     for line in &rev_lines {
         if !act_set.contains(line) {
-            println!("-{line}");
+            tracing::info!("-{line}");
             shown += 1;
         }
     }
     for line in &act_lines {
         if !rev_set.contains(line) {
-            println!("+{line}");
+            tracing::info!("+{line}");
             shown += 1;
         }
     }
     if shown == 0 {
-        println!("(no line-level differences — revision == active)");
+        tracing::info!("(no line-level differences — revision == active)");
     }
     Ok(())
 }
@@ -8064,11 +8064,11 @@ fn revisions_restore(cms: &std::path::Path, slug: &str, index: usize) -> Result<
     std::fs::rename(&tmp, &active_path).map_err(|e| {
         anyhow::anyhow!("rename {} -> {}: {e}", tmp.display(), active_path.display())
     })?;
-    println!(
+    tracing::info!(
         "loom revisions restore: '{slug}' restored from revision {index} ({} bytes)",
         revision.len(),
     );
-    println!(
+    tracing::info!(
         "(the prior active content was snapshotted as a new backup; \
          run `loom revisions list {slug}` to confirm)",
     );
@@ -8108,7 +8108,7 @@ fn save_cms_revision(cms_root: &std::path::Path, slug: &str, prior_content: &str
     let bak_name = format!("{slug}.bak.{suffix}.json");
     let bak_path = cms_root.join(&bak_name);
     if let Err(e) = std::fs::write(&bak_path, prior_content) {
-        eprintln!("[loom revisions] write {} failed: {e}", bak_path.display(),);
+        etracing::info!("[loom revisions] write {} failed: {e}", bak_path.display(),);
         return;
     }
     // Prune older revisions for THIS slug only.
@@ -8141,7 +8141,7 @@ fn prune_cms_revisions(cms_root: &std::path::Path, slug: &str) {
     let drop_count = revisions.len() - keep;
     for path in revisions.iter().take(drop_count) {
         if let Err(e) = std::fs::remove_file(path) {
-            eprintln!("[loom revisions] prune {} failed: {e}", path.display(),);
+            etracing::info!("[loom revisions] prune {} failed: {e}", path.display(),);
         }
     }
 }
@@ -8343,8 +8343,8 @@ fn handle_edit_post(
             .status();
         match status {
             Ok(s) if s.success() => {}
-            Ok(s) => eprintln!("  warn  forge.sh exited {s}"),
-            Err(e) => eprintln!("  warn  forge.sh failed: {e}"),
+            Ok(s) => etracing::info!("  warn  forge.sh exited {s}"),
+            Err(e) => etracing::info!("  warn  forge.sh failed: {e}"),
         }
     }
 
@@ -8609,7 +8609,7 @@ fn rate_limit_admit(ip: &str, now: u64) -> bool {
         // Throttle the warning: once per minute per IP. The
         // log shouldn't itself become a DoS vector.
         if now.saturating_sub(entry.last_warn) >= 60 {
-            eprintln!(
+            etracing::info!(
                 "[loom report-collector] rate-limited {ip}: {} reports in last 60s (cap {RATE_LIMIT_PER_MIN})",
                 entry.hits.len(),
             );
@@ -8690,14 +8690,14 @@ fn rotate_violations_log_if_needed(active: &std::path::Path) {
         .unwrap_or_else(|_| "rotation".to_owned());
     let rotated = dir.join(format!("violations-{suffix}.jsonl"));
     if let Err(e) = std::fs::rename(active, &rotated) {
-        eprintln!(
+        etracing::info!(
             "[loom report-collector] rotation rename {} -> {} failed: {e}",
             active.display(),
             rotated.display(),
         );
         return;
     }
-    eprintln!(
+    etracing::info!(
         "[loom report-collector] rotated {} bytes -> {}",
         meta.len(),
         rotated.display(),
@@ -8731,12 +8731,12 @@ fn prune_old_rotations(dir: &std::path::Path) {
     let drop_count = rotations.len() - keep;
     for path in rotations.iter().take(drop_count) {
         if let Err(e) = std::fs::remove_file(path) {
-            eprintln!(
+            etracing::info!(
                 "[loom report-collector] prune {} failed: {e}",
                 path.display(),
             );
         } else {
-            eprintln!(
+            etracing::info!(
                 "[loom report-collector] pruned old rotation {}",
                 path.display(),
             );
@@ -8817,11 +8817,11 @@ fn handle_security_report(
         {
             Ok(mut f) => {
                 if let Err(e) = f.write_all(line.as_bytes()) {
-                    eprintln!("[loom report-collector] write failed: {e}");
+                    etracing::info!("[loom report-collector] write failed: {e}");
                 }
             }
             Err(e) => {
-                eprintln!(
+                etracing::info!(
                     "[loom report-collector] open {} failed: {e}",
                     log_path.display()
                 );
@@ -10349,7 +10349,7 @@ fn cmd_theme_contrast(
     let raw = std::fs::read_to_string(skin_path)?;
     let (themes, _refs) = parse_skin_themes(&raw);
     if themes.is_empty() {
-        eprintln!(
+        etracing::info!(
             "loom theme contrast: no theme blocks found in {}",
             skin_path.display()
         );
@@ -10360,8 +10360,8 @@ fn cmd_theme_contrast(
     let base = themes.iter().find(|t| t.name == "default").cloned();
 
     let mut failures = 0usize;
-    println!("  theme           pair                          ratio   status");
-    println!("  --------------  ----------------------------  ------  ------");
+    tracing::info!("  theme           pair                          ratio   status");
+    tracing::info!("  --------------  ----------------------------  ------  ------");
     for theme in &themes {
         for (fg_tok, bg_tok, label) in CONTRAST_PAIRS {
             let lookup = |tok: &str| -> Option<String> {
@@ -10386,7 +10386,7 @@ fn cmd_theme_contrast(
                 failures += 1;
                 "FAIL"
             };
-            println!(
+            tracing::info!(
                 "  {name:<14}  {label:<28}  {ratio:>5.2}   {status}",
                 name = theme.name,
                 label = label,
@@ -10394,14 +10394,14 @@ fn cmd_theme_contrast(
             );
         }
     }
-    println!();
+    tracing::info!();
     if failures == 0 {
-        println!(
+        tracing::info!(
             "loom theme contrast: {} theme(s) checked, ALL pairs ≥ {min_ratio:.1}:1 (WCAG OK)",
             themes.len(),
         );
     } else {
-        eprintln!(
+        etracing::info!(
             "loom theme contrast: {failures} pair(s) below {min_ratio:.1}:1 — themes WILL ship with unreadable text"
         );
     }
@@ -10538,14 +10538,14 @@ fn cmd_theme_list(skin_path: &std::path::Path) -> Result<(), std::io::Error> {
     let raw = std::fs::read_to_string(skin_path)?;
     let (themes, referenced_vars) = parse_skin_themes(&raw);
     if themes.is_empty() {
-        eprintln!(
+        etracing::info!(
             "loom theme list: no `:root` blocks with --loom-color-* tokens found in {}",
             skin_path.display()
         );
         return Ok(());
     }
-    println!("  theme           tokens  example");
-    println!("  --------------  ------  -----------------------------------------");
+    tracing::info!("  theme           tokens  example");
+    tracing::info!("  --------------  ------  -----------------------------------------");
     for t in &themes {
         let example = t
             .tokens
@@ -10558,15 +10558,15 @@ fn cmd_theme_list(skin_path: &std::path::Path) -> Result<(), std::io::Error> {
         } else {
             example.to_owned()
         };
-        println!(
+        tracing::info!(
             "  {name:<14}  {n:>6}  {ex}",
             name = t.name,
             n = t.tokens.len(),
             ex = example_short,
         );
     }
-    println!();
-    println!(
+    tracing::info!();
+    tracing::info!(
         "loom theme list: {} theme(s), {} unique --loom-color-* var() reference(s)",
         themes.len(),
         referenced_vars.len(),
@@ -10579,7 +10579,7 @@ fn cmd_theme_validate(skin_path: &std::path::Path) -> Result<usize, std::io::Err
     let (themes, referenced_vars) = parse_skin_themes(&raw);
 
     let Some(base) = themes.iter().find(|t| t.name == "default") else {
-        eprintln!("loom theme validate: no base `:root` (default) theme block found");
+        etracing::info!("loom theme validate: no base `:root` (default) theme block found");
         return Ok(1);
     };
 
@@ -10592,7 +10592,7 @@ fn cmd_theme_validate(skin_path: &std::path::Path) -> Result<usize, std::io::Err
     for v in &referenced_vars {
         if !base.tokens.contains_key(v) {
             findings += 1;
-            eprintln!(
+            etracing::info!(
                 "  STRICT  {} consumed via var() but has no definition in base :root",
                 v
             );
@@ -10620,14 +10620,14 @@ fn cmd_theme_validate(skin_path: &std::path::Path) -> Result<usize, std::io::Err
             .collect();
         for m in &missing {
             findings += 1;
-            eprintln!(
+            etracing::info!(
                 "  warn    theme {:?} omits token {} (will inherit base — confirm intentional)",
                 t.name, m
             );
         }
         for e in &extra {
             findings += 1;
-            eprintln!(
+            etracing::info!(
                 "  warn    theme {:?} declares token {} not in base (orphan — base default missing)",
                 t.name, e
             );
@@ -10635,7 +10635,7 @@ fn cmd_theme_validate(skin_path: &std::path::Path) -> Result<usize, std::io::Err
     }
 
     if findings == 0 {
-        println!(
+        tracing::info!(
             "  ok     {} theme(s), {} token(s) per theme, {} var() reference(s) all resolved",
             themes.len(),
             base.tokens.len(),
@@ -10833,8 +10833,8 @@ fn cmd_backend_list(backends_path: &std::path::Path) -> Result<(), std::io::Erro
     let stubs = rows.iter().filter(|r| r.status.is_stub()).count();
     let impls = total - stubs;
 
-    println!("  key                          method  status  purpose");
-    println!(
+    tracing::info!("  key                          method  status  purpose");
+    tracing::info!(
         "  ---------------------------  ------  ------  ----------------------------------------"
     );
     for r in &rows {
@@ -10843,15 +10843,15 @@ fn cmd_backend_list(backends_path: &std::path::Path) -> Result<(), std::io::Erro
         } else {
             r.purpose.clone()
         };
-        println!(
+        tracing::info!(
             "  {key:<27}  {method:<6}  {status:<6}  {purpose}",
             key = r.key.as_str(),
             method = r.method,
             status = r.status.label(),
         );
     }
-    println!();
-    println!(
+    tracing::info!();
+    tracing::info!(
         "loom backend list: {total} declared, {impls} implemented ({pct}%), {stubs} stub",
         pct = (impls * 100).checked_div(total).unwrap_or(0)
     );
@@ -10988,13 +10988,13 @@ fn cmd_audit_bridge(skin: &std::path::Path) -> Result<u32, std::io::Error> {
                 found += 1;
             } else {
                 missing += 1;
-                eprintln!(
+                etracing::info!(
                     "  fail   variant={variant} requires selector {sel} in skin.css — not found"
                 );
             }
         }
     }
-    println!(
+    tracing::info!(
         "loom audit-bridge: {} variant(s), {} required selector(s), {found} found, {missing} missing",
         pairs.len(),
         pairs.iter().map(|(_, r)| r.len()).sum::<usize>()
@@ -11114,7 +11114,7 @@ fn cmd_hooks_install(target: &std::path::Path, force: bool) -> Result<bool, std:
         let existing = std::fs::read_to_string(&hook_path).unwrap_or_default();
         if existing == PRE_COMMIT_HOOK_BODY {
             // Already current. Nothing to do.
-            println!(
+            tracing::info!(
                 "  ok     pre-commit hook already current at {}",
                 hook_path.display()
             );
@@ -11126,7 +11126,7 @@ fn cmd_hooks_install(target: &std::path::Path, force: bool) -> Result<bool, std:
     }
     std::fs::write(&hook_path, PRE_COMMIT_HOOK_BODY)?;
     set_executable(&hook_path)?;
-    println!(
+    tracing::info!(
         "  ok     pre-commit hook installed at {}",
         hook_path.display()
     );
@@ -11308,7 +11308,7 @@ fn cmd_journey_from_cms(
         }
     }
     std::fs::write(out, format!("{pretty}\n"))?;
-    println!("  ok     {} page(s) → {}", pages.len(), out.display());
+    tracing::info!("  ok     {} page(s) → {}", pages.len(), out.display());
     Ok(())
 }
 
@@ -11512,7 +11512,7 @@ fn cmd_cms_new(
         }
     }
     std::fs::write(out, format!("{json}\n"))?;
-    println!("  ok     {kind} template → {}", out.display());
+    tracing::info!("  ok     {kind} template → {}", out.display());
     Ok(())
 }
 
@@ -11788,7 +11788,7 @@ fn cmd_cms_schema(out: &str) -> Result<(), std::io::Error> {
     let pretty = serde_json::to_string_pretty(&schema)
         .map_err(|e| std::io::Error::other(format!("schema serialize: {e}")))?;
     if out == "-" {
-        println!("{pretty}");
+        tracing::info!("{pretty}");
         return Ok(());
     }
     if let Some(parent) = std::path::Path::new(out).parent() {
@@ -11830,7 +11830,7 @@ fn cmd_validate(input: &std::path::Path) -> Result<bool, std::io::Error> {
         let raw = match std::fs::read_to_string(path) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("  fail   {}: read error: {e}", path.display());
+                etracing::info!("  fail   {}: read error: {e}", path.display());
                 any_failed = true;
                 continue;
             }
@@ -11838,7 +11838,7 @@ fn cmd_validate(input: &std::path::Path) -> Result<bool, std::io::Error> {
         let page: loom_cms_render::CmsPage = match serde_json::from_str(&raw) {
             Ok(p) => p,
             Err(e) => {
-                eprintln!(
+                etracing::info!(
                     "  fail   {}: schema error at line {}, col {}: {}",
                     path.display(),
                     e.line(),
@@ -11851,16 +11851,16 @@ fn cmd_validate(input: &std::path::Path) -> Result<bool, std::io::Error> {
         };
         let url_errs = validate_urls(&page);
         if url_errs.is_empty() {
-            println!("  ok     {}", path.display());
+            tracing::info!("  ok     {}", path.display());
             ok_count += 1;
         } else {
             for err in &url_errs {
-                eprintln!("  fail   {}: url-invalid: {err}", path.display());
+                etracing::info!("  fail   {}: url-invalid: {err}", path.display());
             }
             any_failed = true;
         }
     }
-    println!(
+    tracing::info!(
         "loom validate: {} file(s), {ok_count} ok, {} failed",
         files.len(),
         files.len() - ok_count
@@ -12269,28 +12269,28 @@ fn cmd_auth_init(user: &str, force: bool) -> std::io::Result<()> {
         },
     };
     write_auth_store(&store)?;
-    println!("loom auth init:");
-    println!("  ok  user '{}' created", user_validated.as_str());
-    println!("  ok  HMAC signing key generated (32 bytes)");
-    println!("  ok  store written to {} (mode 0600)", path.display());
-    println!();
-    println!("Next: `loom edit-serve` will require login at /login.");
+    tracing::info!("loom auth init:");
+    tracing::info!("  ok  user '{}' created", user_validated.as_str());
+    tracing::info!("  ok  HMAC signing key generated (32 bytes)");
+    tracing::info!("  ok  store written to {} (mode 0600)", path.display());
+    tracing::info!();
+    tracing::info!("Next: `loom edit-serve` will require login at /login.");
     Ok(())
 }
 
 fn cmd_auth_list() -> std::io::Result<()> {
     match read_auth_store()? {
         None => {
-            println!(
+            tracing::info!(
                 "no auth store at {} — editor runs without login",
                 auth_store_path().display()
             );
         }
         Some(store) => {
-            println!("auth store: {}", auth_store_path().display());
-            println!("  {} user(s):", store.users.len());
+            tracing::info!("auth store: {}", auth_store_path().display());
+            tracing::info!("  {} user(s):", store.users.len());
             for u in &store.users {
-                println!("    {}", u.name);
+                tracing::info!("    {}", u.name);
             }
         }
     }
@@ -17585,25 +17585,25 @@ fn cmd_import(
     cap.write_atomic(&rel, serialized.as_bytes())
         .map_err(|_| std::io::Error::other("write"))?;
 
-    println!("loom import:");
-    println!("  source:    {}", from.display());
-    println!("  target:    {}", into.join(&rel).display());
-    println!("  title:     {title}");
-    println!("  sections:  {} extracted", sections.len());
+    tracing::info!("loom import:");
+    tracing::info!("  source:    {}", from.display());
+    tracing::info!("  target:    {}", into.join(&rel).display());
+    tracing::info!("  title:     {title}");
+    tracing::info!("  sections:  {} extracted", sections.len());
     let todo_count = sections
         .iter()
         .filter(|s| matches!(s, ImportedSection::Todo { .. }))
         .count();
     if todo_count > 0 {
-        println!("  warn:      {todo_count} TODO marker(s) — review manually");
+        tracing::info!("  warn:      {todo_count} TODO marker(s) — review manually");
     }
-    println!();
-    println!("Open in the editor:");
-    println!(
+    tracing::info!();
+    tracing::info!("Open in the editor:");
+    tracing::info!(
         "  loom edit-serve --cms {} --static-dir static --forge ''",
         into.display()
     );
-    println!("  then visit http://127.0.0.1:8124/{}", slug.as_str());
+    tracing::info!("  then visit http://127.0.0.1:8124/{}", slug.as_str());
     Ok(())
 }
 
@@ -18509,22 +18509,22 @@ fn cmd_site_init_in(
         written += 1;
     }
 
-    println!("loom site init:");
-    println!(
+    tracing::info!("loom site init:");
+    tracing::info!(
         "  ok  template '{template}' written to {}/",
         target.display()
     );
     if let Some(t) = theme {
-        println!("  ok  theme '{t}' baked into forge.toml [render] entry");
+        tracing::info!("  ok  theme '{t}' baked into forge.toml [render] entry");
     }
-    println!("  ok  {written} file(s) created");
-    println!();
-    println!("Next:");
-    println!(
+    tracing::info!("  ok  {written} file(s) created");
+    tracing::info!();
+    tracing::info!("Next:");
+    tracing::info!(
         "  cd {} && loom edit-serve --cms cms --static-dir static --forge ''",
         target.display()
     );
-    println!("  Visit http://127.0.0.1:8124/ in a browser to start editing.");
+    tracing::info!("  Visit http://127.0.0.1:8124/ in a browser to start editing.");
     Ok(())
 }
 
@@ -19817,7 +19817,7 @@ fn cmd_deploy_publish(
     std::fs::create_dir_all(&local_stage_dir)?;
     let bundle_dir = local_stage_dir.join(&bundle_subdir);
     if bundle_dir.exists() && remote.is_none() {
-        println!(
+        tracing::info!(
             "loom deploy publish: identical bundle already at {} — no-op",
             bundle_dir.display()
         );
@@ -19850,17 +19850,17 @@ fn cmd_deploy_publish(
         if let Some(prev) = prev_target {
             std::fs::write(to.join(".loom-deploy-history"), prev.display().to_string())?;
         }
-        println!("loom deploy publish:");
-        println!("  ok  bundled {} file(s)", manifest.files.len());
-        println!("  ok  manifest sha: {manifest_sha}");
-        println!("  ok  bundle:      {}", bundle_dir.display());
-        println!("  ok  current ->   {bundle_subdir}");
-        println!();
-        println!(
+        tracing::info!("loom deploy publish:");
+        tracing::info!("  ok  bundled {} file(s)", manifest.files.len());
+        tracing::info!("  ok  manifest sha: {manifest_sha}");
+        tracing::info!("  ok  bundle:      {}", bundle_dir.display());
+        tracing::info!("  ok  current ->   {bundle_subdir}");
+        tracing::info!();
+        tracing::info!(
             "Verify:  loom deploy verify --at {}",
             current_link.display()
         );
-        println!("Roll back: loom deploy rollback --at {}", to.display());
+        tracing::info!("Roll back: loom deploy rollback --at {}", to.display());
         return Ok(());
     }
 
@@ -19961,17 +19961,17 @@ fn cmd_deploy_publish(
         )));
     }
 
-    println!("loom deploy publish (remote):");
-    println!("  ok  bundled {} file(s)", manifest.files.len());
-    println!("  ok  manifest sha: {manifest_sha}");
-    println!("  ok  local bundle: {}", bundle_dir.display());
-    println!(
+    tracing::info!("loom deploy publish (remote):");
+    tracing::info!("  ok  bundled {} file(s)", manifest.files.len());
+    tracing::info!("  ok  manifest sha: {manifest_sha}");
+    tracing::info!("  ok  local bundle: {}", bundle_dir.display());
+    tracing::info!(
         "  ok  rsync'd to:   {}",
         remote.rsync_target(&remote_bundle)
     );
-    println!("  ok  remote current -> {bundle_subdir}");
-    println!();
-    println!(
+    tracing::info!("  ok  remote current -> {bundle_subdir}");
+    tracing::info!();
+    tracing::info!(
         "Verify (on remote): ssh {} 'cd {} && loom deploy verify --at current'",
         remote.endpoint(),
         remote_to.display()
@@ -19998,14 +19998,14 @@ fn cmd_deploy_verify(at: &std::path::Path) -> std::io::Result<usize> {
         match actual.get(rel) {
             Some(a) if a == entry => {}
             Some(a) => {
-                eprintln!(
+                etracing::info!(
                     "  FAIL  {rel}: manifest sha={} bytes={} but actual sha={} bytes={}",
                     entry.sha256, entry.bytes, a.sha256, a.bytes
                 );
                 mismatches += 1;
             }
             None => {
-                eprintln!("  FAIL  {rel}: missing on disk (in manifest but not present)");
+                etracing::info!("  FAIL  {rel}: missing on disk (in manifest but not present)");
                 mismatches += 1;
             }
         }
@@ -20020,7 +20020,7 @@ fn cmd_deploy_verify(at: &std::path::Path) -> std::io::Result<usize> {
             && rel != "manifest.sig"
             && rel != "attest-pubkey.b64"
         {
-            eprintln!("  FAIL  {rel}: present on disk but not in manifest");
+            etracing::info!("  FAIL  {rel}: present on disk but not in manifest");
             mismatches += 1;
         }
     }
@@ -20039,14 +20039,14 @@ fn cmd_deploy_verify(at: &std::path::Path) -> std::io::Result<usize> {
         }
         Ok(SigStatus::Unsigned) => "unsigned bundle (T47c not applied; pass for back-compat)",
         Err(why) => {
-            eprintln!("  FAIL  signature: {why}");
+            etracing::info!("  FAIL  signature: {why}");
             mismatches += 1;
             "FAILED signature"
         }
     };
 
     if mismatches == 0 {
-        println!(
+        tracing::info!(
             "loom deploy verify:\n  ok  {} file(s) verified against manifest sha {}\n  ok  {sig_status}",
             manifest.files.len(),
             sha256_hex(&manifest_bytes)
@@ -20075,8 +20075,8 @@ fn cmd_deploy_rollback(at: &std::path::Path) -> std::io::Result<()> {
     if let Some(now) = now_target {
         std::fs::write(&history_path, now.display().to_string())?;
     }
-    println!("loom deploy rollback:");
-    println!("  ok  current -> {prev}");
+    tracing::info!("loom deploy rollback:");
+    tracing::info!("  ok  current -> {prev}");
     Ok(())
 }
 
@@ -20423,10 +20423,10 @@ fn cmd_loom_attest_init(force: bool) -> std::io::Result<()> {
         let _ = std::fs::set_permissions(&key_path, perms);
     }
     std::fs::write(&pub_path, &pub_b64)?;
-    println!("loom attest init:");
-    println!("  ok    private key → {} (mode 0600)", key_path.display());
-    println!("  ok    public  key → {}", pub_path.display());
-    println!("  pubkey: {pub_b64}");
+    tracing::info!("loom attest init:");
+    tracing::info!("  ok    private key → {} (mode 0600)", key_path.display());
+    tracing::info!("  ok    public  key → {}", pub_path.display());
+    tracing::info!("  pubkey: {pub_b64}");
     Ok(())
 }
 
@@ -20440,7 +20440,7 @@ fn cmd_loom_attest_pubkey() -> std::io::Result<()> {
     }
     let s = std::fs::read_to_string(&path)?;
     print!("{}", s.trim());
-    println!();
+    tracing::info!();
     Ok(())
 }
 
@@ -20481,16 +20481,16 @@ fn cmd_loom_attest_export(fingerprint_only: bool) -> std::io::Result<()> {
     let pub_b64 = pub_b64.trim();
     let fp = pubkey_fingerprint(pub_b64).map_err(std::io::Error::other)?;
     if fingerprint_only {
-        println!("{fp}");
+        tracing::info!("{fp}");
     } else {
-        println!("loom attest export:");
-        println!("  algorithm:   ed25519");
-        println!("  pubkey:      {pub_b64}");
-        println!("  fingerprint: {fp}");
-        println!();
-        println!("  share the full pubkey with auditors who will verify your bundles;");
-        println!("  share the fingerprint over a side channel (phone, SMS, sticky note)");
-        println!("  so the auditor can spot-check that the pubkey they received is yours.");
+        tracing::info!("loom attest export:");
+        tracing::info!("  algorithm:   ed25519");
+        tracing::info!("  pubkey:      {pub_b64}");
+        tracing::info!("  fingerprint: {fp}");
+        tracing::info!();
+        tracing::info!("  share the full pubkey with auditors who will verify your bundles;");
+        tracing::info!("  share the fingerprint over a side channel (phone, SMS, sticky note)");
+        tracing::info!("  so the auditor can spot-check that the pubkey they received is yours.");
     }
     Ok(())
 }
