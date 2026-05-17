@@ -1,4 +1,6 @@
 target/
-Cargo.lock
+# Cargo.lock is committed — loom-cli is a binary, and reproducible
+# CI builds require the lockfile present. (Removed from .gitignore
+# 2026-05-17 because cargo doc/clippy --locked were failing in CI.)
 .DS_Store
 *.swp
