@@ -22,9 +22,11 @@
 # PlausiDen-Loom
 
 A design-system-as-code for the PlausiDen ecosystem. Typed tokens,
-constrained components, lint + audit CLIs. Built so AI agents (Claude,
-others) can ship UI without human babysitting and without fragmenting
-the visual system.
+constrained components, a typed CMS-rendering bridge, lint + audit
+CLIs, and a sandboxed per-tenant SSH bridge that routes admin-portal
+chat sessions to jailed Claude Code invocations. Built so AI agents
+(Claude, others) can ship UI without human babysitting and without
+fragmenting the visual system.
 
 > ## ⚠ Status: pre-1.0, AVP-2 in flight — NOT production-ready
 >
@@ -61,19 +63,42 @@ the visual system.
 It's not a runtime CMS. It's a *compile-time doctrine* that any agent
 or developer points at, with CLI checks that fail closed.
 
+## Crate map
+
+| Crate | Role |
+|-------|------|
+| `loom-tokens` | Palette, spacing scale, breakpoints, font scale, radius scale. Read-only constants. Adding a token is a doctrine change. |
+| `loom-components` | Typed `Button`, `Section`, `Card`, etc. Every prop is a constrained enum. No `extra_classes` escape hatch. |
+| `loom-cms-render` | **Typed CMS rendering bridge.** Translates `CmsPage` / `CmsSection` JSON (schema lives in PlausiDen-CMS) into `maud::Markup` via Loom primitives. The single render path for CMS-driven sites; Forge invokes it as its `phase_render`. |
+| `loom-bridge` | **Sandboxed per-tenant Claude Code SSH bridge (T46).** Routes admin-portal chat sessions to a jailed `claude --resume` under a per-tenant unix user with cgroup CPU+memory ceilings + an Anthropic+GitHub-only egress allowlist. ed25519 auth, russh transport, bwrap sandboxing. |
+| `loom-icons` | Curated Lucide-derived SVG icon set, served as typed Rust enums (no `<svg>` string drops). Brand logos live in a separate `loom-brand-icons` crate (queued). |
+| `loom-lint` | CLI: walks `*.rs` views and refuses raw class strings outside an allowlist (components crate + a few sanctioned chrome files). |
+| `loom-cli` | Top-level `loom <subcommand>` binary — `lint`, `tokens`, `theme`, `cms`, `site`, `deploy`, `edit serve`, `bridge` (queued: `audit`, `new`). |
+
 ## How it works
 
-1. **Tokens** (`loom-tokens`) are the read-only single source of truth:
-   palette, spacing scale, breakpoints, font scale, radii. Adding a
-   token is a doctrine review.
-2. **Components** (`loom-components`) compose tokens into typed
-   primitives — `Button`, `Section`. Every prop is a constrained
-   enum. There is no `extra_classes` escape hatch.
-3. **Lint** (`loom-lint`) walks `*.rs` views and refuses raw
-   Tailwind class strings outside an allowlist (components crate, a
-   few sanctioned chrome files).
-4. **CLI** (`loom`) wires it together: `loom lint`, `loom tokens`,
-   eventually `loom audit` and `loom new`.
+1. **Tokens** are the read-only single source of truth (palette,
+   spacing, breakpoints, fonts, radii). Adding a token is a doctrine
+   review.
+2. **Components** compose tokens into typed primitives. Every prop
+   is a constrained enum. There is no `extra_classes` escape hatch.
+3. **CMS rendering** is a one-way bridge: typed `CmsPage` JSON →
+   `maud::Markup` → HTML. `loom-cms-render` owns this transform; no
+   other code emits Loom-styled markup from CMS data.
+4. **Lint** walks `*.rs` views and refuses raw Tailwind class
+   strings outside the allowlist.
+5. **SSH bridge** (T46): the admin portal serves a "chat with Claude
+   Code" panel per tenant. The bridge:
+   - Resolves the incoming SSH key against the cookie session.
+   - Spawns `claude --resume` in a per-tenant unix user.
+   - Wraps the spawn in `bwrap` + cgroup v2 CPU+memory limits.
+   - Restricts egress to Anthropic API + GitHub.
+   - Streams bidirectional stdio over the russh transport.
+6. **CLI** (`loom`) wires it all together. Subcommands today:
+   `loom lint`, `loom tokens`, `loom theme contrast`, `loom cms render`,
+   `loom site init`, `loom edit serve`, `loom deploy hetzner`.
+   Queued: `loom audit` (Playwright visual diff), `loom new page`
+   (template scaffolder), `loom bridge serve` (T46.next).
 
 ## Try it
 
@@ -86,6 +111,18 @@ cargo build --release -p loom-cli
 
 # Lint a site
 ./target/release/loom lint /path/to/your/site
+
+# Render a CMS page
+./target/release/loom cms render --in cms/index.json --out dist/
+
+# Theme contrast check (WCAG AA per theme)
+./target/release/loom theme contrast --skin static/skin.css --min-ratio 4.5
+
+# Site scaffolder (T41)
+./target/release/loom site init --template hero my-site/
+
+# Run admin editor (T42 — cookie-session auth, T43)
+./target/release/loom edit serve --site my-site/ --bind 127.0.0.1:8080
 ```
 
 When `loom lint` reports violations, the fix is always one of:
@@ -104,18 +141,67 @@ Never disable the lint.
 human contributor) reads it before touching UI code in any
 PlausiDen-* repo.
 
-## Roadmap
+## Status (current)
 
-- v0 (this commit): tokens, components (Button + Section), lint, CLI.
-- v0.1: more components (Card, Hero, Form primitives, Nav).
-- v0.2: `loom new page <name> --template <T>` scaffolder.
-- v0.3: `loom audit` — Playwright at every breakpoint, screenshot diff
-  vs. baseline.
-- v0.4: cross-platform token export (GTK / Adwaita CSS, Jetpack
-  Compose theme).
-- v1: `plausiden-site` fully migrated to `loom-components`; lint runs
-  as a CI gate; visual regression catches every drift.
+- ✅ **tokens** — palette + spacing + breakpoints + font + radius scales
+  shipped. AMOLED-aware dark theme (true `#000000` background) is the
+  default `tokens-dark.json`.
+- ✅ **components** — `Button`, `Section`, `Card`, `Hero`, `KvPair`,
+  `Banner`, `Group`, `Heading`, `Letter`, `Quote`, `CardFeed`. More
+  variants queued per the [Forge dedup table](https://github.com/thepictishbeast/PlausiDen-Forge/blob/main/docs/DEDUP_TABLE.md).
+- ✅ **lint** — walks views, flags raw classes outside allowlist.
+- ✅ **cms-render** — typed `CmsPage` → Loom markup bridge.
+- ✅ **bridge** — T46 SSH bridge end-to-end (200 tests with
+  `russh-transport` feature; auth → resolve → prepare → spawn →
+  bidirectional stdio). Pending: real-bwrap host smoke test,
+  `loom bridge serve` CLI subcommand, ops runbook, admin-portal
+  consumer integration, Merkle audit log.
+- ✅ **CLI** — `lint`, `tokens`, `theme contrast`, `cms render`,
+  `site init`, `edit serve`, `deploy hetzner`.
+- 🚧 **icons** — Lucide-derived UI glyphs shipped; brand-logo set
+  queued as separate `loom-brand-icons` crate.
+- ⏳ **`loom audit`** — Playwright visual regression at every
+  breakpoint, screenshot diff vs. baseline. Stub today.
+- ⏳ **`loom new page`** — template scaffolder. Stub today.
+- 📋 **Token export** — GTK / Adwaita CSS / Jetpack Compose theme
+  generators. Tokens are language-neutral JSON; future generators
+  consume them.
+- 📋 **`loom-brand-icons`** — vetted brand SVG sources only; never
+  user-uploaded markup.
+
+## Ecosystem integration
+
+Loom is one of six PlausiDen tools. See
+[`PlausiDen-Forge/README.md`](https://github.com/thepictishbeast/PlausiDen-Forge/blob/main/README.md#ecosystem-integration)
+for the full pipe diagram. Loom's role:
+
+- **CMS schema → Loom render** via `loom-cms-render::render_page`.
+- **Loom tokens → Forge phases** (`theme_consistency`, `theme_contrast`,
+  `dual_theme`) enforce tokens at build time.
+- **Loom design doctrine → all PlausiDen frontends** consume the
+  same `loom-tokens` JSON; no fork.
+- **Admin portal → loom-bridge** routes Claude Code chat to
+  jailed per-tenant invocations.
+
+## Test matrix
+
+Per the [Forge 24-combo test matrix](https://github.com/thepictishbeast/PlausiDen-Forge/blob/main/docs/TESTING.md):
+every Loom-rendered output is tested across 3 themes (light, dark,
+dark-amoled) × 2 viewports × 2 modes (static/dynamic) × 2 debug
+modes = 24 runs per page. AMOLED dark is the default for OLED
+battery savings; sites can opt to a muted-dark variant via
+`?_theme=dark` URL override.
+
+## ISO/IEC standards
+
+- **ISO 8601** — date/time formatting
+- **ISO 639-1** — `<html lang="en">`
+- **ISO/IEC 25010** — software quality attributes noted in commits
+- **ISO/IEC 40500:2012 / WCAG 2.1 AA** — accessibility floor
+  enforced by Loom tokens + components by default
 
 ## License
 
-AGPL-3.0-or-later.
+[FSL-1.1-MIT](./LICENSE) — Functional Source License v1.1 with
+MIT future license. Source-available with a 2-year competitor-
+restriction window, after which it converts automatically to MIT.
