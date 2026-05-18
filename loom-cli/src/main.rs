@@ -1094,7 +1094,7 @@ enum SshKeyOp {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
-        Cmd::Lint { root, json } => match cmd_lint(&root, json) {
+        Cmd::Lint { root, json } => match cmd::lint::cmd_lint(&root, json) {
             Ok(0) => ExitCode::SUCCESS,
             Ok(_) => ExitCode::from(1),
             Err(e) => {
@@ -1687,89 +1687,6 @@ fn cmd_ssh_key(db_path: &std::path::Path, op: SshKeyOp) -> Result<(), String> {
     }
 }
 
-fn cmd_lint(root: &std::path::Path, json: bool) -> Result<usize> {
-    let violations = loom_lint::run_default(root)?;
-    let css_violations = loom_lint::run_css_default(root)?;
-    let total = violations.len() + css_violations.len();
-
-    if json {
-        // Combined JSON object so consumers can disambiguate.
-        let payload = serde_json::json!({
-            "rust_class_strings": violations,
-            "css_raw_values": css_violations,
-        });
-        tracing::info!(
-            "{}",
-            serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".into())
-        );
-        return Ok(total);
-    }
-
-    if total == 0 {
-        tracing::info!("loom lint: clean ({})", root.display());
-        return Ok(0);
-    }
-
-    if !violations.is_empty() {
-        tracing::info!(
-            "loom lint: {} Rust class-string violation(s) in {}",
-            violations.len(),
-            root.display()
-        );
-        for v in &violations {
-            tracing::info!("  {}:{}", v.path.display(), v.line);
-            tracing::info!("    \"{}\"", v.class_string);
-        }
-        tracing::info!(" ");
-        tracing::info!("Each Rust violation = a raw class string in a non-allowlisted file.");
-        tracing::info!("Move the styling into a typed component in loom-components.");
-    }
-
-    if !css_violations.is_empty() {
-        tracing::info!(" ");
-        tracing::info!(
-            "loom lint: {} CSS raw-value violation(s) in {}",
-            css_violations.len(),
-            root.display()
-        );
-        for cv in &css_violations {
-            let kind = match cv.kind {
-                loom_lint::CssViolationKind::RawColour => "raw-colour",
-                loom_lint::CssViolationKind::RawSpacing => "raw-spacing",
-                loom_lint::CssViolationKind::RawTime => "raw-time",
-            };
-            tracing::info!("  {}:{} [{}]", cv.path.display(), cv.line, kind);
-            tracing::info!("    {}", cv.matched);
-        }
-        tracing::info!(" ");
-        tracing::info!(
-            "Each CSS violation = a raw colour / spacing literal outside a token-source file."
-        );
-        tracing::info!(
-            "Replace with a `var(--loom-color-*)` / `var(--loom-space-*)` from loom-tokens.css,",
-        );
-        tracing::info!("or extend the token set if no role fits.");
-    }
-
-    Ok(total)
-}
-
-/// Drift report: count raw class strings per file, no file allowlist.
-///
-/// Unlike `lint` — which enforces a hard pass/fail with a sanctioned
-/// set of skip-able paths — `report` shows everything still present
-/// across the source tree, including the previously-allowlisted
-/// `views/layout.rs` and `views/posts/`. This is the burn-down view
-/// for an active migration: which files have the most raw classes,
-/// where to focus next.
-///
-/// BUG ASSUMPTION: `loom-components/` (the design-system crate
-/// itself) IS still skipped — those classes are sanctioned by
-/// definition. A report that listed them would mistake the floor for
-/// the ceiling.
-///
-/// SECURITY: Read-only; no side effects beyond stdout. Safe to invoke
-/// from CI / cron / a developer's terminal interchangeably.
 fn cmd_report(root: &std::path::Path, json: bool) -> Result<()> {
     use std::collections::BTreeMap;
 
