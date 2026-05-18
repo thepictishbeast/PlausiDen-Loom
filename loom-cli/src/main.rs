@@ -2832,7 +2832,15 @@ fn cmd_cms_render(
 // T70b: page-shell + helpers moved to loom-cms-render so
 // PlausiDen-Forge can call them via the public render API
 // and inherit the same WCAG-AA dual-theme defaults Loom uses.
-use loom_cms_render::{csp_sha256, escape_html_attr, escape_html_text, page_shell};
+// `csp_sha256`, `escape_html_attr`, `escape_html_text` are
+// called unqualified at multiple binary call sites. `page_shell`
+// is referenced in multiple test mods (cms_render_tests + others
+// at 21497+). Keep all four at top level. The original
+// `BASE_THEME_CSS`/`DEFER_ONLOAD_JS`/`render_nav_links` imports
+// removed earlier were truly unused so they stay out.
+#[cfg(test)]
+use loom_cms_render::page_shell;
+use loom_cms_render::{csp_sha256, escape_html_attr, escape_html_text};
 
 #[cfg(test)]
 mod cms_render_tests {
