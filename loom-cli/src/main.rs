@@ -1963,7 +1963,12 @@ fn audit_loom_repo(root: &std::path::Path) -> Vec<DoctorFinding> {
         "## Why this exists",
         "## Crate map",
         "## Hard rules",
-        "## What this is not",
+        // CLAUDE.md uses "What this is still not" — the "still"
+        // was added intentionally on the 2026-05-06 doctrine
+        // update where Loom rescinded the "no runtime editing"
+        // rule. Doctor was checking for the pre-rename
+        // "What this is not" so it false-failed every run.
+        "## What this is still not",
     ];
     let mut any_missing = false;
     for section in required_sections {
