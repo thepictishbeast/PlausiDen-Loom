@@ -390,7 +390,6 @@ mod tests {
                 // fail the assert; the truncation guarantee is in the
                 // type system regardless.
             }
-            _ => {}
         }
         // Reference the first err so unused-var lint stays quiet
         let _ = err;

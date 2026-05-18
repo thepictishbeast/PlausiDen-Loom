@@ -2295,7 +2295,6 @@ fn doctor_attest_key_path() -> Option<std::path::PathBuf> {
 /// header above each ("Heading H2", "Banner: warn", etc.) so a
 /// reviewer can scan the grid without parsing source.
 fn cmd_state_matrix(out: &std::path::Path) -> Result<()> {
-    use loom_cms_render::{CmsBannerTone, CmsPage, CmsSection, HeadingLevel};
     std::fs::create_dir_all(out)
         .map_err(|e| anyhow::anyhow!("create out dir {}: {e}", out.display()))?;
     let cap = WriteCapability::for_dir(out)
@@ -2833,10 +2832,7 @@ fn cmd_cms_render(
 // T70b: page-shell + helpers moved to loom-cms-render so
 // PlausiDen-Forge can call them via the public render API
 // and inherit the same WCAG-AA dual-theme defaults Loom uses.
-use loom_cms_render::{
-    BASE_THEME_CSS, DEFER_ONLOAD_JS, csp_sha256, escape_html_attr, escape_html_text, page_shell,
-    render_nav_links,
-};
+use loom_cms_render::{csp_sha256, escape_html_attr, escape_html_text, page_shell};
 
 #[cfg(test)]
 mod cms_render_tests {
@@ -14032,7 +14028,6 @@ mod webauthn_es256_verify_tests {
     use super::*;
     use p256::ecdsa::SigningKey;
     use p256::ecdsa::signature::Signer as _;
-    use p256::elliptic_curve::generic_array::GenericArray;
 
     /// Build a fresh test key + the matching CoseEs256PublicKey.
     fn fresh_key() -> (SigningKey, CoseEs256PublicKey) {
