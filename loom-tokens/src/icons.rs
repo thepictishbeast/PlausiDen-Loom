@@ -16,7 +16,7 @@
 //!
 //! API
 //! ---
-//! - [`lucide_icon_inner(name)`] — returns the inner SVG content
+//! - [`lucide_icon_inner`] — returns the inner SVG content
 //!   (paths, circles, etc.) for a known icon name. None for unknown.
 //!   Useful when composing custom `<svg>` wrappers.
 //! - [`lucide_icon_svg(name, size, aria_label)`] — returns a

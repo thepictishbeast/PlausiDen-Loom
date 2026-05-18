@@ -4,8 +4,7 @@
 //! filesystem paths the tenant's Claude can see, what network
 //! egress is allowed, which syscalls are forbidden. The actual
 //! `bwrap` / `systemd-nspawn` invocation lives behind the
-//! `russh-transport` feature in [`crate::transport`] and consumes
-//! this spec.
+//! `russh-transport` feature module and consumes this spec.
 //!
 //! Splitting spec ↔ executor lets every variant (bwrap on Linux,
 //! `sandbox-exec` on macOS dev boxes, no-op stub on CI) consume

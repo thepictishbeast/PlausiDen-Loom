@@ -7,11 +7,13 @@
 //!
 //! cgroup-v2 layout (Linux ≥4.5, unified hierarchy):
 //!
+//! ```text
 //!   /sys/fs/cgroup/loom-bridge/<tenant>/
 //!     cpu.max         "<quota> <period>"   200000 100000 = 2 cores
 //!     memory.max      "<bytes>"            1073741824 = 1 GiB
 //!     pids.max        "<count>"            64
 //!     cgroup.procs    "<pid>"              join the cgroup
+//! ```
 //!
 //! Splitting render ↔ write means:
 //!   - the spec is testable on every platform
@@ -27,7 +29,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct CgroupWrite {
-    /// Absolute path under /sys/fs/cgroup/<bridge>/<tenant>/.
+    /// Absolute path under `/sys/fs/cgroup/<bridge>/<tenant>/`.
     pub path: PathBuf,
     /// Raw bytes to write. Always a trailing newline included
     /// because the kernel's cgroup files expect line-oriented input.

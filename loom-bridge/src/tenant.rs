@@ -7,8 +7,9 @@
 //! that matches `(tenant_id, fingerprint)` is authenticated to that
 //! tenant.
 //!
-//! The registry is in-memory + persisted via [`TenantRegistry::load`]
-//! / [`save`](TenantRegistry::save). On-disk format is plain JSON so
+//! The registry is in-memory + persisted to disk by the operator's
+//! `load_registry` / `save_registry` helpers (lives outside this
+//! module in the daemon shell). On-disk format is plain JSON so
 //! `loom-cli` can manage it without the daemon being live.
 
 use serde::{Deserialize, Serialize};

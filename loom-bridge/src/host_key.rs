@@ -2,7 +2,8 @@
 //!
 //! Loads the bridge's SSH server host key from a PEM-encoded ed25519
 //! private key. Enforces ed25519-only at this layer (defence-in-depth
-//! for the Marvin Attack SHIP-DECISION — see [`crate::transport`]).
+//! for the Marvin Attack SHIP-DECISION — see the `russh-transport`
+//! feature module).
 //!
 //! Lives behind no feature flag because:
 //!   * the type model is useful for operator tooling (loom-cli can

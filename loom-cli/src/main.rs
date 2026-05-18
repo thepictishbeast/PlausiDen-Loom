@@ -6,6 +6,13 @@
 //! than silently no-op'ing.
 
 #![doc(html_no_source)]
+// loom-cli is a binary with operator-facing CLI help text in doc
+// comments. The help text uses POSIX-shape placeholders like
+// `<slug>`, `<dir>`, `<page>` to teach users the argument shape.
+// rustdoc parses these as literal HTML tags and emits warnings.
+// Suppress at the crate level — these aren't API docs that downstream
+// crates link to; they're the operator-facing `--help` output.
+#![allow(rustdoc::invalid_html_tags)]
 
 mod critical_css;
 
@@ -102,7 +109,7 @@ enum DeployAction {
     },
     /// Roll back to the previous bundle.
     Rollback {
-        /// Target dir containing publish-<sha>/ subdirs +
+        /// Target dir containing `publish-<sha>/` subdirs +
         /// `current/` symlink.
         #[arg(long)]
         at: PathBuf,
@@ -281,7 +288,7 @@ enum ReviewAction {
         note: String,
     },
     /// Summary counts: total / new / ack / dismiss across every
-    /// report-collector file in <dir>. Pairs with `report-stats`
+    /// report-collector file in `<dir>`. Pairs with `report-stats`
     /// (which slices by kind) — this slices by triage state.
     Status {
         #[arg(long, default_value = "reports")]
@@ -543,7 +550,7 @@ enum Cmd {
     /// `loom edit serve` — typed CMS editor server. T42.
     ///
     /// Starts a tiny HTTP server on `--port` (default 8124) that
-    /// renders one form per cms/<page>.json, accepts POSTs to
+    /// renders one form per `cms/<page>.json`, accepts POSTs to
     /// persist edits, and re-runs forge.sh after every save. No
     /// JavaScript required; every interaction is server-rendered
     /// HTML and a multipart POST.
@@ -578,6 +585,8 @@ enum Cmd {
     /// This subcommand lists, diffs, and restores them.
     ///
     /// Actions:
+    ///
+    /// ```text
     ///   list <slug>            — print all revisions for a slug
     ///                             with relative timestamps + size.
     ///   show <slug> <index>    — print revision content to stdout
@@ -592,6 +601,7 @@ enum Cmd {
     ///                             snapshot of the CURRENT file (so
     ///                             restore is itself reversible), then
     ///                             replaces it with the revision.
+    /// ```
     Revisions {
         #[command(subcommand)]
         action: RevisionsAction,
@@ -12817,7 +12827,7 @@ struct WebAuthnClientData {
     /// Base64url-encoded challenge — caller must compare against
     /// the issued challenge from the WebAuthnChallengeStore.
     challenge: String,
-    /// Origin string ("https://example.com"). Caller compares
+    /// Origin string (e.g. `https://example.com`). Caller compares
     /// against the configured RP origin.
     origin: String,
 }
