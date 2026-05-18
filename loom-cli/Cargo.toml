@@ -61,6 +61,8 @@ p256 = { version = "0.13", features = ["ecdsa", "arithmetic"] }
 # in the world (≥4× more than any other), public-domain license,
 # 100% MC/DC test coverage in the upstream codebase.
 rusqlite = { version = "0.31", features = ["bundled"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
 # T29: property-based tests on the contrast math + parser.

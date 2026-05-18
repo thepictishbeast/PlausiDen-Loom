@@ -8,6 +8,9 @@
 #![doc(html_no_source)]
 
 mod critical_css;
+mod cmd;
+
+use tracing;
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -1095,7 +1098,7 @@ fn main() -> ExitCode {
             Ok(0) => ExitCode::SUCCESS,
             Ok(_) => ExitCode::from(1),
             Err(e) => {
-                etracing::info!("loom lint: {e:#}");
+                tracing::error!("loom lint: {e:#}");
                 ExitCode::from(2)
             }
         },
@@ -1106,21 +1109,21 @@ fn main() -> ExitCode {
         Cmd::Report { root, json } => match cmd_report(&root, json) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                etracing::info!("loom report: {e:#}");
+                tracing::error!("loom report: {e:#}");
                 ExitCode::from(2)
             }
         },
         Cmd::Audit { journey, url } => match cmd_audit(&journey, &url) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                etracing::info!("loom audit: {e:#}");
+                tracing::error!("loom audit: {e:#}");
                 ExitCode::from(1)
             }
         },
         Cmd::StateMatrix { out } => match cmd_state_matrix(&out) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                etracing::info!("loom state-matrix: {e:#}");
+                tracing::error!("loom state-matrix: {e:#}");
                 ExitCode::from(2)
             }
         },
@@ -1131,7 +1134,7 @@ fn main() -> ExitCode {
         } => match cmd_new(&name, &root, &template) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                etracing::info!("loom new: {e:#}");
+                tracing::error!("loom new: {e:#}");
                 ExitCode::from(1)
             }
         },
@@ -1147,21 +1150,21 @@ fn main() -> ExitCode {
             print!("{}", loom_tokens::tokens_egui());
             ExitCode::SUCCESS
         }
-        Cmd::Doctor { root, site: _ } => match cmd_doctor(&root) {
+        Cmd::Doctor { root, site: _ } => match cmd::doctor::cmd_doctor(&root) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                etracing::info!("loom doctor: {e:#}");
+                tracing::error!("loom doctor: {e:#}");
                 ExitCode::from(1)
             }
         },
         Cmd::CriticalCss { input, out } => match cmd_critical_css(&input, &out) {
             Ok(()) => ExitCode::SUCCESS,
             Err(CriticalCssError::Parse(e)) => {
-                etracing::info!("loom critical-css: parse error: {e}");
+                tracing::error!("loom critical-css: parse error: {e}");
                 ExitCode::from(1)
             }
             Err(CriticalCssError::Io(e)) => {
-                etracing::info!("loom critical-css: i/o error: {e}");
+                tracing::error!("loom critical-css: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1173,33 +1176,33 @@ fn main() -> ExitCode {
         } => match cmd_backend_stub(&key, &backends, &crate_dir, force) {
             Ok(()) => ExitCode::SUCCESS,
             Err(BackendStubError::KeyNotFound(k)) => {
-                etracing::info!("loom backend-stub: key {k:?} not found in backends.toml");
+                tracing::error!("loom backend-stub: key {k:?} not found in backends.toml");
                 ExitCode::from(1)
             }
             Err(BackendStubError::Conflict(p)) => {
-                etracing::info!(
+                tracing::error!(
                     "loom backend-stub: {} already exists; pass --force",
                     p.display()
                 );
                 ExitCode::from(1)
             }
             Err(BackendStubError::CrateNotDir(p)) => {
-                etracing::info!("loom backend-stub: {} is not a directory", p.display());
+                tracing::error!("loom backend-stub: {} is not a directory", p.display());
                 ExitCode::from(1)
             }
             Err(BackendStubError::Toml(e)) => {
-                etracing::info!("loom backend-stub: toml error: {e}");
+                tracing::error!("loom backend-stub: toml error: {e}");
                 ExitCode::from(1)
             }
             Err(BackendStubError::Io(e)) => {
-                etracing::info!("loom backend-stub: i/o error: {e}");
+                tracing::error!("loom backend-stub: i/o error: {e}");
                 ExitCode::from(2)
             }
             Err(BackendStubError::CapabilityEscape {
                 attempted,
                 confined_root,
             }) => {
-                etracing::info!(
+                tracing::error!(
                     "loom backend-stub: SECURITY: write attempt {} escapes capability scope {}",
                     attempted.display(),
                     confined_root.display(),
@@ -1226,22 +1229,22 @@ fn main() -> ExitCode {
                 }
             }
             Err(BackendStubError::Toml(e)) => {
-                etracing::info!("loom backend-stub-all: toml error: {e}");
+                tracing::error!("loom backend-stub-all: toml error: {e}");
                 ExitCode::from(2)
             }
             Err(BackendStubError::CrateNotDir(p)) => {
-                etracing::info!("loom backend-stub-all: {} is not a directory", p.display());
+                tracing::error!("loom backend-stub-all: {} is not a directory", p.display());
                 ExitCode::from(2)
             }
             Err(BackendStubError::Io(e)) => {
-                etracing::info!("loom backend-stub-all: i/o error: {e}");
+                tracing::error!("loom backend-stub-all: i/o error: {e}");
                 ExitCode::from(2)
             }
             Err(BackendStubError::CapabilityEscape {
                 attempted,
                 confined_root,
             }) => {
-                etracing::info!(
+                tracing::error!(
                     "loom backend-stub-all: SECURITY: write attempt {} escapes capability scope {}",
                     attempted.display(),
                     confined_root.display(),
@@ -1258,7 +1261,7 @@ fn main() -> ExitCode {
         Cmd::BackendList { backends } => match cmd_backend_list(&backends) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                etracing::info!("loom backend list: i/o error: {e}");
+                tracing::error!("loom backend list: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1270,7 +1273,7 @@ fn main() -> ExitCode {
         } => match cmd_edit_serve(&cms, &static_dir, &forge, port) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                etracing::info!("loom edit serve: {e}");
+                tracing::error!("loom edit serve: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1282,7 +1285,7 @@ fn main() -> ExitCode {
         } => match cmd_report_tail(&dir, lines, &kind, follow) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                etracing::info!("loom report-tail: {e}");
+                tracing::error!("loom report-tail: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1294,21 +1297,21 @@ fn main() -> ExitCode {
         } => match cmd_report_stats(&dir, since, &kind, json) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                etracing::info!("loom report-stats: {e}");
+                tracing::error!("loom report-stats: {e}");
                 ExitCode::from(2)
             }
         },
         Cmd::ReportReview { action } => match cmd_report_review(action) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                etracing::info!("loom report-review: {e}");
+                tracing::error!("loom report-review: {e}");
                 ExitCode::from(2)
             }
         },
         Cmd::Revisions { action } => match cmd_revisions(action) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                etracing::info!("loom revisions: {e}");
+                tracing::error!("loom revisions: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1321,7 +1324,7 @@ fn main() -> ExitCode {
         } => match cmd_import_dispatch(from, url, &into, slug.as_deref(), force) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                etracing::info!("loom import: {e}");
+                tracing::error!("loom import: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1329,14 +1332,14 @@ fn main() -> ExitCode {
             LoomAttestAction::Init { force } => match cmd_loom_attest_init(force) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    etracing::info!("loom attest init: {e}");
+                    tracing::error!("loom attest init: {e}");
                     ExitCode::from(2)
                 }
             },
             LoomAttestAction::Pubkey => match cmd_loom_attest_pubkey() {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    etracing::info!("loom attest pubkey: {e}");
+                    tracing::error!("loom attest pubkey: {e}");
                     ExitCode::from(2)
                 }
             },
@@ -1344,7 +1347,7 @@ fn main() -> ExitCode {
                 match cmd_loom_attest_export(fingerprint_only) {
                     Ok(()) => ExitCode::SUCCESS,
                     Err(e) => {
-                        etracing::info!("loom attest export: {e}");
+                        tracing::error!("loom attest export: {e}");
                         ExitCode::from(2)
                     }
                 }
@@ -1367,7 +1370,7 @@ fn main() -> ExitCode {
                 match cmd_deploy_publish(&from, &to, name.as_deref(), remote.as_ref()) {
                     Ok(()) => ExitCode::SUCCESS,
                     Err(e) => {
-                        etracing::info!("loom deploy publish: {e}");
+                        tracing::error!("loom deploy publish: {e}");
                         ExitCode::from(2)
                     }
                 }
@@ -1375,18 +1378,18 @@ fn main() -> ExitCode {
             DeployAction::Verify { at } => match cmd_deploy_verify(&at) {
                 Ok(0) => ExitCode::SUCCESS,
                 Ok(n) => {
-                    etracing::info!("loom deploy verify: {n} mismatch(es)");
+                    tracing::error!("loom deploy verify: {n} mismatch(es)");
                     ExitCode::from(1)
                 }
                 Err(e) => {
-                    etracing::info!("loom deploy verify: {e}");
+                    tracing::error!("loom deploy verify: {e}");
                     ExitCode::from(2)
                 }
             },
             DeployAction::Rollback { at } => match cmd_deploy_rollback(&at) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    etracing::info!("loom deploy rollback: {e}");
+                    tracing::error!("loom deploy rollback: {e}");
                     ExitCode::from(2)
                 }
             },
@@ -1400,7 +1403,7 @@ fn main() -> ExitCode {
             } => match cmd_site_init(&name, &template, force, theme.as_deref()) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    etracing::info!("loom site init: {e}");
+                    tracing::error!("loom site init: {e}");
                     ExitCode::from(2)
                 }
             },
@@ -1416,14 +1419,14 @@ fn main() -> ExitCode {
             AuthAction::Init { user, force } => match cmd_auth_init(&user, force) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    etracing::info!("loom auth init: {e}");
+                    tracing::error!("loom auth init: {e}");
                     ExitCode::from(2)
                 }
             },
             AuthAction::List => match cmd_auth_list() {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    etracing::info!("loom auth list: {e}");
+                    tracing::error!("loom auth list: {e}");
                     ExitCode::from(2)
                 }
             },
@@ -1436,18 +1439,18 @@ fn main() -> ExitCode {
             ThemeAction::List { skin } => match cmd_theme_list(&skin) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    etracing::info!("loom theme list: i/o error: {e}");
+                    tracing::error!("loom theme list: i/o error: {e}");
                     ExitCode::from(2)
                 }
             },
             ThemeAction::Validate { skin } => match cmd_theme_validate(&skin) {
                 Ok(0) => ExitCode::SUCCESS,
                 Ok(n) => {
-                    etracing::info!("loom theme validate: {n} drift finding(s)");
+                    tracing::error!("loom theme validate: {n} drift finding(s)");
                     ExitCode::from(1)
                 }
                 Err(e) => {
-                    etracing::info!("loom theme validate: i/o error: {e}");
+                    tracing::error!("loom theme validate: i/o error: {e}");
                     ExitCode::from(2)
                 }
             },
@@ -1455,11 +1458,11 @@ fn main() -> ExitCode {
                 match cmd_theme_contrast(&skin, min_ratio) {
                     Ok(0) => ExitCode::SUCCESS,
                     Ok(n) => {
-                        etracing::info!("loom theme contrast: {n} pair(s) below {min_ratio}:1");
+                        tracing::error!("loom theme contrast: {n} pair(s) below {min_ratio}:1");
                         ExitCode::from(1)
                     }
                     Err(e) => {
-                        etracing::info!("loom theme contrast: {e}");
+                        tracing::error!("loom theme contrast: {e}");
                         ExitCode::from(2)
                     }
                 }
@@ -1469,20 +1472,20 @@ fn main() -> ExitCode {
             Ok(0) => ExitCode::SUCCESS,
             Ok(_) => ExitCode::from(1),
             Err(e) => {
-                etracing::info!("loom audit-bridge: i/o error: {e}");
+                tracing::error!("loom audit-bridge: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
         Cmd::HooksInstall { target, force } => match cmd_hooks_install(&target, force) {
             Ok(false) => ExitCode::SUCCESS,
             Ok(true) => {
-                etracing::info!(
+                tracing::error!(
                     "loom hooks install: pre-commit hook already exists; pass --force to overwrite"
                 );
                 ExitCode::from(1)
             }
             Err(e) => {
-                etracing::info!("loom hooks install: {e}");
+                tracing::error!("loom hooks install: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1494,14 +1497,14 @@ fn main() -> ExitCode {
         } => match cmd_journey_from_cms(&cms_dir, &base_url, &out, &name) {
             Ok(()) => ExitCode::SUCCESS,
             Err(JourneyFromCmsError::Schema { file, error }) => {
-                etracing::info!(
+                tracing::error!(
                     "loom journey-from-cms: schema error in {}: {error}",
                     file.display()
                 );
                 ExitCode::from(1)
             }
             Err(JourneyFromCmsError::Io(e)) => {
-                etracing::info!("loom journey-from-cms: i/o error: {e}");
+                tracing::error!("loom journey-from-cms: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1514,38 +1517,38 @@ fn main() -> ExitCode {
         } => match cmd_cms_new(&kind, &out, &title, &path, force) {
             Ok(()) => ExitCode::SUCCESS,
             Err(CmsNewError::Conflict(p)) => {
-                etracing::info!(
+                tracing::error!(
                     "loom cms-new: {} already exists; pass --force to overwrite",
                     p.display()
                 );
                 ExitCode::from(1)
             }
             Err(CmsNewError::UnknownKind(k)) => {
-                etracing::info!(
+                tracing::error!(
                     "loom cms-new: unknown template kind {k:?}; expected landing | explainer | form"
                 );
                 ExitCode::from(1)
             }
             Err(CmsNewError::Io(e)) => {
-                etracing::info!("loom cms-new: i/o error: {e}");
+                tracing::error!("loom cms-new: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
         Cmd::CmsSchema { out } => match cmd_cms_schema(&out) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                etracing::info!("loom cms-schema: i/o error: {e}");
+                tracing::error!("loom cms-schema: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
         Cmd::Validate { input } => match cmd_validate(&input) {
             Ok(false) => ExitCode::SUCCESS,
             Ok(true) => {
-                etracing::info!("loom validate: at least one file failed");
+                tracing::error!("loom validate: at least one file failed");
                 ExitCode::from(1)
             }
             Err(e) => {
-                etracing::info!("loom validate: i/o error: {e}");
+                tracing::error!("loom validate: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1557,11 +1560,11 @@ fn main() -> ExitCode {
         } => match cmd_image_convert(&input_dir, avif_quality, webp_quality, force) {
             Ok(false) => ExitCode::SUCCESS,
             Ok(true) => {
-                etracing::info!("loom image-convert: at least one conversion failed");
+                tracing::error!("loom image-convert: at least one conversion failed");
                 ExitCode::from(1)
             }
             Err(e) => {
-                etracing::info!("loom image-convert: i/o error: {e}");
+                tracing::error!("loom image-convert: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
@@ -1580,18 +1583,18 @@ fn main() -> ExitCode {
         ) {
             Ok(()) => ExitCode::SUCCESS,
             Err(CmsRenderError::Schema(e)) => {
-                etracing::info!("loom cms-render: schema error: {e}");
+                tracing::error!("loom cms-render: schema error: {e}");
                 ExitCode::from(1)
             }
             Err(CmsRenderError::Io(e)) => {
-                etracing::info!("loom cms-render: i/o error: {e}");
+                tracing::error!("loom cms-render: i/o error: {e}");
                 ExitCode::from(2)
             }
         },
         Cmd::SshKey { db, op } => match cmd_ssh_key(&db, op) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                etracing::info!("loom ssh-key: {e}");
+                tracing::error!("loom ssh-key: {e}");
                 ExitCode::from(1)
             }
         },
@@ -1677,8 +1680,8 @@ fn cmd_ssh_key(db_path: &std::path::Path, op: SshKeyOp) -> Result<(), String> {
             tracing::info!("-----END LOOM ED25519 SECRET-----");
             // Public key + fingerprint to stderr so a redirect
             // captures only the secret.
-            etracing::info!("{pub_line}");
-            etracing::info!("# fingerprint: {fp}");
+            tracing::error!("{pub_line}");
+            tracing::error!("# fingerprint: {fp}");
             Ok(())
         }
     }
@@ -1717,13 +1720,13 @@ fn cmd_lint(root: &std::path::Path, json: bool) -> Result<usize> {
             tracing::info!("  {}:{}", v.path.display(), v.line);
             tracing::info!("    \"{}\"", v.class_string);
         }
-        tracing::info!();
+        tracing::info!(" ");
         tracing::info!("Each Rust violation = a raw class string in a non-allowlisted file.");
         tracing::info!("Move the styling into a typed component in loom-components.");
     }
 
     if !css_violations.is_empty() {
-        tracing::info!();
+        tracing::info!(" ");
         tracing::info!(
             "loom lint: {} CSS raw-value violation(s) in {}",
             css_violations.len(),
@@ -1738,7 +1741,7 @@ fn cmd_lint(root: &std::path::Path, json: bool) -> Result<usize> {
             tracing::info!("  {}:{} [{}]", cv.path.display(), cv.line, kind);
             tracing::info!("    {}", cv.matched);
         }
-        tracing::info!();
+        tracing::info!(" ");
         tracing::info!(
             "Each CSS violation = a raw colour / spacing literal outside a token-source file."
         );
@@ -1802,19 +1805,19 @@ fn cmd_report(root: &std::path::Path, json: bool) -> Result<()> {
     tracing::info!("loom report — design-system drift in {}", root.display());
     tracing::info!("Total raw-class violations: {}", violations.len());
     tracing::info!("(loom-components/ is sanctioned and excluded from the count.)");
-    tracing::info!();
+    tracing::info!(" ");
     if ranked.is_empty() {
         tracing::info!("No drift detected — every view file goes through Loom primitives.");
         return Ok(());
     }
     tracing::info!("Per-file breakdown (descending):");
-    tracing::info!();
+    tracing::info!(" ");
     tracing::info!("  {:<60}  RAW CLASSES", "FILE");
     tracing::info!("  {:<60}  {}", "-".repeat(60), "-".repeat(11));
     for (path, count) in &ranked {
         tracing::info!("  {path:<60}  {count}");
     }
-    tracing::info!();
+    tracing::info!(" ");
     tracing::info!("To resolve: replace the raw class string with a typed");
     tracing::info!("primitive from loom-components/. If a primitive does not");
     tracing::info!("yet exist, propose one in a separate PR (see CLAUDE.md).");
@@ -1839,442 +1842,6 @@ fn cmd_report(root: &std::path::Path, json: bool) -> Result<()> {
 /// terminal interchangeably; emits findings to stdout.
 /// Severity of a single doctor finding. `Ok` is always-shown so
 /// the operator sees what passed AND what failed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DoctorLevel {
-    Ok,
-    Warn,
-    Fail,
-}
-
-impl DoctorLevel {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Ok => "ok  ",
-            Self::Warn => "warn",
-            Self::Fail => "FAIL",
-        }
-    }
-}
-
-/// One health-check result: a check name, severity, one-line
-/// human-readable message, and (when relevant) a one-line
-/// remedy. The remedy is the difference between "your site is
-/// broken" and "your site is broken — here's what to do."
-#[derive(Debug)]
-struct DoctorFinding {
-    level: DoctorLevel,
-    check: String,
-    message: String,
-    remedy: Option<String>,
-}
-
-fn cmd_doctor(root: &std::path::Path) -> Result<()> {
-    // Detect what kind of root this is. A Loom dev repo has
-    // CLAUDE.md + loom-components/. A user site has cms/ +
-    // forge.toml. Some operators may have both (development
-    // root). Run whichever applies; show explicit "skipped"
-    // findings for the other set.
-    let is_loom_repo =
-        root.join("CLAUDE.md").is_file() && root.join("loom-components/src/lib.rs").is_file();
-    let is_site = root.join("cms").is_dir() || root.join("forge.toml").is_file();
-
-    let mut findings: Vec<DoctorFinding> = Vec::new();
-    if is_loom_repo {
-        findings.extend(audit_loom_repo(root));
-    }
-    if is_site {
-        findings.extend(audit_site(root));
-    }
-    if !is_loom_repo && !is_site {
-        findings.push(DoctorFinding {
-            level: DoctorLevel::Fail,
-            check: "root-detection".into(),
-            message: format!(
-                "{} doesn't look like a Loom repo OR a site (no CLAUDE.md, no cms/, no forge.toml)",
-                root.display()
-            ),
-            remedy: Some(
-                "Run `loom site init mysite --template basic` to scaffold a site, OR pass the path to your Loom repo / site root.".into()
-            ),
-        });
-    }
-
-    let n_fail = findings
-        .iter()
-        .filter(|f| f.level == DoctorLevel::Fail)
-        .count();
-    let n_warn = findings
-        .iter()
-        .filter(|f| f.level == DoctorLevel::Warn)
-        .count();
-    let n_ok = findings
-        .iter()
-        .filter(|f| f.level == DoctorLevel::Ok)
-        .count();
-
-    tracing::info!(
-        "loom doctor: {n_ok} ok · {n_warn} warn · {n_fail} fail · root={}",
-        root.display()
-    );
-    tracing::info!();
-    for f in &findings {
-        tracing::info!("  [{}] {} — {}", f.level.label(), f.check, f.message);
-        if let Some(r) = &f.remedy {
-            tracing::info!("         → {r}");
-        }
-    }
-
-    if n_fail > 0 {
-        anyhow::bail!("{n_fail} fail finding(s); see above")
-    }
-    Ok(())
-}
-
-/// T-doctor / dev-side: doctrine-drift checks on a Loom dev repo.
-/// Refactored from the original cmd_doctor so the same output
-/// shape covers both repo + site audits.
-fn audit_loom_repo(root: &std::path::Path) -> Vec<DoctorFinding> {
-    let mut out = Vec::new();
-    let claude_path = root.join("CLAUDE.md");
-    let claude = match std::fs::read_to_string(&claude_path) {
-        Ok(s) => s,
-        Err(_) => {
-            out.push(DoctorFinding {
-                level: DoctorLevel::Fail,
-                check: "CLAUDE.md".into(),
-                message: format!("missing at {}", claude_path.display()),
-                remedy: Some("Restore from git history or pull latest from origin.".into()),
-            });
-            return out;
-        }
-    };
-    let required_sections = [
-        "## The single rule",
-        "## Why this exists",
-        "## Crate map",
-        "## Hard rules",
-        "## What this is not",
-    ];
-    let mut any_missing = false;
-    for section in required_sections {
-        if !claude.contains(section) {
-            out.push(DoctorFinding {
-                level: DoctorLevel::Fail,
-                check: format!("CLAUDE.md section `{section}`"),
-                message: "missing — doctrine has drifted".into(),
-                remedy: Some(format!(
-                    "Restore the `{section}` heading. A rename is a doctrine event; coordinate with PlausiDen-AVP-Doctrine."
-                )),
-            });
-            any_missing = true;
-        }
-    }
-    if !any_missing {
-        out.push(DoctorFinding {
-            level: DoctorLevel::Ok,
-            check: "CLAUDE.md doctrine sections".into(),
-            message: format!("all {} required sections present", required_sections.len()),
-            remedy: None,
-        });
-    }
-    let lib_path = root.join("loom-components/src/lib.rs");
-    if lib_path.exists() {
-        let lib = std::fs::read_to_string(&lib_path).unwrap_or_default();
-        let claimed = ["Button", "Card", "Section", "Hero", "Footer", "Nav"];
-        let mut missing: Vec<&str> = Vec::new();
-        for m in claimed {
-            if !lib.contains(&format!("pub use {}", m.to_lowercase())) && !lib.contains(m) {
-                missing.push(m);
-            }
-        }
-        if missing.is_empty() {
-            out.push(DoctorFinding {
-                level: DoctorLevel::Ok,
-                check: "loom-components crate map".into(),
-                message: format!("all {} primitives exported", claimed.len()),
-                remedy: None,
-            });
-        } else {
-            out.push(DoctorFinding {
-                level: DoctorLevel::Fail,
-                check: "loom-components crate map".into(),
-                message: format!("CLAUDE.md mentions {missing:?} but lib.rs does not export them"),
-                remedy: Some("Either add a `pub use module::Type` for each missing primitive, or update CLAUDE.md to remove the claim.".into()),
-            });
-        }
-    }
-    out
-}
-
-/// Site-level operational diagnostics. Catches the broken / mis-
-/// configured states that produce opaque errors at runtime: no
-/// cms/ dir, malformed cms/*.json, attest-key.b64 with wrong
-/// permissions, port already-in-use, etc.
-///
-/// Mom-class output: every finding has a one-line remedy in plain
-/// English ("run X to fix Y").
-fn audit_site(root: &std::path::Path) -> Vec<DoctorFinding> {
-    let mut out = Vec::new();
-
-    // cms/ — exists, has at least one .json, every .json parses.
-    let cms_dir = root.join("cms");
-    if !cms_dir.is_dir() {
-        out.push(DoctorFinding {
-            level: DoctorLevel::Warn,
-            check: "cms/".into(),
-            message: format!("directory missing at {}", cms_dir.display()),
-            remedy: Some("Run `loom site init <name> --template basic` to scaffold one.".into()),
-        });
-    } else {
-        let mut json_count = 0usize;
-        let mut bad: Vec<(String, String)> = Vec::new();
-        if let Ok(entries) = std::fs::read_dir(&cms_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) != Some("json") {
-                    continue;
-                }
-                let name = path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("")
-                    .to_owned();
-                if name == "cms-schema.json" {
-                    continue; // schema companion, not a page
-                }
-                json_count += 1;
-                let raw = match std::fs::read_to_string(&path) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        bad.push((name, format!("read failed: {e}")));
-                        continue;
-                    }
-                };
-                if let Err(e) = serde_json::from_str::<loom_cms_render::CmsPage>(&raw) {
-                    bad.push((name, format!("CmsPage parse failed: {e}")));
-                }
-            }
-        }
-        if json_count == 0 {
-            out.push(DoctorFinding {
-                level: DoctorLevel::Warn,
-                check: "cms/*.json".into(),
-                message: "no page files found".into(),
-                remedy: Some(
-                    "Edit pages via `loom edit-serve` or copy a sample from `loom site init`."
-                        .into(),
-                ),
-            });
-        } else if bad.is_empty() {
-            out.push(DoctorFinding {
-                level: DoctorLevel::Ok,
-                check: "cms/*.json".into(),
-                message: format!("{json_count} page(s); all parse cleanly"),
-                remedy: None,
-            });
-        } else {
-            for (name, why) in bad {
-                out.push(DoctorFinding {
-                    level: DoctorLevel::Fail,
-                    check: format!("cms/{name}"),
-                    message: why,
-                    remedy: Some("Open the file in `loom edit-serve` and the typed editor will refuse invalid edits — or restore from git.".into()),
-                });
-            }
-        }
-    }
-
-    // forge.toml parseable.
-    let forge_toml = root.join("forge.toml");
-    if forge_toml.is_file() {
-        match std::fs::read_to_string(&forge_toml) {
-            Ok(s) => match s.parse::<toml::Value>() {
-                Ok(_) => out.push(DoctorFinding {
-                    level: DoctorLevel::Ok,
-                    check: "forge.toml".into(),
-                    message: "parses cleanly".into(),
-                    remedy: None,
-                }),
-                Err(e) => out.push(DoctorFinding {
-                    level: DoctorLevel::Fail,
-                    check: "forge.toml".into(),
-                    message: format!("TOML parse error: {e}"),
-                    remedy: Some("Fix the syntax error — TOML is whitespace-sensitive on multi-line strings.".into()),
-                }),
-            },
-            Err(e) => out.push(DoctorFinding {
-                level: DoctorLevel::Fail,
-                check: "forge.toml".into(),
-                message: format!("read failed: {e}"),
-                remedy: Some("Check file permissions; the editor needs read access.".into()),
-            }),
-        }
-    } else {
-        out.push(DoctorFinding {
-            level: DoctorLevel::Warn,
-            check: "forge.toml".into(),
-            message: "missing — Forge build will use defaults".into(),
-            remedy: Some("Run `loom site init <name>` to scaffold a forge.toml, or write `mode = \"poc\"` to silence this warning.".into()),
-        });
-    }
-
-    // static/ — directory exists OR is creatable.
-    let static_dir = root.join("static");
-    if static_dir.exists() {
-        out.push(DoctorFinding {
-            level: DoctorLevel::Ok,
-            check: "static/".into(),
-            message: "directory exists".into(),
-            remedy: None,
-        });
-    } else {
-        out.push(DoctorFinding {
-            level: DoctorLevel::Warn,
-            check: "static/".into(),
-            message: "missing — Forge build creates it on first run".into(),
-            remedy: Some(
-                "Run `cargo run -p forge-cli` (or `forge build`) and the directory appears.".into(),
-            ),
-        });
-    }
-
-    // auth.toml — if present, mode 0600.
-    let auth_toml = root.join("auth.toml");
-    if auth_toml.is_file() {
-        out.extend(check_secret_perms(&auth_toml, "auth.toml", "auth secrets"));
-    }
-
-    // attest-key.b64 — if present, mode 0600.
-    if let Some(key_path) = doctor_attest_key_path() {
-        if key_path.is_file() {
-            out.extend(check_secret_perms(
-                &key_path,
-                "attest-key.b64 (private key)",
-                "Ed25519 deploy signing key",
-            ));
-        }
-    }
-
-    // dark-amoled token block present in shipped skin.css.
-    // The Crawler 24-combo test matrix specifically tests
-    // ?_theme=dark-amoled; if the skin doesn't define those
-    // tokens, the matrix runs but the visual result is identical
-    // to the regular dark theme.
-    let skin_paths = ["static/loom-skin.css", "loom-skin.css"];
-    for rel in &skin_paths {
-        let p = root.join(rel);
-        if let Ok(body) = std::fs::read_to_string(&p) {
-            if body.contains("data-theme=\"dark-amoled\"") {
-                out.push(DoctorFinding {
-                    level: DoctorLevel::Ok,
-                    check: format!("{rel} (dark-amoled tokens)"),
-                    message: "dark-amoled token block present — OLED-optimized dark theme will render correctly".into(),
-                    remedy: None,
-                });
-            } else if body.contains("data-theme=\"dark\"") {
-                out.push(DoctorFinding {
-                    level: DoctorLevel::Warn,
-                    check: format!("{rel} (dark-amoled tokens)"),
-                    message: "dark-amoled token block missing — Crawler 24-combo test matrix's ?_theme=dark-amoled axis will render identically to regular dark theme".into(),
-                    remedy: Some("Add a `:root[data-theme=\"dark-amoled\"]` block to the skin with bg-canvas at hsl(0 0% 0%) — see PlausiDen-Loom commit history for an example.".into()),
-                });
-            }
-            break;
-        }
-    }
-
-    // prefers-reduced-motion guard coverage on shipped CSS.
-    // Mirrors phase_motion_respects_reduced from Forge — surfaces
-    // the same WCAG 2.1 SC 2.3.3 concern from the operator side
-    // before they `forge build` so the misconfig is visible at
-    // `loom doctor` time.
-    for rel in &skin_paths {
-        let p = root.join(rel);
-        if let Ok(body) = std::fs::read_to_string(&p) {
-            let has_motion = body.contains("animation:")
-                || body.contains("animation-name:")
-                || body.contains("transition:")
-                || body.contains("transition-property:")
-                || body.contains("scroll-behavior:");
-            let has_guard = body.contains("prefers-reduced-motion");
-            if has_motion && !has_guard {
-                out.push(DoctorFinding {
-                    level: DoctorLevel::Warn,
-                    check: format!("{rel} (reduced-motion guard)"),
-                    message: "CSS contains animation/transition declarations but no @media (prefers-reduced-motion) guard — readers with vestibular disorders or migraine triggers will see motion they opted out of (WCAG 2.1 SC 2.3.3)".into(),
-                    remedy: Some("Wrap motion in `@media (prefers-reduced-motion: no-preference) { ... }` OR add an override block `@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }`.".into()),
-                });
-            } else if has_motion && has_guard {
-                out.push(DoctorFinding {
-                    level: DoctorLevel::Ok,
-                    check: format!("{rel} (reduced-motion guard)"),
-                    message: "motion + prefers-reduced-motion guard both present".into(),
-                    remedy: None,
-                });
-            }
-            break;
-        }
-    }
-
-    out
-}
-
-/// Check a private-key file is mode 0600 (owner-only). Returns
-/// one Ok or one Fail finding per call.
-#[cfg(unix)]
-fn check_secret_perms(path: &std::path::Path, label: &str, kind: &str) -> Vec<DoctorFinding> {
-    use std::os::unix::fs::PermissionsExt;
-    let meta = match std::fs::metadata(path) {
-        Ok(m) => m,
-        Err(e) => {
-            return vec![DoctorFinding {
-                level: DoctorLevel::Fail,
-                check: label.into(),
-                message: format!("metadata read failed: {e}"),
-                remedy: Some("Fix file permissions; the editor needs read access.".into()),
-            }];
-        }
-    };
-    let mode = meta.permissions().mode() & 0o777;
-    if mode == 0o600 {
-        vec![DoctorFinding {
-            level: DoctorLevel::Ok,
-            check: label.into(),
-            message: format!("mode 0600 (owner-only) — {kind} protected"),
-            remedy: None,
-        }]
-    } else {
-        vec![DoctorFinding {
-            level: DoctorLevel::Fail,
-            check: label.into(),
-            message: format!("mode {mode:o} — should be 0600 for {kind}"),
-            remedy: Some(format!(
-                "Run `chmod 600 {}` to lock it down.",
-                path.display()
-            )),
-        }]
-    }
-}
-
-#[cfg(not(unix))]
-fn check_secret_perms(_path: &std::path::Path, label: &str, _kind: &str) -> Vec<DoctorFinding> {
-    vec![DoctorFinding {
-        level: DoctorLevel::Warn,
-        check: label.into(),
-        message: "permission check skipped — Unix only".into(),
-        remedy: None,
-    }]
-}
-
-/// Best-effort lookup of the attest-key path. Returns `None` if
-/// the home dir can't be resolved.
-fn doctor_attest_key_path() -> Option<std::path::PathBuf> {
-    if let Ok(p) = std::env::var("LOOM_ATTEST_KEY") {
-        return Some(std::path::PathBuf::from(p));
-    }
-    dirs_next::config_dir().map(|d| d.join("loom").join("attest-key.b64"))
-}
-
 /// T34: emit the component state-matrix HTML files. Renders one
 /// representative instance of every CmsSection variant + named
 /// state into a single page, then emits one file per theme so
@@ -2350,7 +1917,7 @@ fn cmd_state_matrix(out: &std::path::Path) -> Result<()> {
     tracing::info!("       state-matrix-auto.html   (OS prefers-color-scheme)");
     tracing::info!("       state-matrix-light.html  (explicit light)");
     tracing::info!("       state-matrix-dark.html   (explicit dark)");
-    tracing::info!();
+    tracing::info!(" ");
     tracing::info!("Open in a browser, or feed into PlausiDen-Crawler for");
     tracing::info!("visual-regression / pixel-diff against a baseline.");
     Ok(())
@@ -2601,7 +2168,7 @@ fn cmd_new(name: &str, root: &std::path::Path, template: &str) -> Result<()> {
     std::fs::write(&target, template_body)
         .map_err(|e| anyhow::anyhow!("write {}: {e}", target.display()))?;
     tracing::info!("loom new: scaffolded {}", target.display());
-    tracing::info!();
+    tracing::info!(" ");
     tracing::info!("Next steps (manual — these are per-crate wiring decisions):");
     tracing::info!("  1. Add `pub mod {module_name};` to src/views.rs");
     tracing::info!("  2. Add a handler in src/handlers.rs that calls views::{module_name}::render()");
@@ -3257,7 +2824,7 @@ fn cmd_image_convert(
                 }
                 Err(e) => {
                     failed += 1;
-                    etracing::info!(
+                    tracing::error!(
                         "  fail   {src} -> {dest}: {e}",
                         src = src.display(),
                         dest = dest.display()
@@ -4705,11 +4272,11 @@ fn cmd_backend_stub_all(
             Err(BackendStubError::KeyNotFound(_)) => {
                 // Should be impossible — we just enumerated this
                 // key from the same file. Treat as failure.
-                etracing::info!("  fail   [{key}] vanished between enumeration and mint");
+                tracing::error!("  fail   [{key}] vanished between enumeration and mint");
                 report.failed += 1;
             }
             Err(e) => {
-                etracing::info!("  fail   [{key}] {e:?}");
+                tracing::error!("  fail   [{key}] {e:?}");
                 report.failed += 1;
             }
         }
@@ -5021,7 +4588,7 @@ fn cmd_report_tail(
         let len = metadata.len();
         if len < last_pos {
             last_pos = 0;
-            etracing::info!("loom report-tail: log was rotated; resyncing");
+            tracing::error!("loom report-tail: log was rotated; resyncing");
         }
         if len <= last_pos {
             continue;
@@ -5203,7 +4770,7 @@ fn cmd_report_stats(
             k, v.count, first, last, top_short
         );
     }
-    tracing::info!();
+    tracing::info!(" ");
     tracing::info!(
         "(read {} file(s), {} lines{}{})",
         files.len(),
@@ -5637,7 +5204,7 @@ fn review_list(dir: &std::path::Path, lines: usize, status_filter: &str) -> Resu
             tracing::info!("{:<13}  └─ note: {}", "", note);
         }
     }
-    tracing::info!();
+    tracing::info!(" ");
     tracing::info!(
         "(showed {} of {} entries; triage decisions: {})",
         rows.len(),
@@ -5710,7 +5277,7 @@ fn cmd_edit_serve(
     tracing::info!("  cms      = {}", cms_root.display());
     tracing::info!("  static   = {}", static_root.display());
     tracing::info!("  forge    = {}", forge_path);
-    tracing::info!();
+    tracing::info!(" ");
     tracing::info!("Open http://127.0.0.1:{port}/ in a browser.");
     tracing::info!("Ctrl-C to stop.");
 
@@ -5719,7 +5286,7 @@ fn cmd_edit_serve(
         let url = request.url().to_owned();
         match handle_edit_request(request, cms_root, static_root, forge_path, &method, &url) {
             Ok(()) => {}
-            Err(e) => etracing::info!("  err   {method:?} {url} -> {e}"),
+            Err(e) => tracing::error!("  err   {method:?} {url} -> {e}"),
         }
     }
     Ok(())
@@ -7771,7 +7338,7 @@ fn revisions_list_all_slugs(cms: &std::path::Path, lines: usize) -> Result<()> {
         let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("?");
         tracing::info!("{:<22}  {:>8}  {:<20}  {}", human, bytes, slug, name);
     }
-    tracing::info!();
+    tracing::info!(" ");
     if total > shown_count {
         tracing::info!("(showing {shown_count} of {total} total; pass `--lines N` to see more)",);
     } else {
@@ -7840,7 +7407,7 @@ fn revisions_list(cms: &std::path::Path, slug: &str) -> Result<()> {
         let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("?");
         tracing::info!("{:>3}  {:<22}  {:>8}  {}", i + 1, ts, bytes, name);
     }
-    tracing::info!();
+    tracing::info!(" ");
     tracing::info!("(use `loom revisions show {slug} N` / `... diff {slug} N` / `... restore {slug} N`)",);
     Ok(())
 }
@@ -7929,7 +7496,7 @@ fn revisions_diff(cms: &std::path::Path, slug: &str, index: usize) -> Result<()>
 
     // Fall back to cycle 81's line-set diff for non-JSON
     // files. Same shape, same bluntness, same disclaimer.
-    etracing::info!("[revisions diff] one side didn't parse as JSON; falling back to line-set diff",);
+    tracing::error!("[revisions diff] one side didn't parse as JSON; falling back to line-set diff",);
     let rev_lines: Vec<&str> = revision.lines().collect();
     let act_lines: Vec<&str> = active.lines().collect();
     let rev_set: std::collections::HashSet<&str> = rev_lines.iter().copied().collect();
@@ -8108,7 +7675,7 @@ fn save_cms_revision(cms_root: &std::path::Path, slug: &str, prior_content: &str
     let bak_name = format!("{slug}.bak.{suffix}.json");
     let bak_path = cms_root.join(&bak_name);
     if let Err(e) = std::fs::write(&bak_path, prior_content) {
-        etracing::info!("[loom revisions] write {} failed: {e}", bak_path.display(),);
+        tracing::error!("[loom revisions] write {} failed: {e}", bak_path.display(),);
         return;
     }
     // Prune older revisions for THIS slug only.
@@ -8141,7 +7708,7 @@ fn prune_cms_revisions(cms_root: &std::path::Path, slug: &str) {
     let drop_count = revisions.len() - keep;
     for path in revisions.iter().take(drop_count) {
         if let Err(e) = std::fs::remove_file(path) {
-            etracing::info!("[loom revisions] prune {} failed: {e}", path.display(),);
+            tracing::error!("[loom revisions] prune {} failed: {e}", path.display(),);
         }
     }
 }
@@ -8343,8 +7910,8 @@ fn handle_edit_post(
             .status();
         match status {
             Ok(s) if s.success() => {}
-            Ok(s) => etracing::info!("  warn  forge.sh exited {s}"),
-            Err(e) => etracing::info!("  warn  forge.sh failed: {e}"),
+            Ok(s) => tracing::error!("  warn  forge.sh exited {s}"),
+            Err(e) => tracing::error!("  warn  forge.sh failed: {e}"),
         }
     }
 
@@ -8609,7 +8176,7 @@ fn rate_limit_admit(ip: &str, now: u64) -> bool {
         // Throttle the warning: once per minute per IP. The
         // log shouldn't itself become a DoS vector.
         if now.saturating_sub(entry.last_warn) >= 60 {
-            etracing::info!(
+            tracing::error!(
                 "[loom report-collector] rate-limited {ip}: {} reports in last 60s (cap {RATE_LIMIT_PER_MIN})",
                 entry.hits.len(),
             );
@@ -8690,14 +8257,14 @@ fn rotate_violations_log_if_needed(active: &std::path::Path) {
         .unwrap_or_else(|_| "rotation".to_owned());
     let rotated = dir.join(format!("violations-{suffix}.jsonl"));
     if let Err(e) = std::fs::rename(active, &rotated) {
-        etracing::info!(
+        tracing::error!(
             "[loom report-collector] rotation rename {} -> {} failed: {e}",
             active.display(),
             rotated.display(),
         );
         return;
     }
-    etracing::info!(
+    tracing::error!(
         "[loom report-collector] rotated {} bytes -> {}",
         meta.len(),
         rotated.display(),
@@ -8731,12 +8298,12 @@ fn prune_old_rotations(dir: &std::path::Path) {
     let drop_count = rotations.len() - keep;
     for path in rotations.iter().take(drop_count) {
         if let Err(e) = std::fs::remove_file(path) {
-            etracing::info!(
+            tracing::error!(
                 "[loom report-collector] prune {} failed: {e}",
                 path.display(),
             );
         } else {
-            etracing::info!(
+            tracing::error!(
                 "[loom report-collector] pruned old rotation {}",
                 path.display(),
             );
@@ -8817,11 +8384,11 @@ fn handle_security_report(
         {
             Ok(mut f) => {
                 if let Err(e) = f.write_all(line.as_bytes()) {
-                    etracing::info!("[loom report-collector] write failed: {e}");
+                    tracing::error!("[loom report-collector] write failed: {e}");
                 }
             }
             Err(e) => {
-                etracing::info!(
+                tracing::error!(
                     "[loom report-collector] open {} failed: {e}",
                     log_path.display()
                 );
@@ -10349,7 +9916,7 @@ fn cmd_theme_contrast(
     let raw = std::fs::read_to_string(skin_path)?;
     let (themes, _refs) = parse_skin_themes(&raw);
     if themes.is_empty() {
-        etracing::info!(
+        tracing::error!(
             "loom theme contrast: no theme blocks found in {}",
             skin_path.display()
         );
@@ -10394,14 +9961,14 @@ fn cmd_theme_contrast(
             );
         }
     }
-    tracing::info!();
+    tracing::info!(" ");
     if failures == 0 {
         tracing::info!(
             "loom theme contrast: {} theme(s) checked, ALL pairs ≥ {min_ratio:.1}:1 (WCAG OK)",
             themes.len(),
         );
     } else {
-        etracing::info!(
+        tracing::error!(
             "loom theme contrast: {failures} pair(s) below {min_ratio:.1}:1 — themes WILL ship with unreadable text"
         );
     }
@@ -10538,7 +10105,7 @@ fn cmd_theme_list(skin_path: &std::path::Path) -> Result<(), std::io::Error> {
     let raw = std::fs::read_to_string(skin_path)?;
     let (themes, referenced_vars) = parse_skin_themes(&raw);
     if themes.is_empty() {
-        etracing::info!(
+        tracing::error!(
             "loom theme list: no `:root` blocks with --loom-color-* tokens found in {}",
             skin_path.display()
         );
@@ -10565,7 +10132,7 @@ fn cmd_theme_list(skin_path: &std::path::Path) -> Result<(), std::io::Error> {
             ex = example_short,
         );
     }
-    tracing::info!();
+    tracing::info!(" ");
     tracing::info!(
         "loom theme list: {} theme(s), {} unique --loom-color-* var() reference(s)",
         themes.len(),
@@ -10579,7 +10146,7 @@ fn cmd_theme_validate(skin_path: &std::path::Path) -> Result<usize, std::io::Err
     let (themes, referenced_vars) = parse_skin_themes(&raw);
 
     let Some(base) = themes.iter().find(|t| t.name == "default") else {
-        etracing::info!("loom theme validate: no base `:root` (default) theme block found");
+        tracing::error!("loom theme validate: no base `:root` (default) theme block found");
         return Ok(1);
     };
 
@@ -10592,7 +10159,7 @@ fn cmd_theme_validate(skin_path: &std::path::Path) -> Result<usize, std::io::Err
     for v in &referenced_vars {
         if !base.tokens.contains_key(v) {
             findings += 1;
-            etracing::info!(
+            tracing::error!(
                 "  STRICT  {} consumed via var() but has no definition in base :root",
                 v
             );
@@ -10620,14 +10187,14 @@ fn cmd_theme_validate(skin_path: &std::path::Path) -> Result<usize, std::io::Err
             .collect();
         for m in &missing {
             findings += 1;
-            etracing::info!(
+            tracing::error!(
                 "  warn    theme {:?} omits token {} (will inherit base — confirm intentional)",
                 t.name, m
             );
         }
         for e in &extra {
             findings += 1;
-            etracing::info!(
+            tracing::error!(
                 "  warn    theme {:?} declares token {} not in base (orphan — base default missing)",
                 t.name, e
             );
@@ -10850,7 +10417,7 @@ fn cmd_backend_list(backends_path: &std::path::Path) -> Result<(), std::io::Erro
             status = r.status.label(),
         );
     }
-    tracing::info!();
+    tracing::info!(" ");
     tracing::info!(
         "loom backend list: {total} declared, {impls} implemented ({pct}%), {stubs} stub",
         pct = (impls * 100).checked_div(total).unwrap_or(0)
@@ -10988,7 +10555,7 @@ fn cmd_audit_bridge(skin: &std::path::Path) -> Result<u32, std::io::Error> {
                 found += 1;
             } else {
                 missing += 1;
-                etracing::info!(
+                tracing::error!(
                     "  fail   variant={variant} requires selector {sel} in skin.css — not found"
                 );
             }
@@ -11830,7 +11397,7 @@ fn cmd_validate(input: &std::path::Path) -> Result<bool, std::io::Error> {
         let raw = match std::fs::read_to_string(path) {
             Ok(r) => r,
             Err(e) => {
-                etracing::info!("  fail   {}: read error: {e}", path.display());
+                tracing::error!("  fail   {}: read error: {e}", path.display());
                 any_failed = true;
                 continue;
             }
@@ -11838,7 +11405,7 @@ fn cmd_validate(input: &std::path::Path) -> Result<bool, std::io::Error> {
         let page: loom_cms_render::CmsPage = match serde_json::from_str(&raw) {
             Ok(p) => p,
             Err(e) => {
-                etracing::info!(
+                tracing::error!(
                     "  fail   {}: schema error at line {}, col {}: {}",
                     path.display(),
                     e.line(),
@@ -11855,7 +11422,7 @@ fn cmd_validate(input: &std::path::Path) -> Result<bool, std::io::Error> {
             ok_count += 1;
         } else {
             for err in &url_errs {
-                etracing::info!("  fail   {}: url-invalid: {err}", path.display());
+                tracing::error!("  fail   {}: url-invalid: {err}", path.display());
             }
             any_failed = true;
         }
@@ -12273,7 +11840,7 @@ fn cmd_auth_init(user: &str, force: bool) -> std::io::Result<()> {
     tracing::info!("  ok  user '{}' created", user_validated.as_str());
     tracing::info!("  ok  HMAC signing key generated (32 bytes)");
     tracing::info!("  ok  store written to {} (mode 0600)", path.display());
-    tracing::info!();
+    tracing::info!(" ");
     tracing::info!("Next: `loom edit-serve` will require login at /login.");
     Ok(())
 }
@@ -17597,7 +17164,7 @@ fn cmd_import(
     if todo_count > 0 {
         tracing::info!("  warn:      {todo_count} TODO marker(s) — review manually");
     }
-    tracing::info!();
+    tracing::info!(" ");
     tracing::info!("Open in the editor:");
     tracing::info!(
         "  loom edit-serve --cms {} --static-dir static --forge ''",
@@ -18518,7 +18085,7 @@ fn cmd_site_init_in(
         tracing::info!("  ok  theme '{t}' baked into forge.toml [render] entry");
     }
     tracing::info!("  ok  {written} file(s) created");
-    tracing::info!();
+    tracing::info!(" ");
     tracing::info!("Next:");
     tracing::info!(
         "  cd {} && loom edit-serve --cms cms --static-dir static --forge ''",
@@ -19855,7 +19422,7 @@ fn cmd_deploy_publish(
         tracing::info!("  ok  manifest sha: {manifest_sha}");
         tracing::info!("  ok  bundle:      {}", bundle_dir.display());
         tracing::info!("  ok  current ->   {bundle_subdir}");
-        tracing::info!();
+        tracing::info!(" ");
         tracing::info!(
             "Verify:  loom deploy verify --at {}",
             current_link.display()
@@ -19970,7 +19537,7 @@ fn cmd_deploy_publish(
         remote.rsync_target(&remote_bundle)
     );
     tracing::info!("  ok  remote current -> {bundle_subdir}");
-    tracing::info!();
+    tracing::info!(" ");
     tracing::info!(
         "Verify (on remote): ssh {} 'cd {} && loom deploy verify --at current'",
         remote.endpoint(),
@@ -19998,14 +19565,14 @@ fn cmd_deploy_verify(at: &std::path::Path) -> std::io::Result<usize> {
         match actual.get(rel) {
             Some(a) if a == entry => {}
             Some(a) => {
-                etracing::info!(
+                tracing::error!(
                     "  FAIL  {rel}: manifest sha={} bytes={} but actual sha={} bytes={}",
                     entry.sha256, entry.bytes, a.sha256, a.bytes
                 );
                 mismatches += 1;
             }
             None => {
-                etracing::info!("  FAIL  {rel}: missing on disk (in manifest but not present)");
+                tracing::error!("  FAIL  {rel}: missing on disk (in manifest but not present)");
                 mismatches += 1;
             }
         }
@@ -20020,7 +19587,7 @@ fn cmd_deploy_verify(at: &std::path::Path) -> std::io::Result<usize> {
             && rel != "manifest.sig"
             && rel != "attest-pubkey.b64"
         {
-            etracing::info!("  FAIL  {rel}: present on disk but not in manifest");
+            tracing::error!("  FAIL  {rel}: present on disk but not in manifest");
             mismatches += 1;
         }
     }
@@ -20039,7 +19606,7 @@ fn cmd_deploy_verify(at: &std::path::Path) -> std::io::Result<usize> {
         }
         Ok(SigStatus::Unsigned) => "unsigned bundle (T47c not applied; pass for back-compat)",
         Err(why) => {
-            etracing::info!("  FAIL  signature: {why}");
+            tracing::error!("  FAIL  signature: {why}");
             mismatches += 1;
             "FAILED signature"
         }
@@ -20440,7 +20007,7 @@ fn cmd_loom_attest_pubkey() -> std::io::Result<()> {
     }
     let s = std::fs::read_to_string(&path)?;
     print!("{}", s.trim());
-    tracing::info!();
+    tracing::info!(" ");
     Ok(())
 }
 
@@ -20487,7 +20054,7 @@ fn cmd_loom_attest_export(fingerprint_only: bool) -> std::io::Result<()> {
         tracing::info!("  algorithm:   ed25519");
         tracing::info!("  pubkey:      {pub_b64}");
         tracing::info!("  fingerprint: {fp}");
-        tracing::info!();
+        tracing::info!(" ");
         tracing::info!("  share the full pubkey with auditors who will verify your bundles;");
         tracing::info!("  share the fingerprint over a side channel (phone, SMS, sticky note)");
         tracing::info!("  so the auditor can spot-check that the pubkey they received is yours.");
