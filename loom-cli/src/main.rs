@@ -2380,6 +2380,7 @@ fn build_state_matrix_page() -> loom_cms_render::CmsPage {
         HeadingLevel, HeroCta,
     };
     CmsPage {
+        brand: None,
         schema: None,
         title: "Loom state matrix".into(),
         description: "Every CmsSection variant + named state, on one page.".into(),
@@ -2854,6 +2855,7 @@ mod cms_render_tests {
 
     fn empty_page() -> CmsPage {
         CmsPage {
+            brand: None,
             schema: None,
             title: "Test".to_owned(),
             description: "x".to_owned(),
@@ -2996,10 +2998,12 @@ mod cms_render_tests {
 
     #[test]
     fn shell_with_no_nav_links_emits_brand_only() {
+        // Brand defaults to first title segment when page.brand is
+        // None; empty_page() uses title "Test" so brand derives to
+        // "Test". Test the structural shape, not the literal name.
         let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
-        // brand link present
         assert!(s.contains(
-            r#"<a class="loom-page-brand" href="/" data-loom-rich-link="true">SkillShots</a>"#
+            r#"<a class="loom-page-brand" href="/" data-loom-rich-link="true">Test</a>"#
         ));
         // no extra nav-link anchors
         assert!(!s.contains("loom-page-nav-link"));
@@ -11570,6 +11574,7 @@ fn cms_template_landing(title: &str, path: &str) -> loom_cms_render::CmsPage {
         HeroCta,
     };
     CmsPage {
+        brand: None,
         schema: Some("../cms-schema.json".to_owned()),
         title: title.to_owned(),
         description: format!("{title} — describe the page in 120 chars max."),
@@ -11633,6 +11638,7 @@ fn cms_template_landing(title: &str, path: &str) -> loom_cms_render::CmsPage {
 fn cms_template_explainer(title: &str, path: &str) -> loom_cms_render::CmsPage {
     use loom_cms_render::{CmsPage, CmsSection};
     CmsPage {
+        brand: None,
         schema: Some("../cms-schema.json".to_owned()),
         title: title.to_owned(),
         description: format!("{title} — explainer / about / FAQ page."),
@@ -11669,6 +11675,7 @@ fn cms_template_form(title: &str, path: &str) -> loom_cms_render::CmsPage {
         CmsFormField, CmsFormStep, CmsFormStepState, CmsFormSubmit, CmsPage, CmsSection,
     };
     CmsPage {
+        brand: None,
         schema: Some("../cms-schema.json".to_owned()),
         title: title.to_owned(),
         description: format!("{title} — form / submission page."),
@@ -21460,6 +21467,7 @@ mod editor_schema_tests {
 
     fn empty_cms_page() -> loom_cms_render::CmsPage {
         loom_cms_render::CmsPage {
+            brand: None,
             schema: None,
             title: "T".into(),
             description: "D".into(),
@@ -21600,6 +21608,7 @@ mod editor_schema_tests {
     fn page_shell_emits_color_scheme_meta() {
         let s = page_shell(
             &loom_cms_render::CmsPage {
+                brand: None,
                 schema: None,
                 title: "T".into(),
                 description: "D".into(),
@@ -21624,6 +21633,7 @@ mod editor_schema_tests {
     fn page_shell_emits_main_landmark() {
         let s = page_shell(
             &loom_cms_render::CmsPage {
+                brand: None,
                 schema: None,
                 title: "T".into(),
                 description: "D".into(),
@@ -21782,6 +21792,7 @@ mod edit_overlay_tests {
             })
             .collect();
         CmsPage {
+            brand: None,
             schema: None,
             title: "Test".into(),
             description: "test page".into(),

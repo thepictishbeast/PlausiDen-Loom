@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "loom-assets",
     "loom-tokens",
     "loom-icons",
     "loom-components",

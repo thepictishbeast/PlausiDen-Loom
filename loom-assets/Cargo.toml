@@ -1,0 +1,17 @@
+[package]
+name = "loom-assets"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Typed asset registry for Forge sites — open-source icons, emoji, photos, gifs, templates. Searchable by kind + tags. Every entry carries its license + source for SLSA-style provenance."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = "2"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"

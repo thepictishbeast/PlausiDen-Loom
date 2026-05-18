@@ -67,6 +67,11 @@ pub struct CmsPage {
     pub title: String,
     /// `<meta name="description">` text. Required for SEO.
     pub description: String,
+    /// Top-of-page brand label rendered as the `loom-page-brand` link.
+    /// When omitted, the renderer derives a brand from the first
+    /// segment of `title` before " — " / " · " / "—" / " - " separators.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brand: Option<String>,
     /// Canonical URL path (e.g. `"/leaderboard"`). Required.
     /// Used by the layout shell to emit `<link rel="canonical">`.
     pub path: String,
@@ -1629,6 +1634,7 @@ mod tests {
         // The <main> landmark belongs to page_shell, not render_page,
         // to avoid nested <main> tags in the composed output.
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "Home".to_owned(),
             description: "x".to_owned(),
@@ -1648,6 +1654,7 @@ mod tests {
     #[test]
     fn paragraph_renders_loom_prose() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -1664,6 +1671,7 @@ mod tests {
     #[test]
     fn paragraph_html_is_escaped() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -1681,6 +1689,7 @@ mod tests {
     #[test]
     fn heading_level_2_renders_h2() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -1708,6 +1717,7 @@ mod tests {
             (HeadingLevel::H6, "h6"),
         ] {
             let p = CmsPage {
+                brand: None,
                 schema: None,
                 title: "x".to_owned(),
                 description: "x".to_owned(),
@@ -1795,6 +1805,7 @@ mod tests {
     #[test]
     fn composer_section_renders_loom_composer() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -1819,6 +1830,7 @@ mod tests {
     #[test]
     fn picture_section_renders_loom_picture() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -1925,6 +1937,7 @@ mod tests {
     #[test]
     fn hero_renders_required_title_only() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -1948,6 +1961,7 @@ mod tests {
     #[test]
     fn hero_renders_all_optional_slots() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -1976,6 +1990,7 @@ mod tests {
     #[test]
     fn hero_invalid_cta_href_substitutes_placeholder() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2001,6 +2016,7 @@ mod tests {
     #[test]
     fn hero_text_is_escaped() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2022,6 +2038,7 @@ mod tests {
     #[test]
     fn group_renders_title_and_multiple_body_paragraphs() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2044,6 +2061,7 @@ mod tests {
     #[test]
     fn group_with_empty_body_renders_just_title() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2086,6 +2104,7 @@ mod tests {
 
     fn page_with_card(c: CmsCard) -> CmsPage {
         CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2198,6 +2217,7 @@ mod tests {
     #[test]
     fn card_feed_renders_each_item() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2220,6 +2240,7 @@ mod tests {
     #[test]
     fn card_feed_no_heading_omits_h2() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2238,6 +2259,7 @@ mod tests {
     #[test]
     fn card_emits_stats_grid_when_present() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2261,6 +2283,7 @@ mod tests {
         let mut c = card("X", "/x");
         c.stats.clear();
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2280,6 +2303,7 @@ mod tests {
         let mut c = card("X", "javascript:alert(1)");
         c.tag = None;
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2302,6 +2326,7 @@ mod tests {
         c.host = Some("<img onerror=x>".to_owned());
         c.tag = Some("<x>".to_owned());
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2327,6 +2352,7 @@ mod tests {
             alt: "evil".to_owned(),
         };
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2345,6 +2371,7 @@ mod tests {
     #[test]
     fn card_feed_empty_items_emits_only_section_wrapper() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2364,6 +2391,7 @@ mod tests {
     #[test]
     fn sidebar_renders_aside_with_aria_label() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2381,6 +2409,7 @@ mod tests {
     #[test]
     fn sidebar_default_label_is_side_panels() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2398,6 +2427,7 @@ mod tests {
     #[test]
     fn panel_with_list_body_renders_each_row() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2438,6 +2468,7 @@ mod tests {
     #[test]
     fn panel_with_text_body_renders_each_paragraph() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2462,6 +2493,7 @@ mod tests {
     #[test]
     fn panel_list_invalid_href_falls_back_to_span() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2490,6 +2522,7 @@ mod tests {
     #[test]
     fn panel_text_body_is_escaped() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2549,6 +2582,7 @@ mod tests {
 
     fn form_page() -> CmsPage {
         CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2599,6 +2633,7 @@ mod tests {
     #[test]
     fn form_select_field() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2684,6 +2719,7 @@ mod tests {
     fn required_select_renders_marker() {
         // Reuse the select test's CmsPage with required=true.
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2725,6 +2761,7 @@ mod tests {
         // Build a fresh page with a required Textarea (simple_form's
         // textarea has required=false).
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2763,6 +2800,7 @@ mod tests {
     #[test]
     fn form_readonly_field_is_readonly() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2796,6 +2834,7 @@ mod tests {
     #[test]
     fn form_invalid_action_substitutes_placeholder() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2821,6 +2860,7 @@ mod tests {
     #[test]
     fn form_field_text_is_escaped() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2863,6 +2903,7 @@ mod tests {
         id: Option<&str>,
     ) -> CmsPage {
         CmsPage {
+            brand: None,
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -2980,6 +3021,7 @@ mod tests {
 
     fn code_page(lang: &str, body: &str, caption: Option<&str>, terminal: bool) -> CmsPage {
         CmsPage {
+            brand: None,
             schema: None,
             title: "C".to_owned(),
             description: "code-test".to_owned(),
@@ -3070,6 +3112,7 @@ mod tests {
 
     fn quote_page(body: &str, attribution: &str, role: Option<&str>) -> CmsPage {
         CmsPage {
+            brand: None,
             schema: None,
             title: "Q".to_owned(),
             description: "q-test".to_owned(),
@@ -3162,6 +3205,7 @@ mod tests {
 
     fn logo_page(items: Vec<CmsLogoItem>, heading: Option<&str>) -> CmsPage {
         CmsPage {
+            brand: None,
             schema: None,
             title: "LW".to_owned(),
             description: "lw-test".to_owned(),
@@ -3261,6 +3305,7 @@ mod tests {
 
     fn kv_page(items: Vec<CmsKvItem>, heading: Option<&str>) -> CmsPage {
         CmsPage {
+            brand: None,
             schema: None,
             title: "KV".to_owned(),
             description: "kv-test".to_owned(),
@@ -3773,6 +3818,19 @@ pub fn page_shell_themed(
     let path = escape_html_attr(&page.path);
     let css = escape_html_attr(css_href);
     let nav_links = render_nav_links(&page.nav_links);
+    // Brand label: explicit page.brand wins; otherwise derive from
+    // the first segment of title before a separator. Never hardcode
+    // another site's name.
+    let brand_raw = page.brand.clone().unwrap_or_else(|| {
+        let t = page.title.trim();
+        for sep in [" — ", " · ", "—", "·", " - ", "–"] {
+            if let Some(i) = t.find(sep) {
+                return t[..i].trim().to_owned();
+            }
+        }
+        t.to_owned()
+    });
+    let brand = escape_html_text(&brand_raw);
     // T72: bundle the theme-toggle button CSS into the inline
     // critical-CSS block. Recomputes the hash naturally.
     let base_with_toggle = format!("{BASE_THEME_CSS}{THEME_TOGGLE_CSS}");
@@ -3843,7 +3901,7 @@ pub fn page_shell_themed(
   <a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n\
   <header class=\"loom-page-header\">\n\
     <nav class=\"loom-page-nav\" aria-label=\"Primary\">\n\
-      <a class=\"loom-page-brand\" href=\"/\" data-loom-rich-link=\"true\">SkillShots</a>{nav_links}\n\
+      <a class=\"loom-page-brand\" href=\"/\" data-loom-rich-link=\"true\">{brand}</a>{nav_links}\n\
       <button type=\"button\" class=\"loom-theme-toggle\" data-loom-theme-toggle aria-label=\"Theme: light (click to cycle)\" aria-pressed=\"false\">☀</button>\n\
     </nav>\n\
     <h1 class=\"loom-page-title\">{title}</h1>\n\
@@ -3865,6 +3923,7 @@ mod page_shell_tests {
 
     fn empty_page() -> CmsPage {
         CmsPage {
+            brand: None,
             schema: None,
             title: "T".into(),
             description: "D".into(),
@@ -4074,6 +4133,7 @@ mod page_shell_tests {
     #[test]
     fn page_shell_with_rendered_body_produces_exactly_one_main() {
         let p = CmsPage {
+            brand: None,
             schema: None,
             title: "Test".into(),
             description: "T".into(),
