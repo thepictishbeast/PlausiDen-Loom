@@ -13709,14 +13709,18 @@ fn parse_cose_es256_key(bytes: &[u8]) -> Result<CoseEs256PublicKey, CborError> {
     let count_usz = usize::try_from(count).map_err(|_| CborError::BytesOverflow)?;
     for _ in 0..count_usz {
         // Read key: must be a small integer (major 0 or 1).
-        let key_head_pos = c.pos;
         let (kmajor, kraw) = cbor_read_head(&mut c)?;
         let key_i: i128 = match kmajor {
             0 => i128::from(kraw),
             1 => -1 - i128::from(kraw),
             _ => {
-                // Roll back so the error position is the key byte.
-                c.pos = key_head_pos;
+                // Pre-existing dead-code: an earlier draft tried
+                // to roll `c.pos` back to the key byte for caller
+                // diagnostics, but `c` is a local CborCursor (not
+                // a `&mut` borrow) AND `CborError::UnexpectedKeyShape`
+                // doesn't carry a position field, so the mutation
+                // was never observable. Removed; emit the typed
+                // error directly.
                 return Err(CborError::UnexpectedKeyShape);
             }
         };
