@@ -232,6 +232,37 @@ mod tests {
         }
     }
 
+    /// Whether the platform's default tempdir is mounted with the
+    /// `noexec` flag (which prevents executing files written there).
+    /// Used by 3 tests in this module that need to spit an `sh`
+    /// wrapper to a tempdir + exec it.
+    ///
+    /// Tests that depend on this MUST early-return when it returns
+    /// false. Symptom otherwise: `Permission denied (os error 13)`
+    /// at exec time, with the script chmod 755'd correctly + present
+    /// on disk. Surfaces under tmpfs + `noexec` (default on hardened
+    /// systemd-tmpfiles distros like Debian server / Talos / SELinux
+    /// targeted).
+    fn tempdir_supports_exec() -> bool {
+        let Ok(tmp) = tempfile::tempdir() else {
+            return false;
+        };
+        let path = tmp.path().join("exec-probe.sh");
+        if std::fs::write(&path, "#!/bin/sh\nexit 0\n").is_err() {
+            return false;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(&path) {
+            let mut perms = meta.permissions();
+            perms.set_mode(0o755);
+            let _ = std::fs::set_permissions(&path, perms);
+        }
+        std::process::Command::new(&path)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+
     /// Spit a small sh wrapper to disk that consumes stdin (nft would
     /// read the ruleset) and exits 0. Returns the wrapper path.
     fn fresh_zero_exit_wrapper(tmp: &tempfile::TempDir) -> std::path::PathBuf {
@@ -261,6 +292,11 @@ mod tests {
     #[test]
     fn happy_path_prepares_command_against_tempdir_cgroup_and_sh_wrapper() {
         if !std::path::Path::new("/bin/sh").exists() {
+            return;
+        }
+        if !tempdir_supports_exec() {
+            // /tmp mounted noexec — can't run the wrapper.
+            // Skip rather than fail; pre-existing skip pattern.
             return;
         }
         let tmp_cgroup = tempfile::tempdir().expect("tmp cgroup");
@@ -328,6 +364,9 @@ mod tests {
         if !std::path::Path::new("/bin/sh").exists() {
             return;
         }
+        if !tempdir_supports_exec() {
+            return;
+        }
         let tmp_cgroup = tempfile::tempdir().expect("tmp cgroup");
         let tmp_nft = tempfile::tempdir().expect("tmp nft");
         let nft = fresh_zero_exit_wrapper(&tmp_nft);
@@ -352,6 +391,9 @@ mod tests {
     #[test]
     fn applied_ruleset_captures_correct_allowlist() {
         if !std::path::Path::new("/bin/sh").exists() {
+            return;
+        }
+        if !tempdir_supports_exec() {
             return;
         }
         let tmp_cgroup = tempfile::tempdir().expect("tmp cgroup");

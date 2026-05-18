@@ -633,6 +633,9 @@ mod tests {
         if !std::path::Path::new("/bin/sh").exists() {
             return;
         }
+        if !tempdir_supports_exec() {
+            return;
+        }
         let tmp = tempfile::tempdir().expect("tmp");
         let wrapper = fresh_non_zero_exit_wrapper_local(&tmp);
         let r = render_nftables_ruleset(&spec("acme"));
@@ -652,6 +655,32 @@ mod tests {
         perms.set_mode(0o755);
         std::fs::set_permissions(&path, perms).unwrap();
         path
+    }
+
+    /// Whether the platform's default tempdir is mounted exec-allowed.
+    /// Mirror of spawn.rs::tempdir_supports_exec for the egress tests
+    /// that also need to spawn a shell wrapper from /tmp. Hardened
+    /// systems (Debian server / Talos / SELinux targeted) mount /tmp
+    /// noexec by default + would fail with `Permission denied (os
+    /// error 13)` otherwise.
+    fn tempdir_supports_exec() -> bool {
+        let Ok(tmp) = tempfile::tempdir() else {
+            return false;
+        };
+        let path = tmp.path().join("exec-probe.sh");
+        if std::fs::write(&path, "#!/bin/sh\nexit 0\n").is_err() {
+            return false;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(&path) {
+            let mut perms = meta.permissions();
+            perms.set_mode(0o755);
+            let _ = std::fs::set_permissions(&path, perms);
+        }
+        std::process::Command::new(&path)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
     }
 
     // ---------- T46.7 / cycle 5l resolver tests ----------
@@ -823,6 +852,9 @@ mod tests {
         if !std::path::Path::new("/bin/sh").exists() {
             return;
         }
+        if !tempdir_supports_exec() {
+            return;
+        }
         let tmp = tempfile::tempdir().expect("tmp");
         let cap = tmp.path().join("captured");
         let wrapper = tmp.path().join("capture.sh");
@@ -962,6 +994,9 @@ mod tests {
         } else {
             "/bin/tee"
         };
+        if !tempdir_supports_exec() {
+            return;
+        }
         let tmp = tempfile::tempdir().expect("tmp");
         let _out = tmp.path().join("nft.stdin.captured");
         // tee with -f - would write to "-f -" path; not what we want.
