@@ -14,6 +14,7 @@
 // crates link to; they're the operator-facing `--help` output.
 #![allow(rustdoc::invalid_html_tags)]
 
+mod audit;
 mod critical_css;
 mod gtk_theme;
 mod lint;
@@ -2500,52 +2501,8 @@ fn build_state_matrix_page() -> loom_cms_render::CmsPage {
 /// The implementation is intentionally a thin journey emitter rather
 /// than a full visual-diff engine: the crawler already does the
 /// screenshot/diff loop; reimplementing it here would be duplication.
-fn cmd_audit(journey_path: &str, url: &str) -> Result<()> {
-    use loom_tokens::Breakpoint;
-    let breakpoints = Breakpoint::all();
-    let mut steps: Vec<serde_json::Value> = Vec::with_capacity(breakpoints.len() * 3);
-    for bp in breakpoints {
-        let bp_name = bp.tailwind();
-        let bp_px = bp.px();
-        // The crawler journey runner currently expects per-step
-        // viewport via the journey's top-level `viewport` field
-        // OR a CLI override; per-step viewport switching is
-        // tracked as a crawler enhancement. For now emit one
-        // goto+screenshot per breakpoint and leave viewport
-        // switching to the crawler --viewport flag invocation.
-        steps.push(serde_json::json!({
-            "kind": "goto",
-            "url": url,
-            "timeout": 15000,
-            "label": format!("goto-{bp_name}-{bp_px}px"),
-        }));
-        steps.push(serde_json::json!({ "kind": "wait", "ms": 600 }));
-        steps.push(serde_json::json!({
-            "kind": "screenshot",
-            "label": format!("loom-audit-{bp_name}"),
-        }));
-    }
-    let journey = serde_json::json!({
-        "name": "loom-audit",
-        "description": "Visual-regression journey — screenshot every Loom breakpoint. Run via `node --loader ts-node/esm src/main.ts --journey <path>` in PlausiDen-Crawler.",
-        "baseUrl": url,
-        "viewport": { "w": 1440, "h": 900 },
-        "steps": steps,
-    });
-    let pretty =
-        serde_json::to_string_pretty(&journey).expect("token tree is finite + serde-clean");
-    if journey_path == "-" {
-        println!("{pretty}");
-    } else {
-        std::fs::write(journey_path, pretty)
-            .map_err(|e| anyhow::anyhow!("write {journey_path}: {e}"))?;
-        println!("loom audit: journey written to {journey_path}");
-        println!("Run with:");
-        println!("  cd /path/to/PlausiDen-Crawler");
-        println!("  node --loader ts-node/esm src/main.ts --journey {journey_path}");
-    }
-    Ok(())
-}
+// === cmd_audit extracted to audit.rs (Loom issue #3 bloat reduction) ===
+use audit::cmd_audit;
 
 // === cmd_new + template_* extracted to new.rs (Loom issue #3 bloat reduction) ===
 use new::cmd_new;
