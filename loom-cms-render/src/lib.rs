@@ -131,6 +131,22 @@ pub struct CmsPage {
     /// (and no script load) without that opt-in.
     #[serde(default)]
     pub dev_devtools: bool,
+    /// Optional fully-qualified site origin (e.g.
+    /// `"https://dev.plausiden.com"`). When set, the renderer
+    /// prefixes `og:url` and `og:image` with this origin so
+    /// social-card crawlers see fully-qualified URLs (the OG
+    /// spec requires absolute URLs). When `None`, the renderer
+    /// emits the relative path — works for most crawlers but
+    /// not all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site_origin: Option<String>,
+    /// Optional social-card preview image path (e.g.
+    /// `"/assets/photos/stock-80.jpg"`). When set, the renderer
+    /// emits `og:image` and `twitter:image` meta tags. When the
+    /// page also has `site_origin` set, the path is prefixed
+    /// to produce a fully-qualified URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub social_image: Option<String>,
     /// Optional typed footer. When `None`, the page-shell emits
     /// an empty `<footer class="loom-page-footer"></footer>`
     /// (back-compat). When `Some`, the renderer expands a typed
@@ -5274,6 +5290,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![],
         };
         let html = render_to_string(&p);
@@ -5300,6 +5318,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Paragraph {
                 text: "Hello world.".to_owned(),
                 decoration: ParagraphDecoration::Body,
@@ -5324,6 +5344,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Paragraph {
                 text: "<script>alert(1)</script>".to_owned(),
                 decoration: ParagraphDecoration::Body,
@@ -5349,6 +5371,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Heading {
                 text: "Section".to_owned(),
                 level: HeadingLevel::H2,
@@ -5384,6 +5408,8 @@ mod tests {
                 nav_links: vec![],
                 dev_devtools: false,
                 footer: None,
+                site_origin: None,
+                social_image: None,
                 sections: vec![CmsSection::Heading {
                     text: "x".to_owned(),
                     level,
@@ -5479,6 +5505,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Composer {
                 prompt: "What did you nail?".to_owned(),
                 submit_endpoint: "/post-skill".to_owned(),
@@ -5510,6 +5538,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Picture {
                 src_stem: "hero/dragon".to_owned(),
                 alt: "A dragon".to_owned(),
@@ -5623,6 +5653,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Hero {
                 eyebrow: None,
                 title: "Welcome".to_owned(),
@@ -5653,6 +5685,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Hero {
                 eyebrow: Some("New".to_owned()),
                 title: "Welcome".to_owned(),
@@ -5688,6 +5722,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Hero {
                 eyebrow: None,
                 title: "x".to_owned(),
@@ -5720,6 +5756,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Hero {
                 eyebrow: Some("<x>".to_owned()),
                 title: "<script>".to_owned(),
@@ -6162,6 +6200,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Group {
                 title: "Rules".to_owned(),
                 body: vec!["First rule.".to_owned(), "Second rule.".to_owned()],
@@ -6191,6 +6231,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Group {
                 title: "Empty".to_owned(),
                 body: vec![],
@@ -6240,6 +6282,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![c],
@@ -6359,6 +6403,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::CardFeed {
                 heading: Some("Top battles".to_owned()),
                 items: vec![card("Battle A", "/c/a"), card("Battle B", "/c/b")],
@@ -6388,6 +6434,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![card("Only", "/c/only")],
@@ -6413,6 +6461,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![card("X", "/x")],
@@ -6443,6 +6493,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![c],
@@ -6469,6 +6521,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![c],
@@ -6498,6 +6552,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![c],
@@ -6530,6 +6586,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![c],
@@ -6555,6 +6613,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::CardFeed {
                 heading: Some("Empty list".to_owned()),
                 items: vec![],
@@ -6581,6 +6641,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Sidebar {
                 label: Some("Right rail".to_owned()),
                 panels: vec![],
@@ -6605,6 +6667,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Sidebar {
                 label: None,
                 panels: vec![],
@@ -6629,6 +6693,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Sidebar {
                 label: None,
                 panels: vec![CmsPanel {
@@ -6676,6 +6742,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Sidebar {
                 label: None,
                 panels: vec![CmsPanel {
@@ -6707,6 +6775,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Sidebar {
                 label: None,
                 panels: vec![CmsPanel {
@@ -6742,6 +6812,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Sidebar {
                 label: None,
                 panels: vec![CmsPanel {
@@ -6808,6 +6880,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![simple_form()],
         }
     }
@@ -6865,6 +6939,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Form {
                 legend: "x".to_owned(),
                 submit: CmsFormSubmit {
@@ -6957,6 +7033,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Form {
                 legend: "x".to_owned(),
                 submit: CmsFormSubmit {
@@ -7005,6 +7083,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Form {
                 legend: "x".to_owned(),
                 submit: CmsFormSubmit {
@@ -7050,6 +7130,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Form {
                 legend: "x".to_owned(),
                 submit: CmsFormSubmit {
@@ -7090,6 +7172,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Form {
                 legend: "x".to_owned(),
                 submit: CmsFormSubmit {
@@ -7122,6 +7206,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Form {
                 legend: "<script>".to_owned(),
                 submit: CmsFormSubmit {
@@ -7171,6 +7257,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Banner {
                 tone,
                 text: text.to_owned(),
@@ -7295,6 +7383,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Code {
                 lang: lang.to_owned(),
                 body: body.to_owned(),
@@ -7392,6 +7482,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Quote {
                 body: body.to_owned(),
                 attribution: attribution.to_owned(),
@@ -7491,6 +7583,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::LogoWall {
                 heading: heading.map(|s| s.to_owned()),
                 items,
@@ -7597,6 +7691,8 @@ mod tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::KvPair {
                 heading: heading.map(|s| s.to_owned()),
                 items,
@@ -8164,6 +8260,32 @@ pub fn page_shell_themed(
     let path = escape_html_attr(&page.path);
     let css = escape_html_attr(css_href);
     let nav_links = render_nav_links(&page.nav_links);
+    // OG / Twitter URL — fully-qualified when `site_origin` set,
+    // path-only otherwise. og:image / twitter:image emitted only
+    // when `social_image` is set; same origin prefix rule.
+    let og_url = match page.site_origin.as_deref() {
+        Some(origin) => {
+            let trimmed = origin.trim_end_matches('/');
+            escape_html_attr(&format!("{trimmed}{}", page.path))
+        }
+        None => path.clone(),
+    };
+    let og_image_block = match page.social_image.as_deref() {
+        Some(src) => {
+            let absolute = match page.site_origin.as_deref() {
+                Some(origin) if src.starts_with('/') => {
+                    let trimmed = origin.trim_end_matches('/');
+                    format!("{trimmed}{src}")
+                }
+                _ => src.to_owned(),
+            };
+            let safe = escape_html_attr(&absolute);
+            format!(
+                "<meta property=\"og:image\" content=\"{safe}\">\n  <meta name=\"twitter:image\" content=\"{safe}\">\n  "
+            )
+        }
+        None => String::new(),
+    };
     // Brand label: explicit page.brand wins; otherwise derive from
     // the first segment of title before a separator. Never hardcode
     // another site's name.
@@ -8350,8 +8472,8 @@ pub fn page_shell_themed(
   <meta property=\"og:title\" content=\"{title}\">\n\
   <meta property=\"og:description\" content=\"{description}\">\n\
   <meta property=\"og:type\" content=\"website\">\n\
-  <meta property=\"og:url\" content=\"{path}\">\n\
-  <meta name=\"twitter:card\" content=\"summary_large_image\">\n\
+  <meta property=\"og:url\" content=\"{og_url}\">\n\
+  {og_image_block}<meta name=\"twitter:card\" content=\"summary_large_image\">\n\
   <meta name=\"twitter:title\" content=\"{title}\">\n\
   <meta name=\"twitter:description\" content=\"{description}\">\n\
   {DEFAULT_FAVICON_LINK}\n\
@@ -8554,6 +8676,8 @@ mod page_shell_tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![],
         }
     }
@@ -8770,6 +8894,8 @@ mod page_shell_tests {
             nav_links: vec![],
             dev_devtools: false,
             footer: None,
+            site_origin: None,
+            social_image: None,
             sections: vec![CmsSection::Heading {
                 level: HeadingLevel::H2,
                 text: "x".into(),
