@@ -6472,9 +6472,9 @@ body[data-loom-drawer-open] .loom-drawer-scrim {
   overflow: hidden;
   isolation: isolate;
 }
-.loom-image-hero.h-comfortable { min-height: 60vh; }
-.loom-image-hero.h-compact     { min-height: 40vh; }
-.loom-image-hero.h-tall        { min-height: 82vh; }
+.loom-image-hero.h-compact     { padding-top: clamp(2.5rem, 4vw, 3.5rem); padding-bottom: clamp(2.5rem, 4vw, 3.5rem); }
+.loom-image-hero.h-comfortable { padding-top: clamp(3.5rem, 5vw, 5rem);   padding-bottom: clamp(3.5rem, 5vw, 5rem); }
+.loom-image-hero.h-tall        { padding-top: clamp(5rem, 7vw, 7rem);     padding-bottom: clamp(5rem, 7vw, 7rem); }
 .loom-image-hero__inner {
   max-width: 64rem;
   width: 100%;
