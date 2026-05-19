@@ -1134,6 +1134,39 @@ pub enum HeroBackground {
     Stripes,
     /// Subtle dot-grid pattern.
     Dots,
+    /// Photographic background. `src` is a same-origin asset path
+    /// (e.g. `"/assets/hero-bg.jpg"`). `alt` is the SEO/a11y
+    /// description; even though the image is rendered as a CSS
+    /// `background-image`, the alt text ships as `<meta>` /
+    /// aria-attributes on the section.
+    ///
+    /// Used by sites that lead with a real photograph (people,
+    /// product, location) rather than a gradient halo.
+    /// `overlay` controls the dark/light scrim on top of the
+    /// photo so the title stays legible: `none` / `light` / `dark`.
+    Photo {
+        /// Same-origin path to the image asset.
+        src: String,
+        /// SEO / accessibility description.
+        alt: String,
+        /// Overlay tint (defaults to `dark`).
+        #[serde(default)]
+        overlay: PhotoOverlay,
+    },
+}
+
+/// Overlay tint applied on top of [`HeroBackground::Photo`] so the
+/// title remains legible.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PhotoOverlay {
+    /// No overlay — image renders raw.
+    None,
+    /// Light overlay (for dark photos / dark-text titles).
+    Light,
+    /// Dark overlay (for bright photos / light-text titles). Default.
+    #[default]
+    Dark,
 }
 
 /// Visual-height ramp for hero sections.
@@ -2186,6 +2219,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 HeroBackground::Solid { .. } => "solid",
                 HeroBackground::Stripes => "stripes",
                 HeroBackground::Dots => "dots",
+                HeroBackground::Photo { .. } => "photo",
             };
             let height_class = match height {
                 HeroHeight::Comfortable => "h-comfortable",
@@ -2195,9 +2229,32 @@ pub fn render_section(section: &CmsSection) -> Markup {
             let cta_href_safe = cta
                 .as_ref()
                 .is_none_or(|c| loom_components::composer::is_safe_url(&c.href));
+            // For HeroBackground::Photo, emit an <img> as a positioned
+            // background-layer child (no inline style — strict CSP
+            // permits `src` + `alt` attributes natively).
+            let photo_block = match background {
+                HeroBackground::Photo { src, alt, overlay } => {
+                    let overlay_class = match overlay {
+                        PhotoOverlay::None => "ov-none",
+                        PhotoOverlay::Light => "ov-light",
+                        PhotoOverlay::Dark => "ov-dark",
+                    };
+                    let src_safe = loom_components::composer::is_safe_url(src);
+                    Some((src.clone(), alt.clone(), overlay_class, src_safe))
+                }
+                _ => None,
+            };
             html! {
                 section class={ "loom-image-hero loom-bleed bg-" (bg_class) " " (height_class) }
                     data-loom-image-hero data-loom-reveal {
+                    @if let Some((src, alt, overlay_class, src_safe)) = photo_block {
+                        img class={ "loom-image-hero__photo " (overlay_class) }
+                            src=(if src_safe { src.as_str() } else { "" })
+                            alt=(alt)
+                            data-invalid=[(!src_safe).then_some("true")]
+                            loading="eager"
+                            decoding="async";
+                    }
                     div class="loom-image-hero__inner" {
                         @if let Some(e) = eyebrow {
                             span class="loom-image-hero__eyebrow" { (e) }
@@ -2453,6 +2510,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 HeroBackground::Solid { .. } => "solid",
                 HeroBackground::Stripes => "stripes",
                 HeroBackground::Dots => "dots",
+                HeroBackground::Photo { .. } => "photo",
             };
             let cta_href_safe = loom_components::composer::is_safe_url(&cta.href);
             html! {
