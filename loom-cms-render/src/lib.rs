@@ -304,6 +304,683 @@ pub enum CmsSection {
         #[serde(default)]
         terminal: bool,
     },
+    /// Full-bleed image/gradient hero. Larger + more visually
+    /// ambitious than [`CmsSection::Hero`]; spans the viewport
+    /// width breaking out of the standard content max-width.
+    /// Use for top-of-page landing sections that need atmosphere.
+    ImageHero {
+        /// Optional eyebrow chip above the title.
+        eyebrow: Option<String>,
+        /// Display title.
+        title: String,
+        /// Optional lede paragraph below the title.
+        lede: Option<String>,
+        /// Optional primary CTA.
+        cta: Option<HeroCta>,
+        /// Backdrop kind — gradient-mesh / solid / pattern.
+        #[serde(default)]
+        background: HeroBackground,
+        /// Visual height ramp. Affects min-height + padding.
+        #[serde(default)]
+        height: HeroHeight,
+    },
+    /// Text + visual side-by-side hero. Text occupies one column,
+    /// a typed visual (code snippet, single stat, or photo asset
+    /// slug from `loom-assets`) occupies the other.
+    SplitHero {
+        /// Optional eyebrow chip.
+        eyebrow: Option<String>,
+        /// Display title.
+        title: String,
+        /// Optional lede.
+        lede: Option<String>,
+        /// Optional primary CTA.
+        cta: Option<HeroCta>,
+        /// Side visual.
+        visual: SplitVisual,
+        /// True → visual on the right (default), false → left.
+        #[serde(default = "default_true")]
+        visual_right: bool,
+    },
+    /// Multi-column feature listing. Each item carries an icon
+    /// (slug from `loom-assets`), a heading, a body, and an
+    /// optional learn-more link. `columns` clamps to 1..=4.
+    FeatureSpotlight {
+        /// Optional section heading above the grid.
+        heading: Option<String>,
+        /// Optional section lede.
+        lede: Option<String>,
+        /// Items, displayed in column-grid order.
+        items: Vec<SpotlightItem>,
+        /// Column count (1..=4). Mobile collapses to 1 regardless.
+        #[serde(default = "default_columns_3")]
+        columns: u8,
+    },
+    /// Row of large animated numbers with labels. Used for "by
+    /// the numbers" / "stats that matter" social-proof bands.
+    StatBand {
+        /// Optional section heading above the row.
+        heading: Option<String>,
+        /// Optional lede.
+        lede: Option<String>,
+        /// Stats, displayed in row order.
+        items: Vec<StatItem>,
+    },
+    /// Numbered process steps. Visual: tall vertical timeline on
+    /// mobile, horizontal row on desktop.
+    Steps {
+        /// Optional section heading.
+        heading: Option<String>,
+        /// Optional lede.
+        lede: Option<String>,
+        /// Step items in order. The renderer numbers them 1..=N
+        /// automatically.
+        items: Vec<StepItem>,
+    },
+    /// Typed pricing tier display. One band of side-by-side tier
+    /// cards with the optional "highlighted" tier visually
+    /// distinguished.
+    Pricing {
+        /// Optional section heading.
+        heading: Option<String>,
+        /// Optional lede.
+        lede: Option<String>,
+        /// Tier cards, left-to-right.
+        tiers: Vec<PricingTier>,
+    },
+    /// Accordion of question / answer pairs. Each item is
+    /// expandable; only one expanded at a time when
+    /// `single_expand` is true.
+    Faq {
+        /// Optional section heading.
+        heading: Option<String>,
+        /// Optional lede.
+        lede: Option<String>,
+        /// FAQ items.
+        items: Vec<FaqItem>,
+        /// Auto-collapse other open items when one is opened.
+        #[serde(default)]
+        single_expand: bool,
+    },
+    /// Horizontally-scrolling band of short text or brand names.
+    /// Used as a continuous-motion social-proof rail.
+    Marquee {
+        /// Items to scroll. Duplicated automatically for
+        /// seamless looping.
+        items: Vec<String>,
+        /// Scroll direction.
+        #[serde(default)]
+        direction: MarqueeDirection,
+        /// Scroll speed (1..=10; higher = faster).
+        #[serde(default = "default_speed")]
+        speed: u8,
+    },
+    /// Full-width call-to-action band. Sits at the bottom of
+    /// marketing pages just above the footer.
+    CallToAction {
+        /// Optional eyebrow chip.
+        eyebrow: Option<String>,
+        /// Display title.
+        title: String,
+        /// Optional lede.
+        lede: Option<String>,
+        /// Primary CTA.
+        cta: HeroCta,
+        /// Backdrop kind.
+        #[serde(default)]
+        background: HeroBackground,
+    },
+    /// Editorial pull-quote. Large display-italic body, optional
+    /// attribution underneath. Distinct from `Quote` which is a
+    /// testimonial-card shape.
+    PullQuote {
+        /// Body of the quote.
+        body: String,
+        /// Optional attribution (e.g. "Jane Doe, CTO @ Acme").
+        attribution: Option<String>,
+    },
+    // ─── T660 P5 catalogue expansion ───────────────────────
+    // Layout primitives (10).
+    /// Bounded-width content container.
+    Container { children_html: String, max_width: ContainerWidth },
+    /// Visual section break.
+    Divider { style: DividerStyle },
+    /// Vertical whitespace token slot.
+    Spacer { size: SpaceSize },
+    /// N-column free-form layout (2/3/4 cols on desktop).
+    Columns { columns: u8, items: Vec<String> },
+    /// Vertical flex container.
+    Stack { gap: SpaceSize, items: Vec<String> },
+    /// Horizontal wrap-flex cluster (chips, tag-rows).
+    Cluster { gap: SpaceSize, items: Vec<String> },
+    /// Typed grid container with col count.
+    GridLayout { columns: u8, items: Vec<String> },
+    /// Tabbed content group.
+    Tabs { items: Vec<TabItem> },
+    /// Accordion of named sections.
+    AccordionGroup { items: Vec<AccordionItem> },
+    /// Reveal-on-scroll wrapper with typed motion.
+    Reveal { motion: RevealMotion, body: String },
+
+    // Editorial (15).
+    /// Long-form article wrapper (sets max-width + reading type).
+    Article { body: String },
+    /// h3-class subheading inside an article.
+    SubHeading { text: String, level: u8 },
+    /// Large opening paragraph — sets the article's tone.
+    Lede { text: String },
+    /// Initial-letter drop-cap paragraph.
+    DropCap { text: String },
+    /// Figure with caption + optional credit line.
+    Figure { caption: String, credit: Option<String>, asset_slug: Option<String> },
+    /// Image caption text (used outside a figure).
+    Caption { text: String },
+    /// Numbered footnote.
+    Footnote { number: u32, text: String },
+    /// Marginal aside note.
+    AsideNote { tone: AlertTone, body: String },
+    /// Definition list (dl/dt/dd).
+    DefList { items: Vec<DefListItem> },
+    /// Glossary — sorted definition list with anchored terms.
+    Glossary { items: Vec<DefListItem> },
+    /// Auto-derived table of contents marker.
+    TocBlock { heading: Option<String> },
+    /// Mermaid-shaped diagram (typed source).
+    Diagram { notation: DiagramKind, source: String, alt: String },
+    /// Math block (LaTeX-shape source string).
+    MathBlock { source: String, display: bool },
+    /// Citation block (academic-style).
+    Citation { text: String, source: String },
+    /// Pull-out single big stat inline in editorial.
+    PullStat { value: String, label: String },
+
+    // Marketing extras (12).
+    /// Testimonial card with avatar + role.
+    Testimonial { body: String, attribution: String, role: Option<String>, avatar_slug: Option<String> },
+    /// Richer logo cloud with grayscale + hover-color treatment.
+    LogoCloud { heading: Option<String>, items: Vec<String> },
+    /// Side-by-side feature/spec comparison.
+    Comparison { heading: Option<String>, columns: Vec<String>, rows: Vec<ComparisonRow> },
+    /// Vertical milestone timeline.
+    Timeline { heading: Option<String>, items: Vec<TimelineItem> },
+    /// Public-facing product roadmap (now/next/later).
+    Roadmap { now: Vec<String>, next: Vec<String>, later: Vec<String> },
+    /// Case-study card with quote + metrics.
+    CaseStudy { headline: String, body: String, metrics: Vec<StatItem>, href: Option<String>, data_backend: Option<String> },
+    /// Top-of-viewport announcement bar.
+    AnnouncementBar { text: String, cta: Option<HeroCta>, tone: AlertTone },
+    /// Cookie notice band.
+    CookieNotice { text: String, accept_label: String, reject_label: String },
+    /// Mid-page promo strip with CTA.
+    PromoStrip { text: String, cta: HeroCta },
+    /// Row of award badges.
+    AwardBadges { heading: Option<String>, items: Vec<String> },
+    /// Email-signup capture row.
+    NewsletterSignup { heading: String, lede: Option<String>, placeholder: String, submit_label: String },
+    /// Compact contact strip with channels.
+    ContactStrip { items: Vec<ContactChannel> },
+
+    // Media (10).
+    /// Photo grid gallery.
+    ImageGrid { items: Vec<GalleryImage>, columns: u8 },
+    /// Group of figures arranged horizontally.
+    FigureGroup { items: Vec<GalleryImage> },
+    /// HTML5 video embed (typed source allowlist).
+    VideoEmbed { src: String, poster: Option<String>, alt: String, mime: String },
+    /// HTML5 audio embed.
+    AudioEmbed { src: String, alt: String, mime: String },
+    /// Auto-rotating image slideshow.
+    Slideshow { items: Vec<GalleryImage>, interval_ms: u32 },
+    /// Before/after slider comparison.
+    BeforeAfter { before_alt: String, after_alt: String, before_slug: String, after_slug: String },
+    /// Lightbox trigger row (click to enlarge).
+    Lightbox { items: Vec<GalleryImage> },
+    /// Irregular mosaic grid.
+    MosaicGrid { items: Vec<GalleryImage> },
+    /// Row of icon-slug references.
+    IconRow { items: Vec<String> },
+    /// Grid of badges (icon + label).
+    BadgeGrid { items: Vec<BadgeItem> },
+
+    // Commerce (10).
+    /// Product card.
+    ProductCard { name: String, price: String, rating: Option<f32>, image_alt: String, image_slug: String, href: String, data_backend: String },
+    /// Product grid (collection of ProductCard payloads).
+    ProductGrid { heading: Option<String>, items: Vec<ProductItem> },
+    /// Inline price tag.
+    PriceTag { amount: String, currency: String, was: Option<String> },
+    /// Add-to-cart button.
+    AddToCart { label: String, sku: String, data_backend: String },
+    /// Slide-in cart drawer trigger.
+    CartDrawer { label: String, count: u32 },
+    /// Wishlist heart toggle.
+    Wishlist { label: String, count: u32 },
+    /// Product image gallery.
+    ProductGallery { items: Vec<GalleryImage> },
+    /// Product spec list.
+    ProductSpec { items: Vec<DefListItem> },
+    /// 0..=5 star rating with optional count.
+    ReviewStars { value: f32, count: Option<u32> },
+    /// Single review card.
+    ReviewCard { author: String, rating: f32, body: String, date: Option<String> },
+
+    // Social (10).
+    /// Single avatar.
+    Avatar { avatar: CmsAvatar, label: Option<String> },
+    /// Overlapping avatar stack.
+    AvatarStack { items: Vec<CmsAvatar>, more: Option<u32> },
+    /// Chat bubble.
+    ChatBubble { author: String, body: String, mine: bool },
+    /// Threaded chat.
+    ChatThread { items: Vec<ChatMessage> },
+    /// Like/love/etc reaction row.
+    ReactionRow { items: Vec<ReactionItem> },
+    /// @username inline mention.
+    MentionInline { username: String, href: String, data_backend: String },
+    /// #tag inline hashtag.
+    HashtagInline { tag: String, href: String, data_backend: String },
+    /// Row of share buttons.
+    ShareRow { url: String, title: String },
+    /// Follow button with count.
+    FollowButton { label: String, count: u32, data_backend: String },
+    /// Profile card.
+    ProfileCard { name: String, handle: String, bio: String, avatar: CmsAvatar, follow: Option<FollowAction> },
+
+    // Forms (10).
+    /// Single labeled input.
+    FormInput { name: String, label: String, input_type: FormInputKind, placeholder: Option<String>, required: bool },
+    /// Labeled select.
+    FormSelect { name: String, label: String, options: Vec<SelectOption>, required: bool },
+    /// Switch toggle.
+    FormToggle { name: String, label: String, on: bool },
+    /// Range slider.
+    FormSlider { name: String, label: String, min: i32, max: i32, value: i32 },
+    /// Date picker.
+    FormDate { name: String, label: String, required: bool },
+    /// File upload dropzone.
+    FormFile { name: String, label: String, accept: String },
+    /// Search input with submit.
+    FormSearch { placeholder: String, data_backend: String },
+    /// Color picker.
+    FormColor { name: String, label: String, value: String },
+    /// Long-form textarea.
+    FormTextarea { name: String, label: String, placeholder: Option<String>, rows: u8 },
+    /// Submit button.
+    FormSubmit { label: String, data_backend: String, variant: ButtonVariant },
+
+    // Navigation (8).
+    /// Breadcrumb trail.
+    Breadcrumb { items: Vec<BreadcrumbItem> },
+    /// Numbered pagination.
+    Pagination { current: u32, total: u32, base_href: String, data_backend: String },
+    /// Tab nav (links, not in-page tabs).
+    NavTabs { items: Vec<NavTabItem> },
+    /// Vertical sidebar nav.
+    VerticalNav { items: Vec<NavTabItem> },
+    /// Mega-menu rich dropdown.
+    MegaMenu { columns: Vec<MegaMenuColumn> },
+    /// Floating back-to-top button.
+    BackToTop { label: String },
+    /// Jump-to-anchor list.
+    AnchorList { items: Vec<NavTabItem> },
+    /// Language picker.
+    LangSwitch { current: String, options: Vec<LangOption> },
+
+    // Feedback (8).
+    /// Tonal alert box.
+    Alert { tone: AlertTone, title: String, body: String, dismissible: bool },
+    /// Transient toast (visible target for live regions).
+    Toast { tone: AlertTone, body: String },
+    /// Modal dialog placeholder (rendered as a typed section).
+    Modal { title: String, body: String, primary: HeroCta, secondary: Option<HeroCta> },
+    /// Side drawer.
+    Drawer { title: String, body: String, side: DrawerSide },
+    /// Tooltip target slot.
+    Tooltip { trigger: String, body: String },
+    /// Progress bar.
+    ProgressBar { value: u8, label: Option<String> },
+    /// Loading skeleton group.
+    Skeleton { rows: u8, height: SpaceSize },
+    /// Empty-state placeholder.
+    EmptyState { title: String, body: String, cta: Option<HeroCta> },
+
+    // Game / Forum / Video (8).
+    /// Game tile thumbnail.
+    GameTile { title: String, genre: String, players_online: u32, image_slug: String, href: String, data_backend: String },
+    /// Game grid.
+    GameGrid { heading: Option<String>, items: Vec<GameTileItem> },
+    /// Thread list row.
+    ThreadRow { title: String, author: String, replies: u32, views: u32, last_reply: String, href: String, data_backend: String },
+    /// List of thread rows.
+    ThreadList { heading: Option<String>, items: Vec<ThreadRowItem> },
+    /// Video card with thumbnail + meta.
+    VideoCard { title: String, channel: String, duration: String, views: String, thumbnail_slug: String, href: String, data_backend: String },
+    /// Grid of video cards.
+    VideoGridSection { heading: Option<String>, items: Vec<VideoCardItem> },
+    /// Comment thread (post + nested replies).
+    CommentThread { post_id: String, items: Vec<CommentItem> },
+    /// Social-feed post card.
+    FeedPost { author: String, handle: String, avatar: CmsAvatar, body: String, posted_at: String, reactions: u32, comments: u32 },
+}
+
+/// Container max-width token.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ContainerWidth { Narrow, #[default] Comfortable, Wide, Full }
+
+/// Divider style.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DividerStyle { #[default] Line, Dots, ZigZag, Sparkle }
+
+/// Vertical-spacing token.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SpaceSize { Tight, #[default] Comfortable, Loose, Generous }
+
+/// Reveal-motion variant.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RevealMotion { #[default] FadeUp, FadeIn, ScaleIn, SlideLeft, SlideRight }
+
+/// Alert tone (used by Alert, Toast, AnnouncementBar, AsideNote).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AlertTone { #[default] Info, Success, Warning, Danger, Neutral }
+
+/// Drawer side.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DrawerSide { #[default] Right, Left }
+
+/// Diagram source kind.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagramKind { #[default] Mermaid, Plantuml, Ascii }
+
+/// Form-input kind.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FormInputKind { #[default] Text, Email, Password, Tel, Url, Number, Search }
+
+/// Button variant.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ButtonVariant { #[default] Primary, Secondary, Ghost, Danger }
+
+/// One tab in a Tabs section.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TabItem { pub label: String, pub body: String }
+
+/// One accordion item.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AccordionItem { pub title: String, pub body: String }
+
+/// One definition list entry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DefListItem { pub term: String, pub definition: String }
+
+/// One comparison row.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ComparisonRow { pub label: String, pub values: Vec<String> }
+
+/// One timeline milestone.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TimelineItem { pub when: String, pub title: String, pub body: String }
+
+/// One contact channel.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ContactChannel { pub kind: String, pub label: String, pub href: String, pub data_backend: String }
+
+/// One gallery image.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GalleryImage { pub asset_slug: String, pub alt: String, pub caption: Option<String> }
+
+/// One badge.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BadgeItem { pub icon_slug: Option<String>, pub label: String }
+
+/// One product card.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ProductItem {
+    pub name: String,
+    pub price: String,
+    pub rating: Option<f32>,
+    pub image_alt: String,
+    pub image_slug: String,
+    pub href: String,
+    pub data_backend: String,
+}
+
+/// One chat message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ChatMessage { pub author: String, pub body: String, pub mine: bool, pub at: String }
+
+/// One reaction.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ReactionItem { pub emoji: String, pub count: u32 }
+
+/// Follow action.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FollowAction { pub label: String, pub data_backend: String }
+
+/// One select option.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SelectOption { pub value: String, pub label: String }
+
+/// One breadcrumb segment.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BreadcrumbItem { pub label: String, pub href: String, pub data_backend: String }
+
+/// One nav tab.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NavTabItem { pub label: String, pub href: String, pub data_backend: String, #[serde(default)] pub current: bool }
+
+/// One mega-menu column.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MegaMenuColumn { pub heading: String, pub items: Vec<NavTabItem> }
+
+/// One language option.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LangOption { pub code: String, pub label: String, pub href: String, pub data_backend: String }
+
+/// One game tile.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GameTileItem {
+    pub title: String, pub genre: String, pub players_online: u32,
+    pub image_slug: String, pub href: String, pub data_backend: String,
+}
+
+/// One thread row.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ThreadRowItem {
+    pub title: String, pub author: String, pub replies: u32, pub views: u32,
+    pub last_reply: String, pub href: String, pub data_backend: String,
+}
+
+/// One video card.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VideoCardItem {
+    pub title: String, pub channel: String, pub duration: String, pub views: String,
+    pub thumbnail_slug: String, pub href: String, pub data_backend: String,
+}
+
+/// One comment in a thread.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CommentItem { pub author: String, pub body: String, pub at: String, pub depth: u8 }
+
+fn default_true() -> bool {
+    true
+}
+fn default_columns_3() -> u8 {
+    3
+}
+fn default_speed() -> u8 {
+    5
+}
+
+/// Backdrop kind for hero-class sections.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum HeroBackground {
+    /// Animated three-radial gradient mesh in the accent palette.
+    /// The default — works in every theme without configuration.
+    #[default]
+    GradientMesh,
+    /// Solid color. `token` references a loom color token slug
+    /// (e.g. `"loom-color-surface"`).
+    Solid {
+        /// Loom color token slug.
+        token: String,
+    },
+    /// Diagonal-stripe pattern in the accent color.
+    Stripes,
+    /// Subtle dot-grid pattern.
+    Dots,
+}
+
+/// Visual-height ramp for hero sections.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum HeroHeight {
+    /// Comfortable default — about 60vh on desktop.
+    #[default]
+    Comfortable,
+    /// Compact — about 40vh, fits secondary pages.
+    Compact,
+    /// Tall — about 80vh, only for top-of-funnel landings.
+    Tall,
+}
+
+/// The visual half of a [`CmsSection::SplitHero`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SplitVisual {
+    /// A code snippet, rendered as a styled `<pre>` panel.
+    CodeSnippet {
+        /// Language hint.
+        #[serde(default)]
+        lang: String,
+        /// Body.
+        body: String,
+    },
+    /// A single big stat with label.
+    StatBlock {
+        /// The number ("2.4M", "99.97%", "12x").
+        value: String,
+        /// Label underneath.
+        label: String,
+    },
+    /// Reference to a `loom-assets` photo / illustration slug.
+    AssetSlug {
+        /// Slug from the asset registry.
+        slug: String,
+        /// Alt text for accessibility.
+        alt: String,
+    },
+}
+
+/// One feature spotlight item.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SpotlightItem {
+    /// Optional loom-assets icon slug (e.g. `icon-arrow-right`).
+    pub icon_slug: Option<String>,
+    /// Feature heading.
+    pub title: String,
+    /// Feature body paragraph.
+    pub body: String,
+    /// Optional "learn more" link.
+    pub href: Option<String>,
+    /// Backend slug paired with href.
+    pub data_backend: Option<String>,
+}
+
+/// One stat in a [`CmsSection::StatBand`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StatItem {
+    /// Value — displayed as the large headline.
+    pub value: String,
+    /// Label underneath.
+    pub label: String,
+    /// Optional muted hint below the label.
+    pub hint: Option<String>,
+}
+
+/// One step in a [`CmsSection::Steps`] section.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StepItem {
+    /// Step heading (renderer auto-prefixes the step number).
+    pub title: String,
+    /// Body paragraph.
+    pub body: String,
+}
+
+/// One pricing tier in a [`CmsSection::Pricing`] section.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PricingTier {
+    /// Tier name ("Solo", "Team", "Enterprise").
+    pub name: String,
+    /// Price string ("$0", "$29", "Custom").
+    pub price: String,
+    /// Period qualifier ("/mo", "/seat/mo", "annual", empty).
+    #[serde(default)]
+    pub period: String,
+    /// Optional short tagline.
+    pub tagline: Option<String>,
+    /// Feature bullet list.
+    pub features: Vec<String>,
+    /// Optional CTA.
+    pub cta: Option<HeroCta>,
+    /// True → tier is visually highlighted (typically the
+    /// middle "recommended" tier).
+    #[serde(default)]
+    pub highlighted: bool,
+}
+
+/// One FAQ item.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FaqItem {
+    /// Question text.
+    pub question: String,
+    /// Answer body — may contain multiple paragraphs.
+    pub answer: Vec<String>,
+}
+
+/// Marquee scroll direction.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MarqueeDirection {
+    /// Scroll right-to-left.
+    #[default]
+    Left,
+    /// Scroll left-to-right.
+    Right,
 }
 
 /// FORGE_ROADMAP item 41: one entry in a [`CmsSection::KvPair`].
@@ -484,7 +1161,7 @@ impl schemars::JsonSchema for HeadingLevel {
 /// Hero CTA — the single typed primary action attached to a Hero
 /// section. URL is validated by `composer::is_safe_url` at render
 /// time.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct HeroCta {
     /// Visible label text.
@@ -1220,6 +1897,1337 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::ImageHero {
+            eyebrow,
+            title,
+            lede,
+            cta,
+            background,
+            height,
+        } => {
+            let bg_class = match background {
+                HeroBackground::GradientMesh => "gradient-mesh",
+                HeroBackground::Solid { .. } => "solid",
+                HeroBackground::Stripes => "stripes",
+                HeroBackground::Dots => "dots",
+            };
+            let height_class = match height {
+                HeroHeight::Comfortable => "h-comfortable",
+                HeroHeight::Compact => "h-compact",
+                HeroHeight::Tall => "h-tall",
+            };
+            let cta_href_safe = cta
+                .as_ref()
+                .is_none_or(|c| loom_components::composer::is_safe_url(&c.href));
+            html! {
+                section class={ "loom-image-hero loom-bleed bg-" (bg_class) " " (height_class) }
+                    data-loom-image-hero data-loom-reveal {
+                    div class="loom-image-hero__inner" {
+                        @if let Some(e) = eyebrow {
+                            span class="loom-image-hero__eyebrow" { (e) }
+                        }
+                        h2 class="loom-image-hero__title" { (title) }
+                        @if let Some(l) = lede {
+                            p class="loom-image-hero__lede" { (l) }
+                        }
+                        @if let Some(c) = cta {
+                            a class="loom-image-hero__cta loom-btn loom-btn--primary"
+                              href=(if cta_href_safe { c.href.as_str() } else { "#invalid-cta" })
+                              data-backend=(c.data_backend)
+                              data-invalid=[(!cta_href_safe).then_some("true")] { (c.label) }
+                        }
+                    }
+                }
+            }
+        },
+        CmsSection::SplitHero {
+            eyebrow,
+            title,
+            lede,
+            cta,
+            visual,
+            visual_right,
+        } => {
+            let order_class = if *visual_right { "visual-right" } else { "visual-left" };
+            let cta_href_safe = cta
+                .as_ref()
+                .is_none_or(|c| loom_components::composer::is_safe_url(&c.href));
+            html! {
+                section class={ "loom-split-hero " (order_class) }
+                    data-loom-split-hero data-loom-reveal {
+                    div class="loom-split-hero__text" {
+                        @if let Some(e) = eyebrow {
+                            span class="loom-split-hero__eyebrow" { (e) }
+                        }
+                        h2 class="loom-split-hero__title" { (title) }
+                        @if let Some(l) = lede {
+                            p class="loom-split-hero__lede" { (l) }
+                        }
+                        @if let Some(c) = cta {
+                            a class="loom-split-hero__cta loom-btn loom-btn--primary"
+                              href=(if cta_href_safe { c.href.as_str() } else { "#invalid-cta" })
+                              data-backend=(c.data_backend)
+                              data-invalid=[(!cta_href_safe).then_some("true")] { (c.label) }
+                        }
+                    }
+                    div class="loom-split-hero__visual" {
+                        @match visual {
+                            SplitVisual::CodeSnippet { lang, body } => {
+                                pre class="loom-split-hero__code" {
+                                    code class={ "language-" (lang) } { (body) }
+                                }
+                            }
+                            SplitVisual::StatBlock { value, label } => {
+                                div class="loom-split-hero__stat" {
+                                    span class="loom-split-hero__stat-value" { (value) }
+                                    span class="loom-split-hero__stat-label" { (label) }
+                                }
+                            }
+                            SplitVisual::AssetSlug { slug, alt } => {
+                                div class="loom-split-hero__asset"
+                                    data-asset-slug=(slug)
+                                    aria-label=(alt) {
+                                    span class="loom-asset-placeholder" { (alt) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        CmsSection::FeatureSpotlight {
+            heading,
+            lede,
+            items,
+            columns,
+        } => {
+            let cols = (*columns).clamp(1, 4);
+            html! {
+                section class={ "loom-feature-spotlight cols-" (cols) }
+                    data-loom-feature-spotlight data-loom-reveal {
+                    @if let Some(h) = heading {
+                        h2 class="loom-feature-spotlight__heading" { (h) }
+                    }
+                    @if let Some(l) = lede {
+                        p class="loom-feature-spotlight__lede" { (l) }
+                    }
+                    div class="loom-feature-spotlight__grid" {
+                        @for item in items {
+                            article class="loom-feature-spotlight__item" data-loom-reveal {
+                                @if let Some(icon) = &item.icon_slug {
+                                    span class="loom-feature-spotlight__icon"
+                                        data-asset-slug=(icon) aria-hidden="true" {}
+                                }
+                                h3 class="loom-feature-spotlight__title" { (item.title) }
+                                p class="loom-feature-spotlight__body" { (item.body) }
+                                @if let Some(href) = &item.href {
+                                    @let href_safe = loom_components::composer::is_safe_url(href);
+                                    a class="loom-feature-spotlight__more"
+                                      href=(if href_safe { href.as_str() } else { "#invalid-link" })
+                                      data-backend=[item.data_backend.as_deref()]
+                                      data-invalid=[(!href_safe).then_some("true")] {
+                                        "Learn more →"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        CmsSection::StatBand { heading, lede, items } => html! {
+            section class="loom-stat-band" data-loom-stat-band data-loom-reveal {
+                @if let Some(h) = heading {
+                    h2 class="loom-stat-band__heading" { (h) }
+                }
+                @if let Some(l) = lede {
+                    p class="loom-stat-band__lede" { (l) }
+                }
+                div class="loom-stat-band__row" {
+                    @for item in items {
+                        div class="loom-stat-band__item" data-loom-reveal {
+                            span class="loom-stat-band__value" data-loom-counter=(item.value) {
+                                (item.value)
+                            }
+                            span class="loom-stat-band__label" { (item.label) }
+                            @if let Some(h) = &item.hint {
+                                span class="loom-stat-band__hint" { (h) }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        CmsSection::Steps { heading, lede, items } => html! {
+            section class="loom-steps" data-loom-steps data-loom-reveal {
+                @if let Some(h) = heading {
+                    h2 class="loom-steps__heading" { (h) }
+                }
+                @if let Some(l) = lede {
+                    p class="loom-steps__lede" { (l) }
+                }
+                ol class="loom-steps__list" {
+                    @for (i, item) in items.iter().enumerate() {
+                        li class="loom-steps__item" data-step=((i + 1).to_string()) data-loom-reveal {
+                            span class="loom-steps__num" { ((i + 1).to_string()) }
+                            div class="loom-steps__body" {
+                                h3 class="loom-steps__title" { (item.title) }
+                                p class="loom-steps__text" { (item.body) }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        CmsSection::Pricing { heading, lede, tiers } => html! {
+            section class="loom-pricing" data-loom-pricing data-loom-reveal {
+                @if let Some(h) = heading {
+                    h2 class="loom-pricing__heading" { (h) }
+                }
+                @if let Some(l) = lede {
+                    p class="loom-pricing__lede" { (l) }
+                }
+                div class="loom-pricing__row" {
+                    @for tier in tiers {
+                        @let cta_href_safe = tier
+                            .cta
+                            .as_ref()
+                            .is_none_or(|c| loom_components::composer::is_safe_url(&c.href));
+                        article class={ "loom-pricing__tier" @if tier.highlighted { " is-highlighted" } }
+                            data-loom-reveal {
+                            @if tier.highlighted {
+                                span class="loom-pricing__badge" { "Recommended" }
+                            }
+                            h3 class="loom-pricing__name" { (tier.name) }
+                            div class="loom-pricing__price-row" {
+                                span class="loom-pricing__price" { (tier.price) }
+                                @if !tier.period.is_empty() {
+                                    span class="loom-pricing__period" { (tier.period) }
+                                }
+                            }
+                            @if let Some(t) = &tier.tagline {
+                                p class="loom-pricing__tagline" { (t) }
+                            }
+                            ul class="loom-pricing__features" {
+                                @for f in &tier.features {
+                                    li class="loom-pricing__feature" { (f) }
+                                }
+                            }
+                            @if let Some(c) = &tier.cta {
+                                a class="loom-pricing__cta loom-btn loom-btn--primary"
+                                  href=(if cta_href_safe { c.href.as_str() } else { "#invalid-cta" })
+                                  data-backend=(c.data_backend)
+                                  data-invalid=[(!cta_href_safe).then_some("true")] { (c.label) }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        CmsSection::Faq { heading, lede, items, single_expand } => html! {
+            section class="loom-faq" data-loom-faq
+                data-single-expand=[single_expand.then_some("true")]
+                data-loom-reveal {
+                @if let Some(h) = heading {
+                    h2 class="loom-faq__heading" { (h) }
+                }
+                @if let Some(l) = lede {
+                    p class="loom-faq__lede" { (l) }
+                }
+                div class="loom-faq__list" {
+                    @for item in items {
+                        details class="loom-faq__item" {
+                            summary class="loom-faq__question" { (item.question) }
+                            div class="loom-faq__answer" {
+                                @for p in &item.answer {
+                                    p class="loom-faq__paragraph" { (p) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        CmsSection::Marquee { items, direction, speed } => {
+            let dir_class = match direction {
+                MarqueeDirection::Left => "marquee-left",
+                MarqueeDirection::Right => "marquee-right",
+            };
+            let s = (*speed).clamp(1, 10);
+            html! {
+                section class={ "loom-marquee " (dir_class) " loom-bleed" }
+                    data-loom-marquee data-speed=(s.to_string()) aria-hidden="true" {
+                    div class="loom-marquee__track" {
+                        @for _rep in 0..2 {
+                            @for it in items {
+                                span class="loom-marquee__item" { (it) }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        CmsSection::CallToAction { eyebrow, title, lede, cta, background } => {
+            let bg_class = match background {
+                HeroBackground::GradientMesh => "gradient-mesh",
+                HeroBackground::Solid { .. } => "solid",
+                HeroBackground::Stripes => "stripes",
+                HeroBackground::Dots => "dots",
+            };
+            let cta_href_safe = loom_components::composer::is_safe_url(&cta.href);
+            html! {
+                section class={ "loom-cta-band loom-bleed bg-" (bg_class) }
+                    data-loom-cta-band data-loom-reveal {
+                    div class="loom-cta-band__inner" {
+                        @if let Some(e) = eyebrow {
+                            span class="loom-cta-band__eyebrow" { (e) }
+                        }
+                        h2 class="loom-cta-band__title" { (title) }
+                        @if let Some(l) = lede {
+                            p class="loom-cta-band__lede" { (l) }
+                        }
+                        a class="loom-cta-band__cta loom-btn loom-btn--primary loom-btn--lg"
+                          href=(if cta_href_safe { cta.href.as_str() } else { "#invalid-cta" })
+                          data-backend=(cta.data_backend)
+                          data-invalid=[(!cta_href_safe).then_some("true")] { (cta.label) }
+                    }
+                }
+            }
+        },
+        CmsSection::PullQuote { body, attribution } => html! {
+            figure class="loom-pull-quote" data-loom-reveal {
+                blockquote class="loom-pull-quote__body" { (body) }
+                @if let Some(a) = attribution {
+                    figcaption class="loom-pull-quote__attribution" { "— " (a) }
+                }
+            }
+        },
+        // ─── T660 P5 — catalogue expansion render arms ───
+        CmsSection::Container { children_html, max_width } => {
+            let w = match max_width {
+                ContainerWidth::Narrow => "narrow",
+                ContainerWidth::Comfortable => "comfortable",
+                ContainerWidth::Wide => "wide",
+                ContainerWidth::Full => "full",
+            };
+            html! { div class={ "loom-container w-" (w) } { (maud::PreEscaped(escape_html_text(children_html).to_string())) } }
+        }
+        CmsSection::Divider { style } => {
+            let s = match style { DividerStyle::Line => "line", DividerStyle::Dots => "dots", DividerStyle::ZigZag => "zigzag", DividerStyle::Sparkle => "sparkle" };
+            html! { hr class={ "loom-divider style-" (s) } aria-hidden="true"; }
+        }
+        CmsSection::Spacer { size } => {
+            let s = space_class(size);
+            html! { div class={ "loom-spacer " (s) } aria-hidden="true" {} }
+        }
+        CmsSection::Columns { columns, items } => {
+            let c = (*columns).clamp(2, 4);
+            html! {
+                div class={ "loom-columns cols-" (c) } {
+                    @for item in items { div class="loom-columns__item" { (item) } }
+                }
+            }
+        }
+        CmsSection::Stack { gap, items } => {
+            let g = space_class(gap);
+            html! { div class={ "loom-stack " (g) } { @for it in items { div class="loom-stack__item" { (it) } } } }
+        }
+        CmsSection::Cluster { gap, items } => {
+            let g = space_class(gap);
+            html! { div class={ "loom-cluster " (g) } { @for it in items { span class="loom-cluster__chip" { (it) } } } }
+        }
+        CmsSection::GridLayout { columns, items } => {
+            let c = (*columns).clamp(1, 6);
+            html! { div class={ "loom-grid cols-" (c) } { @for it in items { div class="loom-grid__cell" { (it) } } } }
+        }
+        CmsSection::Tabs { items } => html! {
+            section class="loom-tabs" data-loom-tabs data-loom-reveal {
+                div class="loom-tabs__bar" role="tablist" {
+                    @for (i, t) in items.iter().enumerate() {
+                        button class="loom-tabs__tab" role="tab" type="button"
+                            aria-selected=(if i == 0 { "true" } else { "false" })
+                            data-tab=(i.to_string()) { (t.label) }
+                    }
+                }
+                div class="loom-tabs__panes" {
+                    @for (i, t) in items.iter().enumerate() {
+                        div class="loom-tabs__pane" role="tabpanel"
+                            aria-hidden=(if i == 0 { "false" } else { "true" })
+                            data-pane=(i.to_string()) { (t.body) }
+                    }
+                }
+            }
+        },
+        CmsSection::AccordionGroup { items } => html! {
+            section class="loom-accordion" data-loom-accordion data-loom-reveal {
+                @for it in items {
+                    details class="loom-accordion__item" {
+                        summary class="loom-accordion__title" { (it.title) }
+                        div class="loom-accordion__body" { (it.body) }
+                    }
+                }
+            }
+        },
+        CmsSection::Reveal { motion, body } => {
+            let m = match motion {
+                RevealMotion::FadeUp => "fade-up", RevealMotion::FadeIn => "fade-in",
+                RevealMotion::ScaleIn => "scale-in", RevealMotion::SlideLeft => "slide-left",
+                RevealMotion::SlideRight => "slide-right",
+            };
+            html! { div class={ "loom-reveal motion-" (m) } data-loom-reveal { (body) } }
+        }
+        CmsSection::Article { body } => html! { article class="loom-article" { (body) } },
+        CmsSection::SubHeading { text, level } => {
+            let lvl = (*level).clamp(2, 6);
+            html! { @match lvl {
+                2 => h2 class="loom-subhead" { (text) },
+                3 => h3 class="loom-subhead" { (text) },
+                4 => h4 class="loom-subhead" { (text) },
+                5 => h5 class="loom-subhead" { (text) },
+                _ => h6 class="loom-subhead" { (text) },
+            } }
+        }
+        CmsSection::Lede { text } => html! { p class="loom-lede" data-loom-reveal { (text) } },
+        CmsSection::DropCap { text } => html! { p class="loom-dropcap" data-loom-reveal { (text) } },
+        CmsSection::Figure { caption, credit, asset_slug } => html! {
+            figure class="loom-figure" data-loom-reveal {
+                @if let Some(slug) = asset_slug {
+                    div class="loom-figure__media" data-asset-slug=(slug) { span class="loom-asset-placeholder" { (caption) } }
+                }
+                figcaption class="loom-figure__caption" {
+                    (caption)
+                    @if let Some(c) = credit { span class="loom-figure__credit" { " · " (c) } }
+                }
+            }
+        },
+        CmsSection::Caption { text } => html! { p class="loom-caption" { (text) } },
+        CmsSection::Footnote { number, text } => html! {
+            aside class="loom-footnote" id={ "fn-" (number.to_string()) } {
+                sup class="loom-footnote__num" { (number.to_string()) } " " (text)
+            }
+        },
+        CmsSection::AsideNote { tone, body } => {
+            let t = alert_tone_class(tone);
+            html! { aside class={ "loom-aside-note tone-" (t) } role="note" { (body) } }
+        }
+        CmsSection::DefList { items } => html! {
+            dl class="loom-deflist" {
+                @for it in items {
+                    dt class="loom-deflist__term" { (it.term) }
+                    dd class="loom-deflist__def" { (it.definition) }
+                }
+            }
+        },
+        CmsSection::Glossary { items } => html! {
+            section class="loom-glossary" data-loom-reveal {
+                dl class="loom-deflist" {
+                    @for it in items {
+                        dt class="loom-deflist__term" id={ "term-" (slugify(&it.term)) } { (it.term) }
+                        dd class="loom-deflist__def" { (it.definition) }
+                    }
+                }
+            }
+        },
+        CmsSection::TocBlock { heading } => html! {
+            nav class="loom-toc" aria-label="Table of contents" data-loom-toc {
+                @if let Some(h) = heading { p class="loom-toc__heading" { (h) } }
+                ol class="loom-toc__list" data-loom-toc-auto {}
+            }
+        },
+        CmsSection::Diagram { notation, source, alt } => {
+            let n = match notation { DiagramKind::Mermaid => "mermaid", DiagramKind::Plantuml => "plantuml", DiagramKind::Ascii => "ascii" };
+            html! {
+                figure class={ "loom-diagram notation-" (n) } role="img" aria-label=(alt) data-loom-reveal {
+                    pre class="loom-diagram__source" { (source) }
+                }
+            }
+        }
+        CmsSection::MathBlock { source, display } => html! {
+            @if *display {
+                div class="loom-math display" role="math" { (source) }
+            } @else {
+                span class="loom-math inline" role="math" { (source) }
+            }
+        },
+        CmsSection::Citation { text, source } => html! {
+            blockquote class="loom-citation" data-loom-reveal {
+                p class="loom-citation__text" { (text) }
+                cite class="loom-citation__source" { (source) }
+            }
+        },
+        CmsSection::PullStat { value, label } => html! {
+            div class="loom-pull-stat" data-loom-reveal {
+                span class="loom-pull-stat__value" { (value) }
+                span class="loom-pull-stat__label" { (label) }
+            }
+        },
+        CmsSection::Testimonial { body, attribution, role, avatar_slug } => html! {
+            figure class="loom-testimonial" data-loom-reveal {
+                blockquote class="loom-testimonial__body" { (body) }
+                figcaption class="loom-testimonial__author" {
+                    @if let Some(slug) = avatar_slug { span class="loom-testimonial__avatar" data-asset-slug=(slug) aria-hidden="true" {} }
+                    span class="loom-testimonial__name" { (attribution) }
+                    @if let Some(r) = role { span class="loom-testimonial__role" { " · " (r) } }
+                }
+            }
+        },
+        CmsSection::LogoCloud { heading, items } => html! {
+            section class="loom-logo-cloud" data-loom-reveal {
+                @if let Some(h) = heading { h2 class="loom-logo-cloud__heading" { (h) } }
+                div class="loom-logo-cloud__row" { @for it in items { span class="loom-logo-cloud__item" { (it) } } }
+            }
+        },
+        CmsSection::Comparison { heading, columns, rows } => html! {
+            section class="loom-comparison" data-loom-reveal {
+                @if let Some(h) = heading { h2 class="loom-comparison__heading" { (h) } }
+                table class="loom-comparison__table" {
+                    thead { tr {
+                        th {}
+                        @for c in columns { th { (c) } }
+                    } }
+                    tbody { @for row in rows {
+                        tr {
+                            th scope="row" { (row.label) }
+                            @for v in &row.values { td { (v) } }
+                        }
+                    } }
+                }
+            }
+        },
+        CmsSection::Timeline { heading, items } => html! {
+            section class="loom-timeline" data-loom-reveal {
+                @if let Some(h) = heading { h2 class="loom-timeline__heading" { (h) } }
+                ol class="loom-timeline__list" {
+                    @for it in items {
+                        li class="loom-timeline__item" data-loom-reveal {
+                            time class="loom-timeline__when" { (it.when) }
+                            h3 class="loom-timeline__title" { (it.title) }
+                            p class="loom-timeline__body" { (it.body) }
+                        }
+                    }
+                }
+            }
+        },
+        CmsSection::Roadmap { now, next, later } => html! {
+            section class="loom-roadmap" data-loom-reveal {
+                div class="loom-roadmap__col col-now" {
+                    h3 class="loom-roadmap__heading" { "Now" }
+                    ul { @for it in now { li { (it) } } }
+                }
+                div class="loom-roadmap__col col-next" {
+                    h3 class="loom-roadmap__heading" { "Next" }
+                    ul { @for it in next { li { (it) } } }
+                }
+                div class="loom-roadmap__col col-later" {
+                    h3 class="loom-roadmap__heading" { "Later" }
+                    ul { @for it in later { li { (it) } } }
+                }
+            }
+        },
+        CmsSection::CaseStudy { headline, body, metrics, href, data_backend } => {
+            let safe = href.as_deref().map_or(true, is_safe_url);
+            html! {
+                article class="loom-case-study" data-loom-reveal {
+                    h3 class="loom-case-study__headline" { (headline) }
+                    p class="loom-case-study__body" { (body) }
+                    ul class="loom-case-study__metrics" {
+                        @for m in metrics {
+                            li class="loom-case-study__metric" {
+                                span class="loom-case-study__metric-value" { (m.value) }
+                                span class="loom-case-study__metric-label" { (m.label) }
+                            }
+                        }
+                    }
+                    @if let Some(h) = href {
+                        a class="loom-case-study__more"
+                          href=(if safe { h.as_str() } else { "#invalid-link" })
+                          data-backend=[data_backend.as_deref()]
+                          data-invalid=[(!safe).then_some("true")] { "Read the case study →" }
+                    }
+                }
+            }
+        }
+        CmsSection::AnnouncementBar { text, cta, tone } => {
+            let t = alert_tone_class(tone);
+            let cta_safe = cta.as_ref().is_none_or(|c| is_safe_url(&c.href));
+            html! {
+                div class={ "loom-announcement-bar loom-bleed tone-" (t) } role="region" aria-label="Announcement" {
+                    span class="loom-announcement-bar__text" { (text) }
+                    @if let Some(c) = cta {
+                        a class="loom-announcement-bar__cta"
+                          href=(if cta_safe { c.href.as_str() } else { "#invalid-cta" })
+                          data-backend=(c.data_backend) { (c.label) }
+                    }
+                }
+            }
+        }
+        CmsSection::CookieNotice { text, accept_label, reject_label } => html! {
+            div class="loom-cookie-notice" role="dialog" aria-label="Cookie notice" data-loom-cookie {
+                p class="loom-cookie-notice__text" { (text) }
+                div class="loom-cookie-notice__actions" {
+                    button type="button" class="loom-btn loom-btn--primary" data-loom-cookie-accept { (accept_label) }
+                    button type="button" class="loom-btn loom-btn--ghost" data-loom-cookie-reject { (reject_label) }
+                }
+            }
+        },
+        CmsSection::PromoStrip { text, cta } => {
+            let safe = is_safe_url(&cta.href);
+            html! {
+                div class="loom-promo-strip" data-loom-reveal {
+                    span class="loom-promo-strip__text" { (text) }
+                    a class="loom-promo-strip__cta loom-btn loom-btn--primary"
+                      href=(if safe { cta.href.as_str() } else { "#invalid-cta" })
+                      data-backend=(cta.data_backend) { (cta.label) }
+                }
+            }
+        }
+        CmsSection::AwardBadges { heading, items } => html! {
+            section class="loom-award-badges" data-loom-reveal {
+                @if let Some(h) = heading { h3 class="loom-award-badges__heading" { (h) } }
+                ul class="loom-award-badges__list" { @for it in items { li class="loom-award-badges__item" { (it) } } }
+            }
+        },
+        CmsSection::NewsletterSignup { heading, lede, placeholder, submit_label } => html! {
+            section class="loom-newsletter-signup" data-loom-reveal {
+                h2 class="loom-newsletter-signup__heading" { (heading) }
+                @if let Some(l) = lede { p class="loom-newsletter-signup__lede" { (l) } }
+                form class="loom-newsletter-signup__form" data-loom-newsletter {
+                    input type="email" name="email" required placeholder=(placeholder) aria-label="Email";
+                    button type="submit" class="loom-btn loom-btn--primary" { (submit_label) }
+                }
+            }
+        },
+        CmsSection::ContactStrip { items } => html! {
+            section class="loom-contact-strip" data-loom-reveal {
+                @for it in items {
+                    @let safe = is_safe_url(&it.href);
+                    a class={ "loom-contact-strip__item kind-" (it.kind) }
+                      href=(if safe { it.href.as_str() } else { "#invalid-link" })
+                      data-backend=(it.data_backend) {
+                        span class="loom-contact-strip__label" { (it.label) }
+                    }
+                }
+            }
+        },
+        CmsSection::ImageGrid { items, columns } => {
+            let c = (*columns).clamp(2, 6);
+            html! {
+                section class={ "loom-image-grid cols-" (c) } data-loom-reveal {
+                    @for img in items {
+                        figure class="loom-image-grid__cell" data-asset-slug=(img.asset_slug) aria-label=(img.alt) {
+                            span class="loom-asset-placeholder" { (img.alt) }
+                            @if let Some(cap) = &img.caption { figcaption class="loom-image-grid__caption" { (cap) } }
+                        }
+                    }
+                }
+            }
+        }
+        CmsSection::FigureGroup { items } => html! {
+            section class="loom-figure-group" data-loom-reveal {
+                @for img in items {
+                    figure class="loom-figure-group__cell" data-asset-slug=(img.asset_slug) aria-label=(img.alt) {
+                        span class="loom-asset-placeholder" { (img.alt) }
+                        @if let Some(cap) = &img.caption { figcaption { (cap) } }
+                    }
+                }
+            }
+        },
+        CmsSection::VideoEmbed { src, poster, alt, mime } => {
+            let src_safe = is_safe_url(src);
+            let poster_safe = poster.as_deref().map(is_safe_url).unwrap_or(true);
+            let mime_ok = ALLOWED_VIDEO_MIME.contains(&mime.as_str());
+            html! {
+                @if src_safe && poster_safe && mime_ok {
+                    figure class="loom-video-embed" data-loom-reveal {
+                        video controls preload="metadata" poster=[poster.as_deref()] aria-label=(alt) {
+                            source src=(src) type=(mime);
+                        }
+                    }
+                } @else {
+                    div class="loom-video-embed" data-empty="true" aria-label=(alt) {}
+                }
+            }
+        }
+        CmsSection::AudioEmbed { src, alt, mime } => {
+            let safe = is_safe_url(src);
+            html! {
+                @if safe {
+                    figure class="loom-audio-embed" data-loom-reveal {
+                        audio controls preload="metadata" aria-label=(alt) {
+                            source src=(src) type=(mime);
+                        }
+                    }
+                } @else {
+                    div class="loom-audio-embed" data-empty="true" aria-label=(alt) {}
+                }
+            }
+        }
+        CmsSection::Slideshow { items, interval_ms } => html! {
+            section class="loom-slideshow" data-loom-slideshow data-interval=(interval_ms.to_string()) data-loom-reveal {
+                @for (i, img) in items.iter().enumerate() {
+                    figure class="loom-slideshow__slide"
+                        data-index=(i.to_string())
+                        data-active=(if i == 0 { "true" } else { "false" })
+                        data-asset-slug=(img.asset_slug)
+                        aria-label=(img.alt) {
+                        span class="loom-asset-placeholder" { (img.alt) }
+                    }
+                }
+            }
+        },
+        CmsSection::BeforeAfter { before_alt, after_alt, before_slug, after_slug } => html! {
+            div class="loom-before-after" data-loom-before-after data-loom-reveal {
+                figure class="loom-before-after__before" data-asset-slug=(before_slug) aria-label=(before_alt) {
+                    span class="loom-asset-placeholder" { (before_alt) }
+                }
+                figure class="loom-before-after__after" data-asset-slug=(after_slug) aria-label=(after_alt) {
+                    span class="loom-asset-placeholder" { (after_alt) }
+                }
+                input type="range" min="0" max="100" value="50" aria-label="Reveal slider" class="loom-before-after__slider";
+            }
+        },
+        CmsSection::Lightbox { items } => html! {
+            section class="loom-lightbox" data-loom-lightbox data-loom-reveal {
+                @for img in items {
+                    button type="button" class="loom-lightbox__thumb" data-asset-slug=(img.asset_slug) aria-label=(img.alt) {
+                        span class="loom-asset-placeholder" { (img.alt) }
+                    }
+                }
+            }
+        },
+        CmsSection::MosaicGrid { items } => html! {
+            section class="loom-mosaic" data-loom-reveal {
+                @for img in items {
+                    figure class="loom-mosaic__cell" data-asset-slug=(img.asset_slug) aria-label=(img.alt) {
+                        span class="loom-asset-placeholder" { (img.alt) }
+                    }
+                }
+            }
+        },
+        CmsSection::IconRow { items } => html! {
+            div class="loom-icon-row" { @for slug in items { span class="loom-icon-row__icon" data-asset-slug=(slug) aria-hidden="true" {} } }
+        },
+        CmsSection::BadgeGrid { items } => html! {
+            div class="loom-badge-grid" data-loom-reveal {
+                @for b in items {
+                    span class="loom-badge-grid__item" {
+                        @if let Some(slug) = &b.icon_slug { span class="loom-badge-grid__icon" data-asset-slug=(slug) aria-hidden="true" {} }
+                        span class="loom-badge-grid__label" { (b.label) }
+                    }
+                }
+            }
+        },
+        CmsSection::ProductCard { name, price, rating, image_alt, image_slug, href, data_backend } => {
+            let safe = is_safe_url(href);
+            html! {
+                article class="loom-product-card" data-loom-reveal {
+                    a class="loom-product-card__link"
+                      href=(if safe { href.as_str() } else { "#invalid-link" })
+                      data-backend=(data_backend) {
+                        figure class="loom-product-card__image" data-asset-slug=(image_slug) aria-label=(image_alt) {
+                            span class="loom-asset-placeholder" { (image_alt) }
+                        }
+                        h3 class="loom-product-card__name" { (name) }
+                        div class="loom-product-card__price" { (price) }
+                        @if let Some(r) = rating {
+                            div class="loom-product-card__rating" aria-label=({ format!("{:.1} out of 5", r) }) {
+                                @for i in 0..5 {
+                                    span class={ "loom-star " (if (i as f32) < *r { "filled" } else { "empty" }) } aria-hidden="true" { "★" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        CmsSection::ProductGrid { heading, items } => html! {
+            section class="loom-product-grid" data-loom-reveal {
+                @if let Some(h) = heading { h2 class="loom-product-grid__heading" { (h) } }
+                div class="loom-product-grid__row" {
+                    @for p in items {
+                        @let safe = is_safe_url(&p.href);
+                        article class="loom-product-card" data-loom-reveal {
+                            a class="loom-product-card__link"
+                              href=(if safe { p.href.as_str() } else { "#invalid-link" })
+                              data-backend=(p.data_backend) {
+                                figure class="loom-product-card__image" data-asset-slug=(p.image_slug) aria-label=(p.image_alt) {
+                                    span class="loom-asset-placeholder" { (p.image_alt) }
+                                }
+                                h3 class="loom-product-card__name" { (p.name) }
+                                div class="loom-product-card__price" { (p.price) }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        CmsSection::PriceTag { amount, currency, was } => html! {
+            span class="loom-price-tag" {
+                @if let Some(w) = was { s class="loom-price-tag__was" { (w) } " " }
+                span class="loom-price-tag__amount" { (amount) }
+                span class="loom-price-tag__currency" { " " (currency) }
+            }
+        },
+        CmsSection::AddToCart { label, sku, data_backend } => html! {
+            button type="button" class="loom-btn loom-btn--primary loom-add-to-cart"
+                data-sku=(sku) data-backend=(data_backend) { (label) }
+        },
+        CmsSection::CartDrawer { label, count } => html! {
+            button type="button" class="loom-cart-drawer" data-loom-cart-trigger aria-label=(label) {
+                span class="loom-cart-drawer__icon" aria-hidden="true" { "🛒" }
+                @if *count > 0 { span class="loom-cart-drawer__badge" { (count.to_string()) } }
+            }
+        },
+        CmsSection::Wishlist { label, count } => html! {
+            button type="button" class="loom-wishlist" aria-label=(label) {
+                span class="loom-wishlist__icon" aria-hidden="true" { "♡" }
+                @if *count > 0 { span class="loom-wishlist__count" { (count.to_string()) } }
+            }
+        },
+        CmsSection::ProductGallery { items } => html! {
+            section class="loom-product-gallery" data-loom-reveal {
+                @for img in items {
+                    figure class="loom-product-gallery__cell" data-asset-slug=(img.asset_slug) aria-label=(img.alt) {
+                        span class="loom-asset-placeholder" { (img.alt) }
+                    }
+                }
+            }
+        },
+        CmsSection::ProductSpec { items } => html! {
+            dl class="loom-product-spec" {
+                @for it in items {
+                    dt class="loom-product-spec__term" { (it.term) }
+                    dd class="loom-product-spec__def" { (it.definition) }
+                }
+            }
+        },
+        CmsSection::ReviewStars { value, count } => html! {
+            span class="loom-review-stars" aria-label=({ format!("{:.1} out of 5", value) }) {
+                @for i in 0..5 {
+                    span class={ "loom-star " (if (i as f32) < *value { "filled" } else { "empty" }) } aria-hidden="true" { "★" }
+                }
+                @if let Some(c) = count { span class="loom-review-stars__count" { " (" (c.to_string()) ")" } }
+            }
+        },
+        CmsSection::ReviewCard { author, rating, body, date } => html! {
+            article class="loom-review-card" data-loom-reveal {
+                header class="loom-review-card__header" {
+                    span class="loom-review-card__author" { (author) }
+                    @if let Some(d) = date { time class="loom-review-card__date" { (d) } }
+                }
+                span class="loom-review-stars" aria-label=({ format!("{:.1} out of 5", rating) }) {
+                    @for i in 0..5 {
+                        span class={ "loom-star " (if (i as f32) < *rating { "filled" } else { "empty" }) } aria-hidden="true" { "★" }
+                    }
+                }
+                p class="loom-review-card__body" { (body) }
+            }
+        },
+        CmsSection::Avatar { avatar, label } => html! {
+            span class="loom-avatar-section" {
+                (render_avatar(avatar))
+                @if let Some(l) = label { span class="loom-avatar-section__label" { (l) } }
+            }
+        },
+        CmsSection::AvatarStack { items, more } => html! {
+            div class="loom-avatar-stack" {
+                @for a in items { (render_avatar(a)) }
+                @if let Some(m) = more { span class="loom-avatar-stack__more" { "+" (m.to_string()) } }
+            }
+        },
+        CmsSection::ChatBubble { author, body, mine } => html! {
+            div class={ "loom-chat-bubble " (if *mine { "mine" } else { "theirs" }) } {
+                span class="loom-chat-bubble__author" { (author) }
+                p class="loom-chat-bubble__body" { (body) }
+            }
+        },
+        CmsSection::ChatThread { items } => html! {
+            section class="loom-chat-thread" data-loom-reveal {
+                @for m in items {
+                    div class={ "loom-chat-bubble " (if m.mine { "mine" } else { "theirs" }) } {
+                        span class="loom-chat-bubble__author" { (m.author) }
+                        p class="loom-chat-bubble__body" { (m.body) }
+                        time class="loom-chat-bubble__at" { (m.at) }
+                    }
+                }
+            }
+        },
+        CmsSection::ReactionRow { items } => html! {
+            div class="loom-reaction-row" {
+                @for r in items {
+                    button type="button" class="loom-reaction-row__item" {
+                        span class="loom-reaction-row__emoji" aria-hidden="true" { (r.emoji) }
+                        span class="loom-reaction-row__count" { (r.count.to_string()) }
+                    }
+                }
+            }
+        },
+        CmsSection::MentionInline { username, href, data_backend } => {
+            let safe = is_safe_url(href);
+            html! {
+                a class="loom-mention"
+                  href=(if safe { href.as_str() } else { "#invalid-link" })
+                  data-backend=(data_backend) { "@" (username) }
+            }
+        }
+        CmsSection::HashtagInline { tag, href, data_backend } => {
+            let safe = is_safe_url(href);
+            html! {
+                a class="loom-hashtag"
+                  href=(if safe { href.as_str() } else { "#invalid-link" })
+                  data-backend=(data_backend) { "#" (tag) }
+            }
+        }
+        CmsSection::ShareRow { url, title } => html! {
+            div class="loom-share-row" data-share-url=(url) data-share-title=(title) {
+                button type="button" class="loom-share-row__btn" data-network="copy" aria-label="Copy link" { "🔗" }
+                button type="button" class="loom-share-row__btn" data-network="email" aria-label="Email" { "✉" }
+                button type="button" class="loom-share-row__btn" data-network="print" aria-label="Print" { "🖨" }
+            }
+        },
+        CmsSection::FollowButton { label, count, data_backend } => html! {
+            button type="button" class="loom-follow-btn loom-btn loom-btn--primary" data-backend=(data_backend) {
+                (label) " · " span class="loom-follow-btn__count" { (count.to_string()) }
+            }
+        },
+        CmsSection::ProfileCard { name, handle, bio, avatar, follow } => html! {
+            article class="loom-profile-card" data-loom-reveal {
+                (render_avatar(avatar))
+                h3 class="loom-profile-card__name" { (name) }
+                p class="loom-profile-card__handle" { "@" (handle) }
+                p class="loom-profile-card__bio" { (bio) }
+                @if let Some(f) = follow {
+                    button type="button" class="loom-follow-btn loom-btn loom-btn--primary" data-backend=(f.data_backend) { (f.label) }
+                }
+            }
+        },
+        CmsSection::FormInput { name, label, input_type, placeholder, required } => {
+            let t = match input_type {
+                FormInputKind::Text => "text", FormInputKind::Email => "email",
+                FormInputKind::Password => "password", FormInputKind::Tel => "tel",
+                FormInputKind::Url => "url", FormInputKind::Number => "number",
+                FormInputKind::Search => "search",
+            };
+            html! {
+                label class="loom-form-input" {
+                    span class="loom-form-input__label" { (label) @if *required { " *" } }
+                    input type=(t) name=(name) placeholder=[placeholder.as_deref()] required=[required.then_some("required")];
+                }
+            }
+        }
+        CmsSection::FormSelect { name, label, options, required } => html! {
+            label class="loom-form-select" {
+                span class="loom-form-select__label" { (label) @if *required { " *" } }
+                select name=(name) required=[required.then_some("required")] {
+                    @for o in options { option value=(o.value) { (o.label) } }
+                }
+            }
+        },
+        CmsSection::FormToggle { name, label, on } => html! {
+            label class="loom-form-toggle" {
+                input type="checkbox" name=(name) checked=[on.then_some("checked")];
+                span class="loom-form-toggle__track" aria-hidden="true" {}
+                span class="loom-form-toggle__label" { (label) }
+            }
+        },
+        CmsSection::FormSlider { name, label, min, max, value } => html! {
+            label class="loom-form-slider" {
+                span class="loom-form-slider__label" { (label) }
+                input type="range" name=(name) min=(min.to_string()) max=(max.to_string()) value=(value.to_string());
+            }
+        },
+        CmsSection::FormDate { name, label, required } => html! {
+            label class="loom-form-date" {
+                span class="loom-form-date__label" { (label) @if *required { " *" } }
+                input type="date" name=(name) required=[required.then_some("required")];
+            }
+        },
+        CmsSection::FormFile { name, label, accept } => html! {
+            label class="loom-form-file" {
+                span class="loom-form-file__label" { (label) }
+                input type="file" name=(name) accept=(accept);
+            }
+        },
+        CmsSection::FormSearch { placeholder, data_backend } => html! {
+            form class="loom-form-search" role="search" data-backend=(data_backend) {
+                input type="search" name="q" placeholder=(placeholder) aria-label="Search";
+                button type="submit" class="loom-btn loom-btn--primary" { "Search" }
+            }
+        },
+        CmsSection::FormColor { name, label, value } => html! {
+            label class="loom-form-color" {
+                span class="loom-form-color__label" { (label) }
+                input type="color" name=(name) value=(value);
+            }
+        },
+        CmsSection::FormTextarea { name, label, placeholder, rows } => html! {
+            label class="loom-form-textarea" {
+                span class="loom-form-textarea__label" { (label) }
+                textarea name=(name) rows=(rows.to_string()) placeholder=[placeholder.as_deref()] {}
+            }
+        },
+        CmsSection::FormSubmit { label, data_backend, variant } => {
+            let v = match variant { ButtonVariant::Primary => "primary", ButtonVariant::Secondary => "secondary", ButtonVariant::Ghost => "ghost", ButtonVariant::Danger => "danger" };
+            html! {
+                button type="submit" class={ "loom-btn loom-btn--" (v) } data-backend=(data_backend) { (label) }
+            }
+        }
+        CmsSection::Breadcrumb { items } => html! {
+            nav class="loom-breadcrumb" aria-label="Breadcrumb" {
+                ol class="loom-breadcrumb__list" {
+                    @for (i, it) in items.iter().enumerate() {
+                        @let safe = is_safe_url(&it.href);
+                        li class="loom-breadcrumb__item" {
+                            @if i > 0 { span class="loom-breadcrumb__sep" aria-hidden="true" { " / " } }
+                            a href=(if safe { it.href.as_str() } else { "#invalid-link" }) data-backend=(it.data_backend) { (it.label) }
+                        }
+                    }
+                }
+            }
+        },
+        CmsSection::Pagination { current, total, base_href, data_backend } => html! {
+            nav class="loom-pagination" aria-label="Pagination" {
+                @for n in 1..=*total {
+                    a class={ "loom-pagination__page " (if n == *current { "current" } else { "" }) }
+                      href=({ format!("{}?p={}", base_href, n) })
+                      data-backend=(data_backend)
+                      aria-current=[(n == *current).then_some("page")] { (n.to_string()) }
+                }
+            }
+        },
+        CmsSection::NavTabs { items } => html! {
+            nav class="loom-nav-tabs" aria-label="Tabs" {
+                @for it in items {
+                    @let safe = is_safe_url(&it.href);
+                    a class={ "loom-nav-tabs__tab " (if it.current { "current" } else { "" }) }
+                      href=(if safe { it.href.as_str() } else { "#invalid-link" })
+                      data-backend=(it.data_backend)
+                      aria-current=[it.current.then_some("page")] { (it.label) }
+                }
+            }
+        },
+        CmsSection::VerticalNav { items } => html! {
+            nav class="loom-vertical-nav" aria-label="Sidebar" {
+                @for it in items {
+                    @let safe = is_safe_url(&it.href);
+                    a class={ "loom-vertical-nav__item " (if it.current { "current" } else { "" }) }
+                      href=(if safe { it.href.as_str() } else { "#invalid-link" })
+                      data-backend=(it.data_backend) { (it.label) }
+                }
+            }
+        },
+        CmsSection::MegaMenu { columns } => html! {
+            div class="loom-mega-menu" data-loom-mega-menu {
+                @for col in columns {
+                    div class="loom-mega-menu__col" {
+                        h4 class="loom-mega-menu__heading" { (col.heading) }
+                        ul {
+                            @for it in &col.items {
+                                @let safe = is_safe_url(&it.href);
+                                li {
+                                    a href=(if safe { it.href.as_str() } else { "#invalid-link" })
+                                      data-backend=(it.data_backend) { (it.label) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        CmsSection::BackToTop { label } => html! {
+            a class="loom-back-to-top" href="#top" aria-label=(label) { "↑" }
+        },
+        CmsSection::AnchorList { items } => html! {
+            nav class="loom-anchor-list" aria-label="On this page" {
+                ol {
+                    @for it in items {
+                        li {
+                            a class="loom-anchor-list__link"
+                              href=(it.href)
+                              data-backend=(it.data_backend) { (it.label) }
+                        }
+                    }
+                }
+            }
+        },
+        CmsSection::LangSwitch { current, options } => html! {
+            nav class="loom-lang-switch" aria-label="Language" {
+                span class="loom-lang-switch__current" { (current) }
+                ul {
+                    @for o in options {
+                        @let safe = is_safe_url(&o.href);
+                        li {
+                            a href=(if safe { o.href.as_str() } else { "#invalid-link" })
+                              data-backend=(o.data_backend)
+                              lang=(o.code) { (o.label) }
+                        }
+                    }
+                }
+            }
+        },
+        CmsSection::Alert { tone, title, body, dismissible } => {
+            let t = alert_tone_class(tone);
+            html! {
+                div class={ "loom-alert tone-" (t) } role="alert" data-loom-reveal {
+                    strong class="loom-alert__title" { (title) }
+                    p class="loom-alert__body" { (body) }
+                    @if *dismissible {
+                        button type="button" class="loom-alert__dismiss" aria-label="Dismiss" { "×" }
+                    }
+                }
+            }
+        }
+        CmsSection::Toast { tone, body } => {
+            let t = alert_tone_class(tone);
+            html! {
+                div class={ "loom-toast tone-" (t) } role="status" aria-live="polite" { (body) }
+            }
+        }
+        CmsSection::Modal { title, body, primary, secondary } => {
+            let p_safe = is_safe_url(&primary.href);
+            html! {
+                dialog class="loom-modal" data-loom-modal {
+                    h2 class="loom-modal__title" { (title) }
+                    p class="loom-modal__body" { (body) }
+                    div class="loom-modal__actions" {
+                        a class="loom-btn loom-btn--primary"
+                          href=(if p_safe { primary.href.as_str() } else { "#invalid-cta" })
+                          data-backend=(primary.data_backend) { (primary.label) }
+                        @if let Some(s) = secondary {
+                            @let s_safe = is_safe_url(&s.href);
+                            a class="loom-btn loom-btn--ghost"
+                              href=(if s_safe { s.href.as_str() } else { "#invalid-cta" })
+                              data-backend=(s.data_backend) { (s.label) }
+                        }
+                    }
+                }
+            }
+        }
+        CmsSection::Drawer { title, body, side } => {
+            let s = match side { DrawerSide::Right => "right", DrawerSide::Left => "left" };
+            html! {
+                aside class={ "loom-drawer side-" (s) } data-loom-drawer {
+                    header class="loom-drawer__header" {
+                        h2 class="loom-drawer__title" { (title) }
+                        button type="button" class="loom-drawer__close" aria-label="Close" { "×" }
+                    }
+                    div class="loom-drawer__body" { (body) }
+                }
+            }
+        }
+        CmsSection::Tooltip { trigger, body } => html! {
+            span class="loom-tooltip" data-loom-tooltip {
+                span class="loom-tooltip__trigger" tabindex="0" { (trigger) }
+                span class="loom-tooltip__body" role="tooltip" { (body) }
+            }
+        },
+        CmsSection::ProgressBar { value, label } => {
+            let pct = (*value).clamp(0, 100);
+            html! {
+                div class="loom-progress" role="progressbar" aria-valuenow=(pct.to_string()) aria-valuemin="0" aria-valuemax="100" {
+                    @if let Some(l) = label { span class="loom-progress__label" { (l) } }
+                    div class="loom-progress__track" {
+                        div class="loom-progress__fill" style=({ format!("--loom-progress-val: {}%", pct) }) {}
+                    }
+                }
+            }
+        }
+        CmsSection::Skeleton { rows, height } => {
+            let h = space_class(height);
+            let n = (*rows).clamp(1, 12);
+            html! {
+                div class={ "loom-skeleton " (h) } aria-busy="true" aria-label="Loading" {
+                    @for _ in 0..n { div class="loom-skeleton__row" {} }
+                }
+            }
+        }
+        CmsSection::EmptyState { title, body, cta } => html! {
+            section class="loom-empty-state" data-loom-reveal {
+                h2 class="loom-empty-state__title" { (title) }
+                p class="loom-empty-state__body" { (body) }
+                @if let Some(c) = cta {
+                    @let safe = is_safe_url(&c.href);
+                    a class="loom-btn loom-btn--primary"
+                      href=(if safe { c.href.as_str() } else { "#invalid-cta" })
+                      data-backend=(c.data_backend) { (c.label) }
+                }
+            }
+        },
+        CmsSection::GameTile { title, genre, players_online, image_slug, href, data_backend } => {
+            let safe = is_safe_url(href);
+            html! {
+                article class="loom-game-tile" data-loom-reveal {
+                    a class="loom-game-tile__link"
+                      href=(if safe { href.as_str() } else { "#invalid-link" })
+                      data-backend=(data_backend) {
+                        figure class="loom-game-tile__thumb" data-asset-slug=(image_slug) aria-label=(title) {
+                            span class="loom-asset-placeholder" { (title) }
+                        }
+                        h3 class="loom-game-tile__title" { (title) }
+                        span class="loom-game-tile__genre" { (genre) }
+                        span class="loom-game-tile__online" { (players_online.to_string()) " playing" }
+                    }
+                }
+            }
+        }
+        CmsSection::GameGrid { heading, items } => html! {
+            section class="loom-game-grid" data-loom-reveal {
+                @if let Some(h) = heading { h2 class="loom-game-grid__heading" { (h) } }
+                div class="loom-game-grid__row" {
+                    @for g in items {
+                        @let safe = is_safe_url(&g.href);
+                        article class="loom-game-tile" data-loom-reveal {
+                            a class="loom-game-tile__link"
+                              href=(if safe { g.href.as_str() } else { "#invalid-link" })
+                              data-backend=(g.data_backend) {
+                                figure class="loom-game-tile__thumb" data-asset-slug=(g.image_slug) aria-label=(g.title) {
+                                    span class="loom-asset-placeholder" { (g.title) }
+                                }
+                                h3 class="loom-game-tile__title" { (g.title) }
+                                span class="loom-game-tile__genre" { (g.genre) }
+                                span class="loom-game-tile__online" { (g.players_online.to_string()) " playing" }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        CmsSection::ThreadRow { title, author, replies, views, last_reply, href, data_backend } => {
+            let safe = is_safe_url(href);
+            html! {
+                article class="loom-thread-row" {
+                    a class="loom-thread-row__link"
+                      href=(if safe { href.as_str() } else { "#invalid-link" })
+                      data-backend=(data_backend) {
+                        h3 class="loom-thread-row__title" { (title) }
+                        p class="loom-thread-row__author" { "by " (author) " · " (replies.to_string()) " replies · " (views.to_string()) " views · last " (last_reply) }
+                    }
+                }
+            }
+        }
+        CmsSection::ThreadList { heading, items } => html! {
+            section class="loom-thread-list" data-loom-reveal {
+                @if let Some(h) = heading { h2 class="loom-thread-list__heading" { (h) } }
+                @for t in items {
+                    @let safe = is_safe_url(&t.href);
+                    article class="loom-thread-row" {
+                        a class="loom-thread-row__link"
+                          href=(if safe { t.href.as_str() } else { "#invalid-link" })
+                          data-backend=(t.data_backend) {
+                            h3 class="loom-thread-row__title" { (t.title) }
+                            p class="loom-thread-row__author" { "by " (t.author) " · " (t.replies.to_string()) " replies · " (t.views.to_string()) " views · last " (t.last_reply) }
+                        }
+                    }
+                }
+            }
+        },
+        CmsSection::VideoCard { title, channel, duration, views, thumbnail_slug, href, data_backend } => {
+            let safe = is_safe_url(href);
+            html! {
+                article class="loom-video-card" data-loom-reveal {
+                    a class="loom-video-card__link"
+                      href=(if safe { href.as_str() } else { "#invalid-link" })
+                      data-backend=(data_backend) {
+                        figure class="loom-video-card__thumb" data-asset-slug=(thumbnail_slug) aria-label=(title) {
+                            span class="loom-asset-placeholder" { (title) }
+                            span class="loom-video-card__duration" { (duration) }
+                        }
+                        h3 class="loom-video-card__title" { (title) }
+                        p class="loom-video-card__meta" { (channel) " · " (views) " views" }
+                    }
+                }
+            }
+        }
+        CmsSection::VideoGridSection { heading, items } => html! {
+            section class="loom-video-grid" data-loom-reveal {
+                @if let Some(h) = heading { h2 class="loom-video-grid__heading" { (h) } }
+                div class="loom-video-grid__row" {
+                    @for v in items {
+                        @let safe = is_safe_url(&v.href);
+                        article class="loom-video-card" data-loom-reveal {
+                            a class="loom-video-card__link"
+                              href=(if safe { v.href.as_str() } else { "#invalid-link" })
+                              data-backend=(v.data_backend) {
+                                figure class="loom-video-card__thumb" data-asset-slug=(v.thumbnail_slug) aria-label=(v.title) {
+                                    span class="loom-asset-placeholder" { (v.title) }
+                                    span class="loom-video-card__duration" { (v.duration) }
+                                }
+                                h3 class="loom-video-card__title" { (v.title) }
+                                p class="loom-video-card__meta" { (v.channel) " · " (v.views) " views" }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        CmsSection::CommentThread { post_id, items } => html! {
+            section class="loom-comment-thread" data-post-id=(post_id) data-loom-reveal {
+                @for c in items {
+                    article class="loom-comment" data-depth=(c.depth.to_string()) style=({ format!("margin-left: {}rem", c.depth as f32 * 1.5) }) {
+                        header { span class="loom-comment__author" { (c.author) } " · " time class="loom-comment__at" { (c.at) } }
+                        p class="loom-comment__body" { (c.body) }
+                    }
+                }
+            }
+        },
+        CmsSection::FeedPost { author, handle, avatar, body, posted_at, reactions, comments } => html! {
+            article class="loom-feed-post" data-loom-reveal {
+                header class="loom-feed-post__header" {
+                    (render_avatar(avatar))
+                    span class="loom-feed-post__author" { (author) }
+                    span class="loom-feed-post__handle" { " @" (handle) }
+                    time class="loom-feed-post__at" { " · " (posted_at) }
+                }
+                p class="loom-feed-post__body" { (body) }
+                footer class="loom-feed-post__footer" {
+                    span class="loom-feed-post__reactions" { (reactions.to_string()) " reactions" }
+                    " · "
+                    span class="loom-feed-post__comments" { (comments.to_string()) " comments" }
+                }
+            }
+        },
+    }
+}
+
+fn space_class(s: &SpaceSize) -> &'static str {
+    match s {
+        SpaceSize::Tight => "size-tight",
+        SpaceSize::Comfortable => "size-comfortable",
+        SpaceSize::Loose => "size-loose",
+        SpaceSize::Generous => "size-generous",
+    }
+}
+
+fn alert_tone_class(t: &AlertTone) -> &'static str {
+    match t {
+        AlertTone::Info => "info",
+        AlertTone::Success => "success",
+        AlertTone::Warning => "warning",
+        AlertTone::Danger => "danger",
+        AlertTone::Neutral => "neutral",
+    }
+}
+
+fn slugify(s: &str) -> String {
+    s.chars()
+        .flat_map(|c| c.to_lowercase())
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
+fn render_avatar(a: &CmsAvatar) -> Markup {
+    match a {
+        CmsAvatar::None => html! { span class="loom-avatar" data-kind="none" aria-hidden="true" {} },
+        CmsAvatar::Initials { letters } => html! {
+            span class="loom-avatar" data-kind="initials" aria-hidden="true" { (letters) }
+        },
+        CmsAvatar::Image { src, alt } => {
+            if is_safe_url(src) {
+                html! { img class="loom-avatar" data-kind="image" src=(src) alt=(alt); }
+            } else {
+                html! { span class="loom-avatar" data-kind="image" data-empty="true" aria-label=(alt) {} }
+            }
+        }
     }
 }
 
