@@ -260,9 +260,17 @@ pub enum CmsSection {
         fit: CmsFit,
     },
     /// A paragraph of body text. Maud auto-escapes on render.
+    ///
+    /// `decoration` is an optional editorial nudge that bumps the
+    /// paragraph out of "default body" into one of three named
+    /// editorial shapes (lead / drop_cap / aside). Pure visual —
+    /// the text content is unchanged.
     Paragraph {
         /// Plain-text body (no markup).
         text: String,
+        /// Editorial treatment (default = Body).
+        #[serde(default)]
+        decoration: ParagraphDecoration,
     },
     /// A heading. Level constrained to 2-6 (h1 is owned by the
     /// page-shell template, not section content). T36 (2026-05-14):
@@ -1354,6 +1362,33 @@ pub struct CmsLogoItem {
 /// Heading level encoded over the wire as a raw u8 (2..=6) — the
 /// `serde(into / try_from)` pair lets derive produce the same wire
 /// shape as the prior hand-rolled impls (rejected by the composition
+/// Editorial treatment for a [`CmsSection::Paragraph`].
+///
+/// All variants render `<p>` — the difference is class-keyed CSS:
+///
+/// * `Body` (default) — standard body text. No extra class.
+/// * `Lead` — larger leading paragraph (the lede after a hero).
+///   Renders with `class="loom-paragraph--lead"`.
+/// * `DropCap` — first letter rendered as a multi-line drop cap.
+///   Renders with `class="loom-paragraph--dropcap"`.
+/// * `Aside` — visually offset commentary; left-rule, slightly
+///   muted color. Renders with `class="loom-paragraph--aside"`.
+///
+/// Pure decoration. Text content is unaffected.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ParagraphDecoration {
+    /// Default body text. No extra class.
+    #[default]
+    Body,
+    /// Larger lead paragraph (post-hero introduction).
+    Lead,
+    /// First letter rendered as a multi-line drop cap.
+    DropCap,
+    /// Visually offset commentary — left rule + muted color.
+    Aside,
+}
+
 /// audit as a manual-derivable). Same JSON encoding, less code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(into = "u8", try_from = "u8")]
@@ -2086,9 +2121,15 @@ pub fn render_section(section: &CmsSection) -> Markup {
             };
             p.render()
         }
-        CmsSection::Paragraph { text } => html! {
-            p class="loom-prose" { (text) }
-        },
+        CmsSection::Paragraph { text, decoration } => {
+            let class = match decoration {
+                ParagraphDecoration::Body => "loom-prose",
+                ParagraphDecoration::Lead => "loom-prose loom-paragraph--lead",
+                ParagraphDecoration::DropCap => "loom-prose loom-paragraph--dropcap",
+                ParagraphDecoration::Aside => "loom-prose loom-paragraph--aside",
+            };
+            html! { p class=(class) { (text) } }
+        }
         CmsSection::Heading { text, level } => {
             // T36 (2026-05-14): typed HeadingLevel enum makes
             // out-of-range values uncompilable. The runtime clamp
@@ -4221,6 +4262,7 @@ mod tests {
             dev_devtools: false,
             sections: vec![CmsSection::Paragraph {
                 text: "Hello world.".to_owned(),
+                decoration: ParagraphDecoration::Body,
             }],
         };
         let html = render_to_string(&p);
@@ -4242,6 +4284,7 @@ mod tests {
             dev_devtools: false,
             sections: vec![CmsSection::Paragraph {
                 text: "<script>alert(1)</script>".to_owned(),
+                decoration: ParagraphDecoration::Body,
             }],
         };
         let html = render_to_string(&p);
