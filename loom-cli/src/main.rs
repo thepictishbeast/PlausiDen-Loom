@@ -2402,6 +2402,7 @@ fn build_state_matrix_page() -> loom_cms_render::CmsPage {
                 current: false,
             },
         ],
+        dev_devtools: false,
         sections: vec![
             // Heading — every level h2..h6.
             CmsSection::Heading {
@@ -2427,12 +2428,14 @@ fn build_state_matrix_page() -> loom_cms_render::CmsPage {
             // Paragraph — single + with longer prose.
             CmsSection::Paragraph {
                 text: "Paragraph — short prose. Tests body typography, line-height, max-width.".into(),
+                decoration: loom_cms_render::ParagraphDecoration::Body,
             },
             CmsSection::Paragraph {
                 text: "Paragraph — longer prose to test line-length wrapping. \
                        Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do \
                        eiusmod tempor incididunt ut labore et dolore magna aliqua. \
                        Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.".into(),
+                decoration: loom_cms_render::ParagraphDecoration::Body,
             },
             // Hero — minimal + full (eyebrow + lede + cta).
             CmsSection::Hero {
@@ -2535,6 +2538,7 @@ fn build_state_matrix_page() -> loom_cms_render::CmsPage {
             CmsSection::Paragraph {
                 text: "Every CmsSection variant + every named state should appear above. \
                        If you see a variant missing, extend `build_state_matrix_page` in loom-cli.".into(),
+                decoration: loom_cms_render::ParagraphDecoration::Body,
             },
         ],
     }
@@ -9008,7 +9012,7 @@ fn render_section_for_edit(sec: &loom_cms_render::CmsSection) -> String {
                 escape_html_text(text)
             )
         }
-        CmsSection::Paragraph { text } => format!(
+        CmsSection::Paragraph { text, decoration: _ } => format!(
             "<p class=\"loom-prose\" data-edit-field=\"text\">{}</p>",
             escape_html_text(text)
         ),
@@ -11589,6 +11593,7 @@ fn cms_template_landing(title: &str, path: &str) -> loom_cms_render::CmsPage {
         description: format!("{title} — describe the page in 120 chars max."),
         path: path.to_owned(),
         nav_links: cms_standard_nav(),
+        dev_devtools: false,
         sections: vec![
             CmsSection::Hero {
                 eyebrow: Some("New".to_owned()),
@@ -11656,6 +11661,7 @@ fn cms_template_explainer(title: &str, path: &str) -> loom_cms_render::CmsPage {
         description: format!("{title} — explainer / about / FAQ page."),
         path: path.to_owned(),
         nav_links: cms_standard_nav(),
+        dev_devtools: false,
         sections: vec![
             CmsSection::Hero {
                 eyebrow: None,
@@ -11696,6 +11702,7 @@ fn cms_template_form(title: &str, path: &str) -> loom_cms_render::CmsPage {
         description: format!("{title} — form / submission page."),
         path: path.to_owned(),
         nav_links: cms_standard_nav(),
+        dev_devtools: false,
         sections: vec![
             CmsSection::Hero {
                 eyebrow: None,
@@ -21744,7 +21751,10 @@ mod inline_edit_tests {
         });
         assert!(h.contains("data-edit-field=\"text\""), "heading: {h}");
 
-        let p = render_section_for_edit(&CmsSection::Paragraph { text: "P".into() });
+        let p = render_section_for_edit(&CmsSection::Paragraph {
+            text: "P".into(),
+            decoration: loom_cms_render::ParagraphDecoration::Body,
+        });
         assert!(p.contains("data-edit-field=\"text\""), "paragraph: {p}");
 
         let hero = render_section_for_edit(&CmsSection::Hero {
