@@ -6272,8 +6272,12 @@ pub fn page_shell_themed(
                 | CmsSection::AnnouncementBar { .. }
         )
     });
+    // When the first section is hero-class, suppress the
+    // visible <h1 class="loom-page-title"> banner (the hero
+    // carries the title visually) but keep a screen-reader-only
+    // <h1> so SEO + assistive tech still see a single H1.
     let page_title_block = if first_is_hero {
-        String::new()
+        format!("\n    <h1 class=\"loom-sr-only\">{title}</h1>")
     } else {
         format!("\n    <h1 class=\"loom-page-title\">{title}</h1>")
     };
