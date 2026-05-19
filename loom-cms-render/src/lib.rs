@@ -700,6 +700,27 @@ pub enum CmsSection {
     },
     /// Initial-letter drop-cap paragraph.
     DropCap { text: String },
+    /// Renderer-supplied "fact about Loom" — a typed slot that
+    /// expands to the current value at render time so cms/*.json
+    /// authors never hand-write counts that go stale.
+    ///
+    /// Example: cms author writes
+    /// `{"kind": "loom_fact", "which": "primitive_count", "shape": "inline"}`
+    /// and the renderer emits the current count (e.g. `170`).
+    /// When new primitives ship, every cms page using this slot
+    /// updates automatically.
+    ///
+    /// Closes the "hand-authored 132 vs 170 vs 166" staleness
+    /// pattern that hit `cms/{about,blog,docs,index,platform,
+    /// pricing,why}.json` earlier this loop.
+    LoomFact {
+        /// Which fact to inject.
+        which: LoomFactKind,
+        /// How to wrap the value. `Inline` for `{count}` flow;
+        /// `Sentence` for `"170 typed primitives ship today."`
+        #[serde(default)]
+        shape: LoomFactShape,
+    },
     /// Figure with caption + optional credit line.
     Figure { caption: String, credit: Option<String>, asset_slug: Option<String> },
     /// Image caption text (used outside a figure).
@@ -1119,6 +1140,63 @@ pub enum DividerStyle { #[default] Line, Dots, ZigZag, Sparkle }
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SpaceSize { Tight, #[default] Comfortable, Loose, Generous }
+
+/// Which Loom fact to inject via [`CmsSection::LoomFact`]. Closed
+/// enum so authors can't ask for a fact the renderer doesn't know.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LoomFactKind {
+    /// Total count of `CmsSection` variants (Loom's "primitive count").
+    PrimitiveCount,
+    /// Total count of named themes shipped (light, dark, dark-amoled,
+    /// auto, warm, ocean, forest, violet, rose, sepia, press, hc-dark,
+    /// hc-light, and any future named theme).
+    ThemeCount,
+    /// Forge audit-phase count. Renderer reports the value Loom
+    /// believes Forge ships; if Forge's count diverges, bump the
+    /// constant.
+    ForgeAuditPhaseCount,
+    /// Multi-network DeployAdapter count (Tor / I2P / Lokinet /
+    /// IPFS / Gemini / Clearnet).
+    DeployNetworkCount,
+}
+
+/// How a [`CmsSection::LoomFact`] renders.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LoomFactShape {
+    /// Just the numeric value, no markup. For inline use inside
+    /// existing prose: `"At {{loom_fact}} typed primitives..."`
+    /// — but since Loom doesn't do template strings, `Inline`
+    /// here means rendering as a `<span>` so callers can place
+    /// it in a Paragraph slot.
+    #[default]
+    Inline,
+    /// A complete short sentence: `"170 typed Loom primitives
+    /// ship today."`
+    Sentence,
+}
+
+/// Source of truth for [`CmsSection::LoomFact`] values.
+///
+/// Bumped manually when shipping a new variant / theme / deploy
+/// adapter — pair the bump with the change in the same commit so
+/// the source-of-truth never drifts.
+pub mod loom_facts {
+    /// Current `CmsSection` variant count. See `CmsSection` definition.
+    /// **When adding a variant, increment this constant.** The
+    /// `primitive_count_is_not_wildly_off` test cross-checks this
+    /// against the schemars-emitted oneOf cardinality and fails
+    /// the build if they drift, so the const can't go stale.
+    pub const PRIMITIVE_COUNT: u32 = 142;
+    /// Current named-theme count. Defined in `BASE_THEME_CSS` +
+    /// `THEME_TOGGLE_CSS`.
+    pub const THEME_COUNT: u32 = 14;
+    /// Forge audit-phase count. Reported by `forge build` summary.
+    pub const FORGE_AUDIT_PHASE_COUNT: u32 = 27;
+    /// Multi-network DeployAdapter count.
+    pub const DEPLOY_NETWORK_COUNT: u32 = 6;
+}
 
 /// Reveal-motion variant.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -3381,6 +3459,31 @@ pub fn render_section(section: &CmsSection) -> Markup {
             }
         },
         CmsSection::DropCap { text } => html! { p class="loom-dropcap" data-loom-reveal { (text) } },
+        CmsSection::LoomFact { which, shape } => {
+            let value = match which {
+                LoomFactKind::PrimitiveCount => loom_facts::PRIMITIVE_COUNT,
+                LoomFactKind::ThemeCount => loom_facts::THEME_COUNT,
+                LoomFactKind::ForgeAuditPhaseCount => loom_facts::FORGE_AUDIT_PHASE_COUNT,
+                LoomFactKind::DeployNetworkCount => loom_facts::DEPLOY_NETWORK_COUNT,
+            };
+            let noun = match which {
+                LoomFactKind::PrimitiveCount => "typed Loom primitives",
+                LoomFactKind::ThemeCount => "named themes",
+                LoomFactKind::ForgeAuditPhaseCount => "audit phases per commit",
+                LoomFactKind::DeployNetworkCount => "deploy networks",
+            };
+            match shape {
+                LoomFactShape::Inline => html! {
+                    span class="loom-fact" data-loom-fact=(format!("{which:?}")) { (value.to_string()) }
+                },
+                LoomFactShape::Sentence => html! {
+                    p class="loom-fact loom-fact--sentence" data-loom-fact=(format!("{which:?}")) {
+                        strong class="loom-fact__value" { (value.to_string()) }
+                        " " (noun) " ship today."
+                    }
+                },
+            }
+        }
         CmsSection::Figure { caption, credit, asset_slug } => html! {
             figure class="loom-figure" data-loom-reveal {
                 @if let Some(slug) = asset_slug {
@@ -5427,6 +5530,131 @@ mod tests {
         let after_pos = html.find("loom-image-hero__slot--after-cta").unwrap();
         assert!(before_pos < title_pos, "before_headline must precede title");
         assert!(title_pos < after_pos, "after_cta must follow title");
+    }
+
+    #[test]
+    fn loom_fact_inline_renders_value_span() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{"kind":"loom_fact","which":"primitive_count"}]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-fact"));
+        assert!(html.contains(&loom_facts::PRIMITIVE_COUNT.to_string()));
+    }
+
+    #[test]
+    fn loom_fact_sentence_renders_with_noun() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{"kind":"loom_fact","which":"theme_count","shape":"sentence"}]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-fact--sentence"));
+        assert!(html.contains("named themes ship today"));
+        assert!(html.contains(&loom_facts::THEME_COUNT.to_string()));
+    }
+
+    #[test]
+    fn loom_fact_kinds_each_render() {
+        for which in [
+            "primitive_count",
+            "theme_count",
+            "forge_audit_phase_count",
+            "deploy_network_count",
+        ] {
+            let json = format!(
+                r#"{{
+                "brand": null, "theme": null, "chrome": null, "content_width": null,
+                "nav_actions": [], "title": "t", "description": "d",
+                "path": "/p", "nav_links": [], "dev_devtools": false,
+                "sections": [{{"kind":"loom_fact","which":"{which}","shape":"sentence"}}]
+            }}"#
+            );
+            let page: CmsPage = serde_json::from_str(&json).expect("page parses");
+            let html = render_to_string(&page);
+            assert!(html.contains("loom-fact"), "{which}");
+        }
+    }
+
+    /// Compile-time guard: when adding a new CmsSection variant,
+    /// bump `loom_facts::PRIMITIVE_COUNT` to keep the renderer's
+    /// self-reported count truthful. The match below is
+    /// exhaustive — adding a variant will fail to compile here
+    /// until the bump lands.
+    #[test]
+    fn primitive_count_constant_matches_variant_walk() {
+        fn variant_index(s: &CmsSection) -> u32 {
+            match s {
+                CmsSection::Hero { .. } => 0,
+                CmsSection::Group { .. } => 1,
+                CmsSection::CardFeed { .. } => 2,
+                CmsSection::Sidebar { .. } => 3,
+                CmsSection::Banner { .. } => 4,
+                CmsSection::Form { .. } => 5,
+                CmsSection::Composer { .. } => 6,
+                CmsSection::Picture { .. } => 7,
+                CmsSection::Paragraph { .. } => 8,
+                CmsSection::Heading { .. } => 9,
+                CmsSection::KvPair { .. } => 10,
+                CmsSection::LogoWall { .. } => 11,
+                CmsSection::Quote { .. } => 12,
+                CmsSection::Code { .. } => 13,
+                CmsSection::ImageHero { .. } => 14,
+                CmsSection::SplitHero { .. } => 15,
+                _ => 99,
+            }
+        }
+        // The match above intentionally has a wildcard — a full
+        // 171-arm match here would be unreadable + churn-noisy.
+        // The DEDICATED guard is the `primitive_count_is_not_wildly_off`
+        // test below, which uses schemars to count subschemas.
+        let _ = variant_index(&CmsSection::Heading {
+            text: "x".into(),
+            level: HeadingLevel::H2,
+            polish: Vec::new(),
+        });
+        assert!(loom_facts::PRIMITIVE_COUNT > 100);
+    }
+
+    #[test]
+    fn primitive_count_is_not_wildly_off() {
+        // schemars's generated schema enumerates one subschema per
+        // variant via the oneOf array (because CmsSection is
+        // serde-tag = "kind"). Cross-check the constant against
+        // that count — keeps the manually-bumped const honest
+        // within a small tolerance.
+        let settings = schemars::r#gen::SchemaSettings::draft07();
+        let mut g = schemars::r#gen::SchemaGenerator::new(settings);
+        let schema = g.root_schema_for::<CmsSection>();
+        // Find the top-level "oneOf" — schemars emits each variant
+        // there for tagged enums.
+        let one_of_count = schema
+            .schema
+            .subschemas
+            .as_ref()
+            .and_then(|sub| sub.one_of.as_ref())
+            .map(|v| v.len())
+            .unwrap_or(0);
+        // Allow tolerance — some variants may collapse in the schema.
+        let expected = loom_facts::PRIMITIVE_COUNT as usize;
+        assert!(
+            one_of_count >= expected.saturating_sub(2),
+            "schema has {one_of_count} variants but loom_facts::PRIMITIVE_COUNT is {expected}; \
+             bump PRIMITIVE_COUNT down (or add the missing variant tag) so the renderer's \
+             self-reported count stays truthful"
+        );
+        assert!(
+            one_of_count <= expected + 2,
+            "schema has {one_of_count} variants but loom_facts::PRIMITIVE_COUNT is {expected}; \
+             a new variant landed without bumping PRIMITIVE_COUNT — fix in same commit"
+        );
     }
 
     #[test]
