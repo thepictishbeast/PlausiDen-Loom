@@ -1036,6 +1036,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "loom-components",
+ "loom-icons",
  "maud",
  "schemars",
  "serde",

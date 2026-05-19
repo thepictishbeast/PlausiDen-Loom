@@ -9,6 +9,7 @@ description = "Bridge from CMS page schema to Loom typed components. The single 
 
 [dependencies]
 loom-components = { path = "../loom-components", version = "0.1" }
+loom-icons = { path = "../loom-icons", version = "0.1" }
 maud = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -237,6 +237,21 @@ pub const fn all() -> &'static [&'static Icon] {
     ]
 }
 
+/// Resolve an icon slug to its `Icon` constant. Returns `None` for
+/// unknown slugs. Accepts the raw slug (`"check"`) or the prefixed
+/// form (`"icon-check"`) — the prefix is stripped before lookup.
+///
+/// Used by `loom-cms-render` to inline-render `icon_slug` fields on
+/// `FeatureSpotlight`, `BadgeItem`, etc.
+#[must_use]
+pub fn by_slug(slug: &str) -> Option<&'static Icon> {
+    let normalized = slug.strip_prefix("icon-").unwrap_or(slug);
+    all()
+        .iter()
+        .find(|icon| icon.id == normalized)
+        .copied()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

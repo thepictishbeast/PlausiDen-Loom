@@ -2275,7 +2275,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                             article class="loom-feature-spotlight__item" data-loom-reveal {
                                 @if let Some(icon) = &item.icon_slug {
                                     span class="loom-feature-spotlight__icon"
-                                        data-asset-slug=(icon) aria-hidden="true" {}
+                                        data-asset-slug=(icon) aria-hidden="true" {
+                                        @if let Some(reg) = loom_icons::by_slug(icon) {
+                                            (maud::PreEscaped(reg.render_with_class("loom-feature-spotlight__icon-svg")))
+                                        }
+                                    }
                                 }
                                 h3 class="loom-feature-spotlight__title" { (item.title) }
                                 p class="loom-feature-spotlight__body" { (item.body) }
