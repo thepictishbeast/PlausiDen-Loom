@@ -6885,10 +6885,19 @@ pub fn page_shell_themed(
     let base_theme_block = format!("<style>{base_with_toggle}</style>\n  ");
     let toggle_script_hash = csp_sha256(THEME_TOGGLE_JS.as_bytes());
     let eruda_hash = csp_sha256(ERUDA_LOADER_JS.as_bytes());
+    // LOOM_NOSCRIPT_MODE — process-level env that drops every
+    // inline script and the defer-stylesheet onload swap. Used
+    // by Forge when forge.toml `[noscript_strict] enabled = true`
+    // for LibreJS / Tor-strict / hunted-tier builds. The rendered
+    // HTML carries zero `<script>` tags + a maximally-strict CSP.
+    let noscript_mode = std::env::var("LOOM_NOSCRIPT_MODE")
+        .map(|v| !v.is_empty() && v != "0")
+        .unwrap_or(false);
     // Dev-only devtools loader: emitted in <head>, gated on
     // localStorage["loom_eruda"] == "on" so it does nothing for
-    // strangers who happen onto a dev page.
-    let eruda_block = if page.dev_devtools {
+    // strangers who happen onto a dev page. Forced off in
+    // noscript_mode.
+    let eruda_block = if page.dev_devtools && !noscript_mode {
         format!("<script>{ERUDA_LOADER_JS}</script>\n  ")
     } else {
         String::new()
@@ -6898,9 +6907,16 @@ pub fn page_shell_themed(
         let style_hash = csp_sha256(crit.as_bytes());
         let onload_hash = csp_sha256(DEFER_ONLOAD_JS.as_bytes());
         let extra_block = format!("<style>{crit}</style>\n  ");
-        let css_link = format!(
-            "<link rel=\"stylesheet\" href=\"{css}\" media=\"print\" onload=\"{DEFER_ONLOAD_JS}\">\n  <noscript><link rel=\"stylesheet\" href=\"{css}\"></noscript>"
-        );
+        // In noscript_mode the defer-onload swap doesn't work
+        // (no JS to fire the onload), so use a plain stylesheet
+        // link instead.
+        let css_link = if noscript_mode {
+            format!("<link rel=\"stylesheet\" href=\"{css}\">")
+        } else {
+            format!(
+                "<link rel=\"stylesheet\" href=\"{css}\" media=\"print\" onload=\"{DEFER_ONLOAD_JS}\">\n  <noscript><link rel=\"stylesheet\" href=\"{css}\"></noscript>"
+            )
+        };
         // T72 cycle 96 iter 10: add Trusted Types CSP-L3
         // directives. require-trusted-types-for 'script' makes
         // the browser reject DOM-sink string assignments
@@ -6914,7 +6930,12 @@ pub fn page_shell_themed(
         // Trusted Types and allow 'unsafe-inline' styles so Eruda
         // can inject its panel UI. Eruda lives in /eruda.min.js
         // (same-origin) so script-src 'self' is still enough.
-        let csp = if page.dev_devtools {
+        let csp = if noscript_mode {
+            // Strictest CSP — no inline scripts allowed at all.
+            format!(
+                "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}' '{style_hash}'; script-src 'none'; require-trusted-types-for 'script'; trusted-types 'none'; frame-ancestors 'none'"
+            )
+        } else if page.dev_devtools {
             format!(
                 "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-hashes' '{onload_hash}' '{toggle_script_hash}' '{eruda_hash}'; connect-src 'self'; frame-ancestors 'none'"
             )
@@ -6926,7 +6947,11 @@ pub fn page_shell_themed(
         (extra_block, css_link, csp)
     } else {
         let css_link = format!("<link rel=\"stylesheet\" href=\"{css}\">");
-        let csp = if page.dev_devtools {
+        let csp = if noscript_mode {
+            format!(
+                "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}'; script-src 'none'; require-trusted-types-for 'script'; trusted-types 'none'; frame-ancestors 'none'"
+            )
+        } else if page.dev_devtools {
             format!(
                 "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' '{toggle_script_hash}' '{eruda_hash}'; connect-src 'self'; frame-ancestors 'none'"
             )
@@ -6954,6 +6979,7 @@ pub fn page_shell_themed(
         &page_title_block,
         body,
         content_width,
+        noscript_mode,
     );
     // T37 v1 + T66 (closes #649): closed allow-list for the
     // `data-theme` attribute. T66 extends to named palettes
@@ -7015,9 +7041,29 @@ fn render_chrome_body(
     page_title_block: &str,
     body: &str,
     content_width: ContentWidth,
+    noscript_mode: bool,
 ) -> String {
     let _ = nav_actions_html; // PageShell ignores nav_actions today
     let cw = content_width.attr_value();
+    // Suppress the theme-toggle button + its bootstrap script in
+    // noscript_mode. The site retains its server-rendered
+    // data-theme; visitors who want a different theme set their
+    // OS preference (the auto media query handles it).
+    let toggle_btn_pageshell = if noscript_mode {
+        ""
+    } else {
+        "<button type=\"button\" class=\"loom-theme-toggle\" data-loom-theme-toggle aria-label=\"Theme: light (click to cycle)\" aria-pressed=\"false\">☀</button>\n    "
+    };
+    let toggle_btn_floating = if noscript_mode {
+        ""
+    } else {
+        "<button type=\"button\" class=\"loom-theme-toggle\" data-loom-theme-toggle aria-label=\"Theme: light (click to cycle)\" aria-pressed=\"false\">☀</button>\n      "
+    };
+    let toggle_script = if noscript_mode {
+        String::new()
+    } else {
+        format!("<script>{THEME_TOGGLE_JS}</script>\n")
+    };
     match chrome {
         ChromeKind::PageShell => format!(
             "<body data-chrome=\"page-shell\" data-content-width=\"{cw}\">\n  \
@@ -7025,13 +7071,11 @@ fn render_chrome_body(
 <header class=\"loom-page-header\">\n    \
 <nav class=\"loom-page-nav\" aria-label=\"Primary\">\n      \
 <a class=\"loom-page-brand\" href=\"/\" data-loom-rich-link=\"true\">{brand}</a>{nav_links}\n      \
-<button type=\"button\" class=\"loom-theme-toggle\" data-loom-theme-toggle aria-label=\"Theme: light (click to cycle)\" aria-pressed=\"false\">☀</button>\n    \
-</nav>{page_title_block}\n  \
+{toggle_btn_pageshell}</nav>{page_title_block}\n  \
 </header>\n  \
 <main id=\"content\">\n{body}\n  </main>\n  \
 <footer class=\"loom-page-footer\"></footer>\n  \
-<script>{THEME_TOGGLE_JS}</script>\n\
-</body>\n"
+{toggle_script}</body>\n"
         ),
         ChromeKind::FloatingPill => format!(
             "<body data-chrome=\"floating-pill\" data-content-width=\"{cw}\">\n  \
@@ -7041,22 +7085,19 @@ fn render_chrome_body(
 <a class=\"loom-floating-pill__brand\" href=\"/\" data-loom-rich-link=\"true\">{brand}</a>\n      \
 <div class=\"loom-floating-pill__links\">{nav_links}</div>\n      \
 <div class=\"loom-floating-pill__actions\">{nav_actions_html}\n        \
-<button type=\"button\" class=\"loom-theme-toggle\" data-loom-theme-toggle aria-label=\"Theme: light (click to cycle)\" aria-pressed=\"false\">☀</button>\n      \
-</div>\n    \
+{toggle_btn_floating}</div>\n    \
 </nav>\n  \
 </header>{page_title_block}\n  \
 <main id=\"content\">\n{body}\n  </main>\n  \
 <footer class=\"loom-page-footer\"></footer>\n  \
-<script>{THEME_TOGGLE_JS}</script>\n\
-</body>\n"
+{toggle_script}</body>\n"
         ),
         ChromeKind::Minimal => format!(
             "<body data-chrome=\"minimal\" data-content-width=\"{cw}\">\n  \
 <a class=\"loom-skip\" href=\"#content\">Skip to content</a>{page_title_block}\n  \
 <main id=\"content\">\n{body}\n  </main>\n  \
 <footer class=\"loom-page-footer\"></footer>\n  \
-<script>{THEME_TOGGLE_JS}</script>\n\
-</body>\n"
+{toggle_script}</body>\n"
         ),
     }
 }
