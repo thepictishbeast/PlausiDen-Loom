@@ -6257,6 +6257,26 @@ pub fn page_shell_themed(
         t.to_owned()
     });
     let brand = escape_html_text(&brand_raw);
+    // Suppress the auto-emitted <h1 class="loom-page-title"> when
+    // the first section is hero-class — heroes carry their own
+    // display title, duplicating it as a header banner reads as
+    // visual noise on a marketing landing.
+    let first_is_hero = page.sections.first().is_some_and(|s| {
+        matches!(
+            s,
+            CmsSection::Hero { .. }
+                | CmsSection::ImageHero { .. }
+                | CmsSection::SplitHero { .. }
+                | CmsSection::CallToAction { .. }
+                | CmsSection::Banner { .. }
+                | CmsSection::AnnouncementBar { .. }
+        )
+    });
+    let page_title_block = if first_is_hero {
+        String::new()
+    } else {
+        format!("\n    <h1 class=\"loom-page-title\">{title}</h1>")
+    };
     // T72: bundle the theme-toggle button CSS into the inline
     // critical-CSS block. Recomputes the hash naturally.
     let base_with_toggle = format!("{BASE_THEME_CSS}{THEME_TOGGLE_CSS}");
@@ -6329,8 +6349,7 @@ pub fn page_shell_themed(
     <nav class=\"loom-page-nav\" aria-label=\"Primary\">\n\
       <a class=\"loom-page-brand\" href=\"/\" data-loom-rich-link=\"true\">{brand}</a>{nav_links}\n\
       <button type=\"button\" class=\"loom-theme-toggle\" data-loom-theme-toggle aria-label=\"Theme: light (click to cycle)\" aria-pressed=\"false\">☀</button>\n\
-    </nav>\n\
-    <h1 class=\"loom-page-title\">{title}</h1>\n\
+    </nav>{page_title_block}\n\
   </header>\n\
   <main id=\"content\">\n\
 {body}\n\
