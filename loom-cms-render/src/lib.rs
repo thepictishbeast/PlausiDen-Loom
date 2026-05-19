@@ -75,6 +75,28 @@ pub struct CmsPage {
     /// Canonical URL path (e.g. `"/leaderboard"`). Required.
     /// Used by the layout shell to emit `<link rel="canonical">`.
     pub path: String,
+    /// Theme name. Routed through page_shell_themed's
+    /// `data-theme` attribute. Closed allowlist: `light`,
+    /// `dark`, `auto`, `warm`, `ocean`, `forest`, `violet`,
+    /// `rose`. Operators pick per-page (or set once in the
+    /// site's index.json to inherit).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
+    /// Page-shell chrome style. Picks the header / body-backdrop
+    /// shape. Default = `PageShell` (legacy SkillShots-style
+    /// sticky bar). Other variants:
+    /// - `FloatingPill` — modern floating capsule centered on
+    ///   top of the viewport with glass-morphism backdrop.
+    ///   Drops the cream three-radial-gradient body backdrop.
+    /// - `Minimal` — no header at all; first section carries
+    ///   all chrome.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chrome: Option<ChromeKind>,
+    /// Action CTAs rendered in the header (e.g. "Sign in",
+    /// "Get started"). Distinct from `nav_links` — these are
+    /// buttons, not page-to-page links.
+    #[serde(default)]
+    pub nav_actions: Vec<HeroCta>,
     /// Optional primary navigation links. The page-shell renders
     /// these inside `<nav aria-label="Primary">`. Empty/omitted →
     /// shell emits brand-only nav. Each link's `href` is validated
@@ -1051,6 +1073,30 @@ fn default_columns_3() -> u8 {
 }
 fn default_speed() -> u8 {
     5
+}
+
+/// Page-shell chrome kind. Picks the header + body-backdrop
+/// shape. Each variant is a complete chrome aesthetic, not a
+/// modifier on the same shell. Operators pick per-page via
+/// `CmsPage::chrome`; new sites typically pick `FloatingPill`,
+/// legacy sites stay on `PageShell` for backward compat.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChromeKind {
+    /// Sticky-blur top bar with brand-left / nav-right and an
+    /// auto-h1 underneath. Three-radial-gradient body backdrop
+    /// tinted by the active theme's accents. The default for
+    /// backward compatibility.
+    #[default]
+    PageShell,
+    /// Floating capsule: brand + nav links + action CTAs in a
+    /// glass-morphism pill anchored at the top of the viewport,
+    /// centered horizontally. Body backdrop is a single soft
+    /// halo above the hero + a flat surface below.
+    FloatingPill,
+    /// No header at all. The first section carries every chrome
+    /// element itself. Used for full-bleed landing pages.
+    Minimal,
 }
 
 /// Backdrop kind for hero-class sections.
@@ -4061,6 +4107,9 @@ mod tests {
         // to avoid nested <main> tags in the composed output.
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "Home".to_owned(),
             description: "x".to_owned(),
@@ -4081,6 +4130,9 @@ mod tests {
     fn paragraph_renders_loom_prose() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4098,6 +4150,9 @@ mod tests {
     fn paragraph_html_is_escaped() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4116,6 +4171,9 @@ mod tests {
     fn heading_level_2_renders_h2() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4144,6 +4202,9 @@ mod tests {
         ] {
             let p = CmsPage {
                 brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
                 schema: None,
                 title: "x".to_owned(),
                 description: "x".to_owned(),
@@ -4232,6 +4293,9 @@ mod tests {
     fn composer_section_renders_loom_composer() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4257,6 +4321,9 @@ mod tests {
     fn picture_section_renders_loom_picture() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4364,6 +4431,9 @@ mod tests {
     fn hero_renders_required_title_only() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4388,6 +4458,9 @@ mod tests {
     fn hero_renders_all_optional_slots() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4417,6 +4490,9 @@ mod tests {
     fn hero_invalid_cta_href_substitutes_placeholder() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4443,6 +4519,9 @@ mod tests {
     fn hero_text_is_escaped() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4465,6 +4544,9 @@ mod tests {
     fn group_renders_title_and_multiple_body_paragraphs() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4488,6 +4570,9 @@ mod tests {
     fn group_with_empty_body_renders_just_title() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4531,6 +4616,9 @@ mod tests {
     fn page_with_card(c: CmsCard) -> CmsPage {
         CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4644,6 +4732,9 @@ mod tests {
     fn card_feed_renders_each_item() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4667,6 +4758,9 @@ mod tests {
     fn card_feed_no_heading_omits_h2() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4686,6 +4780,9 @@ mod tests {
     fn card_emits_stats_grid_when_present() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4710,6 +4807,9 @@ mod tests {
         c.stats.clear();
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4730,6 +4830,9 @@ mod tests {
         c.tag = None;
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4753,6 +4856,9 @@ mod tests {
         c.tag = Some("<x>".to_owned());
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4779,6 +4885,9 @@ mod tests {
         };
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4798,6 +4907,9 @@ mod tests {
     fn card_feed_empty_items_emits_only_section_wrapper() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4818,6 +4930,9 @@ mod tests {
     fn sidebar_renders_aside_with_aria_label() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4836,6 +4951,9 @@ mod tests {
     fn sidebar_default_label_is_side_panels() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4854,6 +4972,9 @@ mod tests {
     fn panel_with_list_body_renders_each_row() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4895,6 +5016,9 @@ mod tests {
     fn panel_with_text_body_renders_each_paragraph() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4920,6 +5044,9 @@ mod tests {
     fn panel_list_invalid_href_falls_back_to_span() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -4949,6 +5076,9 @@ mod tests {
     fn panel_text_body_is_escaped() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -5009,6 +5139,9 @@ mod tests {
     fn form_page() -> CmsPage {
         CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -5060,6 +5193,9 @@ mod tests {
     fn form_select_field() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -5146,6 +5282,9 @@ mod tests {
         // Reuse the select test's CmsPage with required=true.
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -5188,6 +5327,9 @@ mod tests {
         // textarea has required=false).
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -5227,6 +5369,9 @@ mod tests {
     fn form_readonly_field_is_readonly() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -5261,6 +5406,9 @@ mod tests {
     fn form_invalid_action_substitutes_placeholder() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -5287,6 +5435,9 @@ mod tests {
     fn form_field_text_is_escaped() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -5330,6 +5481,9 @@ mod tests {
     ) -> CmsPage {
         CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
@@ -5448,6 +5602,9 @@ mod tests {
     fn code_page(lang: &str, body: &str, caption: Option<&str>, terminal: bool) -> CmsPage {
         CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "C".to_owned(),
             description: "code-test".to_owned(),
@@ -5539,6 +5696,9 @@ mod tests {
     fn quote_page(body: &str, attribution: &str, role: Option<&str>) -> CmsPage {
         CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "Q".to_owned(),
             description: "q-test".to_owned(),
@@ -5632,6 +5792,9 @@ mod tests {
     fn logo_page(items: Vec<CmsLogoItem>, heading: Option<&str>) -> CmsPage {
         CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "LW".to_owned(),
             description: "lw-test".to_owned(),
@@ -5732,6 +5895,9 @@ mod tests {
     fn kv_page(items: Vec<CmsKvItem>, heading: Option<&str>) -> CmsPage {
         CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "KV".to_owned(),
             description: "kv-test".to_owned(),
@@ -6163,6 +6329,39 @@ pub fn escape_html_attr(s: &str) -> String {
         .collect()
 }
 
+/// Render the action-CTA buttons that sit inside a FloatingPill
+/// chrome's right-side cluster. Each entry is a typed HeroCta;
+/// the renderer validates the href via the standard same-origin
+/// + https-only check before emitting it, falling back to
+/// `#invalid-cta` + `data-invalid` for any rejected URL so the
+/// build's audit phase can flag it.
+#[must_use]
+pub fn render_nav_actions(actions: &[HeroCta]) -> String {
+    let mut out = String::new();
+    for (i, a) in actions.iter().enumerate() {
+        let label = escape_html_text(&a.label);
+        let safe = loom_components::composer::is_safe_url(&a.href);
+        let href = if safe {
+            escape_html_attr(&a.href)
+        } else {
+            "#invalid-cta".to_owned()
+        };
+        let invalid_attr = if safe { "" } else { " data-invalid=\"true\"" };
+        let backend = escape_html_attr(&a.data_backend);
+        // Last action gets the primary variant; earlier ones are
+        // secondary. The "Sign in / Get started" pattern.
+        let variant = if i + 1 == actions.len() {
+            "loom-btn--primary"
+        } else {
+            "loom-btn--secondary"
+        };
+        out.push_str(&format!(
+            "\n        <a class=\"loom-btn loom-btn--sm {variant} loom-floating-pill__action\" href=\"{href}\" data-backend=\"{backend}\"{invalid_attr}>{label}</a>"
+        ));
+    }
+    out
+}
+
 /// Render the `<nav>`'s `<a>` children for a page's primary
 /// nav-links. `aria-current="page"` for the link marked `current`.
 /// Unsafe hrefs render as `#invalid-nav-link` placeholders carrying
@@ -6215,7 +6414,11 @@ pub fn page_shell(
     body: &str,
     critical_css: Option<&str>,
 ) -> String {
-    page_shell_themed(page, css_href, body, critical_css, None)
+    // Pipe page.theme through automatically so operators set
+    // the theme once on CmsPage instead of having to pass it at
+    // every call site. Legacy callers can still call
+    // page_shell_themed directly with an explicit override.
+    page_shell_themed(page, css_href, body, critical_css, page.theme.as_deref())
 }
 
 /// T37 v1: explicit-theme variant of `page_shell`. When `theme`
@@ -6315,6 +6518,21 @@ pub fn page_shell_themed(
         (String::new(), css_link, csp)
     };
     let style_block = format!("{base_theme_block}{extra_style_block}");
+    // Resolve chrome kind. Default per CmsPage's #[derive(Default)]
+    // is PageShell — preserves backward compat for sites that
+    // don't pick a chrome explicitly.
+    let chrome = page.chrome.unwrap_or_default();
+    // Render the nav-actions row for FloatingPill (PageShell
+    // ignores nav_actions today).
+    let nav_actions_html = render_nav_actions(&page.nav_actions);
+    let body_html = render_chrome_body(
+        chrome,
+        &brand,
+        &nav_links,
+        &nav_actions_html,
+        &page_title_block,
+        body,
+    );
     // T37 v1 + T66 (closes #649): closed allow-list for the
     // `data-theme` attribute. T66 extends to named palettes
     // ("warm" | "ocean" | "forest" | "violet" | "rose") on top
@@ -6347,23 +6565,64 @@ pub fn page_shell_themed(
   {DEFAULT_FAVICON_LINK}\n\
   {style_block}{css_link}\n\
 </head>\n\
-<body>\n\
-  <a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n\
-  <header class=\"loom-page-header\">\n\
-    <nav class=\"loom-page-nav\" aria-label=\"Primary\">\n\
-      <a class=\"loom-page-brand\" href=\"/\" data-loom-rich-link=\"true\">{brand}</a>{nav_links}\n\
-      <button type=\"button\" class=\"loom-theme-toggle\" data-loom-theme-toggle aria-label=\"Theme: light (click to cycle)\" aria-pressed=\"false\">☀</button>\n\
-    </nav>{page_title_block}\n\
-  </header>\n\
-  <main id=\"content\">\n\
-{body}\n\
-  </main>\n\
-  <footer class=\"loom-page-footer\">\n\
-  </footer>\n\
-  <script>{THEME_TOGGLE_JS}</script>\n\
-</body>\n\
+{body_html}\n\
 </html>\n"
     )
+}
+
+/// Render the body innards for a given chrome variant. Returns
+/// the complete `<body>...</body>` element including header,
+/// main, footer, and theme-toggle script.
+fn render_chrome_body(
+    chrome: ChromeKind,
+    brand: &str,
+    nav_links: &str,
+    nav_actions_html: &str,
+    page_title_block: &str,
+    body: &str,
+) -> String {
+    let _ = nav_actions_html; // PageShell ignores nav_actions today
+    match chrome {
+        ChromeKind::PageShell => format!(
+            "<body data-chrome=\"page-shell\">\n  \
+<a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n  \
+<header class=\"loom-page-header\">\n    \
+<nav class=\"loom-page-nav\" aria-label=\"Primary\">\n      \
+<a class=\"loom-page-brand\" href=\"/\" data-loom-rich-link=\"true\">{brand}</a>{nav_links}\n      \
+<button type=\"button\" class=\"loom-theme-toggle\" data-loom-theme-toggle aria-label=\"Theme: light (click to cycle)\" aria-pressed=\"false\">☀</button>\n    \
+</nav>{page_title_block}\n  \
+</header>\n  \
+<main id=\"content\">\n{body}\n  </main>\n  \
+<footer class=\"loom-page-footer\"></footer>\n  \
+<script>{THEME_TOGGLE_JS}</script>\n\
+</body>\n"
+        ),
+        ChromeKind::FloatingPill => format!(
+            "<body data-chrome=\"floating-pill\">\n  \
+<a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n  \
+<div class=\"loom-floating-pill\" role=\"banner\">\n    \
+<nav class=\"loom-floating-pill__nav\" aria-label=\"Primary\">\n      \
+<a class=\"loom-floating-pill__brand\" href=\"/\" data-loom-rich-link=\"true\">{brand}</a>\n      \
+<div class=\"loom-floating-pill__links\">{nav_links}</div>\n      \
+<div class=\"loom-floating-pill__actions\">{nav_actions_html}\n        \
+<button type=\"button\" class=\"loom-theme-toggle\" data-loom-theme-toggle aria-label=\"Theme: light (click to cycle)\" aria-pressed=\"false\">☀</button>\n      \
+</div>\n    \
+</nav>\n  \
+</div>{page_title_block}\n  \
+<main id=\"content\">\n{body}\n  </main>\n  \
+<footer class=\"loom-page-footer\"></footer>\n  \
+<script>{THEME_TOGGLE_JS}</script>\n\
+</body>\n"
+        ),
+        ChromeKind::Minimal => format!(
+            "<body data-chrome=\"minimal\">\n  \
+<a class=\"loom-skip\" href=\"#content\">Skip to content</a>{page_title_block}\n  \
+<main id=\"content\">\n{body}\n  </main>\n  \
+<footer class=\"loom-page-footer\"></footer>\n  \
+<script>{THEME_TOGGLE_JS}</script>\n\
+</body>\n"
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -6373,6 +6632,9 @@ mod page_shell_tests {
     fn empty_page() -> CmsPage {
         CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "T".into(),
             description: "D".into(),
@@ -6583,6 +6845,9 @@ mod page_shell_tests {
     fn page_shell_with_rendered_body_produces_exactly_one_main() {
         let p = CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "Test".into(),
             description: "T".into(),

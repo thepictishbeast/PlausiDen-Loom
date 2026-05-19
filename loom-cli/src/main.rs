@@ -2381,6 +2381,9 @@ fn build_state_matrix_page() -> loom_cms_render::CmsPage {
     };
     CmsPage {
         brand: None,
+        theme: None,
+        chrome: None,
+        nav_actions: vec![],
         schema: None,
         title: "Loom state matrix".into(),
         description: "Every CmsSection variant + named state, on one page.".into(),
@@ -2856,6 +2859,9 @@ mod cms_render_tests {
     fn empty_page() -> CmsPage {
         CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "Test".to_owned(),
             description: "x".to_owned(),
@@ -11575,6 +11581,9 @@ fn cms_template_landing(title: &str, path: &str) -> loom_cms_render::CmsPage {
     };
     CmsPage {
         brand: None,
+        theme: None,
+        chrome: None,
+        nav_actions: vec![],
         schema: Some("../cms-schema.json".to_owned()),
         title: title.to_owned(),
         description: format!("{title} — describe the page in 120 chars max."),
@@ -11639,6 +11648,9 @@ fn cms_template_explainer(title: &str, path: &str) -> loom_cms_render::CmsPage {
     use loom_cms_render::{CmsPage, CmsSection};
     CmsPage {
         brand: None,
+        theme: None,
+        chrome: None,
+        nav_actions: vec![],
         schema: Some("../cms-schema.json".to_owned()),
         title: title.to_owned(),
         description: format!("{title} — explainer / about / FAQ page."),
@@ -11676,6 +11688,9 @@ fn cms_template_form(title: &str, path: &str) -> loom_cms_render::CmsPage {
     };
     CmsPage {
         brand: None,
+        theme: None,
+        chrome: None,
+        nav_actions: vec![],
         schema: Some("../cms-schema.json".to_owned()),
         title: title.to_owned(),
         description: format!("{title} — form / submission page."),
@@ -21468,6 +21483,9 @@ mod editor_schema_tests {
     fn empty_cms_page() -> loom_cms_render::CmsPage {
         loom_cms_render::CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "T".into(),
             description: "D".into(),
@@ -21609,6 +21627,9 @@ mod editor_schema_tests {
         let s = page_shell(
             &loom_cms_render::CmsPage {
                 brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
                 schema: None,
                 title: "T".into(),
                 description: "D".into(),
@@ -21634,6 +21655,9 @@ mod editor_schema_tests {
         let s = page_shell(
             &loom_cms_render::CmsPage {
                 brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
                 schema: None,
                 title: "T".into(),
                 description: "D".into(),
@@ -21793,6 +21817,9 @@ mod edit_overlay_tests {
             .collect();
         CmsPage {
             brand: None,
+            theme: None,
+            chrome: None,
+            nav_actions: vec![],
             schema: None,
             title: "Test".into(),
             description: "test page".into(),
