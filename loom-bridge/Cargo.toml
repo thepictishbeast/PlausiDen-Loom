@@ -43,7 +43,7 @@ default = []
 russh-transport = ["dep:russh", "dep:tokio", "dep:async-trait", "dep:tracing"]
 
 [dependencies.russh]
-version = "0.45"
+version = "0.60"
 optional = true
 
 [dependencies.tokio]
