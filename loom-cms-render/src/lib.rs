@@ -8347,6 +8347,13 @@ pub fn page_shell_themed(
   <title>{title}</title>\n\
   <meta name=\"description\" content=\"{description}\">\n\
   <link rel=\"canonical\" href=\"{path}\">\n\
+  <meta property=\"og:title\" content=\"{title}\">\n\
+  <meta property=\"og:description\" content=\"{description}\">\n\
+  <meta property=\"og:type\" content=\"website\">\n\
+  <meta property=\"og:url\" content=\"{path}\">\n\
+  <meta name=\"twitter:card\" content=\"summary_large_image\">\n\
+  <meta name=\"twitter:title\" content=\"{title}\">\n\
+  <meta name=\"twitter:description\" content=\"{description}\">\n\
   {DEFAULT_FAVICON_LINK}\n\
   {eruda_block}{style_block}{css_link}\n\
 </head>\n\
