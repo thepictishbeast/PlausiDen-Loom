@@ -3651,7 +3651,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
         CmsSection::Figure { caption, credit, asset_slug } => html! {
             figure class="loom-figure" data-loom-reveal {
                 @if let Some(slug) = asset_slug {
-                    div class="loom-figure__media" data-asset-slug=(slug) { span class="loom-asset-placeholder" { (caption) } }
+                    div class="loom-figure__media" data-asset-slug=(slug) {
+                        img src={ "/assets/" (slug) ".jpg" }
+                            alt=(caption)
+                            loading="lazy"
+                            decoding="async";
+                    }
                 }
                 figcaption class="loom-figure__caption" {
                     (caption)
