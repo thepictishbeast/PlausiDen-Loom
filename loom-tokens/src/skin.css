@@ -7344,6 +7344,44 @@ body[data-loom-drawer-open] .loom-drawer-scrim {
 }
 
 /* ============================================================
+ * Marginalia — editorial sidenote
+ *
+ * Wide viewports (≥ 1024px): floats to the side of the body
+ * column, bounded by the main#content gutter. Narrow viewports
+ * (< 1024px): renders as a small offset block with a left rule,
+ * inline with the surrounding prose.
+ *
+ * Used in long-form essays / academic publications / literary
+ * press — anywhere the body wants commentary that doesn't break
+ * the reading rhythm.
+ * ============================================================ */
+.loom-marginalia {
+  display: block;
+  margin-block: 1rem 0;
+  padding: 0.6rem 0 0.6rem 0.9rem;
+  border-inline-start: 2px solid color-mix(in oklab, var(--loom-color-primary) 55%, transparent);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: color-mix(in oklab, var(--loom-color-ink) 72%, transparent);
+  max-inline-size: 28ch;
+}
+.loom-marginalia__body { display: block; }
+@media (min-width: 1024px) {
+  .loom-marginalia--right {
+    float: inline-end;
+    clear: inline-end;
+    margin-inline-start: 1.5rem;
+    margin-inline-end: -8rem;
+  }
+  .loom-marginalia--left {
+    float: inline-start;
+    clear: inline-start;
+    margin-inline-end: 1.5rem;
+    margin-inline-start: -8rem;
+  }
+}
+
+/* ============================================================
  * T660 P5 — primitive catalogue v3 (101 new components)
  * Layout / Editorial / Marketing / Media / Commerce / Social
  * Forms / Navigation / Feedback / Game-Forum-Video

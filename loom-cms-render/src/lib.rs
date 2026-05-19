@@ -486,6 +486,23 @@ pub enum CmsSection {
         /// Optional attribution (e.g. "Jane Doe, CTO @ Acme").
         attribution: Option<String>,
     },
+    /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
+    /// Paragraph + Aside-decoration: marginalia is positioned
+    /// relative to the body text, not styled in line.
+    ///
+    /// `position` controls which side it floats to at wide
+    /// viewports. At narrow viewports both render as a small
+    /// inline block, regardless of side.
+    Marginalia {
+        /// Sidenote body (plain text, auto-escaped).
+        body: String,
+        /// Wide-viewport float side.
+        #[serde(default)]
+        position: MarginaliaPosition,
+    },
     // ─── T660 P5 catalogue expansion ───────────────────────
     // Layout primitives (10).
     /// Bounded-width content container.
@@ -1362,6 +1379,20 @@ pub struct CmsLogoItem {
 /// Heading level encoded over the wire as a raw u8 (2..=6) — the
 /// `serde(into / try_from)` pair lets derive produce the same wire
 /// shape as the prior hand-rolled impls (rejected by the composition
+/// Wide-viewport float side for [`CmsSection::Marginalia`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MarginaliaPosition {
+    /// Float to the right of the body text (start of inline-axis
+    /// in RTL locales). Default — least visually-disruptive
+    /// because it occupies the gutter on the reading-direction
+    /// side.
+    #[default]
+    Right,
+    /// Float to the left of the body text.
+    Left,
+}
+
 /// Editorial treatment for a [`CmsSection::Paragraph`].
 ///
 /// All variants render `<p>` — the difference is class-keyed CSS:
@@ -2573,6 +2604,17 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::Marginalia { body, position } => {
+            let pos_class = match position {
+                MarginaliaPosition::Left => "loom-marginalia--left",
+                MarginaliaPosition::Right => "loom-marginalia--right",
+            };
+            html! {
+                aside class={ "loom-marginalia " (pos_class) } role="note" {
+                    span class="loom-marginalia__body" { (body) }
+                }
+            }
+        }
         CmsSection::PullQuote { body, attribution } => html! {
             figure class="loom-pull-quote" data-loom-reveal {
                 blockquote class="loom-pull-quote__body" { (body) }
