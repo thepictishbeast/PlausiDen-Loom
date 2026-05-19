@@ -385,6 +385,18 @@ pub enum CmsSection {
         /// Visual height ramp. Affects min-height + padding.
         #[serde(default)]
         height: HeroHeight,
+        /// Typed slot — sections that render ABOVE the title.
+        /// Use for trust signals, badges, version chips,
+        /// announcement banners, additional eyebrow content.
+        /// Each section in the slot renders in order.
+        /// Closes #105 (slot-based composition).
+        #[serde(default)]
+        before_headline: Vec<CmsSection>,
+        /// Typed slot — sections that render BELOW the CTA.
+        /// Use for trust-signal logos, disclaimer copy, secondary
+        /// CTA chains, fine-print legal.
+        #[serde(default)]
+        after_cta: Vec<CmsSection>,
     },
     /// Text + visual side-by-side hero. Text occupies one column,
     /// a typed visual (code snippet, single stat, or photo asset
@@ -2601,6 +2613,8 @@ pub fn render_section(section: &CmsSection) -> Markup {
             cta,
             background,
             height,
+            before_headline,
+            after_cta,
         } => {
             let bg_class = match background {
                 HeroBackground::GradientMesh => "gradient-mesh",
@@ -2644,6 +2658,13 @@ pub fn render_section(section: &CmsSection) -> Markup {
                             decoding="async";
                     }
                     div class="loom-image-hero__inner" {
+                        @if !before_headline.is_empty() {
+                            div class="loom-image-hero__slot loom-image-hero__slot--before-headline" {
+                                @for item in before_headline {
+                                    (render_section(item))
+                                }
+                            }
+                        }
                         @if let Some(e) = eyebrow {
                             span class="loom-image-hero__eyebrow" { (e) }
                         }
@@ -2656,6 +2677,13 @@ pub fn render_section(section: &CmsSection) -> Markup {
                               href=(if cta_href_safe { c.href.as_str() } else { "#invalid-cta" })
                               data-backend=(c.data_backend)
                               data-invalid=[(!cta_href_safe).then_some("true")] { (c.label) }
+                        }
+                        @if !after_cta.is_empty() {
+                            div class="loom-image-hero__slot loom-image-hero__slot--after-cta" {
+                                @for item in after_cta {
+                                    (render_section(item))
+                                }
+                            }
                         }
                     }
                 }
@@ -5282,6 +5310,49 @@ mod tests {
         assert!(!html.contains("<script>"));
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("&lt;x&gt;"));
+    }
+
+    #[test]
+    fn image_hero_renders_slot_sections_before_headline_and_after_cta() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "image_hero",
+                "title": "Hello",
+                "before_headline": [
+                    {"kind": "paragraph", "text": "TRUST_SIGNAL_ABOVE"}
+                ],
+                "after_cta": [
+                    {"kind": "paragraph", "text": "FINE_PRINT_BELOW"}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-image-hero__slot--before-headline"));
+        assert!(html.contains("TRUST_SIGNAL_ABOVE"));
+        assert!(html.contains("loom-image-hero__slot--after-cta"));
+        assert!(html.contains("FINE_PRINT_BELOW"));
+        let before_pos = html.find("loom-image-hero__slot--before-headline").unwrap();
+        let title_pos = html.find("loom-image-hero__title").unwrap();
+        let after_pos = html.find("loom-image-hero__slot--after-cta").unwrap();
+        assert!(before_pos < title_pos, "before_headline must precede title");
+        assert!(title_pos < after_pos, "after_cta must follow title");
+    }
+
+    #[test]
+    fn image_hero_omits_slot_wrapper_when_slots_empty() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{"kind": "image_hero", "title": "Hello"}]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("loom-image-hero__slot"));
     }
 
     #[test]
