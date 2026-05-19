@@ -6600,7 +6600,7 @@ fn render_chrome_body(
         ChromeKind::FloatingPill => format!(
             "<body data-chrome=\"floating-pill\">\n  \
 <a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n  \
-<div class=\"loom-floating-pill\" role=\"banner\">\n    \
+<header class=\"loom-floating-pill\">\n    \
 <nav class=\"loom-floating-pill__nav\" aria-label=\"Primary\">\n      \
 <a class=\"loom-floating-pill__brand\" href=\"/\" data-loom-rich-link=\"true\">{brand}</a>\n      \
 <div class=\"loom-floating-pill__links\">{nav_links}</div>\n      \
@@ -6608,7 +6608,7 @@ fn render_chrome_body(
 <button type=\"button\" class=\"loom-theme-toggle\" data-loom-theme-toggle aria-label=\"Theme: light (click to cycle)\" aria-pressed=\"false\">☀</button>\n      \
 </div>\n    \
 </nav>\n  \
-</div>{page_title_block}\n  \
+</header>{page_title_block}\n  \
 <main id=\"content\">\n{body}\n  </main>\n  \
 <footer class=\"loom-page-footer\"></footer>\n  \
 <script>{THEME_TOGGLE_JS}</script>\n\
