@@ -106,6 +106,23 @@ pub struct CmsPage {
     pub nav_links: Vec<CmsNavLink>,
     /// Sequence of body sections, top to bottom.
     pub sections: Vec<CmsSection>,
+    /// When true, page-shell emits a relaxed CSP (drops Trusted
+    /// Types, allows 'unsafe-inline' styles) and injects a
+    /// localStorage-gated loader script that pulls
+    /// `/eruda.min.js` on demand. Off by default; turn on via
+    /// the per-page JSON flag or via Forge's `FORGE_DEV_DEVTOOLS`
+    /// env var (which forge-phases/render.rs reads and patches
+    /// onto every page in a build).
+    ///
+    /// SECURITY: only enable on dev hosts. Prod pages must keep
+    /// the strict CSP. The page renders identically with or
+    /// without devtools — the only delta is CSP + a tiny loader
+    /// script that does nothing unless the visitor sets
+    /// `localStorage["loom_eruda"] = "on"`. So even if a dev
+    /// page ships to a stranger by mistake, they see no devtools
+    /// (and no script load) without that opt-in.
+    #[serde(default)]
+    pub dev_devtools: bool,
 }
 
 /// One primary-nav link.
@@ -4119,6 +4136,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![],
         };
         let html = render_to_string(&p);
@@ -4142,6 +4160,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Paragraph {
                 text: "Hello world.".to_owned(),
             }],
@@ -4162,6 +4181,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Paragraph {
                 text: "<script>alert(1)</script>".to_owned(),
             }],
@@ -4183,6 +4203,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Heading {
                 text: "Section".to_owned(),
                 level: HeadingLevel::H2,
@@ -4214,6 +4235,7 @@ mod tests {
                 description: "x".to_owned(),
                 path: "/x".to_owned(),
                 nav_links: vec![],
+                dev_devtools: false,
                 sections: vec![CmsSection::Heading {
                     text: "x".to_owned(),
                     level,
@@ -4305,6 +4327,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Composer {
                 prompt: "What did you nail?".to_owned(),
                 submit_endpoint: "/post-skill".to_owned(),
@@ -4333,6 +4356,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Picture {
                 src_stem: "hero/dragon".to_owned(),
                 alt: "A dragon".to_owned(),
@@ -4443,6 +4467,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Hero {
                 eyebrow: None,
                 title: "Welcome".to_owned(),
@@ -4470,6 +4495,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Hero {
                 eyebrow: Some("New".to_owned()),
                 title: "Welcome".to_owned(),
@@ -4502,6 +4528,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Hero {
                 eyebrow: None,
                 title: "x".to_owned(),
@@ -4531,6 +4558,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Hero {
                 eyebrow: Some("<x>".to_owned()),
                 title: "<script>".to_owned(),
@@ -4556,6 +4584,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Group {
                 title: "Rules".to_owned(),
                 body: vec!["First rule.".to_owned(), "Second rule.".to_owned()],
@@ -4582,6 +4611,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Group {
                 title: "Empty".to_owned(),
                 body: vec![],
@@ -4628,6 +4658,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![c],
@@ -4744,6 +4775,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::CardFeed {
                 heading: Some("Top battles".to_owned()),
                 items: vec![card("Battle A", "/c/a"), card("Battle B", "/c/b")],
@@ -4770,6 +4802,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![card("Only", "/c/only")],
@@ -4792,6 +4825,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![card("X", "/x")],
@@ -4819,6 +4853,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![c],
@@ -4842,6 +4877,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![c],
@@ -4868,6 +4904,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![c],
@@ -4897,6 +4934,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![c],
@@ -4919,6 +4957,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::CardFeed {
                 heading: Some("Empty list".to_owned()),
                 items: vec![],
@@ -4942,6 +4981,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Sidebar {
                 label: Some("Right rail".to_owned()),
                 panels: vec![],
@@ -4963,6 +5003,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Sidebar {
                 label: None,
                 panels: vec![],
@@ -4984,6 +5025,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Sidebar {
                 label: None,
                 panels: vec![CmsPanel {
@@ -5028,6 +5070,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Sidebar {
                 label: None,
                 panels: vec![CmsPanel {
@@ -5056,6 +5099,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Sidebar {
                 label: None,
                 panels: vec![CmsPanel {
@@ -5088,6 +5132,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Sidebar {
                 label: None,
                 panels: vec![CmsPanel {
@@ -5151,6 +5196,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![simple_form()],
         }
     }
@@ -5205,6 +5251,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Form {
                 legend: "x".to_owned(),
                 submit: CmsFormSubmit {
@@ -5294,6 +5341,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Form {
                 legend: "x".to_owned(),
                 submit: CmsFormSubmit {
@@ -5339,6 +5387,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Form {
                 legend: "x".to_owned(),
                 submit: CmsFormSubmit {
@@ -5381,6 +5430,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Form {
                 legend: "x".to_owned(),
                 submit: CmsFormSubmit {
@@ -5418,6 +5468,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Form {
                 legend: "x".to_owned(),
                 submit: CmsFormSubmit {
@@ -5447,6 +5498,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Form {
                 legend: "<script>".to_owned(),
                 submit: CmsFormSubmit {
@@ -5493,6 +5545,7 @@ mod tests {
             description: "x".to_owned(),
             path: "/x".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Banner {
                 tone,
                 text: text.to_owned(),
@@ -5614,6 +5667,7 @@ mod tests {
             description: "code-test".to_owned(),
             path: "/c".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Code {
                 lang: lang.to_owned(),
                 body: body.to_owned(),
@@ -5708,6 +5762,7 @@ mod tests {
             description: "q-test".to_owned(),
             path: "/q".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Quote {
                 body: body.to_owned(),
                 attribution: attribution.to_owned(),
@@ -5804,6 +5859,7 @@ mod tests {
             description: "lw-test".to_owned(),
             path: "/lw".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::LogoWall {
                 heading: heading.map(|s| s.to_owned()),
                 items,
@@ -5907,6 +5963,7 @@ mod tests {
             description: "kv-test".to_owned(),
             path: "/kv".to_owned(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::KvPair {
                 heading: heading.map(|s| s.to_owned()),
                 items,
@@ -6262,6 +6319,25 @@ pub const DEFER_ONLOAD_JS: &str = "this.media='all';this.removeAttribute('onload
 /// with a fixed key. No DOM injection, no eval, no fetch.
 pub const THEME_TOGGLE_JS: &str = "(function(){var K='loom-theme';var B=document.querySelector('[data-loom-theme-toggle]');if(!B)return;var T=['light','dark','auto'];function r(){var v=null;try{v=localStorage.getItem(K);}catch(_){}if(T.indexOf(v)>=0)return v;var s=document.documentElement.getAttribute('data-theme');if(T.indexOf(s)>=0)return s;return 'light';}function a(t){document.documentElement.setAttribute('data-theme',t);B.setAttribute('aria-label','Theme: '+t+' (click to cycle)');B.setAttribute('aria-pressed',t==='dark'?'true':'false');B.textContent=t==='light'?'☀':(t==='dark'?'☾':'◐');}a(r());B.addEventListener('click',function(){var c=r();var n=T[(T.indexOf(c)+1)%T.length];try{localStorage.setItem(K,n);}catch(_){}a(n);});})();";
 
+/// Dev-only Eruda loader. Inlined into `<head>` when
+/// `CmsPage.dev_devtools = true`. Runs always; only loads the
+/// remote (same-origin) `/eruda.min.js` if the visitor has set
+/// `localStorage["loom_eruda"] = "on"`. Strangers landing on a
+/// dev page see no devtools and no script load.
+///
+/// To enable from mobile, paste this into the URL bar once:
+///   javascript:localStorage.setItem('loom_eruda','on');location.reload()
+/// To disable:
+///   javascript:localStorage.removeItem('loom_eruda');location.reload()
+///
+/// The loader assumes `/eruda.min.js` is served from the same
+/// origin (vendored into `/var/www/<host>/eruda.min.js` or
+/// equivalent). It does NOT fetch from a CDN — that would be a
+/// supply-chain hole. Eruda's UI uses inline styles which require
+/// the relaxed CSP emitted by `page_shell_themed` when
+/// `dev_devtools = true`.
+pub const ERUDA_LOADER_JS: &str = "(function(){try{if(localStorage.getItem('loom_eruda')!=='on')return;var s=document.createElement('script');s.src='/eruda.min.js';s.onload=function(){if(window.eruda){eruda.init();}};document.head.appendChild(s);}catch(_){}})();";
+
 /// CSS for the theme-toggle button. Inlined into BASE_THEME_CSS
 /// so first paint paints the button correctly without FOUC.
 pub const THEME_TOGGLE_CSS: &str = ".loom-theme-toggle{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:9999px;border:1px solid var(--loom-color-border,var(--loom-border));background:var(--loom-color-surface,var(--loom-bg));color:var(--loom-color-ink,var(--loom-fg));font-size:1.15rem;cursor:pointer;line-height:1;padding:0;transition:background var(--loom-motion-fast,120ms) var(--loom-ease-out,ease),border-color var(--loom-motion-fast,120ms) var(--loom-ease-out,ease)}.loom-theme-toggle:hover{background:var(--loom-color-surface-muted,var(--loom-grad-soft));border-color:var(--loom-color-primary,var(--loom-accent))}.loom-theme-toggle:focus-visible{outline:2px solid var(--loom-color-primary,var(--loom-accent));outline-offset:3px}";
@@ -6494,6 +6570,15 @@ pub fn page_shell_themed(
     let base_theme_hash = csp_sha256(base_with_toggle.as_bytes());
     let base_theme_block = format!("<style>{base_with_toggle}</style>\n  ");
     let toggle_script_hash = csp_sha256(THEME_TOGGLE_JS.as_bytes());
+    let eruda_hash = csp_sha256(ERUDA_LOADER_JS.as_bytes());
+    // Dev-only devtools loader: emitted in <head>, gated on
+    // localStorage["loom_eruda"] == "on" so it does nothing for
+    // strangers who happen onto a dev page.
+    let eruda_block = if page.dev_devtools {
+        format!("<script>{ERUDA_LOADER_JS}</script>\n  ")
+    } else {
+        String::new()
+    };
     #[allow(clippy::option_if_let_else)]
     let (extra_style_block, css_link, csp) = if let Some(crit) = critical_css {
         let style_hash = csp_sha256(crit.as_bytes());
@@ -6510,15 +6595,32 @@ pub fn page_shell_themed(
         // Our inline scripts (THEME_TOGGLE_JS + DEFER_ONLOAD_JS)
         // only use setAttribute/textContent/addEventListener and
         // single-string property writes — all safe under TT.
-        let csp = format!(
-            "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}' '{style_hash}'; script-src 'self' 'unsafe-hashes' '{onload_hash}' '{toggle_script_hash}'; require-trusted-types-for 'script'; trusted-types 'none'; frame-ancestors 'none'"
-        );
+        //
+        // Dev-only override: when page.dev_devtools is set, drop
+        // Trusted Types and allow 'unsafe-inline' styles so Eruda
+        // can inject its panel UI. Eruda lives in /eruda.min.js
+        // (same-origin) so script-src 'self' is still enough.
+        let csp = if page.dev_devtools {
+            format!(
+                "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-hashes' '{onload_hash}' '{toggle_script_hash}' '{eruda_hash}'; connect-src 'self'; frame-ancestors 'none'"
+            )
+        } else {
+            format!(
+                "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}' '{style_hash}'; script-src 'self' 'unsafe-hashes' '{onload_hash}' '{toggle_script_hash}'; require-trusted-types-for 'script'; trusted-types 'none'; frame-ancestors 'none'"
+            )
+        };
         (extra_block, css_link, csp)
     } else {
         let css_link = format!("<link rel=\"stylesheet\" href=\"{css}\">");
-        let csp = format!(
-            "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}'; script-src 'self' '{toggle_script_hash}'; require-trusted-types-for 'script'; trusted-types 'none'; frame-ancestors 'none'"
-        );
+        let csp = if page.dev_devtools {
+            format!(
+                "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' '{toggle_script_hash}' '{eruda_hash}'; connect-src 'self'; frame-ancestors 'none'"
+            )
+        } else {
+            format!(
+                "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}'; script-src 'self' '{toggle_script_hash}'; require-trusted-types-for 'script'; trusted-types 'none'; frame-ancestors 'none'"
+            )
+        };
         (String::new(), css_link, csp)
     };
     let style_block = format!("{base_theme_block}{extra_style_block}");
@@ -6567,7 +6669,7 @@ pub fn page_shell_themed(
   <meta name=\"description\" content=\"{description}\">\n\
   <link rel=\"canonical\" href=\"{path}\">\n\
   {DEFAULT_FAVICON_LINK}\n\
-  {style_block}{css_link}\n\
+  {eruda_block}{style_block}{css_link}\n\
 </head>\n\
 {body_html}\n\
 </html>\n"
@@ -6644,6 +6746,7 @@ mod page_shell_tests {
             description: "D".into(),
             path: "/".into(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![],
         }
     }
@@ -6857,6 +6960,7 @@ mod page_shell_tests {
             description: "T".into(),
             path: "/".into(),
             nav_links: vec![],
+            dev_devtools: false,
             sections: vec![CmsSection::Heading {
                 level: HeadingLevel::H2,
                 text: "x".into(),
