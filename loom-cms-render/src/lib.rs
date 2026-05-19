@@ -3028,9 +3028,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                             }
                             SplitVisual::AssetSlug { slug, alt } => {
                                 div class="loom-split-hero__asset"
-                                    data-asset-slug=(slug)
-                                    aria-label=(alt) {
-                                    span class="loom-asset-placeholder" { (alt) }
+                                    data-asset-slug=(slug) {
+                                    img src={ "/assets/" (slug) ".jpg" }
+                                        alt=(alt)
+                                        loading="eager"
+                                        decoding="async";
                                 }
                             }
                         }
@@ -3886,8 +3888,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
             html! {
                 section class={ "loom-image-grid cols-" (c) } data-loom-reveal {
                     @for img in items {
-                        figure class="loom-image-grid__cell" data-asset-slug=(img.asset_slug) aria-label=(img.alt) {
-                            span class="loom-asset-placeholder" { (img.alt) }
+                        figure class="loom-image-grid__cell" data-asset-slug=(img.asset_slug) {
+                            img src={ "/assets/" (img.asset_slug) ".jpg" }
+                                alt=(img.alt)
+                                loading="lazy"
+                                decoding="async";
                             @if let Some(cap) = &img.caption { figcaption class="loom-image-grid__caption" { (cap) } }
                         }
                     }
@@ -3897,8 +3902,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
         CmsSection::FigureGroup { items } => html! {
             section class="loom-figure-group" data-loom-reveal {
                 @for img in items {
-                    figure class="loom-figure-group__cell" data-asset-slug=(img.asset_slug) aria-label=(img.alt) {
-                        span class="loom-asset-placeholder" { (img.alt) }
+                    figure class="loom-figure-group__cell" data-asset-slug=(img.asset_slug) {
+                        img src={ "/assets/" (img.asset_slug) ".jpg" }
+                            alt=(img.alt)
+                            loading="lazy"
+                            decoding="async";
                         @if let Some(cap) = &img.caption { figcaption { (cap) } }
                     }
                 }
@@ -3940,20 +3948,28 @@ pub fn render_section(section: &CmsSection) -> Markup {
                     figure class="loom-slideshow__slide"
                         data-index=(i.to_string())
                         data-active=(if i == 0 { "true" } else { "false" })
-                        data-asset-slug=(img.asset_slug)
-                        aria-label=(img.alt) {
-                        span class="loom-asset-placeholder" { (img.alt) }
+                        data-asset-slug=(img.asset_slug) {
+                        img src={ "/assets/" (img.asset_slug) ".jpg" }
+                            alt=(img.alt)
+                            loading=(if i == 0 { "eager" } else { "lazy" })
+                            decoding="async";
                     }
                 }
             }
         },
         CmsSection::BeforeAfter { before_alt, after_alt, before_slug, after_slug } => html! {
             div class="loom-before-after" data-loom-before-after data-loom-reveal {
-                figure class="loom-before-after__before" data-asset-slug=(before_slug) aria-label=(before_alt) {
-                    span class="loom-asset-placeholder" { (before_alt) }
+                figure class="loom-before-after__before" data-asset-slug=(before_slug) {
+                    img src={ "/assets/" (before_slug) ".jpg" }
+                        alt=(before_alt)
+                        loading="lazy"
+                        decoding="async";
                 }
-                figure class="loom-before-after__after" data-asset-slug=(after_slug) aria-label=(after_alt) {
-                    span class="loom-asset-placeholder" { (after_alt) }
+                figure class="loom-before-after__after" data-asset-slug=(after_slug) {
+                    img src={ "/assets/" (after_slug) ".jpg" }
+                        alt=(after_alt)
+                        loading="lazy"
+                        decoding="async";
                 }
                 input type="range" min="0" max="100" value="50" aria-label="Reveal slider" class="loom-before-after__slider";
             }
@@ -3962,7 +3978,10 @@ pub fn render_section(section: &CmsSection) -> Markup {
             section class="loom-lightbox" data-loom-lightbox data-loom-reveal {
                 @for img in items {
                     button type="button" class="loom-lightbox__thumb" data-asset-slug=(img.asset_slug) aria-label=(img.alt) {
-                        span class="loom-asset-placeholder" { (img.alt) }
+                        img src={ "/assets/" (img.asset_slug) ".jpg" }
+                            alt=(img.alt)
+                            loading="lazy"
+                            decoding="async";
                     }
                 }
             }
@@ -3970,8 +3989,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
         CmsSection::MosaicGrid { items } => html! {
             section class="loom-mosaic" data-loom-reveal {
                 @for img in items {
-                    figure class="loom-mosaic__cell" data-asset-slug=(img.asset_slug) aria-label=(img.alt) {
-                        span class="loom-asset-placeholder" { (img.alt) }
+                    figure class="loom-mosaic__cell" data-asset-slug=(img.asset_slug) {
+                        img src={ "/assets/" (img.asset_slug) ".jpg" }
+                            alt=(img.alt)
+                            loading="lazy"
+                            decoding="async";
                     }
                 }
             }
@@ -3996,8 +4018,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                     a class="loom-product-card__link"
                       href=(if safe { href.as_str() } else { "#invalid-link" })
                       data-backend=(data_backend) {
-                        figure class="loom-product-card__image" data-asset-slug=(image_slug) aria-label=(image_alt) {
-                            span class="loom-asset-placeholder" { (image_alt) }
+                        figure class="loom-product-card__image" data-asset-slug=(image_slug) {
+                            img src={ "/assets/" (image_slug) ".jpg" }
+                                alt=(image_alt)
+                                loading="lazy"
+                                decoding="async";
                         }
                         h3 class="loom-product-card__name" { (name) }
                         div class="loom-product-card__price" { (price) }
@@ -4022,8 +4047,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                             a class="loom-product-card__link"
                               href=(if safe { p.href.as_str() } else { "#invalid-link" })
                               data-backend=(p.data_backend) {
-                                figure class="loom-product-card__image" data-asset-slug=(p.image_slug) aria-label=(p.image_alt) {
-                                    span class="loom-asset-placeholder" { (p.image_alt) }
+                                figure class="loom-product-card__image" data-asset-slug=(p.image_slug) {
+                                    img src={ "/assets/" (p.image_slug) ".jpg" }
+                                        alt=(p.image_alt)
+                                        loading="lazy"
+                                        decoding="async";
                                 }
                                 h3 class="loom-product-card__name" { (p.name) }
                                 div class="loom-product-card__price" { (p.price) }
@@ -4059,8 +4087,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
         CmsSection::ProductGallery { items } => html! {
             section class="loom-product-gallery" data-loom-reveal {
                 @for img in items {
-                    figure class="loom-product-gallery__cell" data-asset-slug=(img.asset_slug) aria-label=(img.alt) {
-                        span class="loom-asset-placeholder" { (img.alt) }
+                    figure class="loom-product-gallery__cell" data-asset-slug=(img.asset_slug) {
+                        img src={ "/assets/" (img.asset_slug) ".jpg" }
+                            alt=(img.alt)
+                            loading="lazy"
+                            decoding="async";
                     }
                 }
             }
@@ -4432,8 +4463,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                     a class="loom-game-tile__link"
                       href=(if safe { href.as_str() } else { "#invalid-link" })
                       data-backend=(data_backend) {
-                        figure class="loom-game-tile__thumb" data-asset-slug=(image_slug) aria-label=(title) {
-                            span class="loom-asset-placeholder" { (title) }
+                        figure class="loom-game-tile__thumb" data-asset-slug=(image_slug) {
+                            img src={ "/assets/" (image_slug) ".jpg" }
+                                alt=(title)
+                                loading="lazy"
+                                decoding="async";
                         }
                         h3 class="loom-game-tile__title" { (title) }
                         span class="loom-game-tile__genre" { (genre) }
@@ -4452,8 +4486,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                             a class="loom-game-tile__link"
                               href=(if safe { g.href.as_str() } else { "#invalid-link" })
                               data-backend=(g.data_backend) {
-                                figure class="loom-game-tile__thumb" data-asset-slug=(g.image_slug) aria-label=(g.title) {
-                                    span class="loom-asset-placeholder" { (g.title) }
+                                figure class="loom-game-tile__thumb" data-asset-slug=(g.image_slug) {
+                                    img src={ "/assets/" (g.image_slug) ".jpg" }
+                                        alt=(g.title)
+                                        loading="lazy"
+                                        decoding="async";
                                 }
                                 h3 class="loom-game-tile__title" { (g.title) }
                                 span class="loom-game-tile__genre" { (g.genre) }
@@ -4500,8 +4537,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                     a class="loom-video-card__link"
                       href=(if safe { href.as_str() } else { "#invalid-link" })
                       data-backend=(data_backend) {
-                        figure class="loom-video-card__thumb" data-asset-slug=(thumbnail_slug) aria-label=(title) {
-                            span class="loom-asset-placeholder" { (title) }
+                        figure class="loom-video-card__thumb" data-asset-slug=(thumbnail_slug) {
+                            img src={ "/assets/" (thumbnail_slug) ".jpg" }
+                                alt=(title)
+                                loading="lazy"
+                                decoding="async";
                             span class="loom-video-card__duration" { (duration) }
                         }
                         h3 class="loom-video-card__title" { (title) }
@@ -4520,8 +4560,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                             a class="loom-video-card__link"
                               href=(if safe { v.href.as_str() } else { "#invalid-link" })
                               data-backend=(v.data_backend) {
-                                figure class="loom-video-card__thumb" data-asset-slug=(v.thumbnail_slug) aria-label=(v.title) {
-                                    span class="loom-asset-placeholder" { (v.title) }
+                                figure class="loom-video-card__thumb" data-asset-slug=(v.thumbnail_slug) {
+                                    img src={ "/assets/" (v.thumbnail_slug) ".jpg" }
+                                        alt=(v.title)
+                                        loading="lazy"
+                                        decoding="async";
                                     span class="loom-video-card__duration" { (v.duration) }
                                 }
                                 h3 class="loom-video-card__title" { (v.title) }
