@@ -7344,6 +7344,145 @@ body[data-loom-drawer-open] .loom-drawer-scrim {
 }
 
 /* ============================================================
+ * AccountSummary — logged-in user at-a-glance card
+ * ============================================================ */
+.loom-account-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1.5rem;
+  align-items: center;
+  padding: 1.5rem;
+  border: 1px solid color-mix(in oklab, var(--loom-color-border) 60%, transparent);
+  max-inline-size: 36rem;
+}
+.loom-account-summary__avatar { line-height: 0; }
+.loom-account-summary__name {
+  margin: 0;
+  font: 800 1.4rem/1.1 var(--loom-font-display);
+  letter-spacing: -0.018em;
+  color: var(--loom-color-ink);
+}
+.loom-account-summary__handle {
+  margin: 0.15rem 0 0;
+  font: 500 0.92rem/1 var(--loom-font-mono);
+  color: color-mix(in oklab, var(--loom-color-ink) 65%, transparent);
+}
+.loom-account-summary__meta {
+  margin: 0.75rem 0 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 1rem;
+}
+.loom-account-summary__row { display: contents; }
+.loom-account-summary__row > dt {
+  font: 600 0.78rem/1.5 var(--loom-font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: color-mix(in oklab, var(--loom-color-ink) 60%, transparent);
+}
+.loom-account-summary__row > dd {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--loom-color-ink);
+}
+
+/* ============================================================
+ * ProfileEdit — identity-facing form
+ * ============================================================ */
+.loom-profile-edit {
+  padding: clamp(1.5rem, 3vw, 2.5rem) 0;
+  max-inline-size: 36rem;
+}
+.loom-profile-edit__heading {
+  margin: 0 0 1.5rem;
+  font: 800 clamp(1.5rem, 3vw, 2rem)/1.1 var(--loom-font-display);
+  letter-spacing: -0.022em;
+}
+.loom-profile-edit__form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.loom-profile-edit__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.loom-profile-edit__row label {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+.loom-profile-edit__row input[type="text"],
+.loom-profile-edit__row textarea {
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--loom-color-border);
+  background: var(--loom-color-surface);
+  color: var(--loom-color-ink);
+  font: inherit;
+}
+.loom-profile-edit__submit { margin-top: 0.5rem; }
+
+/* ============================================================
+ * LegalDoc — ToS / Privacy / etc. typed layout
+ * ============================================================ */
+.loom-legal-doc {
+  max-inline-size: 42rem;
+  padding: clamp(2rem, 4vw, 3rem) 0;
+}
+.loom-legal-doc__header {
+  border-bottom: 1px solid color-mix(in oklab, var(--loom-color-border) 60%, transparent);
+  padding-bottom: 1rem;
+  margin-bottom: 2rem;
+}
+.loom-legal-doc__title {
+  margin: 0 0 0.3rem;
+  font: 800 clamp(1.75rem, 3.5vw, 2.5rem)/1.1 var(--loom-font-display);
+  letter-spacing: -0.022em;
+}
+.loom-legal-doc__updated {
+  margin: 0;
+  font: 500 0.85rem/1.5 var(--loom-font-mono);
+  color: color-mix(in oklab, var(--loom-color-ink) 60%, transparent);
+}
+.loom-legal-doc__summary,
+.loom-legal-doc__section-summary {
+  padding: 0.85rem 1rem;
+  border-inline-start: 3px solid color-mix(in oklab, var(--loom-color-primary) 50%, transparent);
+  background: color-mix(in oklab, var(--loom-color-primary) 6%, var(--loom-color-surface));
+  font-size: 0.92rem;
+  line-height: 1.55;
+  margin-block: 1rem;
+}
+.loom-legal-doc__toc {
+  margin-bottom: 2rem;
+  padding: 1rem 1.25rem;
+  border: 1px dashed color-mix(in oklab, var(--loom-color-border) 70%, transparent);
+}
+.loom-legal-doc__toc-heading {
+  margin: 0 0 0.5rem;
+  font: 600 0.78rem/1 var(--loom-font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: color-mix(in oklab, var(--loom-color-ink) 70%, transparent);
+}
+.loom-legal-doc__toc-list {
+  margin: 0;
+  padding-inline-start: 1.2rem;
+}
+.loom-legal-doc__toc-list li { margin-block: 0.2rem; }
+.loom-legal-doc__section { margin-block: 2rem; }
+.loom-legal-doc__section-heading {
+  font: 700 1.25rem/1.2 var(--loom-font-display);
+  letter-spacing: -0.018em;
+  margin: 0 0 0.5rem;
+}
+.loom-legal-doc__paragraph {
+  margin: 0 0 0.85rem;
+  line-height: 1.65;
+}
+
+/* ============================================================
  * SettingsPanel — typed user-preferences surface
  *
  * Server-rendered, no JS dependency. Renders as a stacked

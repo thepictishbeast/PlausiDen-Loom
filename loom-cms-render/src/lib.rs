@@ -518,17 +518,75 @@ pub enum CmsSection {
         #[serde(default)]
         position: MarginaliaPosition,
     },
+    /// Account-summary card — typed surface for a logged-in
+    /// user's at-a-glance state. Renders avatar + display name +
+    /// plan + member-since. Read-only; editing flows through
+    /// `ProfileEdit`. Server-rendered.
+    AccountSummary {
+        /// Visible display name.
+        display_name: String,
+        /// Avatar — typed enum (None / Initials / Image).
+        #[serde(default = "default_no_avatar")]
+        avatar: CmsAvatar,
+        /// Plan / tier label (e.g. "Solo", "Team").
+        plan: String,
+        /// Member-since string (RFC 3339 date or human form).
+        member_since: String,
+        /// Optional secondary line under the name (e.g. handle).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        handle: Option<String>,
+    },
+    /// Profile-edit form — typed surface for the logged-in user
+    /// to update their identity-facing fields. Distinct from
+    /// `SettingsPanel` (which is preferences); ProfileEdit is
+    /// "who you are." Server-rendered; posts back to caller's
+    /// endpoint.
+    ProfileEdit {
+        /// Where the form POSTs.
+        action: String,
+        /// Pre-filled display name.
+        #[serde(default)]
+        display_name: String,
+        /// Pre-filled handle / username.
+        #[serde(default)]
+        handle: String,
+        /// Pre-filled pronouns string.
+        #[serde(default)]
+        pronouns: String,
+        /// Pre-filled bio (multi-line).
+        #[serde(default)]
+        bio: String,
+        /// Pre-filled language preference slug.
+        #[serde(default)]
+        language: String,
+        /// Submit-button label.
+        #[serde(default = "default_profile_submit_label")]
+        submit_label: String,
+    },
+    /// Terms-of-Service / Privacy-Policy / similar legal-doc
+    /// page. Typed structure: title, last-updated, table-of-
+    /// contents (auto-derived from sections), then a flat list
+    /// of named sections with anchored headings + plain-language
+    /// summary boxes.
+    LegalDoc {
+        /// Document title (e.g. "Terms of Service", "Privacy
+        /// Policy").
+        title: String,
+        /// Last-updated date string (RFC 3339 preferred).
+        last_updated: String,
+        /// Optional plain-language tl;dr above the table of
+        /// contents.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plain_language_summary: Option<String>,
+        /// Document sections in display order.
+        sections_list: Vec<LegalSection>,
+    },
     /// Settings / preferences panel — a typed surface for the
     /// logged-in user's site preferences. Renders as a labeled
     /// definition-list with controls (toggles / text / danger
     /// buttons), categorised. Server-side-rendered so it survives
     /// LOOM_NOSCRIPT_MODE; the form posts back to a tenant-
     /// provided endpoint (the renderer doesn't bind a handler).
-    ///
-    /// Contributes to #123 — the account / profile / settings /
-    /// ToS / privacy primitive batch. SettingsPanel is the first
-    /// of that group; AccountSummary / ProfileEdit / TosPage /
-    /// PrivacyPolicyPage land in subsequent iterations.
     SettingsPanel {
         /// Optional section heading rendered above the panel.
         heading: Option<String>,
@@ -1608,6 +1666,31 @@ fn default_settings_submit_label() -> String {
 
 fn default_settings_textarea_rows() -> u8 {
     4
+}
+
+fn default_profile_submit_label() -> String {
+    "Update profile".to_owned()
+}
+
+fn default_no_avatar() -> CmsAvatar {
+    CmsAvatar::None
+}
+
+/// One section of a [`CmsSection::LegalDoc`]. Each section gets
+/// a stable kebab-case anchor (derived from `heading`) so the
+/// auto-generated table of contents can link to it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LegalSection {
+    /// Section heading text.
+    pub heading: String,
+    /// Body paragraphs (plain text, auto-escaped). Each entry
+    /// renders as a `<p>` in order.
+    pub body: Vec<String>,
+    /// Optional plain-language summary callout box inside this
+    /// section.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plain_language: Option<String>,
 }
 
 /// Wide-viewport float side for [`CmsSection::Marginalia`].
@@ -2845,6 +2928,168 @@ pub fn render_section(section: &CmsSection) -> Markup {
             html! {
                 aside class={ "loom-marginalia " (pos_class) } role="note" {
                     span class="loom-marginalia__body" { (body) }
+                }
+            }
+        }
+        CmsSection::AccountSummary {
+            display_name,
+            avatar,
+            plan,
+            member_since,
+            handle,
+        } => {
+            html! {
+                section class="loom-account-summary" data-loom-account-summary {
+                    div class="loom-account-summary__avatar" {
+                        @match avatar {
+                            CmsAvatar::None => {}
+                            CmsAvatar::Initials { letters } => {
+                                span class="loom-avatar loom-avatar--initials" { (letters) }
+                            }
+                            CmsAvatar::Image { src, alt } => {
+                                @let safe = loom_components::composer::is_safe_url(src);
+                                img class="loom-avatar loom-avatar--image"
+                                    src=(if safe { src.as_str() } else { "" })
+                                    alt=(alt)
+                                    data-invalid=[(!safe).then_some("true")]
+                                    decoding="async";
+                            }
+                        }
+                    }
+                    div class="loom-account-summary__body" {
+                        h2 class="loom-account-summary__name" { (display_name) }
+                        @if let Some(h) = handle {
+                            p class="loom-account-summary__handle" { "@" (h) }
+                        }
+                        dl class="loom-account-summary__meta" {
+                            div class="loom-account-summary__row" {
+                                dt { "Plan" } dd { (plan) }
+                            }
+                            div class="loom-account-summary__row" {
+                                dt { "Member since" } dd { (member_since) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        CmsSection::ProfileEdit {
+            action,
+            display_name,
+            handle,
+            pronouns,
+            bio,
+            language,
+            submit_label,
+        } => {
+            let action_safe = loom_components::composer::is_safe_url(action);
+            html! {
+                section class="loom-profile-edit" data-loom-profile-edit {
+                    h2 class="loom-profile-edit__heading" { "Profile" }
+                    form class="loom-profile-edit__form"
+                        method="post"
+                        action=(if action_safe { action.as_str() } else { "#invalid-action" })
+                        data-invalid=[(!action_safe).then_some("true")] {
+                        div class="loom-profile-edit__row" {
+                            label for="profile-display-name" { "Display name" }
+                            input type="text"
+                                id="profile-display-name"
+                                name="display_name"
+                                value=(display_name);
+                        }
+                        div class="loom-profile-edit__row" {
+                            label for="profile-handle" { "Handle" }
+                            input type="text"
+                                id="profile-handle"
+                                name="handle"
+                                value=(handle)
+                                placeholder="username";
+                        }
+                        div class="loom-profile-edit__row" {
+                            label for="profile-pronouns" { "Pronouns" }
+                            input type="text"
+                                id="profile-pronouns"
+                                name="pronouns"
+                                value=(pronouns)
+                                placeholder="they / them";
+                        }
+                        div class="loom-profile-edit__row" {
+                            label for="profile-bio" { "Bio" }
+                            textarea id="profile-bio" name="bio" rows="4" { (bio) }
+                        }
+                        div class="loom-profile-edit__row" {
+                            label for="profile-language" { "Language" }
+                            input type="text"
+                                id="profile-language"
+                                name="language"
+                                value=(language)
+                                placeholder="en";
+                        }
+                        div class="loom-profile-edit__submit" {
+                            button type="submit" class="loom-btn loom-btn--primary" { (submit_label) }
+                        }
+                    }
+                }
+            }
+        }
+        CmsSection::LegalDoc {
+            title,
+            last_updated,
+            plain_language_summary,
+            sections_list,
+        } => {
+            // Derive stable kebab-case anchors from each heading.
+            let anchors: Vec<String> = sections_list
+                .iter()
+                .map(|s| {
+                    s.heading
+                        .to_lowercase()
+                        .chars()
+                        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+                        .collect::<String>()
+                        .trim_matches('-')
+                        .to_owned()
+                })
+                .collect();
+            html! {
+                article class="loom-legal-doc" data-loom-legal-doc {
+                    header class="loom-legal-doc__header" {
+                        h1 class="loom-legal-doc__title" { (title) }
+                        p class="loom-legal-doc__updated" {
+                            "Last updated " (last_updated)
+                        }
+                    }
+                    @if let Some(summary) = plain_language_summary {
+                        aside class="loom-legal-doc__summary" role="note" {
+                            strong { "In plain language:" }
+                            " " (summary)
+                        }
+                    }
+                    nav class="loom-legal-doc__toc" aria-label="Table of contents" {
+                        h2 class="loom-legal-doc__toc-heading" { "Contents" }
+                        ol class="loom-legal-doc__toc-list" {
+                            @for (i, s) in sections_list.iter().enumerate() {
+                                @let anchor = &anchors[i];
+                                li { a href={"#" (anchor)} { (s.heading) } }
+                            }
+                        }
+                    }
+                    div class="loom-legal-doc__body" {
+                        @for (i, s) in sections_list.iter().enumerate() {
+                            @let anchor = &anchors[i];
+                            section class="loom-legal-doc__section" {
+                                h2 id=(anchor) class="loom-legal-doc__section-heading" { (s.heading) }
+                                @if let Some(pl) = &s.plain_language {
+                                    aside class="loom-legal-doc__section-summary" role="note" {
+                                        strong { "Plain language:" } " " (pl)
+                                    }
+                                }
+                                @for paragraph in &s.body {
+                                    p class="loom-legal-doc__paragraph" { (paragraph) }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
