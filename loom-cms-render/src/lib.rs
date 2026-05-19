@@ -758,7 +758,31 @@ pub enum CmsSection {
 
     // Marketing extras (12).
     /// Testimonial card with avatar + role.
-    Testimonial { body: String, attribution: String, role: Option<String>, avatar_slug: Option<String> },
+    Testimonial {
+        /// Quoted body.
+        body: String,
+        /// Speaker name.
+        attribution: String,
+        /// Optional speaker role / company.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        role: Option<String>,
+        /// Optional avatar asset slug under `/assets/`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        avatar_slug: Option<String>,
+        /// Visual treatment. `Decorated` (default, back-compat)
+        /// is the legacy avatar+quote card; `Editorial` drops
+        /// the card chrome and renders as pull-quote-style
+        /// typography; `Minimal` is just the quote + attribution
+        /// line, no card, no avatar.
+        ///
+        /// PRIORITY 6 audit — `.loom-testimonial` had textbook
+        /// "fake testimonial card with avatars" trope CSS
+        /// (rounded chrome + circular avatar). Variant-aware
+        /// opt-out lets sites use the primitive without
+        /// committing to that shape.
+        #[serde(default)]
+        decoration: TestimonialDecoration,
+    },
     /// Richer logo cloud with grayscale + hover-color treatment.
     LogoCloud { heading: Option<String>, items: Vec<String> },
     /// Side-by-side feature/spec comparison.
@@ -1174,6 +1198,34 @@ pub enum FeatureSpotlightDecoration {
 }
 
 impl FeatureSpotlightDecoration {
+    /// Class-modifier suffix emitted on the section element.
+    pub const fn modifier_class(self) -> &'static str {
+        match self {
+            Self::Decorated => "deco-decorated",
+            Self::Editorial => "deco-editorial",
+            Self::Minimal => "deco-minimal",
+        }
+    }
+}
+
+/// Visual treatment for [`CmsSection::Testimonial`].
+///
+/// `Decorated` (default) is the legacy avatar+quote card.
+/// `Editorial` drops card chrome for pull-quote typography.
+/// `Minimal` is just the quote + attribution line.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TestimonialDecoration {
+    /// Legacy avatar+quote card. Back-compat default.
+    #[default]
+    Decorated,
+    /// Pull-quote-style typography, no card.
+    Editorial,
+    /// Quote + attribution only. No card, no avatar.
+    Minimal,
+}
+
+impl TestimonialDecoration {
     /// Class-modifier suffix emitted on the section element.
     pub const fn modifier_class(self) -> &'static str {
         match self {
@@ -3608,13 +3660,21 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 span class="loom-pull-stat__label" { (label) }
             }
         },
-        CmsSection::Testimonial { body, attribution, role, avatar_slug } => html! {
-            figure class="loom-testimonial" data-loom-reveal {
-                blockquote class="loom-testimonial__body" { (body) }
-                figcaption class="loom-testimonial__author" {
-                    @if let Some(slug) = avatar_slug { span class="loom-testimonial__avatar" data-asset-slug=(slug) aria-hidden="true" {} }
-                    span class="loom-testimonial__name" { (attribution) }
-                    @if let Some(r) = role { span class="loom-testimonial__role" { " · " (r) } }
+        CmsSection::Testimonial { body, attribution, role, avatar_slug, decoration } => {
+            let deco = decoration.modifier_class();
+            let show_avatar = matches!(decoration, TestimonialDecoration::Decorated);
+            html! {
+                figure class={ "loom-testimonial " (deco) } data-loom-reveal {
+                    blockquote class="loom-testimonial__body" { (body) }
+                    figcaption class="loom-testimonial__author" {
+                        @if show_avatar {
+                            @if let Some(slug) = avatar_slug {
+                                span class="loom-testimonial__avatar" data-asset-slug=(slug) aria-hidden="true" {}
+                            }
+                        }
+                        span class="loom-testimonial__name" { (attribution) }
+                        @if let Some(r) = role { span class="loom-testimonial__role" { " · " (r) } }
+                    }
                 }
             }
         },
@@ -5756,6 +5816,67 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn testimonial_default_decoration_is_decorated() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{"kind":"testimonial","body":"B","attribution":"A"}]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-testimonial"));
+        assert!(html.contains("deco-decorated"));
+    }
+
+    #[test]
+    fn testimonial_editorial_decoration_drops_avatar() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind":"testimonial",
+                "body":"B",
+                "attribution":"A",
+                "avatar_slug":"avatars/a",
+                "decoration":"editorial"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("deco-editorial"));
+        assert!(!html.contains("loom-testimonial__avatar"));
+    }
+
+    #[test]
+    fn testimonial_minimal_decoration_drops_avatar() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind":"testimonial",
+                "body":"B",
+                "attribution":"A",
+                "avatar_slug":"avatars/a",
+                "decoration":"minimal"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("deco-minimal"));
+        assert!(!html.contains("loom-testimonial__avatar"));
+    }
+
+    #[test]
+    fn testimonial_decoration_modifier_class_matches_variant() {
+        assert_eq!(TestimonialDecoration::Decorated.modifier_class(), "deco-decorated");
+        assert_eq!(TestimonialDecoration::Editorial.modifier_class(), "deco-editorial");
+        assert_eq!(TestimonialDecoration::Minimal.modifier_class(), "deco-minimal");
     }
 
     #[test]
