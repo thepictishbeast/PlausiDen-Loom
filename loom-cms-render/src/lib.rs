@@ -513,6 +513,19 @@ pub enum CmsSection {
         /// Optional attribution (e.g. "Jane Doe, CTO @ Acme").
         attribution: Option<String>,
     },
+    /// Editorial epigraph — an opening quote, poem fragment, or
+    /// motto placed BEFORE the article's first paragraph. Distinct
+    /// from [`CmsSection::PullQuote`] (which interrupts mid-flow)
+    /// and from [`CmsSection::Quote`] (which is a generic
+    /// quotation card). Sets the rhetorical tone for the piece.
+    Epigraph {
+        /// Body of the epigraph (auto-escaped).
+        body: String,
+        /// Optional source attribution
+        /// (e.g. "Rilke, Duino Elegies").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        attribution: Option<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -3207,6 +3220,14 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::Epigraph { body, attribution } => html! {
+            figure class="loom-epigraph" data-loom-reveal {
+                blockquote class="loom-epigraph__body" { (body) }
+                @if let Some(a) = attribution {
+                    figcaption class="loom-epigraph__attribution" { "— " (a) }
+                }
+            }
+        },
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container { children_html, max_width } => {
             let w = match max_width {
@@ -5340,6 +5361,55 @@ mod tests {
         let after_pos = html.find("loom-image-hero__slot--after-cta").unwrap();
         assert!(before_pos < title_pos, "before_headline must precede title");
         assert!(title_pos < after_pos, "after_cta must follow title");
+    }
+
+    #[test]
+    fn epigraph_renders_body_and_attribution() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "epigraph",
+                "body": "We must imagine Sisyphus happy.",
+                "attribution": "Camus"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-epigraph"));
+        assert!(html.contains("loom-epigraph__body"));
+        assert!(html.contains("Sisyphus"));
+        assert!(html.contains("loom-epigraph__attribution"));
+        assert!(html.contains("Camus"));
+    }
+
+    #[test]
+    fn epigraph_attribution_optional() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{"kind": "epigraph", "body": "Begin again."}]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-epigraph__body"));
+        assert!(!html.contains("loom-epigraph__attribution"));
+    }
+
+    #[test]
+    fn epigraph_body_is_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{"kind": "epigraph", "body": "<script>alert(1)</script>"}]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
