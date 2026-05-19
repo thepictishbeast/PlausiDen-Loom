@@ -518,6 +518,32 @@ pub enum CmsSection {
         #[serde(default)]
         position: MarginaliaPosition,
     },
+    /// Settings / preferences panel — a typed surface for the
+    /// logged-in user's site preferences. Renders as a labeled
+    /// definition-list with controls (toggles / text / danger
+    /// buttons), categorised. Server-side-rendered so it survives
+    /// LOOM_NOSCRIPT_MODE; the form posts back to a tenant-
+    /// provided endpoint (the renderer doesn't bind a handler).
+    ///
+    /// Contributes to #123 — the account / profile / settings /
+    /// ToS / privacy primitive batch. SettingsPanel is the first
+    /// of that group; AccountSummary / ProfileEdit / TosPage /
+    /// PrivacyPolicyPage land in subsequent iterations.
+    SettingsPanel {
+        /// Optional section heading rendered above the panel.
+        heading: Option<String>,
+        /// Optional lede paragraph below the heading.
+        lede: Option<String>,
+        /// Where the form POSTs on submit. Caller-side endpoint;
+        /// the renderer just emits `action=`.
+        action: String,
+        /// Categorised groups of controls.
+        categories: Vec<SettingsCategory>,
+        /// Submit-button label. Defaults to "Save changes" if
+        /// omitted at the JSON layer.
+        #[serde(default = "default_settings_submit_label")]
+        submit_label: String,
+    },
     // ─── T660 P5 catalogue expansion ───────────────────────
     // Layout primitives (10).
     /// Bounded-width content container.
@@ -1500,6 +1526,88 @@ impl ContentWidth {
             Self::Full => "full",
         }
     }
+}
+
+/// One named category in a [`CmsSection::SettingsPanel`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SettingsCategory {
+    /// Category heading (e.g. "Account", "Privacy", "Danger zone").
+    pub name: String,
+    /// Items in this category.
+    pub items: Vec<SettingsItem>,
+}
+
+/// One item in a [`SettingsCategory`]. Each item pairs a label
+/// with a control. Controls are typed via `SettingsControl`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SettingsItem {
+    /// Visible label rendered as the `<dt>` for the row.
+    pub label: String,
+    /// Form-input name attribute — keys the value in the
+    /// submitted form.
+    pub name: String,
+    /// Optional muted hint shown below the label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+    /// The typed control.
+    pub control: SettingsControl,
+}
+
+/// Typed control for a [`SettingsItem`]. Closed enum; adding a
+/// variant is a deliberate surface change.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SettingsControl {
+    /// On/off checkbox.
+    Toggle {
+        /// Whether the toggle ships as `checked`.
+        #[serde(default)]
+        default_on: bool,
+    },
+    /// Single-line text input.
+    Text {
+        /// Pre-filled value.
+        #[serde(default)]
+        default_value: String,
+        /// Placeholder shown when empty.
+        #[serde(default)]
+        placeholder: String,
+        /// Optional max length.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_length: Option<u32>,
+    },
+    /// Multi-line textarea.
+    Textarea {
+        /// Pre-filled value.
+        #[serde(default)]
+        default_value: String,
+        /// Rows attribute.
+        #[serde(default = "default_settings_textarea_rows")]
+        rows: u8,
+    },
+    /// Destructive action button. Renders separately from the
+    /// main form submit — its own POST endpoint + a confirm
+    /// prompt at the form level.
+    DangerButton {
+        /// Button label (e.g. "Delete account").
+        button_label: String,
+        /// Confirm-prompt text — rendered as the form's
+        /// `aria-describedby` content + as a visual disclaimer.
+        confirm_text: String,
+        /// Where the danger action POSTs. Distinct from the
+        /// panel's main `action`.
+        action: String,
+    },
+}
+
+fn default_settings_submit_label() -> String {
+    "Save changes".to_owned()
+}
+
+fn default_settings_textarea_rows() -> u8 {
+    4
 }
 
 /// Wide-viewport float side for [`CmsSection::Marginalia`].
@@ -2737,6 +2845,84 @@ pub fn render_section(section: &CmsSection) -> Markup {
             html! {
                 aside class={ "loom-marginalia " (pos_class) } role="note" {
                     span class="loom-marginalia__body" { (body) }
+                }
+            }
+        }
+        CmsSection::SettingsPanel {
+            heading,
+            lede,
+            action,
+            categories,
+            submit_label,
+        } => {
+            let action_safe = loom_components::composer::is_safe_url(action);
+            html! {
+                section class="loom-settings-panel" data-loom-settings {
+                    @if let Some(h) = heading {
+                        h2 class="loom-settings-panel__heading" { (h) }
+                    }
+                    @if let Some(l) = lede {
+                        p class="loom-settings-panel__lede" { (l) }
+                    }
+                    form class="loom-settings-panel__form"
+                        method="post"
+                        action=(if action_safe { action.as_str() } else { "#invalid-action" })
+                        data-invalid=[(!action_safe).then_some("true")] {
+                        @for category in categories {
+                            fieldset class="loom-settings-category" {
+                                legend class="loom-settings-category__name" { (category.name) }
+                                dl class="loom-settings-category__items" {
+                                    @for item in &category.items {
+                                        div class="loom-settings-item" {
+                                            dt class="loom-settings-item__label" {
+                                                label for=(item.name) { (item.label) }
+                                                @if let Some(hint) = &item.hint {
+                                                    span class="loom-settings-item__hint" { (hint) }
+                                                }
+                                            }
+                                            dd class="loom-settings-item__control" {
+                                                @match &item.control {
+                                                    SettingsControl::Toggle { default_on } => {
+                                                        input type="checkbox"
+                                                            id=(item.name)
+                                                            name=(item.name)
+                                                            checked[*default_on];
+                                                    }
+                                                    SettingsControl::Text { default_value, placeholder, max_length } => {
+                                                        input type="text"
+                                                            id=(item.name)
+                                                            name=(item.name)
+                                                            value=(default_value)
+                                                            placeholder=(placeholder)
+                                                            maxlength=[max_length.map(|m| m.to_string())];
+                                                    }
+                                                    SettingsControl::Textarea { default_value, rows } => {
+                                                        textarea
+                                                            id=(item.name)
+                                                            name=(item.name)
+                                                            rows=(rows.to_string()) { (default_value) }
+                                                    }
+                                                    SettingsControl::DangerButton { button_label, confirm_text, action: danger_action } => {
+                                                        @let danger_safe = loom_components::composer::is_safe_url(danger_action);
+                                                        form class="loom-settings-item__danger-form"
+                                                            method="post"
+                                                            action=(if danger_safe { danger_action.as_str() } else { "#invalid-action" })
+                                                            data-invalid=[(!danger_safe).then_some("true")] {
+                                                            p class="loom-settings-item__danger-confirm" { (confirm_text) }
+                                                            button type="submit" class="loom-btn loom-btn--danger" { (button_label) }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        div class="loom-settings-panel__submit" {
+                            button type="submit" class="loom-btn loom-btn--primary" { (submit_label) }
+                        }
+                    }
                 }
             }
         }
