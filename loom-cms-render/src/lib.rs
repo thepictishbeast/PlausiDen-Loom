@@ -131,6 +131,66 @@ pub struct CmsPage {
     /// (and no script load) without that opt-in.
     #[serde(default)]
     pub dev_devtools: bool,
+    /// Optional typed footer. When `None`, the page-shell emits
+    /// an empty `<footer class="loom-page-footer"></footer>`
+    /// (back-compat). When `Some`, the renderer expands a typed
+    /// multi-column footer with optional contact info and legal
+    /// links.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub footer: Option<CmsFooter>,
+}
+
+/// Typed page footer.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CmsFooter {
+    /// Footer link columns. Common shape: 3-5 columns, each with
+    /// a heading and a vertical list of links.
+    #[serde(default)]
+    pub columns: Vec<CmsFooterColumn>,
+    /// Optional contact-info block (phone / email / address /
+    /// jurisdiction). Renders as a separate column on the right.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contact: Option<CmsFooterContact>,
+    /// Bottom-row legal links (Privacy, Terms, Imprint, etc.).
+    /// Rendered as inline-flex under the columns.
+    #[serde(default)]
+    pub legal_links: Vec<CmsNavLink>,
+    /// Optional copyright / colophon line at the very bottom.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub colophon: Option<String>,
+}
+
+/// One footer link column.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CmsFooterColumn {
+    /// Column heading (rendered as small uppercase label).
+    pub heading: String,
+    /// Vertical link list.
+    pub links: Vec<CmsNavLink>,
+}
+
+/// Contact-info block for the footer.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CmsFooterContact {
+    /// Optional column heading (defaults to "Contact" if absent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heading: Option<String>,
+    /// Phone number (any format; renderer wraps in tel: link if
+    /// the string starts with a digit or `+`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phone: Option<String>,
+    /// Email address (renderer wraps in mailto:).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    /// Physical address (free-form text; no link).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    /// Jurisdiction line (e.g. "Massachusetts, USA").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jurisdiction: Option<String>,
 }
 
 /// One primary-nav link.
@@ -5165,6 +5225,7 @@ mod tests {
             path: "/".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![],
         };
         let html = render_to_string(&p);
@@ -5190,6 +5251,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Paragraph {
                 text: "Hello world.".to_owned(),
                 decoration: ParagraphDecoration::Body,
@@ -5213,6 +5275,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Paragraph {
                 text: "<script>alert(1)</script>".to_owned(),
                 decoration: ParagraphDecoration::Body,
@@ -5237,6 +5300,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Heading {
                 text: "Section".to_owned(),
                 level: HeadingLevel::H2,
@@ -5271,6 +5335,7 @@ mod tests {
                 path: "/x".to_owned(),
                 nav_links: vec![],
                 dev_devtools: false,
+                footer: None,
                 sections: vec![CmsSection::Heading {
                     text: "x".to_owned(),
                     level,
@@ -5365,6 +5430,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Composer {
                 prompt: "What did you nail?".to_owned(),
                 submit_endpoint: "/post-skill".to_owned(),
@@ -5395,6 +5461,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Picture {
                 src_stem: "hero/dragon".to_owned(),
                 alt: "A dragon".to_owned(),
@@ -5507,6 +5574,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Hero {
                 eyebrow: None,
                 title: "Welcome".to_owned(),
@@ -5536,6 +5604,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Hero {
                 eyebrow: Some("New".to_owned()),
                 title: "Welcome".to_owned(),
@@ -5570,6 +5639,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Hero {
                 eyebrow: None,
                 title: "x".to_owned(),
@@ -5601,6 +5671,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Hero {
                 eyebrow: Some("<x>".to_owned()),
                 title: "<script>".to_owned(),
@@ -6042,6 +6113,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Group {
                 title: "Rules".to_owned(),
                 body: vec!["First rule.".to_owned(), "Second rule.".to_owned()],
@@ -6070,6 +6142,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Group {
                 title: "Empty".to_owned(),
                 body: vec![],
@@ -6118,6 +6191,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![c],
@@ -6236,6 +6310,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::CardFeed {
                 heading: Some("Top battles".to_owned()),
                 items: vec![card("Battle A", "/c/a"), card("Battle B", "/c/b")],
@@ -6264,6 +6339,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![card("Only", "/c/only")],
@@ -6288,6 +6364,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![card("X", "/x")],
@@ -6317,6 +6394,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![c],
@@ -6342,6 +6420,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![c],
@@ -6370,6 +6449,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![c],
@@ -6401,6 +6481,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::CardFeed {
                 heading: None,
                 items: vec![c],
@@ -6425,6 +6506,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::CardFeed {
                 heading: Some("Empty list".to_owned()),
                 items: vec![],
@@ -6450,6 +6532,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Sidebar {
                 label: Some("Right rail".to_owned()),
                 panels: vec![],
@@ -6473,6 +6556,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Sidebar {
                 label: None,
                 panels: vec![],
@@ -6496,6 +6580,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Sidebar {
                 label: None,
                 panels: vec![CmsPanel {
@@ -6542,6 +6627,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Sidebar {
                 label: None,
                 panels: vec![CmsPanel {
@@ -6572,6 +6658,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Sidebar {
                 label: None,
                 panels: vec![CmsPanel {
@@ -6606,6 +6693,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Sidebar {
                 label: None,
                 panels: vec![CmsPanel {
@@ -6671,6 +6759,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![simple_form()],
         }
     }
@@ -6727,6 +6816,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Form {
                 legend: "x".to_owned(),
                 submit: CmsFormSubmit {
@@ -6818,6 +6908,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Form {
                 legend: "x".to_owned(),
                 submit: CmsFormSubmit {
@@ -6865,6 +6956,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Form {
                 legend: "x".to_owned(),
                 submit: CmsFormSubmit {
@@ -6909,6 +7001,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Form {
                 legend: "x".to_owned(),
                 submit: CmsFormSubmit {
@@ -6948,6 +7041,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Form {
                 legend: "x".to_owned(),
                 submit: CmsFormSubmit {
@@ -6979,6 +7073,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Form {
                 legend: "<script>".to_owned(),
                 submit: CmsFormSubmit {
@@ -7027,6 +7122,7 @@ mod tests {
             path: "/x".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Banner {
                 tone,
                 text: text.to_owned(),
@@ -7150,6 +7246,7 @@ mod tests {
             path: "/c".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Code {
                 lang: lang.to_owned(),
                 body: body.to_owned(),
@@ -7246,6 +7343,7 @@ mod tests {
             path: "/q".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Quote {
                 body: body.to_owned(),
                 attribution: attribution.to_owned(),
@@ -7344,6 +7442,7 @@ mod tests {
             path: "/lw".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::LogoWall {
                 heading: heading.map(|s| s.to_owned()),
                 items,
@@ -7449,6 +7548,7 @@ mod tests {
             path: "/kv".to_owned(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::KvPair {
                 heading: heading.map(|s| s.to_owned()),
                 items,
@@ -8146,6 +8246,7 @@ pub fn page_shell_themed(
     // ignores nav_actions today).
     let nav_actions_html = render_nav_actions(&page.nav_actions);
     let content_width = page.content_width.unwrap_or_default();
+    let footer_html = render_page_footer(page.footer.as_ref());
     let body_html = render_chrome_body(
         chrome,
         &brand,
@@ -8155,6 +8256,7 @@ pub fn page_shell_themed(
         body,
         content_width,
         noscript_mode,
+        &footer_html,
     );
     // T37 v1 + T66 (closes #649): closed allow-list for the
     // `data-theme` attribute. T66 extends to named palettes
@@ -8217,6 +8319,7 @@ fn render_chrome_body(
     body: &str,
     content_width: ContentWidth,
     noscript_mode: bool,
+    footer_html: &str,
 ) -> String {
     let _ = nav_actions_html; // PageShell ignores nav_actions today
     let cw = content_width.attr_value();
@@ -8249,7 +8352,7 @@ fn render_chrome_body(
 {toggle_btn_pageshell}</nav>{page_title_block}\n  \
 </header>\n  \
 <main id=\"content\">\n{body}\n  </main>\n  \
-<footer class=\"loom-page-footer\"></footer>\n  \
+{footer_html}\n  \
 {toggle_script}</body>\n"
         ),
         ChromeKind::FloatingPill => format!(
@@ -8264,17 +8367,118 @@ fn render_chrome_body(
 </nav>\n  \
 </header>{page_title_block}\n  \
 <main id=\"content\">\n{body}\n  </main>\n  \
-<footer class=\"loom-page-footer\"></footer>\n  \
+{footer_html}\n  \
 {toggle_script}</body>\n"
         ),
         ChromeKind::Minimal => format!(
             "<body data-chrome=\"minimal\" data-content-width=\"{cw}\">\n  \
 <a class=\"loom-skip\" href=\"#content\">Skip to content</a>{page_title_block}\n  \
 <main id=\"content\">\n{body}\n  </main>\n  \
-<footer class=\"loom-page-footer\"></footer>\n  \
+{footer_html}\n  \
 {toggle_script}</body>\n"
         ),
     }
+}
+
+/// Render the page footer. `None` → empty back-compat footer
+/// (just the styled tag). `Some` → typed multi-column layout
+/// with columns / contact info / legal links / colophon.
+fn render_page_footer(footer: Option<&CmsFooter>) -> String {
+    let Some(f) = footer else {
+        return "<footer class=\"loom-page-footer\"></footer>".to_owned();
+    };
+    let mut out = String::new();
+    out.push_str("<footer class=\"loom-page-footer loom-page-footer--rich\">");
+    out.push_str("<div class=\"loom-page-footer__columns\">");
+    for col in &f.columns {
+        out.push_str("<section class=\"loom-page-footer__col\">");
+        out.push_str("<h3 class=\"loom-page-footer__heading\">");
+        out.push_str(&escape_html_text(&col.heading));
+        out.push_str("</h3><ul class=\"loom-page-footer__links\">");
+        for link in &col.links {
+            let href = if loom_components::composer::is_safe_url(&link.href) {
+                link.href.as_str()
+            } else {
+                "#invalid-link"
+            };
+            out.push_str("<li><a href=\"");
+            out.push_str(&escape_html_attr(href));
+            out.push_str("\" data-backend=\"");
+            out.push_str(&escape_html_attr(&link.data_backend));
+            out.push_str("\">");
+            out.push_str(&escape_html_text(&link.label));
+            out.push_str("</a></li>");
+        }
+        out.push_str("</ul></section>");
+    }
+    if let Some(c) = &f.contact {
+        let heading = c.heading.as_deref().unwrap_or("Contact");
+        out.push_str("<section class=\"loom-page-footer__col loom-page-footer__contact\">");
+        out.push_str("<h3 class=\"loom-page-footer__heading\">");
+        out.push_str(&escape_html_text(heading));
+        out.push_str("</h3>");
+        if let Some(phone) = &c.phone {
+            let bytes = phone.as_bytes();
+            let dialable = !bytes.is_empty()
+                && (bytes[0] == b'+' || bytes[0].is_ascii_digit());
+            if dialable {
+                let tel = phone.replace([' ', '-', '(', ')'], "");
+                out.push_str("<p><a href=\"tel:");
+                out.push_str(&escape_html_attr(&tel));
+                out.push_str("\">");
+                out.push_str(&escape_html_text(phone));
+                out.push_str("</a></p>");
+            } else {
+                out.push_str("<p>");
+                out.push_str(&escape_html_text(phone));
+                out.push_str("</p>");
+            }
+        }
+        if let Some(email) = &c.email {
+            out.push_str("<p><a href=\"mailto:");
+            out.push_str(&escape_html_attr(email));
+            out.push_str("\">");
+            out.push_str(&escape_html_text(email));
+            out.push_str("</a></p>");
+        }
+        if let Some(addr) = &c.address {
+            out.push_str("<p>");
+            out.push_str(&escape_html_text(addr));
+            out.push_str("</p>");
+        }
+        if let Some(j) = &c.jurisdiction {
+            out.push_str("<p class=\"loom-page-footer__jurisdiction\">");
+            out.push_str(&escape_html_text(j));
+            out.push_str("</p>");
+        }
+        out.push_str("</section>");
+    }
+    out.push_str("</div>");
+    if !f.legal_links.is_empty() {
+        out.push_str("<nav class=\"loom-page-footer__legal\" aria-label=\"Legal\"><ul>");
+        for link in &f.legal_links {
+            let href = if loom_components::composer::is_safe_url(&link.href) {
+                link.href.as_str()
+            } else {
+                "#invalid-link"
+            };
+            out.push_str("<li><a href=\"");
+            out.push_str(&escape_html_attr(href));
+            out.push_str("\" data-backend=\"");
+            out.push_str(&escape_html_attr(&link.data_backend));
+            out.push_str("\">");
+            out.push_str(&escape_html_text(&link.label));
+            out.push_str("</a></li>");
+        }
+        out.push_str("</ul></nav>");
+    }
+    if let Some(c) = &f.colophon {
+        out.push_str("<p class=\"loom-page-footer__colophon\">");
+        out.push_str(&escape_html_text(c));
+        out.push_str("</p>");
+    }
+    out.push_str("</footer>");
+    out
 }
 
 #[cfg(test)]
@@ -8294,6 +8498,7 @@ mod page_shell_tests {
             path: "/".into(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![],
         }
     }
@@ -8509,6 +8714,7 @@ mod page_shell_tests {
             path: "/".into(),
             nav_links: vec![],
             dev_devtools: false,
+            footer: None,
             sections: vec![CmsSection::Heading {
                 level: HeadingLevel::H2,
                 text: "x".into(),

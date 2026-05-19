@@ -2404,6 +2404,7 @@ fn build_state_matrix_page() -> loom_cms_render::CmsPage {
             },
         ],
         dev_devtools: false,
+        footer: None,
         sections: vec![
             // Heading — every level h2..h6.
             CmsSection::Heading {
@@ -2881,6 +2882,7 @@ mod cms_render_tests {
             nav_links: vec![],
             sections: vec![],
             dev_devtools: false,
+            footer: None,
         }
     }
 
@@ -11604,6 +11606,7 @@ fn cms_template_landing(title: &str, path: &str) -> loom_cms_render::CmsPage {
         path: path.to_owned(),
         nav_links: cms_standard_nav(),
         dev_devtools: false,
+        footer: None,
         sections: vec![
             CmsSection::Hero {
                 eyebrow: Some("New".to_owned()),
@@ -11673,6 +11676,7 @@ fn cms_template_explainer(title: &str, path: &str) -> loom_cms_render::CmsPage {
         path: path.to_owned(),
         nav_links: cms_standard_nav(),
         dev_devtools: false,
+        footer: None,
         sections: vec![
             CmsSection::Hero {
                 eyebrow: None,
@@ -11715,6 +11719,7 @@ fn cms_template_form(title: &str, path: &str) -> loom_cms_render::CmsPage {
         path: path.to_owned(),
         nav_links: cms_standard_nav(),
         dev_devtools: false,
+        footer: None,
         sections: vec![
             CmsSection::Hero {
                 eyebrow: None,
@@ -21513,6 +21518,7 @@ mod editor_schema_tests {
             nav_links: vec![],
             sections: vec![],
             dev_devtools: false,
+            footer: None,
         }
     }
 
@@ -21659,6 +21665,7 @@ mod editor_schema_tests {
                 nav_links: vec![],
                 sections: vec![],
                 dev_devtools: false,
+                footer: None,
             },
             "/loom-skin.css",
             "",
@@ -21689,6 +21696,7 @@ mod editor_schema_tests {
                 nav_links: vec![],
                 sections: vec![],
                 dev_devtools: false,
+                footer: None,
             },
             "/loom-skin.css",
             "",
@@ -21859,6 +21867,7 @@ mod edit_overlay_tests {
             nav_links: vec![],
             sections,
             dev_devtools: false,
+            footer: None,
         }
     }
 
