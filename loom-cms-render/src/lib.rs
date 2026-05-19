@@ -1580,6 +1580,13 @@ pub struct PricingTier {
     /// middle "recommended" tier).
     #[serde(default)]
     pub highlighted: bool,
+    /// Optional badge label displayed on the tier card (e.g.
+    /// "Most popular", "Best value", "Compliance-ready").
+    /// `None` → no badge; the hardcoded English "Popular" CSS
+    /// fallback is gone (substrate-de-consumer-shaping +
+    /// localization fix).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge: Option<String>,
 }
 
 /// One FAQ item.
@@ -3025,8 +3032,8 @@ pub fn render_section(section: &CmsSection) -> Markup {
                             .is_none_or(|c| loom_components::composer::is_safe_url(&c.href));
                         article class={ "loom-pricing__tier" @if tier.highlighted { " is-highlighted" } }
                             data-loom-reveal {
-                            @if tier.highlighted {
-                                span class="loom-pricing__badge" { "Recommended" }
+                            @if let Some(b) = &tier.badge {
+                                span class="loom-pricing__badge" { (b) }
                             }
                             h3 class="loom-pricing__name" { (tier.name) }
                             div class="loom-pricing__price-row" {

@@ -6217,19 +6217,13 @@ body[data-loom-drawer-open] .loom-drawer-scrim {
   box-shadow: 0 0 0 2px var(--loom-color-accent);
   position: relative;
 }
-.loom-pricing-tier-featured::before {
-  content: "Popular";
-  position: absolute;
-  inset-block-start: 0;
-  inset-inline-end: var(--loom-space-4);
-  transform: translateY(-50%);
-  padding: 0.15em 0.6em;
-  background: var(--loom-color-accent);
-  color: var(--loom-color-on-accent, white);
-  border-radius: var(--loom-radius-pill, 999px);
-  font-size: 0.75rem;
-  font-weight: 600;
-}
+/* Legacy `.loom-pricing-tier-featured::before { content: "Popular" }`
+ * removed: hardcoded English label in CSS was a localization bug AND
+ * a substrate-de-consumer-shaping violation (no opt-out, no per-tier
+ * configuration). Authors who want a badge now set
+ * `PricingTier.badge: Some("Most popular")` (or any locale-appropriate
+ * label) and the renderer emits a `.loom-pricing__badge` span the
+ * tier-card CSS positions identically. */
 .loom-pricing-price {
   display: inline-flex;
   align-items: baseline;
