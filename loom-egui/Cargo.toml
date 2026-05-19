@@ -1,0 +1,30 @@
+[package]
+name = "loom-egui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Loom — typed CmsPage → egui Ui draws. Pure renderer; the binary that drives an eframe / wgpu / glow window is a separate concern."
+
+[dependencies]
+loom-cms-render = { path = "../loom-cms-render" }
+# Pure-Rust immediate-mode UI primitives. Default features off —
+# we only need the type layer (Ui::label / Ui::heading / Style /
+# RichText), not eframe / glow / wgpu / winit. A downstream
+# binary picks its own window/event backend and feeds `Ui` to
+# this crate's `show_page`.
+egui = { version = "0.29", default-features = false }
+
+[dev-dependencies]
+serde_json = "1"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+must_use_candidate = "allow"
+module_name_repetitions = "allow"

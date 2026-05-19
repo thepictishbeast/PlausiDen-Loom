@@ -16,6 +16,9 @@ members = [
     # #120: CmsPage → ratatui Text. Pure renderer; CLI binary
     # that drives the TUI event loop is a follow-up.
     "loom-tui",
+    # #121: CmsPage → egui Ui draws. Pure renderer; binary that
+    # drives eframe / glow / wgpu / winit is a follow-up.
+    "loom-egui",
 ]
 exclude = [
     # loom-audit will land in a follow-up; reserved here so the
