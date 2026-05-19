@@ -6872,14 +6872,15 @@ body[data-loom-drawer-open] .loom-drawer-scrim {
   border: 1px solid var(--loom-color-border, var(--loom-border));
   box-shadow: var(--loom-shadow-lg);
 }
-.loom-asset-placeholder {
-  font-family: var(--loom-font-mono);
-  font-size: 0.85rem;
-  color: color-mix(in oklab, var(--loom-color-ink, var(--loom-fg)) 60%, transparent);
-}
+/* `.loom-asset-placeholder` removed in PlausiDen-Loom 1ca0947:
+ * all primitives now emit real <img> tags. The selector no
+ * longer matches anything in rendered output. */
 
 /* ============================================================
  * FeatureSpotlight — multi-column feature grid
+ * Default: left-aligned editorial heading. Center is opt-in via
+ * `.loom-feature-spotlight--centered` on the outer element
+ * (callers that explicitly want the centered-marketing shape).
  * ============================================================ */
 .loom-feature-spotlight {
   padding: clamp(3rem, 5vw, 5rem) 0;
@@ -6888,12 +6889,17 @@ body[data-loom-drawer-open] .loom-drawer-scrim {
   font: 800 clamp(1.75rem, 3.5vw, 2.5rem)/1.1 var(--loom-font-display);
   letter-spacing: -0.025em;
   margin: 0 0 0.75rem;
+  text-align: start;
+}
+.loom-feature-spotlight.loom-feature-spotlight--centered .loom-feature-spotlight__heading,
+.loom-feature-spotlight.loom-feature-spotlight--centered .loom-feature-spotlight__lede {
   text-align: center;
+  margin-inline: auto;
 }
 .loom-feature-spotlight__lede {
-  margin: 0 auto 3rem;
+  margin: 0 0 3rem;
   max-width: 60ch;
-  text-align: center;
+  text-align: start;
   font-size: 1.1rem;
   line-height: 1.5;
   color: color-mix(in oklab, var(--loom-color-ink, var(--loom-fg)) 65%, transparent);
