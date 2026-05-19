@@ -7344,6 +7344,33 @@ body[data-loom-drawer-open] .loom-drawer-scrim {
 }
 
 /* ============================================================
+ * Polish tokens — bounded per-element typographic nudges
+ *
+ * Each token is ONE step from default. Substrate-bound: no
+ * polish CSS rule should produce more than a single named
+ * adjustment, and stacking N tokens never exceeds N steps of
+ * cumulative deviation. Authors who want stronger emphasis
+ * pick a different primitive.
+ *
+ * Maps to `loom-polish--<slug>` class names emitted by the
+ * typed PolishToken enum in loom-cms-render.
+ * ============================================================ */
+.loom-polish--tighter { letter-spacing: -0.025em; }
+.loom-polish--looser  { letter-spacing: 0.04em; }
+.loom-polish--taller  { line-height: 1.75; }
+.loom-polish--shorter { line-height: 1.15; }
+.loom-polish--bolder  { font-weight: 800; }
+.loom-polish--lighter { font-weight: 300; }
+.loom-polish--larger  { font-size: 1.125em; }
+.loom-polish--smaller { font-size: 0.9em; }
+.loom-polish--more-saturated {
+  color: color-mix(in oklab, var(--loom-color-ink) 92%, var(--loom-color-primary));
+}
+.loom-polish--less-saturated {
+  color: color-mix(in oklab, var(--loom-color-ink) 60%, transparent);
+}
+
+/* ============================================================
  * Marginalia — editorial sidenote
  *
  * Wide viewports (≥ 1024px): floats to the side of the body

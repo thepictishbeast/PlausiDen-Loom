@@ -292,6 +292,13 @@ pub enum CmsSection {
         /// else fails parse with `deny_unknown_fields`-style
         /// strictness).
         level: HeadingLevel,
+        /// Bounded per-element typographic adjustments. Each
+        /// listed token emits a `loom-polish--X` class on the
+        /// heading element. Idempotent — duplicates collapse.
+        /// See [`PolishToken`] for the closed enum of one-step
+        /// adjustments.
+        #[serde(default)]
+        polish: Vec<PolishToken>,
     },
     /// FORGE_ROADMAP item 41 — typed key/value list (definition-list
     /// shape). Renders as a `<dl>` with one `<dt>/<dd>` pair per
@@ -1387,6 +1394,84 @@ pub struct CmsLogoItem {
 /// Heading level encoded over the wire as a raw u8 (2..=6) — the
 /// `serde(into / try_from)` pair lets derive produce the same wire
 /// shape as the prior hand-rolled impls (rejected by the composition
+/// Per-element bounded typographic adjustment. Each variant
+/// nudges one default in one direction. Substrate guarantees
+/// each adjustment is exactly ONE step from default — no
+/// compounding, no unbounded styling. Authors who want stronger
+/// emphasis pick a different primitive (e.g. PullQuote for
+/// dramatic body text, ImageHero for marketing title weight).
+///
+/// Maps to a `loom-polish--<kebab>` class on the rendered
+/// element. CSS rules are caller-side; substrate ships sensible
+/// defaults via skin.css.
+///
+/// Per `feedback_consumer_shaped_substrate`: polish tokens let
+/// authors express "this specific element deserves a bit more
+/// weight" without unbounded CSS — a structural compromise that
+/// keeps the substrate's variation policy bounded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum PolishToken {
+    /// Tighter letter-spacing.
+    Tighter,
+    /// Looser letter-spacing.
+    Looser,
+    /// Taller line-height.
+    Taller,
+    /// Shorter line-height.
+    Shorter,
+    /// Bolder font-weight.
+    Bolder,
+    /// Lighter font-weight.
+    Lighter,
+    /// Larger font-size.
+    Larger,
+    /// Smaller font-size.
+    Smaller,
+    /// More-saturated color.
+    MoreSaturated,
+    /// Less-saturated (muted) color.
+    LessSaturated,
+}
+
+impl PolishToken {
+    /// Class-name slug (kebab-case, no `loom-polish--` prefix).
+    #[must_use]
+    pub fn slug(self) -> &'static str {
+        match self {
+            Self::Tighter => "tighter",
+            Self::Looser => "looser",
+            Self::Taller => "taller",
+            Self::Shorter => "shorter",
+            Self::Bolder => "bolder",
+            Self::Lighter => "lighter",
+            Self::Larger => "larger",
+            Self::Smaller => "smaller",
+            Self::MoreSaturated => "more-saturated",
+            Self::LessSaturated => "less-saturated",
+        }
+    }
+}
+
+/// Build the space-joined class string for a slice of polish
+/// tokens. Each token contributes one `loom-polish--<slug>`
+/// class. Duplicates are NOT collapsed at this layer — callers
+/// pre-dedupe if they care; CSS is idempotent so duplicates
+/// don't compound.
+#[must_use]
+pub fn polish_class_string(tokens: &[PolishToken]) -> String {
+    let mut out = String::new();
+    for t in tokens {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str("loom-polish--");
+        out.push_str(t.slug());
+    }
+    out
+}
+
 /// Content-width preference for `main#content`. Wires through
 /// to a `data-content-width="X"` attribute on `<body>` that
 /// skin.css matches with `main#content { max-inline-size: ... }`.
@@ -2199,31 +2284,33 @@ pub fn render_section(section: &CmsSection) -> Markup {
             };
             html! { p class=(class) { (text) } }
         }
-        CmsSection::Heading { text, level } => {
+        CmsSection::Heading { text, level, polish } => {
             // T36 (2026-05-14): typed HeadingLevel enum makes
             // out-of-range values uncompilable. The runtime clamp
             // + data-cms-warn fallback are gone — invalid levels
             // never reach this match (Deserialize fails first at
             // the JSON boundary).
-            //
-            // Future: enabling `non_exhaustive` on HeadingLevel
-            // would turn this into an explicit-arm match; for
-            // now the compiler exhaustiveness check is enough.
+            let polish_classes = polish_class_string(polish);
+            let class_attr = if polish_classes.is_empty() {
+                "loom-heading".to_owned()
+            } else {
+                format!("loom-heading {polish_classes}")
+            };
             match level {
                 HeadingLevel::H2 => html! {
-                    h2 class="loom-heading" data-loom-level="2" { (text) }
+                    h2 class=(class_attr) data-loom-level="2" { (text) }
                 },
                 HeadingLevel::H3 => html! {
-                    h3 class="loom-heading" data-loom-level="3" { (text) }
+                    h3 class=(class_attr) data-loom-level="3" { (text) }
                 },
                 HeadingLevel::H4 => html! {
-                    h4 class="loom-heading" data-loom-level="4" { (text) }
+                    h4 class=(class_attr) data-loom-level="4" { (text) }
                 },
                 HeadingLevel::H5 => html! {
-                    h5 class="loom-heading" data-loom-level="5" { (text) }
+                    h5 class=(class_attr) data-loom-level="5" { (text) }
                 },
                 HeadingLevel::H6 => html! {
-                    h6 class="loom-heading" data-loom-level="6" { (text) }
+                    h6 class=(class_attr) data-loom-level="6" { (text) }
                 },
             }
         }
@@ -4392,6 +4479,7 @@ mod tests {
             sections: vec![CmsSection::Heading {
                 text: "Section".to_owned(),
                 level: HeadingLevel::H2,
+                polish: Vec::new(),
             }],
         };
         let html = render_to_string(&p);
@@ -4425,6 +4513,7 @@ mod tests {
                 sections: vec![CmsSection::Heading {
                     text: "x".to_owned(),
                     level,
+                    polish: Vec::new(),
                 }],
             };
             let html = render_to_string(&p);
@@ -7207,6 +7296,7 @@ mod page_shell_tests {
             sections: vec![CmsSection::Heading {
                 level: HeadingLevel::H2,
                 text: "x".into(),
+                polish: Vec::new(),
             }],
         };
         let body = render_page(&p).into_string();

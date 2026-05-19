@@ -2383,6 +2383,7 @@ fn build_state_matrix_page() -> loom_cms_render::CmsPage {
         brand: None,
         theme: None,
         chrome: None,
+        content_width: None,
         nav_actions: vec![],
         schema: None,
         title: "Loom state matrix".into(),
@@ -2408,22 +2409,27 @@ fn build_state_matrix_page() -> loom_cms_render::CmsPage {
             CmsSection::Heading {
                 level: HeadingLevel::H2,
                 text: "Heading H2 — top-level section".into(),
+                polish: Vec::new(),
             },
             CmsSection::Heading {
                 level: HeadingLevel::H3,
                 text: "Heading H3 — subsection".into(),
+                polish: Vec::new(),
             },
             CmsSection::Heading {
                 level: HeadingLevel::H4,
                 text: "Heading H4".into(),
+                polish: Vec::new(),
             },
             CmsSection::Heading {
                 level: HeadingLevel::H5,
                 text: "Heading H5".into(),
+                polish: Vec::new(),
             },
             CmsSection::Heading {
                 level: HeadingLevel::H6,
                 text: "Heading H6 — deepest content heading".into(),
+                polish: Vec::new(),
             },
             // Paragraph — single + with longer prose.
             CmsSection::Paragraph {
@@ -2534,6 +2540,7 @@ fn build_state_matrix_page() -> loom_cms_render::CmsPage {
             CmsSection::Heading {
                 level: HeadingLevel::H2,
                 text: "End of state matrix".into(),
+                polish: Vec::new(),
             },
             CmsSection::Paragraph {
                 text: "Every CmsSection variant + every named state should appear above. \
@@ -9001,7 +9008,7 @@ if(fld&&fld.contentEditable==='true'){commitField(fld);}\
 fn render_section_for_edit(sec: &loom_cms_render::CmsSection) -> String {
     use loom_cms_render::CmsSection;
     match sec {
-        CmsSection::Heading { level, text } => {
+        CmsSection::Heading { level, text, polish: _ } => {
             // T36: HeadingLevel is typed; no clamp needed (the
             // enum constructor + Deserialize already enforce
             // 2..=6).
@@ -11587,6 +11594,7 @@ fn cms_template_landing(title: &str, path: &str) -> loom_cms_render::CmsPage {
         brand: None,
         theme: None,
         chrome: None,
+        content_width: None,
         nav_actions: vec![],
         schema: Some("../cms-schema.json".to_owned()),
         title: title.to_owned(),
@@ -11655,6 +11663,7 @@ fn cms_template_explainer(title: &str, path: &str) -> loom_cms_render::CmsPage {
         brand: None,
         theme: None,
         chrome: None,
+        content_width: None,
         nav_actions: vec![],
         schema: Some("../cms-schema.json".to_owned()),
         title: title.to_owned(),
@@ -11696,6 +11705,7 @@ fn cms_template_form(title: &str, path: &str) -> loom_cms_render::CmsPage {
         brand: None,
         theme: None,
         chrome: None,
+        content_width: None,
         nav_actions: vec![],
         schema: Some("../cms-schema.json".to_owned()),
         title: title.to_owned(),
@@ -21748,6 +21758,7 @@ mod inline_edit_tests {
         let h = render_section_for_edit(&CmsSection::Heading {
             level: loom_cms_render::HeadingLevel::H2,
             text: "T".into(),
+            polish: Vec::new(),
         });
         assert!(h.contains("data-edit-field=\"text\""), "heading: {h}");
 
@@ -21807,6 +21818,7 @@ mod inline_edit_tests {
         let h = render_section_for_edit(&CmsSection::Heading {
             level: loom_cms_render::HeadingLevel::H2,
             text: "<script>alert(1)</script>".into(),
+            polish: Vec::new(),
         });
         assert!(!h.contains("<script>alert(1)</script>"));
         assert!(h.contains("&lt;script&gt;"));
@@ -21823,6 +21835,7 @@ mod edit_overlay_tests {
             .map(|i| CmsSection::Heading {
                 level: loom_cms_render::HeadingLevel::H2,
                 text: format!("section {i}"),
+                polish: Vec::new(),
             })
             .collect();
         CmsPage {
