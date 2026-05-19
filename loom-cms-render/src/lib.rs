@@ -92,6 +92,14 @@ pub struct CmsPage {
     ///   all chrome.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chrome: Option<ChromeKind>,
+    /// Maximum inline-size of `main#content`. Closes the
+    /// hard-coded `max-width: 64rem` page-shell default flagged
+    /// in docs/SUBSTRATE_DE_CONSUMER_SHAPING_AUDIT.md. Default
+    /// `Comfortable` matches the previous hard-coded value;
+    /// `Narrow` is editorial-press measure; `Wide` is for
+    /// dense-grid content; `Full` removes the cap entirely.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_width: Option<ContentWidth>,
     /// Action CTAs rendered in the header (e.g. "Sign in",
     /// "Get started"). Distinct from `nav_links` — these are
     /// buttons, not page-to-page links.
@@ -1379,6 +1387,36 @@ pub struct CmsLogoItem {
 /// Heading level encoded over the wire as a raw u8 (2..=6) — the
 /// `serde(into / try_from)` pair lets derive produce the same wire
 /// shape as the prior hand-rolled impls (rejected by the composition
+/// Content-width preference for `main#content`. Wires through
+/// to a `data-content-width="X"` attribute on `<body>` that
+/// skin.css matches with `main#content { max-inline-size: ... }`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentWidth {
+    /// 42rem — editorial-press measure (~70 characters).
+    Narrow,
+    /// 64rem — default. Generous body + side-margin gutters.
+    #[default]
+    Comfortable,
+    /// 90rem — dense-grid / app-shell pages.
+    Wide,
+    /// No max — full-bleed content.
+    Full,
+}
+
+impl ContentWidth {
+    /// Data-attribute slug for the `<body>` selector.
+    #[must_use]
+    pub fn attr_value(self) -> &'static str {
+        match self {
+            Self::Narrow => "narrow",
+            Self::Comfortable => "comfortable",
+            Self::Wide => "wide",
+            Self::Full => "full",
+        }
+    }
+}
+
 /// Wide-viewport float side for [`CmsSection::Marginalia`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -4271,6 +4309,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "Home".to_owned(),
@@ -4295,6 +4334,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -4317,6 +4357,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -4340,6 +4381,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -4372,6 +4414,7 @@ mod tests {
                 brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
                 schema: None,
                 title: "x".to_owned(),
@@ -4464,6 +4507,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -4493,6 +4537,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -4604,6 +4649,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -4632,6 +4678,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -4665,6 +4712,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -4695,6 +4743,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -4721,6 +4770,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -4748,6 +4798,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -4795,6 +4846,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -4912,6 +4964,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -4939,6 +4992,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -4962,6 +5016,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -4990,6 +5045,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5014,6 +5070,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5041,6 +5098,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5071,6 +5129,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5094,6 +5153,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5118,6 +5178,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5140,6 +5201,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5162,6 +5224,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5207,6 +5270,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5236,6 +5300,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5269,6 +5334,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5333,6 +5399,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5388,6 +5455,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5478,6 +5546,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5524,6 +5593,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5567,6 +5637,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5605,6 +5676,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5635,6 +5707,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5682,6 +5755,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -5804,6 +5878,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "C".to_owned(),
@@ -5899,6 +5974,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "Q".to_owned(),
@@ -5996,6 +6072,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "LW".to_owned(),
@@ -6100,6 +6177,7 @@ mod tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "KV".to_owned(),
@@ -6438,6 +6516,10 @@ font-weight:800;letter-spacing:-.022em;font-size:1.4rem;line-height:1.2;color:va
 display:flex;align-items:center;padding-left:.6rem;border-left:3px solid color-mix(in oklab,var(--loom-accent,#4338CA) 70%,transparent);\
 margin-left:.4rem}\
 main#content{padding:1.5rem;max-width:64rem;margin:0 auto}\
+body[data-content-width=\"narrow\"] main#content{max-width:42rem}\
+body[data-content-width=\"comfortable\"] main#content{max-width:64rem}\
+body[data-content-width=\"wide\"] main#content{max-width:90rem}\
+body[data-content-width=\"full\"] main#content{max-width:none}\
 @media (prefers-reduced-motion:reduce){\
 *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;\
 transition-duration:.001ms !important;scroll-behavior:auto !important}\
@@ -6774,6 +6856,7 @@ pub fn page_shell_themed(
     // Render the nav-actions row for FloatingPill (PageShell
     // ignores nav_actions today).
     let nav_actions_html = render_nav_actions(&page.nav_actions);
+    let content_width = page.content_width.unwrap_or_default();
     let body_html = render_chrome_body(
         chrome,
         &brand,
@@ -6781,6 +6864,7 @@ pub fn page_shell_themed(
         &nav_actions_html,
         &page_title_block,
         body,
+        content_width,
     );
     // T37 v1 + T66 (closes #649): closed allow-list for the
     // `data-theme` attribute. T66 extends to named palettes
@@ -6841,11 +6925,13 @@ fn render_chrome_body(
     nav_actions_html: &str,
     page_title_block: &str,
     body: &str,
+    content_width: ContentWidth,
 ) -> String {
     let _ = nav_actions_html; // PageShell ignores nav_actions today
+    let cw = content_width.attr_value();
     match chrome {
         ChromeKind::PageShell => format!(
-            "<body data-chrome=\"page-shell\">\n  \
+            "<body data-chrome=\"page-shell\" data-content-width=\"{cw}\">\n  \
 <a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n  \
 <header class=\"loom-page-header\">\n    \
 <nav class=\"loom-page-nav\" aria-label=\"Primary\">\n      \
@@ -6859,7 +6945,7 @@ fn render_chrome_body(
 </body>\n"
         ),
         ChromeKind::FloatingPill => format!(
-            "<body data-chrome=\"floating-pill\">\n  \
+            "<body data-chrome=\"floating-pill\" data-content-width=\"{cw}\">\n  \
 <a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n  \
 <header class=\"loom-floating-pill\">\n    \
 <nav class=\"loom-floating-pill__nav\" aria-label=\"Primary\">\n      \
@@ -6876,7 +6962,7 @@ fn render_chrome_body(
 </body>\n"
         ),
         ChromeKind::Minimal => format!(
-            "<body data-chrome=\"minimal\">\n  \
+            "<body data-chrome=\"minimal\" data-content-width=\"{cw}\">\n  \
 <a class=\"loom-skip\" href=\"#content\">Skip to content</a>{page_title_block}\n  \
 <main id=\"content\">\n{body}\n  </main>\n  \
 <footer class=\"loom-page-footer\"></footer>\n  \
@@ -6895,6 +6981,7 @@ mod page_shell_tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "T".into(),
@@ -7109,6 +7196,7 @@ mod page_shell_tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "Test".into(),
