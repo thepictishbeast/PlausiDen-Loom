@@ -8270,7 +8270,28 @@ pub fn page_shell_themed(
         }
         None => path.clone(),
     };
-    let og_image_block = match page.social_image.as_deref() {
+    // Resolve the social-card image src. Explicit page.social_image
+    // wins; otherwise auto-derive from the first hero-class section
+    // (image_hero with photo background, or split_hero with an
+    // AssetSlug visual). Auto-derivation eliminates the boilerplate
+    // of declaring social_image on every cms page when the page
+    // already has a hero photo.
+    let derived_social_image = page.social_image.clone().or_else(|| {
+        page.sections.iter().find_map(|s| match s {
+            CmsSection::ImageHero { background, .. } => match background {
+                HeroBackground::Photo { src, .. } => Some(src.clone()),
+                _ => None,
+            },
+            CmsSection::SplitHero { visual, .. } => match visual {
+                SplitVisual::AssetSlug { slug, .. } => {
+                    Some(format!("/assets/{slug}.jpg"))
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+    });
+    let og_image_block = match derived_social_image.as_deref() {
         Some(src) => {
             let absolute = match page.site_origin.as_deref() {
                 Some(origin) if src.starts_with('/') => {
