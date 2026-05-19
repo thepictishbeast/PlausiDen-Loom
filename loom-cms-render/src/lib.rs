@@ -6750,7 +6750,19 @@ pub fn page_shell_themed(
         Some(t)
             if matches!(
                 t,
-                "light" | "dark" | "auto" | "warm" | "ocean" | "forest" | "violet" | "rose"
+                "light"
+                    | "dark"
+                    | "dark-amoled"
+                    | "auto"
+                    | "warm"
+                    | "ocean"
+                    | "forest"
+                    | "violet"
+                    | "rose"
+                    | "sepia"
+                    | "press"
+                    | "hc-dark"
+                    | "hc-light"
             ) =>
         {
             format!("<html lang=\"en\" data-theme=\"{t}\">")
