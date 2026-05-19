@@ -429,6 +429,18 @@ pub enum CmsSection {
         /// Column count (1..=4). Mobile collapses to 1 regardless.
         #[serde(default = "default_columns_3")]
         columns: u8,
+        /// Visual treatment. `Decorated` (default, kept for
+        /// backward compatibility) is the SaaS-card shape with
+        /// rounded chrome, gradient icon tile, hover lift +
+        /// shadow. `Editorial` strips card chrome down to
+        /// typography + top accent rule. `Minimal` is a tight
+        /// grid with no decoration.
+        ///
+        /// Substrate-de-consumer-shaping: callers asking for
+        /// dense editorial composition opt out of the trope
+        /// chrome without inventing a parallel primitive.
+        #[serde(default)]
+        decoration: FeatureSpotlightDecoration,
     },
     /// Row of large animated numbers with labels. Used for "by
     /// the numbers" / "stats that matter" social-proof bands.
@@ -1140,6 +1152,37 @@ pub enum DividerStyle { #[default] Line, Dots, ZigZag, Sparkle }
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SpaceSize { Tight, #[default] Comfortable, Loose, Generous }
+
+/// Visual treatment for [`CmsSection::FeatureSpotlight`].
+///
+/// The default `Decorated` is the legacy SaaS-card shape (rounded
+/// chrome + gradient icon tile + hover lift + shadow). The
+/// `Editorial` and `Minimal` variants strip the trope chrome for
+/// callers that want dense, non-card composition.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FeatureSpotlightDecoration {
+    /// SaaS-card shape: rounded chrome, gradient icon tile,
+    /// hover lift + shadow. Default (kept for back-compat).
+    #[default]
+    Decorated,
+    /// Strip card chrome. Typography only, no icon tile, no
+    /// shadow. Top accent rule per item.
+    Editorial,
+    /// Tight grid, no decoration. Title + body, no icon, no border.
+    Minimal,
+}
+
+impl FeatureSpotlightDecoration {
+    /// Class-modifier suffix emitted on the section element.
+    pub const fn modifier_class(self) -> &'static str {
+        match self {
+            Self::Decorated => "deco-decorated",
+            Self::Editorial => "deco-editorial",
+            Self::Minimal => "deco-minimal",
+        }
+    }
+}
 
 /// Which Loom fact to inject via [`CmsSection::LoomFact`]. Closed
 /// enum so authors can't ask for a fact the renderer doesn't know.
@@ -2881,10 +2924,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
             lede,
             items,
             columns,
+            decoration,
         } => {
             let cols = (*columns).clamp(1, 4);
+            let deco = decoration.modifier_class();
             html! {
-                section class={ "loom-feature-spotlight cols-" (cols) }
+                section class={ "loom-feature-spotlight cols-" (cols) " " (deco) }
                     data-loom-feature-spotlight data-loom-reveal {
                     @if let Some(h) = heading {
                         h2 class="loom-feature-spotlight__heading" { (h) }
@@ -5704,6 +5749,61 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn feature_spotlight_default_decoration_is_decorated() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{"kind":"feature_spotlight","items":[]}]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("deco-decorated"));
+    }
+
+    #[test]
+    fn feature_spotlight_editorial_decoration_emits_modifier_class() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind":"feature_spotlight",
+                "decoration":"editorial",
+                "items":[{"title":"T","body":"B"}]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("deco-editorial"));
+        assert!(!html.contains("deco-decorated"));
+    }
+
+    #[test]
+    fn feature_spotlight_minimal_decoration_emits_modifier_class() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind":"feature_spotlight",
+                "decoration":"minimal",
+                "items":[{"title":"T","body":"B"}]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("deco-minimal"));
+    }
+
+    #[test]
+    fn feature_spotlight_decoration_modifier_class_matches_variant() {
+        assert_eq!(FeatureSpotlightDecoration::Decorated.modifier_class(), "deco-decorated");
+        assert_eq!(FeatureSpotlightDecoration::Editorial.modifier_class(), "deco-editorial");
+        assert_eq!(FeatureSpotlightDecoration::Minimal.modifier_class(), "deco-minimal");
     }
 
     #[test]
