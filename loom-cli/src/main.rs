@@ -15,6 +15,7 @@
 #![allow(rustdoc::invalid_html_tags)]
 
 mod critical_css;
+mod gtk_theme;
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -2760,38 +2761,8 @@ pub fn render() -> Markup {{
 /// The CSS is small (~80 lines) and intentionally limited to color
 /// and spacing tokens — animations, fonts, and layout are
 /// GTK-app-specific and shouldn't be baked into a shared theme.
-fn cmd_gtk_theme(dark: bool) -> String {
-    use loom_tokens::ColorRole;
-    let palette = if dark {
-        ColorRole::dark_all()
-    } else {
-        ColorRole::all()
-    };
-    let mode = if dark { "dark" } else { "light" };
-    let mut out = String::new();
-    let _ = writeln!(
-        out,
-        "/* GTK 4 theme generated from loom-tokens ({mode}). */"
-    );
-    out.push_str("/* Do not edit by hand — re-run `loom gtk-theme` after a token change. */\n\n");
-    out.push_str(":root {\n");
-    for role in palette {
-        let _ = writeln!(out, "  --loom-{}: {};", role.role, role.color.css);
-    }
-    out.push_str("}\n\n");
-    // Map a few critical GTK named colors to Loom roles. GTK named
-    // colors are referenced by `@name` in widget CSS.
-    out.push_str("@define-color theme_bg_color var(--loom-surface);\n");
-    out.push_str("@define-color theme_fg_color var(--loom-ink);\n");
-    out.push_str("@define-color theme_base_color var(--loom-surface-muted);\n");
-    out.push_str("@define-color theme_text_color var(--loom-ink);\n");
-    out.push_str("@define-color theme_selected_bg_color var(--loom-primary);\n");
-    out.push_str("@define-color theme_selected_fg_color var(--loom-primary-fg);\n");
-    out.push_str("@define-color borders var(--loom-border);\n");
-    out.push_str("@define-color error_color var(--loom-danger);\n");
-    out.push_str("@define-color success_color var(--loom-success);\n");
-    out
-}
+// cmd_gtk_theme extracted to gtk_theme.rs (loom-cli bloat reduction).
+use gtk_theme::cmd_gtk_theme;
 
 /// `loom cms-render` error type. We split schema errors (from
 /// serde_json) from I/O errors (from `std::fs` / `std::io`) so the
