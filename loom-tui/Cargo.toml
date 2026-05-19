@@ -1,0 +1,29 @@
+[package]
+name = "loom-tui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Loom — typed CmsPage → ratatui Text. Pure renderer; the CLI binary that drives the TUI event loop is a separate concern."
+
+[dependencies]
+serde = { workspace = true }
+loom-cms-render = { path = "../loom-cms-render" }
+# Pure-Rust TUI primitives. Default features off — we only need
+# the type layer (Line / Span / Style / Text), not the crossterm
+# backend or app loop.
+ratatui = { version = "0.28", default-features = false }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+must_use_candidate = "allow"
+module_name_repetitions = "allow"

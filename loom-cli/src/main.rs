@@ -2872,6 +2872,7 @@ mod cms_render_tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "Test".to_owned(),
@@ -2879,6 +2880,7 @@ mod cms_render_tests {
             path: "/test".to_owned(),
             nav_links: vec![],
             sections: vec![],
+            dev_devtools: false,
         }
     }
 
@@ -21502,6 +21504,7 @@ mod editor_schema_tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "T".into(),
@@ -21509,6 +21512,7 @@ mod editor_schema_tests {
             path: "/".into(),
             nav_links: vec![],
             sections: vec![],
+            dev_devtools: false,
         }
     }
 
@@ -21646,6 +21650,7 @@ mod editor_schema_tests {
                 brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
                 schema: None,
                 title: "T".into(),
@@ -21653,6 +21658,7 @@ mod editor_schema_tests {
                 path: "/".into(),
                 nav_links: vec![],
                 sections: vec![],
+                dev_devtools: false,
             },
             "/loom-skin.css",
             "",
@@ -21674,6 +21680,7 @@ mod editor_schema_tests {
                 brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
                 schema: None,
                 title: "T".into(),
@@ -21681,6 +21688,7 @@ mod editor_schema_tests {
                 path: "/".into(),
                 nav_links: vec![],
                 sections: vec![],
+                dev_devtools: false,
             },
             "/loom-skin.css",
             "",
@@ -21842,6 +21850,7 @@ mod edit_overlay_tests {
             brand: None,
             theme: None,
             chrome: None,
+            content_width: None,
             nav_actions: vec![],
             schema: None,
             title: "Test".into(),
@@ -21849,6 +21858,7 @@ mod edit_overlay_tests {
             path: "/test".into(),
             nav_links: vec![],
             sections,
+            dev_devtools: false,
         }
     }
 

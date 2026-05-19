@@ -13,6 +13,9 @@ members = [
     # transport lives behind the `russh-transport` feature so the
     # default workspace build stays fast and tokio-free.
     "loom-bridge",
+    # #120: CmsPage → ratatui Text. Pure renderer; CLI binary
+    # that drives the TUI event loop is a follow-up.
+    "loom-tui",
 ]
 exclude = [
     # loom-audit will land in a follow-up; reserved here so the
