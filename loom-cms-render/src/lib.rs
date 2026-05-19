@@ -661,6 +661,219 @@ pub enum CmsSection {
     CommentThread { post_id: String, items: Vec<CommentItem> },
     /// Social-feed post card.
     FeedPost { author: String, handle: String, avatar: CmsAvatar, body: String, posted_at: String, reactions: u32, comments: u32 },
+
+    // ─── T660 P6 — auth + Crucible widget primitives ───
+    /// Typed sign-in / sign-up card. Holds an ordered list of
+    /// authentication method choices the renderer expands into
+    /// passkey buttons / social-auth rows / password fields /
+    /// magic-link inputs.
+    AuthCard {
+        /// Display title ("Sign in", "Welcome back", etc.).
+        title: String,
+        /// Optional tagline under the title.
+        tagline: Option<String>,
+        /// Ordered method options.
+        methods: Vec<AuthMethodChoice>,
+        /// Optional footer text (terms / privacy disclaimer).
+        footer: Option<String>,
+    },
+    /// Second-factor prompt: OTP / WebAuthn / backup-code.
+    MfaPrompt {
+        /// Title ("Enter your code").
+        title: String,
+        /// Factor kind shown to the user.
+        factor: MfaFactorKind,
+        /// Operator-facing instructions ("Enter the 6-digit code
+        /// from your authenticator app").
+        instructions: String,
+        /// Expected code length for OTP factors (6 for TOTP,
+        /// 8 for backup codes).
+        #[serde(default = "default_otp_length")]
+        otp_length: u8,
+        /// Submit-button label.
+        submit_label: String,
+        /// Optional "use a different factor" link.
+        switch_label: Option<String>,
+    },
+    /// The embeddable Crucible captcha challenge widget.
+    CrucibleWidget {
+        /// Challenge kind (mirrors crucible-core::ChallengeKind).
+        challenge_kind: CrucibleKind,
+        /// Operator-facing prompt ("Select all photos with a
+        /// bird", "Which of these sentences mean the same thing?").
+        prompt: String,
+        /// Difficulty hint (Easy / Medium / Hard / Adversarial).
+        #[serde(default)]
+        difficulty: CrucibleDifficulty,
+        /// Number of option slots the widget should render
+        /// (e.g. 9 for a 3x3 image-classify grid).
+        #[serde(default = "default_option_count")]
+        option_count: u8,
+        /// Submit button label.
+        submit_label: String,
+        /// Attribution-policy hint for the user about how their
+        /// response may be used.
+        attribution_hint: Option<String>,
+    },
+    /// Stepper for multi-step auth flows (sign-up → verify email →
+    /// add MFA → complete profile).
+    AuthFlowStepper {
+        /// Step labels in order.
+        steps: Vec<String>,
+        /// Zero-indexed current step.
+        current: u8,
+    },
+    /// Compact "signed in as / sign out" footer.
+    SignedInCard {
+        /// Display name.
+        display_name: String,
+        /// Handle or email.
+        handle: String,
+        /// Avatar.
+        avatar: CmsAvatar,
+        /// Sign-out CTA.
+        sign_out: HeroCta,
+    },
+    /// Password-reset request form.
+    PasswordReset {
+        /// Title.
+        title: String,
+        /// Description.
+        description: String,
+        /// Email-input placeholder.
+        placeholder: String,
+        /// Submit-button label.
+        submit_label: String,
+    },
+}
+
+/// One option inside an [`CmsSection::AuthCard`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AuthMethodChoice {
+    /// Continue with passkey (WebAuthn discoverable credential).
+    Passkey {
+        /// Button label.
+        label: String,
+    },
+    /// Continue with platform-WebAuthn (TouchID / FaceID / Hello).
+    WebauthnPlatform {
+        /// Button label.
+        label: String,
+    },
+    /// Continue with roaming-WebAuthn (YubiKey / Solo / Titan).
+    WebauthnRoaming {
+        /// Button label.
+        label: String,
+    },
+    /// Continue with an OAuth provider.
+    Social {
+        /// Provider slug ("github", "google", "apple", "microsoft").
+        provider: String,
+        /// Button label.
+        label: String,
+    },
+    /// Sign in with email magic-link.
+    MagicLink {
+        /// Email-input placeholder.
+        placeholder: String,
+        /// Submit-button label.
+        submit_label: String,
+    },
+    /// Sign in with SMS OTP.
+    SmsOtp {
+        /// Phone-input placeholder.
+        placeholder: String,
+        /// Submit-button label.
+        submit_label: String,
+    },
+    /// Sign in with classic password.
+    Password {
+        /// Email-input placeholder.
+        email_placeholder: String,
+        /// Password-input placeholder.
+        password_placeholder: String,
+        /// Submit-button label.
+        submit_label: String,
+        /// Optional forgot-password link.
+        forgot_label: Option<String>,
+    },
+    /// Sign in with SSO single-sign-on link.
+    Sso {
+        /// Button label.
+        label: String,
+        /// Domain hint placeholder ("yourcompany.com").
+        placeholder: String,
+    },
+    /// "Continue as guest" anonymous-but-receipt-bearing option.
+    Anonymous {
+        /// Button label.
+        label: String,
+    },
+    /// Visual divider between method groups ("or").
+    Divider {
+        /// Divider label.
+        label: String,
+    },
+}
+
+/// Second-factor kind shown in [`CmsSection::MfaPrompt`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MfaFactorKind {
+    /// Time-based OTP from an authenticator app.
+    #[default]
+    Totp,
+    /// WebAuthn second factor.
+    Webauthn,
+    /// SMS-delivered OTP.
+    SmsOtp,
+    /// Email-delivered OTP.
+    EmailOtp,
+    /// Printable backup codes.
+    BackupCode,
+}
+
+/// Crucible challenge kind mirror (kept independent from
+/// crucible-core to avoid creating a Loom-→-Crucible dep).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CrucibleKind {
+    /// Multi-image classification.
+    #[default]
+    ImageClassify,
+    /// Semantic-similarity selection.
+    SemanticSimilarity,
+    /// Audio-transcribe with noise.
+    AudioTranscribe,
+    /// Arithmetic.
+    MathArithmetic,
+    /// Drawing reconstruction.
+    DrawingReconstruct,
+    /// Prompt-injection detection.
+    PromptInjectionDetect,
+}
+
+/// Crucible difficulty mirror.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CrucibleDifficulty {
+    /// Easy.
+    #[default]
+    Easy,
+    /// Medium.
+    Medium,
+    /// Hard.
+    Hard,
+    /// Adversarial.
+    Adversarial,
+}
+
+fn default_otp_length() -> u8 {
+    6
+}
+fn default_option_count() -> u8 {
+    9
 }
 
 /// Container max-width token.
@@ -3184,6 +3397,211 @@ pub fn render_section(section: &CmsSection) -> Markup {
                     " · "
                     span class="loom-feed-post__comments" { (comments.to_string()) " comments" }
                 }
+            }
+        },
+        CmsSection::AuthCard { title, tagline, methods, footer } => html! {
+            section class="loom-auth-card" data-loom-reveal {
+                header class="loom-auth-card__header" {
+                    h2 class="loom-auth-card__title" { (title) }
+                    @if let Some(t) = tagline { p class="loom-auth-card__tagline" { (t) } }
+                }
+                div class="loom-auth-card__methods" {
+                    @for m in methods { (render_auth_method(m)) }
+                }
+                @if let Some(f) = footer {
+                    p class="loom-auth-card__footer" { (f) }
+                }
+            }
+        },
+        CmsSection::MfaPrompt { title, factor, instructions, otp_length, submit_label, switch_label } => {
+            let factor_class = match factor {
+                MfaFactorKind::Totp       => "totp",
+                MfaFactorKind::Webauthn   => "webauthn",
+                MfaFactorKind::SmsOtp     => "sms-otp",
+                MfaFactorKind::EmailOtp   => "email-otp",
+                MfaFactorKind::BackupCode => "backup-code",
+            };
+            html! {
+                section class={ "loom-mfa-prompt factor-" (factor_class) } data-loom-reveal {
+                    h2 class="loom-mfa-prompt__title" { (title) }
+                    p class="loom-mfa-prompt__instructions" { (instructions) }
+                    @if matches!(factor, MfaFactorKind::Webauthn) {
+                        button type="button" class="loom-btn loom-btn--primary loom-mfa-prompt__webauthn" data-loom-mfa-webauthn {
+                            "Use your security key"
+                        }
+                    } @else {
+                        div class="loom-mfa-prompt__otp" data-loom-otp-length=(otp_length.to_string()) {
+                            @for i in 0..*otp_length {
+                                input type="text" inputmode="numeric" maxlength="1"
+                                    aria-label=({ format!("Digit {} of {}", i + 1, otp_length) })
+                                    class="loom-mfa-prompt__digit"
+                                    data-loom-otp-index=(i.to_string());
+                            }
+                        }
+                        button type="submit" class="loom-btn loom-btn--primary loom-mfa-prompt__submit" {
+                            (submit_label)
+                        }
+                    }
+                    @if let Some(s) = switch_label {
+                        button type="button" class="loom-btn loom-btn--ghost loom-mfa-prompt__switch" { (s) }
+                    }
+                }
+            }
+        }
+        CmsSection::CrucibleWidget { challenge_kind, prompt, difficulty, option_count, submit_label, attribution_hint } => {
+            let kind_class = match challenge_kind {
+                CrucibleKind::ImageClassify         => "image-classify",
+                CrucibleKind::SemanticSimilarity    => "semantic-similarity",
+                CrucibleKind::AudioTranscribe       => "audio-transcribe",
+                CrucibleKind::MathArithmetic        => "math-arithmetic",
+                CrucibleKind::DrawingReconstruct    => "drawing-reconstruct",
+                CrucibleKind::PromptInjectionDetect => "prompt-injection-detect",
+            };
+            let diff_class = match difficulty {
+                CrucibleDifficulty::Easy         => "easy",
+                CrucibleDifficulty::Medium       => "medium",
+                CrucibleDifficulty::Hard         => "hard",
+                CrucibleDifficulty::Adversarial  => "adversarial",
+            };
+            let n = (*option_count).clamp(1, 16);
+            html! {
+                section class={ "loom-crucible kind-" (kind_class) " difficulty-" (diff_class) }
+                    data-loom-crucible data-loom-reveal {
+                    header class="loom-crucible__header" {
+                        span class="loom-crucible__badge" { "Crucible · " (diff_class) }
+                        p class="loom-crucible__prompt" { (prompt) }
+                    }
+                    div class="loom-crucible__options" data-loom-option-count=(n.to_string()) {
+                        @for i in 0..n {
+                            button type="button" class="loom-crucible__option"
+                                data-loom-option-index=(i.to_string())
+                                aria-pressed="false" {
+                                span class="loom-crucible__option-glyph" aria-hidden="true" {}
+                            }
+                        }
+                    }
+                    footer class="loom-crucible__footer" {
+                        button type="submit" class="loom-btn loom-btn--primary loom-crucible__submit" {
+                            (submit_label)
+                        }
+                        @if let Some(h) = attribution_hint {
+                            p class="loom-crucible__attribution" { (h) }
+                        }
+                    }
+                }
+            }
+        }
+        CmsSection::AuthFlowStepper { steps, current } => {
+            let cur = (*current as usize).min(steps.len().saturating_sub(1));
+            html! {
+                nav class="loom-auth-stepper" aria-label="Progress" data-loom-reveal {
+                    ol class="loom-auth-stepper__list" {
+                        @for (i, label) in steps.iter().enumerate() {
+                            li class={ "loom-auth-stepper__step "
+                                (if i < cur { "is-done" } else if i == cur { "is-current" } else { "is-upcoming" }) }
+                                aria-current=[(i == cur).then_some("step")] {
+                                span class="loom-auth-stepper__num" { ((i + 1).to_string()) }
+                                span class="loom-auth-stepper__label" { (label) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        CmsSection::SignedInCard { display_name, handle, avatar, sign_out } => {
+            let safe = is_safe_url(&sign_out.href);
+            html! {
+                section class="loom-signed-in-card" data-loom-reveal {
+                    (render_avatar(avatar))
+                    div class="loom-signed-in-card__body" {
+                        span class="loom-signed-in-card__name" { (display_name) }
+                        span class="loom-signed-in-card__handle" { (handle) }
+                    }
+                    a class="loom-signed-in-card__signout loom-btn loom-btn--ghost"
+                      href=(if safe { sign_out.href.as_str() } else { "#invalid-cta" })
+                      data-backend=(sign_out.data_backend) { (sign_out.label) }
+                }
+            }
+        }
+        CmsSection::PasswordReset { title, description, placeholder, submit_label } => html! {
+            section class="loom-password-reset" data-loom-reveal {
+                h2 class="loom-password-reset__title" { (title) }
+                p class="loom-password-reset__description" { (description) }
+                form class="loom-password-reset__form" {
+                    input type="email" name="email" required placeholder=(placeholder) aria-label="Email";
+                    button type="submit" class="loom-btn loom-btn--primary" { (submit_label) }
+                }
+            }
+        },
+    }
+}
+
+fn render_auth_method(m: &AuthMethodChoice) -> Markup {
+    match m {
+        AuthMethodChoice::Passkey { label } => html! {
+            button type="button" class="loom-auth-method loom-auth-method--passkey loom-btn loom-btn--secondary" {
+                span class="loom-auth-method__icon" aria-hidden="true" { "🔑" }
+                span class="loom-auth-method__label" { (label) }
+            }
+        },
+        AuthMethodChoice::WebauthnPlatform { label } => html! {
+            button type="button" class="loom-auth-method loom-auth-method--webauthn-platform loom-btn loom-btn--secondary" {
+                span class="loom-auth-method__icon" aria-hidden="true" { "👤" }
+                span class="loom-auth-method__label" { (label) }
+            }
+        },
+        AuthMethodChoice::WebauthnRoaming { label } => html! {
+            button type="button" class="loom-auth-method loom-auth-method--webauthn-roaming loom-btn loom-btn--secondary" {
+                span class="loom-auth-method__icon" aria-hidden="true" { "🗝" }
+                span class="loom-auth-method__label" { (label) }
+            }
+        },
+        AuthMethodChoice::Social { provider, label } => html! {
+            button type="button" class={ "loom-auth-method loom-auth-method--social loom-btn loom-btn--secondary provider-" (provider) } {
+                span class="loom-auth-method__icon" aria-hidden="true" {}
+                span class="loom-auth-method__label" { (label) }
+            }
+        },
+        AuthMethodChoice::MagicLink { placeholder, submit_label } => html! {
+            form class="loom-auth-method loom-auth-method--magic-link" {
+                input type="email" name="email" required placeholder=(placeholder) aria-label="Email";
+                button type="submit" class="loom-btn loom-btn--primary" { (submit_label) }
+            }
+        },
+        AuthMethodChoice::SmsOtp { placeholder, submit_label } => html! {
+            form class="loom-auth-method loom-auth-method--sms-otp" {
+                input type="tel" name="phone" required placeholder=(placeholder) aria-label="Phone";
+                button type="submit" class="loom-btn loom-btn--primary" { (submit_label) }
+            }
+        },
+        AuthMethodChoice::Password { email_placeholder, password_placeholder, submit_label, forgot_label } => html! {
+            form class="loom-auth-method loom-auth-method--password" {
+                input type="email" name="email" required placeholder=(email_placeholder) aria-label="Email";
+                input type="password" name="password" required placeholder=(password_placeholder) aria-label="Password";
+                div class="loom-auth-method__row" {
+                    button type="submit" class="loom-btn loom-btn--primary" { (submit_label) }
+                    @if let Some(f) = forgot_label {
+                        a class="loom-auth-method__forgot" href="#" { (f) }
+                    }
+                }
+            }
+        },
+        AuthMethodChoice::Sso { label, placeholder } => html! {
+            form class="loom-auth-method loom-auth-method--sso" {
+                input type="text" name="sso_domain" placeholder=(placeholder) aria-label="SSO domain";
+                button type="submit" class="loom-btn loom-btn--secondary" { (label) }
+            }
+        },
+        AuthMethodChoice::Anonymous { label } => html! {
+            button type="button" class="loom-auth-method loom-auth-method--anonymous loom-btn loom-btn--ghost" {
+                (label)
+            }
+        },
+        AuthMethodChoice::Divider { label } => html! {
+            div class="loom-auth-method-divider" aria-hidden="true" {
+                span class="loom-auth-method-divider__line" {}
+                span class="loom-auth-method-divider__label" { (label) }
+                span class="loom-auth-method-divider__line" {}
             }
         },
     }
