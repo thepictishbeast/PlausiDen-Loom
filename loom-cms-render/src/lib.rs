@@ -657,6 +657,47 @@ pub enum CmsSection {
     SubHeading { text: String, level: u8 },
     /// Large opening paragraph — sets the article's tone.
     Lede { text: String },
+    /// Second-tier subhead beneath the lede. Newspapers use this
+    /// to extend the headline-and-lede pair with one more
+    /// editorial beat before the body. Distinct from
+    /// [`CmsSection::Lede`] (sets the tone) and from
+    /// [`CmsSection::SubHeading`] (sections the body).
+    Sublede { text: String },
+    /// Editorial kicker — short uppercase label above a headline.
+    /// Newspaper / magazine convention: "OPINION", "LIVE",
+    /// "BREAKING", "Q&A", "REVIEW". Distinct from the eyebrow
+    /// chip on a hero (which is a hero-internal slot); this is a
+    /// standalone editorial label.
+    Kicker { text: String },
+    /// Byline — typed author / role / dateline / reading-time
+    /// unit. Authors currently emit this as 3-4 separate
+    /// Paragraphs; the typed unit lets the renderer position
+    /// them together and lets the LFI Critic verify a piece has
+    /// a coherent attribution block.
+    Byline {
+        /// Author's display name (required).
+        author: String,
+        /// Author's role / title (e.g. "Staff writer").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        role: Option<String>,
+        /// Publication or last-updated dateline (ISO 8601 or
+        /// human-readable; the renderer treats it as free text).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dateline: Option<String>,
+        /// Reading-time hint (e.g. "5 min read").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reading_time: Option<String>,
+    },
+    /// End-of-document footnote. Renders as a numbered entry at
+    /// the bottom of a long-form piece. Distinct from
+    /// [`CmsSection::Footnote`] (which is inline / mid-flow); use
+    /// `Endnote` when the author wants all annotations grouped.
+    Endnote {
+        /// Endnote number (matches an in-body reference).
+        number: u32,
+        /// Endnote text.
+        text: String,
+    },
     /// Initial-letter drop-cap paragraph.
     DropCap { text: String },
     /// Figure with caption + optional credit line.
@@ -3314,6 +3355,31 @@ pub fn render_section(section: &CmsSection) -> Markup {
             } }
         }
         CmsSection::Lede { text } => html! { p class="loom-lede" data-loom-reveal { (text) } },
+        CmsSection::Sublede { text } => html! {
+            p class="loom-sublede" data-loom-reveal { (text) }
+        },
+        CmsSection::Kicker { text } => html! {
+            span class="loom-kicker" data-loom-reveal { (text) }
+        },
+        CmsSection::Byline { author, role, dateline, reading_time } => html! {
+            p class="loom-byline" data-loom-reveal {
+                span class="loom-byline__author" { (author) }
+                @if let Some(r) = role {
+                    " · " span class="loom-byline__role" { (r) }
+                }
+                @if let Some(d) = dateline {
+                    " · " span class="loom-byline__dateline" { (d) }
+                }
+                @if let Some(rt) = reading_time {
+                    " · " span class="loom-byline__reading-time" { (rt) }
+                }
+            }
+        },
+        CmsSection::Endnote { number, text } => html! {
+            aside class="loom-endnote" id={ "endnote-" (number.to_string()) } {
+                span class="loom-endnote__num" { (number.to_string()) "." } " " (text)
+            }
+        },
         CmsSection::DropCap { text } => html! { p class="loom-dropcap" data-loom-reveal { (text) } },
         CmsSection::Figure { caption, credit, asset_slug } => html! {
             figure class="loom-figure" data-loom-reveal {
@@ -5410,6 +5476,87 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn sublede_renders_with_class() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{"kind":"sublede","text":"Second-tier subhead."}]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-sublede"));
+        assert!(html.contains("Second-tier subhead."));
+    }
+
+    #[test]
+    fn kicker_renders_as_inline_label() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{"kind":"kicker","text":"BREAKING"}]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-kicker"));
+        assert!(html.contains("BREAKING"));
+    }
+
+    #[test]
+    fn byline_renders_all_optional_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind":"byline",
+                "author":"Jane Doe",
+                "role":"Staff writer",
+                "dateline":"2026-05-19",
+                "reading_time":"5 min read"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-byline"));
+        assert!(html.contains("Jane Doe"));
+        assert!(html.contains("Staff writer"));
+        assert!(html.contains("2026-05-19"));
+        assert!(html.contains("5 min read"));
+    }
+
+    #[test]
+    fn byline_author_only_omits_role_dateline() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{"kind":"byline","author":"Solo"}]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("Solo"));
+        assert!(!html.contains("loom-byline__role"));
+        assert!(!html.contains("loom-byline__dateline"));
+    }
+
+    #[test]
+    fn endnote_renders_numbered_aside_with_anchor() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{"kind":"endnote","number":1,"text":"Source: foo."}]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-endnote"));
+        assert!(html.contains(r#"id="endnote-1""#));
+        assert!(html.contains("Source: foo."));
     }
 
     #[test]
