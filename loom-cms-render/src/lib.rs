@@ -1232,6 +1232,35 @@ pub enum CmsSection {
         /// Submit-button label.
         submit_label: String,
     },
+    /// Inline bar chart — small SVG bar chart for editorial
+    /// categorical-data display. Editorial counterpart to
+    /// [`CmsSection::Pricing`]-style tier-comparison shapes when
+    /// the data is numeric/comparative rather than tier-feature.
+    ///
+    /// Pure-SVG, no JS. Each bar is a `<rect>` normalized to a
+    /// shared y-range derived from max(bars). The chart is
+    /// `Vertical` by default (bars grow up from the x-axis);
+    /// `Horizontal` orientation grows bars rightward — useful
+    /// when category labels are long.
+    ///
+    /// Use cases: "Activity by day-of-week", "Most-cited sources",
+    /// "Issues closed per milestone" — categorical numeric data
+    /// where each row is meaningful (NOT just "stat band of
+    /// big numbers").
+    BarChart {
+        /// Visible label / heading shown above the chart.
+        label: String,
+        /// Bars in display order. Each carries its own label +
+        /// value + optional per-bar tone override.
+        bars: Vec<BarChartBar>,
+        /// Orientation. `Vertical` grows bars upward (default);
+        /// `Horizontal` grows rightward (long category labels).
+        orientation: BarChartOrientation,
+        /// Default tone for bars that don't override.
+        tone: SparklineTone,
+        /// Optional caption shown below the chart.
+        caption: Option<String>,
+    },
     /// Inline sparkline — small SVG line chart for editorial
     /// number-trend display. The editorial counterpart to
     /// [`CmsSection::StatBand`] (which is the SaaS "Numbers that
@@ -1471,6 +1500,48 @@ pub enum CmsSection {
         /// a primary "Continue to dashboard").
         secondary_cta: Option<HeroCta>,
     },
+}
+
+/// One bar inside a [`CmsSection::BarChart`]. Carries its own
+/// label + numeric value + optional per-bar tone override that
+/// shadows the chart's default tone.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct BarChartBar {
+    /// Bar label (category name, e.g., "Mon", "Tue"). Renderer
+    /// HTML-escapes.
+    pub label: String,
+    /// Numeric value. Negative values are clamped to 0 — the
+    /// chart shape doesn't represent negative bars; operators
+    /// that need diverging bars should use a different primitive
+    /// (future work).
+    pub value: f64,
+    /// Optional per-bar tone override. `None` falls through to
+    /// the chart's default tone.
+    pub tone_override: Option<SparklineTone>,
+}
+
+/// Orientation for [`CmsSection::BarChart`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BarChartOrientation {
+    /// Bars grow upward from the x-axis. Default; suits short
+    /// category labels (days of week, single-word tags).
+    Vertical,
+    /// Bars grow rightward from a y-axis. Suits long category
+    /// labels that wouldn't fit under vertical bars.
+    Horizontal,
+}
+
+impl BarChartOrientation {
+    /// Stable kebab-case modifier slug.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::Vertical => "vertical",
+            Self::Horizontal => "horizontal",
+        }
+    }
 }
 
 /// Visual tone for [`CmsSection::Sparkline`]. Drives stroke
@@ -2059,7 +2130,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 152;
+    pub const PRIMITIVE_COUNT: u32 = 153;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5684,6 +5755,104 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::BarChart {
+            label,
+            bars,
+            orientation,
+            tone,
+            caption,
+        } => {
+            let orient_mod = orientation.modifier();
+            let tone_mod = tone.modifier();
+            let outer_class = format!(
+                "loom-barchart loom-barchart--{orient_mod} loom-barchart--{tone_mod}"
+            );
+            if bars.is_empty() {
+                return html! {
+                    figure class=(format!("{outer_class} loom-barchart--empty")) data-loom-reveal {
+                        figcaption class="loom-barchart__label" { (label) }
+                        p class="loom-barchart__no-data" { "No data" }
+                        @if let Some(c) = caption {
+                            figcaption class="loom-barchart__caption" { (c) }
+                        }
+                    }
+                };
+            }
+            let n = bars.len();
+            // Clamp negatives + compute max.
+            let clamped: Vec<f64> = bars.iter().map(|b| b.value.max(0.0)).collect();
+            let max = clamped
+                .iter()
+                .copied()
+                .fold(0.0_f64, f64::max)
+                .max(1.0_f64); // floor max at 1 so a zero-only chart still has a stable axis
+            const VBW: f64 = 200.0;
+            const VBH: f64 = 80.0;
+            const PAD: f64 = 4.0;
+            let aria_label = format!(
+                "{label} bar chart: {n} bars, max value {max:.2}"
+            );
+            html! {
+                figure class=(outer_class) data-loom-reveal {
+                    figcaption class="loom-barchart__label" { (label) }
+                    svg class="loom-barchart__svg"
+                        viewBox=(format!("0 0 {VBW:.0} {VBH:.0}"))
+                        preserveAspectRatio="none"
+                        role="img"
+                        aria-label=(aria_label) {
+                        @match orientation {
+                            BarChartOrientation::Vertical => {
+                                @let bar_w = (VBW - 2.0 * PAD) / (n as f64);
+                                @let bar_inner_w = bar_w * 0.7;
+                                @let bar_gap = bar_w * 0.3;
+                                @for (i, bar) in bars.iter().enumerate() {
+                                    @let v = bar.value.max(0.0);
+                                    @let h = (v / max) * (VBH - 2.0 * PAD);
+                                    @let x = PAD + (i as f64) * bar_w + bar_gap / 2.0;
+                                    @let y = VBH - PAD - h;
+                                    @let bar_tone = bar.tone_override.unwrap_or(*tone);
+                                    rect class={ "loom-barchart__bar loom-barchart__bar--" (bar_tone.modifier()) }
+                                         x=(format!("{x:.1}"))
+                                         y=(format!("{y:.1}"))
+                                         width=(format!("{bar_inner_w:.1}"))
+                                         height=(format!("{h:.1}"))
+                                         fill="currentColor" {}
+                                }
+                            }
+                            BarChartOrientation::Horizontal => {
+                                @let bar_h = (VBH - 2.0 * PAD) / (n as f64);
+                                @let bar_inner_h = bar_h * 0.7;
+                                @let bar_gap = bar_h * 0.3;
+                                @for (i, bar) in bars.iter().enumerate() {
+                                    @let v = bar.value.max(0.0);
+                                    @let w = (v / max) * (VBW - 2.0 * PAD);
+                                    @let x = PAD;
+                                    @let y = PAD + (i as f64) * bar_h + bar_gap / 2.0;
+                                    @let bar_tone = bar.tone_override.unwrap_or(*tone);
+                                    rect class={ "loom-barchart__bar loom-barchart__bar--" (bar_tone.modifier()) }
+                                         x=(format!("{x:.1}"))
+                                         y=(format!("{y:.1}"))
+                                         width=(format!("{w:.1}"))
+                                         height=(format!("{bar_inner_h:.1}"))
+                                         fill="currentColor" {}
+                                }
+                            }
+                        }
+                    }
+                    ol class="loom-barchart__legend" {
+                        @for bar in bars {
+                            li class="loom-barchart__legend-item" {
+                                span class="loom-barchart__legend-label" { (bar.label) }
+                                span class="loom-barchart__legend-value" { (format!("{:.2}", bar.value)) }
+                            }
+                        }
+                    }
+                    @if let Some(c) = caption {
+                        figcaption class="loom-barchart__caption" { (c) }
+                    }
+                }
+            }
+        }
         CmsSection::Sparkline {
             label,
             data_points,
@@ -11732,6 +11901,178 @@ mod page_shell_tests {
             assert_eq!(s, json, "expected {variant:?} to serialize as {json}");
             let back: EmailVerifyStatus = serde_json::from_str(&s).unwrap();
             assert_eq!(back, variant);
+        }
+    }
+
+    // #104 (2026-05-20) — BarChart editorial-charts primitive,
+    // categorical companion to Sparkline.
+
+    fn bar(label: &str, value: f64) -> BarChartBar {
+        BarChartBar {
+            label: label.into(),
+            value,
+            tone_override: None,
+        }
+    }
+
+    fn barchart_page(bars: Vec<BarChartBar>, orientation: BarChartOrientation) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::BarChart {
+            label: "Issues closed per milestone".into(),
+            bars,
+            orientation,
+            tone: SparklineTone::Neutral,
+            caption: None,
+        }];
+        p
+    }
+
+    #[test]
+    fn barchart_empty_bars_renders_no_data_placeholder() {
+        let p = barchart_page(vec![], BarChartOrientation::Vertical);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-barchart--empty"));
+        assert!(html.contains(">No data<"));
+        assert!(!html.contains("<svg"));
+    }
+
+    #[test]
+    fn barchart_vertical_renders_one_rect_per_bar() {
+        let p = barchart_page(
+            vec![bar("Mon", 5.0), bar("Tue", 8.0), bar("Wed", 3.0)],
+            BarChartOrientation::Vertical,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-barchart--vertical"));
+        assert!(html.contains("<svg"));
+        assert_eq!(
+            html.matches("<rect").count(),
+            3,
+            "expected 3 rects for 3 bars"
+        );
+    }
+
+    #[test]
+    fn barchart_horizontal_orientation_emits_modifier() {
+        let p = barchart_page(
+            vec![bar("First milestone", 12.0), bar("Second milestone", 8.0)],
+            BarChartOrientation::Horizontal,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-barchart--horizontal"));
+        assert_eq!(html.matches("<rect").count(), 2);
+    }
+
+    #[test]
+    fn barchart_aria_label_includes_count_and_max() {
+        let p = barchart_page(
+            vec![bar("a", 2.5), bar("b", 7.25)],
+            BarChartOrientation::Vertical,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains("aria-label=\""));
+        assert!(html.contains("2 bars"));
+        assert!(html.contains("max value 7.25"));
+    }
+
+    #[test]
+    fn barchart_legend_lists_label_and_value_per_bar() {
+        let p = barchart_page(
+            vec![bar("Mon", 5.5), bar("Tue", 8.25)],
+            BarChartOrientation::Vertical,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-barchart__legend"));
+        assert!(html.contains(">Mon<"));
+        assert!(html.contains(">5.50<"));
+        assert!(html.contains(">Tue<"));
+        assert!(html.contains(">8.25<"));
+    }
+
+    #[test]
+    fn barchart_negative_values_clamped_to_zero() {
+        let p = barchart_page(
+            vec![bar("a", -3.0), bar("b", 5.0)],
+            BarChartOrientation::Vertical,
+        );
+        let html = render_page(&p).into_string();
+        // Negative bar should have height 0 (clamped).
+        // We won't dig into the rect attrs deeply; just verify no
+        // negative numbers in width/height attrs.
+        for needle in ["height=\"-", "width=\"-"] {
+            assert!(!html.contains(needle), "found negative dim: {html}");
+        }
+    }
+
+    #[test]
+    fn barchart_per_bar_tone_override_emits_distinct_modifier() {
+        let p = barchart_page(
+            vec![
+                BarChartBar {
+                    label: "good".into(),
+                    value: 5.0,
+                    tone_override: Some(SparklineTone::Positive),
+                },
+                BarChartBar {
+                    label: "bad".into(),
+                    value: 3.0,
+                    tone_override: Some(SparklineTone::Negative),
+                },
+            ],
+            BarChartOrientation::Vertical,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-barchart__bar--positive"));
+        assert!(html.contains("loom-barchart__bar--negative"));
+    }
+
+    #[test]
+    fn barchart_bar_labels_html_escaped() {
+        let p = barchart_page(
+            vec![bar("<script>", 5.0)],
+            BarChartOrientation::Vertical,
+        );
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn barchart_orientation_serde_round_trip() {
+        for (variant, json) in [
+            (BarChartOrientation::Vertical, "\"vertical\""),
+            (BarChartOrientation::Horizontal, "\"horizontal\""),
+        ] {
+            let s = serde_json::to_string(&variant).unwrap();
+            assert_eq!(s, json);
+            let back: BarChartOrientation = serde_json::from_str(&s).unwrap();
+            assert_eq!(back, variant);
+        }
+    }
+
+    #[test]
+    fn barchart_section_parses_from_snake_case_kind() {
+        let json = r#"{
+            "kind": "bar_chart",
+            "label": "Closed issues",
+            "bars": [
+                { "label": "v1", "value": 10.0, "tone_override": null },
+                { "label": "v2", "value": 14.0, "tone_override": "positive" }
+            ],
+            "orientation": "vertical",
+            "tone": "neutral",
+            "caption": null
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::BarChart { bars, orientation, .. } => {
+                assert_eq!(bars.len(), 2);
+                assert_eq!(orientation, BarChartOrientation::Vertical);
+                assert_eq!(bars[1].tone_override, Some(SparklineTone::Positive));
+            }
+            _ => panic!("expected BarChart variant"),
         }
     }
 
