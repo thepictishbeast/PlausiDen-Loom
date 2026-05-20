@@ -1536,6 +1536,34 @@ pub enum CmsSection {
         /// rendered aside chrome for explicit attribution.
         source: Option<String>,
     },
+    /// Editorial related-articles block — typed "you might
+    /// also like" / "further reading" list with optional
+    /// thumbnails + excerpts. Distinct from
+    /// [`CmsSection::SourceList`] (bibliographic citations
+    /// with author + title + date + kind) and from
+    /// [`CmsSection::CardFeed`] (generic card grid — used for
+    /// product / case-study / staff lists): RelatedReads is
+    /// specifically for in-publication article cross-linking.
+    ///
+    /// Editorial intent: blog / news / long-form essay surfaces
+    /// where the bottom of the article points readers at other
+    /// articles by the same publication. Anti-SaaS: single-
+    /// column dense list (default) or thumbnail cards; not a
+    /// 3-column feature_spotlight grid.
+    RelatedReads {
+        /// Section heading (e.g. `"Related reading"`,
+        /// `"You may also like"`, `"More on insurance"`).
+        heading: String,
+        /// Items in display order. Renderer doesn't sort —
+        /// operator chooses chronological / topical /
+        /// hand-curated.
+        items: Vec<RelatedReadItem>,
+        /// Display style — list (compact text, default) or
+        /// card (with optional thumbnail + dek). All styles
+        /// emit semantic `<ul>` markup; only chrome differs.
+        #[serde(default)]
+        style: RelatedReadsStyle,
+    },
     /// Typed source/citation list for editorial appendices,
     /// research write-up footers, "further reading" sections.
     /// Distinct from [`CmsSection::Citation`] (inline single
@@ -2113,6 +2141,73 @@ impl DisclaimerKind {
             Self::EditorialNote => "Editorial note",
             Self::LegalNotice => "Legal notice",
             Self::AiAssisted => "AI-assisted content disclosure",
+        }
+    }
+}
+
+/// One item in a [`CmsSection::RelatedReads`] list.
+///
+/// Typed shape so the renderer can format consistently across
+/// list + card styles, and audit phases can introspect (flag
+/// dead URLs, missing excerpts in card style, etc.).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct RelatedReadItem {
+    /// Article title — link text.
+    pub title: String,
+    /// Article URL. Validated through `is_safe_url`; hostile
+    /// schemes render as a plain span (no anchor) so XSS is
+    /// impossible by construction.
+    pub href: String,
+    /// Optional eyebrow tag (e.g. `"Insurance"`, `"Investing"`)
+    /// rendered above the title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eyebrow: Option<String>,
+    /// Optional short excerpt / dek shown beneath the title
+    /// (used by both list + card styles).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub excerpt: Option<String>,
+    /// Optional thumbnail — only rendered in
+    /// [`RelatedReadsStyle::Card`] style; ignored in
+    /// [`RelatedReadsStyle::List`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<RelatedReadThumbnail>,
+    /// Optional reading-time hint (e.g. `"5 min read"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reading_time: Option<String>,
+}
+
+/// Thumbnail image for a [`RelatedReadItem`] in card style.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct RelatedReadThumbnail {
+    /// Image src.
+    pub src: String,
+    /// Required alt text.
+    pub alt: String,
+}
+
+/// Display style for [`CmsSection::RelatedReads`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RelatedReadsStyle {
+    /// Compact text list — title + optional excerpt + eyebrow +
+    /// reading-time. Single-column dense rhythm.
+    #[default]
+    List,
+    /// Card style with optional thumbnail. Still single-column
+    /// (not a 3-column grid); cards stack vertically.
+    Card,
+}
+
+impl RelatedReadsStyle {
+    /// Stable kebab-case modifier slug. The
+    /// `.loom-related-reads--<modifier>` cascade targets these.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::List => "list",
+            Self::Card => "card",
         }
     }
 }
@@ -2956,7 +3051,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -7110,6 +7205,58 @@ pub fn render_section(section: &CmsSection) -> Markup {
                         @if matches!(disclosure_kind, DisclaimerKind::Sponsored | DisclaimerKind::Affiliate) {
                             p class="loom-disclaimer__source" {
                                 "Source: " (src)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        CmsSection::RelatedReads {
+            heading,
+            items,
+            style,
+        } => {
+            let style_mod = style.modifier();
+            html! {
+                aside class={ "loom-related-reads loom-related-reads--" (style_mod) }
+                      aria-label="Related reading"
+                      data-style=(style_mod)
+                      data-loom-reveal
+                {
+                    h2 class="loom-related-reads__heading" { (heading) }
+                    @if items.is_empty() {
+                        p class="loom-related-reads__empty" { "No related reading." }
+                    } @else {
+                        ul class="loom-related-reads__items" {
+                            @for item in items {
+                                li class="loom-related-reads__item" {
+                                    @if matches!(style, RelatedReadsStyle::Card) {
+                                        @if let Some(t) = &item.thumbnail {
+                                            img class="loom-related-reads__thumbnail"
+                                                src=(t.src)
+                                                alt=(t.alt)
+                                                loading="lazy";
+                                        }
+                                    }
+                                    div class="loom-related-reads__meta" {
+                                        @if let Some(e) = &item.eyebrow {
+                                            span class="loom-related-reads__eyebrow" { (e) }
+                                        }
+                                        @if is_safe_url(&item.href) {
+                                            a class="loom-related-reads__title" href=(item.href) { (item.title) }
+                                        } @else {
+                                            span class="loom-related-reads__title"
+                                                 data-blocked-href="true"
+                                            { (item.title) }
+                                        }
+                                        @if let Some(ex) = &item.excerpt {
+                                            p class="loom-related-reads__excerpt" { (ex) }
+                                        }
+                                        @if let Some(rt) = &item.reading_time {
+                                            span class="loom-related-reads__reading-time" { (rt) }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -14344,6 +14491,207 @@ mod page_shell_tests {
                 assert_eq!(source.as_deref(), Some("Acme Corp."));
             }
             _ => panic!("expected Disclaimer variant"),
+        }
+    }
+
+    // #104 (2026-05-20) — RelatedReads editorial primitive for
+    // in-publication "you may also like" cross-linking.
+
+    fn related_item(
+        title: &str,
+        href: &str,
+        eyebrow: Option<&str>,
+        excerpt: Option<&str>,
+        thumbnail: Option<(&str, &str)>,
+        reading_time: Option<&str>,
+    ) -> RelatedReadItem {
+        RelatedReadItem {
+            title: title.into(),
+            href: href.into(),
+            eyebrow: eyebrow.map(str::to_owned),
+            excerpt: excerpt.map(str::to_owned),
+            thumbnail: thumbnail.map(|(s, a)| RelatedReadThumbnail {
+                src: s.into(),
+                alt: a.into(),
+            }),
+            reading_time: reading_time.map(str::to_owned),
+        }
+    }
+
+    fn related_page(
+        heading: &str,
+        items: Vec<RelatedReadItem>,
+        style: RelatedReadsStyle,
+    ) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::RelatedReads {
+            heading: heading.into(),
+            items,
+            style,
+        }];
+        p
+    }
+
+    #[test]
+    fn related_reads_default_list_style_renders_titles_as_anchors() {
+        let p = related_page(
+            "Related reading",
+            vec![
+                related_item("Why insurance is essential", "/why-insurance/", Some("Insurance"), None, None, Some("5 min")),
+                related_item("Compounding the boring way", "/compounding/", Some("Investing"), Some("Index funds, not picks."), None, None),
+            ],
+            RelatedReadsStyle::List,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains(r#"<aside class="loom-related-reads loom-related-reads--list""#));
+        assert!(html.contains(r#"aria-label="Related reading""#));
+        assert!(html.contains(r#"data-style="list""#));
+        assert!(html.contains(">Related reading<"));
+        assert!(html.contains(r#"<ul class="loom-related-reads__items""#));
+        // First item: title link + eyebrow + reading-time.
+        assert!(html.contains(r#"<a class="loom-related-reads__title" href="/why-insurance/""#));
+        assert!(html.contains(">Why insurance is essential<"));
+        assert!(html.contains(">Insurance<"));
+        assert!(html.contains(">5 min<"));
+        // Second item: excerpt visible.
+        assert!(html.contains(">Index funds, not picks.<"));
+        // List style does NOT emit thumbnails even if items had them
+        // (none here, but the modifier class is list-only).
+        assert!(!html.contains("loom-related-reads__thumbnail"));
+    }
+
+    #[test]
+    fn related_reads_card_style_renders_thumbnails_when_present() {
+        let p = related_page(
+            "More on insurance",
+            vec![related_item(
+                "Term life basics",
+                "/term-life/",
+                None,
+                Some("Sizing + when to keep it."),
+                Some(("/img/term.webp", "Editorial photo of paperwork on a desk.")),
+                None,
+            )],
+            RelatedReadsStyle::Card,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-related-reads--card"));
+        assert!(html.contains(r#"data-style="card""#));
+        assert!(html.contains(r#"<img class="loom-related-reads__thumbnail" src="/img/term.webp""#));
+        assert!(html.contains(r#"alt="Editorial photo of paperwork on a desk.""#));
+        assert!(html.contains(r#"loading="lazy""#));
+        assert!(html.contains(">Sizing + when to keep it.<"));
+    }
+
+    #[test]
+    fn related_reads_card_style_omits_thumbnail_when_absent() {
+        // Card style + no thumbnail set: img tag should be absent;
+        // the rest of the card chrome still renders.
+        let p = related_page(
+            "Updates",
+            vec![related_item("Headline only", "/x/", None, None, None, None)],
+            RelatedReadsStyle::Card,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-related-reads--card"));
+        assert!(!html.contains("loom-related-reads__thumbnail"));
+        assert!(html.contains(r#"href="/x/""#));
+    }
+
+    #[test]
+    fn related_reads_unsafe_href_falls_back_to_span() {
+        // javascript: scheme on the href is unsafe — title should
+        // render as a plain span with data-blocked-href, never as
+        // an <a>.
+        let p = related_page(
+            "Related reading",
+            vec![related_item(
+                "Bad link",
+                "javascript:alert(1)",
+                None,
+                None,
+                None,
+                None,
+            )],
+            RelatedReadsStyle::List,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains(r#"data-blocked-href="true""#));
+        assert!(!html.contains("javascript:alert(1)"));
+        assert!(!html.contains(r#"<a class="loom-related-reads__title" href="javascript:"#));
+    }
+
+    #[test]
+    fn related_reads_empty_items_renders_empty_marker() {
+        let p = related_page("Related", vec![], RelatedReadsStyle::List);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-related-reads__empty"));
+        assert!(html.contains(">No related reading.<"));
+        assert!(!html.contains("loom-related-reads__items"));
+    }
+
+    #[test]
+    fn related_reads_body_html_escaped() {
+        let p = related_page(
+            "Related",
+            vec![related_item(
+                "<script>x</script>",
+                "/x/",
+                Some("<img onerror=y>"),
+                Some("<b>not bold</b>"),
+                None,
+                None,
+            )],
+            RelatedReadsStyle::List,
+        );
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("<script>x</script>"));
+        assert!(!html.contains("<img onerror=y>"));
+        assert!(!html.contains("<b>not bold</b>"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn related_reads_parses_from_json_with_defaults() {
+        // Minimal JSON: items can omit optional fields; style
+        // defaults to list.
+        let json = r#"{
+            "kind": "related_reads",
+            "heading": "Related",
+            "items": [
+                {"title": "T1", "href": "/a/"},
+                {"title": "T2", "href": "/b/", "excerpt": "X"}
+            ]
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::RelatedReads {
+                heading,
+                items,
+                style,
+            } => {
+                assert_eq!(heading, "Related");
+                assert_eq!(items.len(), 2);
+                assert_eq!(items[1].excerpt.as_deref(), Some("X"));
+                assert_eq!(style, RelatedReadsStyle::List);
+            }
+            _ => panic!("expected RelatedReads variant"),
+        }
+        // Style: "card" parses.
+        let json = r#"{
+            "kind": "related_reads",
+            "heading": "X",
+            "items": [],
+            "style": "card"
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::RelatedReads { style, .. } => {
+                assert_eq!(style, RelatedReadsStyle::Card);
+            }
+            _ => panic!("expected RelatedReads variant"),
         }
     }
 
