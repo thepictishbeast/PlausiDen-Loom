@@ -346,6 +346,14 @@ pub enum CmsSection {
     /// Multi-step form. Renders as `<form>` with a step indicator
     /// at top + each step's fields below + a submit row at bottom.
     /// Used for post-skill.html upload flow.
+    ///
+    /// FUTURE: a `style: CmsFormStyle` field will wire through to
+    /// the `data-loom-form-style` attribute the loom-skin cascade
+    /// uses to swap rounded/editorial/minimal input chrome. The
+    /// [`CmsFormStyle`] enum is defined below for that wire-
+    /// through but isn't a field of this variant yet — adding it
+    /// requires migrating ~7 existing struct-literal call sites in
+    /// tests, deferred to a separate commit.
     Form {
         /// Form heading (rendered as h2 inside the section).
         legend: String,
@@ -3137,6 +3145,43 @@ pub struct CmsFormSubmit {
     pub data_backend: String,
 }
 
+/// Visual style for [`CmsSection::Form`]. Mirrors
+/// `loom_components::FormStyle` at the wire-shape layer so cms-
+/// render JSON can opt the form into the editorial / minimal /
+/// rounded chrome the loom-skin cascade understands.
+///
+/// Default is `Rounded` for back-compat — every existing CMS
+/// JSON file gets the historical SaaS shape; opting into a
+/// different chrome is an explicit additive change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CmsFormStyle {
+    /// `rounded-md` / `rounded-xl` inputs + soft borders. The
+    /// substrate default; SaaS-marketing baseline shape.
+    #[default]
+    Rounded,
+    /// Press-tier editorial chrome — square inputs, ink-on-paper
+    /// borders, no pill bevels. Pairs with `SectionTheme::Editorial`
+    /// and `theme="press"` skins.
+    Editorial,
+    /// Minimal chrome — borderless inputs with under-line accents
+    /// only. For dense forms where chrome would crowd the layout.
+    Minimal,
+}
+
+impl CmsFormStyle {
+    /// Stable kebab-case modifier slug. Part of the wire shape;
+    /// loom-skin targets `[data-loom-form-style="<slug>"]`.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::Rounded => "rounded",
+            Self::Editorial => "editorial",
+            Self::Minimal => "minimal",
+        }
+    }
+}
+
 /// One step inside a [`CmsSection::Form`].
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -3670,7 +3715,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
             legend,
             submit,
             steps,
-        } => render_form(legend, submit, steps),
+        } => render_form(legend, submit, steps, CmsFormStyle::default()),
         CmsSection::Banner {
             tone,
             text,
@@ -6762,15 +6807,21 @@ fn render_card(card: &CmsCard) -> Markup {
 }
 
 /// Render the multi-step form. Helper for `CmsSection::Form`'s arm.
-fn render_form(legend: &str, submit: &CmsFormSubmit, steps: &[CmsFormStep]) -> Markup {
+fn render_form(
+    legend: &str,
+    submit: &CmsFormSubmit,
+    steps: &[CmsFormStep],
+    style: CmsFormStyle,
+) -> Markup {
     let action_safe = is_safe_url(&submit.action);
     let action_value: &str = if action_safe {
         &submit.action
     } else {
         "#invalid-form-action"
     };
+    let style_attr = style.modifier();
     html! {
-        section class="loom-form-section" {
+        section class="loom-form-section" data-loom-form-style=(style_attr) {
             h2 class="loom-form-section__legend" { (legend) }
             @if !steps.is_empty() {
                 ol class="loom-form-section__steps" aria-label="Form progress" {
@@ -6787,6 +6838,7 @@ fn render_form(legend: &str, submit: &CmsFormSubmit, steps: &[CmsFormStep]) -> M
                 method="post"
                 action=(action_value)
                 data-backend=(submit.data_backend)
+                data-loom-form-style=(style_attr)
                 data-invalid=[(!action_safe).then_some("true")]
             {
                 @for step in steps {
@@ -12161,6 +12213,66 @@ mod page_shell_tests {
             assert_eq!(s, json, "expected {variant:?} to serialize as {json}");
             let back: EmailVerifyStatus = serde_json::from_str(&s).unwrap();
             assert_eq!(back, variant);
+        }
+    }
+
+    // #103 / #213 (2026-05-20) — CmsFormStyle substrate enum. The
+    // wire-through into CmsSection::Form is deferred (would migrate
+    // ~7 existing struct-literal fixtures); these tests cover the
+    // type + render_form parameter behavior so the substrate
+    // contract is enforceable now.
+
+    #[test]
+    fn cms_form_style_default_is_rounded() {
+        assert_eq!(CmsFormStyle::default(), CmsFormStyle::Rounded);
+    }
+
+    #[test]
+    fn cms_form_style_modifier_strings_are_stable_kebab_case() {
+        assert_eq!(CmsFormStyle::Rounded.modifier(), "rounded");
+        assert_eq!(CmsFormStyle::Editorial.modifier(), "editorial");
+        assert_eq!(CmsFormStyle::Minimal.modifier(), "minimal");
+    }
+
+    #[test]
+    fn cms_form_style_serde_round_trip() {
+        for (variant, json) in [
+            (CmsFormStyle::Rounded, "\"rounded\""),
+            (CmsFormStyle::Editorial, "\"editorial\""),
+            (CmsFormStyle::Minimal, "\"minimal\""),
+        ] {
+            let s = serde_json::to_string(&variant).unwrap();
+            assert_eq!(s, json);
+            let back: CmsFormStyle = serde_json::from_str(&s).unwrap();
+            assert_eq!(back, variant);
+        }
+    }
+
+    #[test]
+    fn render_form_emits_data_loom_form_style_attr_per_chrome() {
+        // The render_form helper now carries the style param; the
+        // resulting `<form>` + `<section>` both emit the
+        // `data-loom-form-style="<modifier>"` attribute so the
+        // loom-skin cascade can target it. Even though
+        // CmsSection::Form doesn't yet plumb the field, render_form
+        // accepts the style.
+        let submit = CmsFormSubmit {
+            label: "Go".into(),
+            secondary_label: None,
+            action: "/x".into(),
+            data_backend: "x".into(),
+        };
+        for style in [
+            CmsFormStyle::Rounded,
+            CmsFormStyle::Editorial,
+            CmsFormStyle::Minimal,
+        ] {
+            let html = render_form("Legend", &submit, &[], style).into_string();
+            let expected = format!("data-loom-form-style=\"{}\"", style.modifier());
+            assert!(
+                html.contains(&expected),
+                "render_form must emit {expected} attr; got: {html}"
+            );
         }
     }
 
