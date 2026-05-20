@@ -7981,7 +7981,7 @@ if(fld&&fld.contentEditable==='true'){commitField(fld);}\
 fn render_section_for_edit(sec: &loom_cms_render::CmsSection) -> String {
     use loom_cms_render::CmsSection;
     match sec {
-        CmsSection::Heading { level, text, polish: _ } => {
+        CmsSection::Heading { level, text, id: _, polish: _ } => {
             // T36: HeadingLevel is typed; no clamp needed (the
             // enum constructor + Deserialize already enforce
             // 2..=6).
@@ -19599,6 +19599,7 @@ mod inline_edit_tests {
         let h = render_section_for_edit(&CmsSection::Heading {
             level: loom_cms_render::HeadingLevel::H2,
             text: "T".into(),
+            id: None,
             polish: Vec::new(),
         });
         assert!(h.contains("data-edit-field=\"text\""), "heading: {h}");
@@ -19659,6 +19660,7 @@ mod inline_edit_tests {
         let h = render_section_for_edit(&CmsSection::Heading {
             level: loom_cms_render::HeadingLevel::H2,
             text: "<script>alert(1)</script>".into(),
+            id: None,
             polish: Vec::new(),
         });
         assert!(!h.contains("<script>alert(1)</script>"));
@@ -19676,6 +19678,7 @@ mod edit_overlay_tests {
             .map(|i| CmsSection::Heading {
                 level: loom_cms_render::HeadingLevel::H2,
                 text: format!("section {i}"),
+                id: None,
                 polish: Vec::new(),
             })
             .collect();

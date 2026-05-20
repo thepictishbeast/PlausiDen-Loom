@@ -135,28 +135,33 @@ fn build_state_matrix_page() -> loom_cms_render::CmsPage {
             CmsSection::Heading {
                 level: HeadingLevel::H2,
                 text: "Heading H2 — top-level section".into(),
+                id: None,
                 polish: Vec::new(),
-            },
+                },
             CmsSection::Heading {
                 level: HeadingLevel::H3,
                 text: "Heading H3 — subsection".into(),
+                id: None,
                 polish: Vec::new(),
-            },
+                },
             CmsSection::Heading {
                 level: HeadingLevel::H4,
                 text: "Heading H4".into(),
+                id: None,
                 polish: Vec::new(),
-            },
+                },
             CmsSection::Heading {
                 level: HeadingLevel::H5,
                 text: "Heading H5".into(),
+                id: None,
                 polish: Vec::new(),
-            },
+                },
             CmsSection::Heading {
                 level: HeadingLevel::H6,
                 text: "Heading H6 — deepest content heading".into(),
+                id: None,
                 polish: Vec::new(),
-            },
+                },
             // Paragraph — single + with longer prose.
             CmsSection::Paragraph {
                 text: "Paragraph — short prose. Tests body typography, line-height, max-width.".into(),
@@ -266,8 +271,9 @@ fn build_state_matrix_page() -> loom_cms_render::CmsPage {
             CmsSection::Heading {
                 level: HeadingLevel::H2,
                 text: "End of state matrix".into(),
+                id: None,
                 polish: Vec::new(),
-            },
+                },
             CmsSection::Paragraph {
                 text: "Every CmsSection variant + every named state should appear above. \
                        If you see a variant missing, extend `build_state_matrix_page` in loom-cli.".into(),

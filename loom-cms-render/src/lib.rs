@@ -381,6 +381,18 @@ pub enum CmsSection {
         /// else fails parse with `deny_unknown_fields`-style
         /// strictness).
         level: HeadingLevel,
+        /// Optional id attribute — lets the heading serve as a
+        /// jump-link anchor target (`href="#that-id"`). Slug-
+        /// validated via [`SlugName`] when present so we never
+        /// emit a freeform attribute value into the DOM.
+        ///
+        /// 2026-05-20 substrate addition: without this slot,
+        /// every page that uses `/page.html#section` in a nav
+        /// link triggers a link-check phase strict-fail. Adding
+        /// the slot lets cms authors declare a typed anchor next
+        /// to the heading it labels.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
         /// Bounded per-element typographic adjustments. Each
         /// listed token emits a `loom-polish--X` class on the
         /// heading element. Idempotent — duplicates collapse.
@@ -2840,33 +2852,39 @@ pub fn render_section(section: &CmsSection) -> Markup {
             };
             html! { p class=(class) { (text) } }
         }
-        CmsSection::Heading { text, level, polish } => {
+        CmsSection::Heading { text, level, id, polish } => {
             // T36 (2026-05-14): typed HeadingLevel enum makes
             // out-of-range values uncompilable. The runtime clamp
             // + data-cms-warn fallback are gone — invalid levels
             // never reach this match (Deserialize fails first at
             // the JSON boundary).
+            //
+            // 2026-05-20: optional `id` slot lets the heading
+            // serve as a jump-link anchor. We slug-validate via
+            // SlugName so an attacker-controlled value can't break
+            // out of the attribute context.
             let polish_classes = polish_class_string(polish);
             let class_attr = if polish_classes.is_empty() {
                 "loom-heading".to_owned()
             } else {
                 format!("loom-heading {polish_classes}")
             };
+            let id_attr = id.as_deref().and_then(sanitize_anchor_id);
             match level {
                 HeadingLevel::H2 => html! {
-                    h2 class=(class_attr) data-loom-level="2" { (text) }
+                    h2 id=[id_attr.clone()] class=(class_attr) data-loom-level="2" { (text) }
                 },
                 HeadingLevel::H3 => html! {
-                    h3 class=(class_attr) data-loom-level="3" { (text) }
+                    h3 id=[id_attr.clone()] class=(class_attr) data-loom-level="3" { (text) }
                 },
                 HeadingLevel::H4 => html! {
-                    h4 class=(class_attr) data-loom-level="4" { (text) }
+                    h4 id=[id_attr.clone()] class=(class_attr) data-loom-level="4" { (text) }
                 },
                 HeadingLevel::H5 => html! {
-                    h5 class=(class_attr) data-loom-level="5" { (text) }
+                    h5 id=[id_attr.clone()] class=(class_attr) data-loom-level="5" { (text) }
                 },
                 HeadingLevel::H6 => html! {
-                    h6 class=(class_attr) data-loom-level="6" { (text) }
+                    h6 id=[id_attr] class=(class_attr) data-loom-level="6" { (text) }
                 },
             }
         }
@@ -5419,6 +5437,7 @@ mod tests {
             sections: vec![CmsSection::Heading {
                 text: "Section".to_owned(),
                 level: HeadingLevel::H2,
+                id: None,
                 polish: Vec::new(),
             }],
         };
@@ -5456,6 +5475,7 @@ mod tests {
                 sections: vec![CmsSection::Heading {
                     text: "x".to_owned(),
                     level,
+                    id: None,
                     polish: Vec::new(),
                 }],
             };
@@ -5930,6 +5950,7 @@ mod tests {
         let _ = variant_index(&CmsSection::Heading {
             text: "x".into(),
             level: HeadingLevel::H2,
+            id: None,
             polish: Vec::new(),
         });
         assert!(loom_facts::PRIMITIVE_COUNT > 100);
@@ -8632,6 +8653,26 @@ fn render_chrome_body(
 }
 
 /// Render the page footer. `None` → empty back-compat footer
+/// Validate and normalize a heading `id` value. Returns the
+/// owned string when the input is a strict slug `[a-z0-9-]+`
+/// (lowercase letters, digits, single-dash separators), no
+/// leading or trailing dash, length 1..=64. Returns `None`
+/// otherwise — the renderer then omits the `id` attribute
+/// rather than emit attacker-controlled HTML.
+fn sanitize_anchor_id(raw: &str) -> Option<String> {
+    let s = raw.trim();
+    if s.is_empty() || s.len() > 64 {
+        return None;
+    }
+    if s.starts_with('-') || s.ends_with('-') {
+        return None;
+    }
+    let ok = s
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if ok { Some(s.to_owned()) } else { None }
+}
+
 /// Build an `Organization` JSON-LD `<script>` block from page-
 /// level metadata. Returns an empty string when the necessary
 /// fields (brand + site_origin) aren't both present — skipping
@@ -9061,6 +9102,7 @@ mod page_shell_tests {
             sections: vec![CmsSection::Heading {
                 level: HeadingLevel::H2,
                 text: "x".into(),
+                id: None,
                 polish: Vec::new(),
             }],
         };
