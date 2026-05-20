@@ -1245,6 +1245,39 @@ pub enum CmsSection {
         /// Submit-button label.
         submit_label: String,
     },
+    /// Typed disclosure block — sponsored-content notices,
+    /// affiliate-link disclaimers, conflict-of-interest
+    /// declarations, editorial-policy notes. Distinct from the
+    /// generic [`CmsSection::AsideNote`] in two ways:
+    ///
+    /// 1. **Typed kind** — `DisclaimerKind` carries semantic
+    ///    intent the substrate can audit. Future Forge phase
+    ///    `disclosure_audit` flags sponsored-content pages that
+    ///    omit the Sponsored disclaimer.
+    /// 2. **Semantic shape** — renders as `<aside role="note"
+    ///    aria-label>` with a kind-specific accessible name so
+    ///    screen-reader users hear "sponsored content notice"
+    ///    not just "note."
+    ///
+    /// FTC + Google Search Quality Guidelines + most jurisdictions
+    /// require disclosure for sponsored / affiliate / advertorial
+    /// content; typed primitives make compliance enforceable at
+    /// the substrate layer.
+    Disclaimer {
+        /// Kind of disclosure. Field is `disclosure_kind` rather
+        /// than `kind` because the outer enum already uses `kind`
+        /// as its serde tag — colliding inner field would shadow
+        /// the variant discriminator.
+        disclosure_kind: DisclaimerKind,
+        /// Body text. Operator-supplied so brand voice can vary
+        /// while the typed kind keeps the audit signal stable.
+        body: String,
+        /// Optional source / sponsor identifier (e.g., "Acme
+        /// Corp."). When present + disclosure_kind == Sponsored,
+        /// renderer includes it in the accessible name + the
+        /// rendered aside chrome for explicit attribution.
+        source: Option<String>,
+    },
     /// Typed source/citation list for editorial appendices,
     /// research write-up footers, "further reading" sections.
     /// Distinct from [`CmsSection::Citation`] (inline single
@@ -1648,6 +1681,70 @@ pub enum CmsSection {
         /// a primary "Continue to dashboard").
         secondary_cta: Option<HeroCta>,
     },
+}
+
+/// Kind of disclosure on [`CmsSection::Disclaimer`].
+///
+/// Drives the modifier class on the rendered `<aside>` + the
+/// accessible-name template. Future `disclosure_audit` phase
+/// reads the kind to enforce per-kind requirements (e.g.
+/// Sponsored disclaimers must carry a `source` attribution).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DisclaimerKind {
+    /// Sponsored / paid content. FTC-required for promotional
+    /// posts in the US.
+    Sponsored,
+    /// Article contains affiliate links the publisher gets a
+    /// commission from. FTC-required.
+    Affiliate,
+    /// Author has a personal / financial / professional
+    /// relationship with the subject matter. Editorial ethics
+    /// best practice.
+    ConflictOfInterest,
+    /// Editorial-policy note — corrections issued, sourcing
+    /// transparency, etc.
+    EditorialNote,
+    /// Legal / regulatory notice (jurisdiction-specific
+    /// disclosures, copyright assertions, etc.).
+    LegalNotice,
+    /// AI-assisted content disclosure — LLM was involved in
+    /// drafting / editing / illustrating. Best practice as
+    /// publisher transparency.
+    AiAssisted,
+}
+
+impl DisclaimerKind {
+    /// Stable kebab-case modifier slug. The
+    /// `.loom-disclaimer--<modifier>` cascade targets these.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::Sponsored => "sponsored",
+            Self::Affiliate => "affiliate",
+            Self::ConflictOfInterest => "conflict-of-interest",
+            Self::EditorialNote => "editorial-note",
+            Self::LegalNotice => "legal-notice",
+            Self::AiAssisted => "ai-assisted",
+        }
+    }
+
+    /// Default accessible-name template. Operator-supplied
+    /// `source` (when present) gets appended for `Sponsored`
+    /// kind. The aria-label is the SCREEN-READER pronunciation
+    /// of the disclaimer block; visual readers see the body
+    /// text + chrome.
+    #[must_use]
+    pub const fn accessible_label(self) -> &'static str {
+        match self {
+            Self::Sponsored => "Sponsored content notice",
+            Self::Affiliate => "Affiliate link disclosure",
+            Self::ConflictOfInterest => "Conflict of interest disclosure",
+            Self::EditorialNote => "Editorial note",
+            Self::LegalNotice => "Legal notice",
+            Self::AiAssisted => "AI-assisted content disclosure",
+        }
+    }
 }
 
 /// One entry in a [`CmsSection::SourceList`].
@@ -2437,7 +2534,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 158;
+    pub const PRIMITIVE_COUNT: u32 = 159;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -6100,6 +6197,31 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::Disclaimer { disclosure_kind, body, source } => {
+            let modifier = disclosure_kind.modifier();
+            let mut aria_label = disclosure_kind.accessible_label().to_owned();
+            if matches!(disclosure_kind, DisclaimerKind::Sponsored) {
+                if let Some(src) = source {
+                    aria_label.push_str(" from ");
+                    aria_label.push_str(src);
+                }
+            }
+            html! {
+                aside class={ "loom-disclaimer loom-disclaimer--" (modifier) }
+                      role="note"
+                      aria-label=(aria_label)
+                      data-loom-reveal {
+                    p class="loom-disclaimer__body" { (body) }
+                    @if let Some(src) = source {
+                        @if matches!(disclosure_kind, DisclaimerKind::Sponsored | DisclaimerKind::Affiliate) {
+                            p class="loom-disclaimer__source" {
+                                "Source: " (src)
+                            }
+                        }
+                    }
+                }
+            }
+        }
         CmsSection::SourceList {
             heading,
             items,
@@ -12880,6 +13002,179 @@ mod page_shell_tests {
                 html.contains(&expected),
                 "render_form must emit {expected} attr; got: {html}"
             );
+        }
+    }
+
+    // #104 (2026-05-20) — Disclaimer typed disclosure primitive.
+
+    fn disclaimer_page(kind: DisclaimerKind, body: &str, source: Option<&str>) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::Disclaimer {
+            disclosure_kind: kind,
+            body: body.into(),
+            source: source.map(str::to_owned),
+        }];
+        p
+    }
+
+    #[test]
+    fn disclaimer_renders_aside_with_role_note() {
+        let p = disclaimer_page(
+            DisclaimerKind::Sponsored,
+            "This article was sponsored.",
+            None,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains("<aside class=\"loom-disclaimer loom-disclaimer--sponsored\""));
+        assert!(html.contains("role=\"note\""));
+        assert!(html.contains("aria-label=\"Sponsored content notice\""));
+    }
+
+    #[test]
+    fn disclaimer_kind_emits_modifier_class_per_kind() {
+        for (kind, modifier) in [
+            (DisclaimerKind::Sponsored, "sponsored"),
+            (DisclaimerKind::Affiliate, "affiliate"),
+            (DisclaimerKind::ConflictOfInterest, "conflict-of-interest"),
+            (DisclaimerKind::EditorialNote, "editorial-note"),
+            (DisclaimerKind::LegalNotice, "legal-notice"),
+            (DisclaimerKind::AiAssisted, "ai-assisted"),
+        ] {
+            let p = disclaimer_page(kind, "body", None);
+            let html = render_page(&p).into_string();
+            let expected = format!("loom-disclaimer--{modifier}");
+            assert!(
+                html.contains(&expected),
+                "kind {kind:?} missing modifier class {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn disclaimer_accessible_label_per_kind() {
+        for (kind, label) in [
+            (DisclaimerKind::Sponsored, "Sponsored content notice"),
+            (DisclaimerKind::Affiliate, "Affiliate link disclosure"),
+            (
+                DisclaimerKind::ConflictOfInterest,
+                "Conflict of interest disclosure",
+            ),
+            (DisclaimerKind::EditorialNote, "Editorial note"),
+            (DisclaimerKind::LegalNotice, "Legal notice"),
+            (DisclaimerKind::AiAssisted, "AI-assisted content disclosure"),
+        ] {
+            assert_eq!(kind.accessible_label(), label);
+        }
+    }
+
+    #[test]
+    fn disclaimer_sponsored_source_appears_in_aria_label_and_body() {
+        let p = disclaimer_page(
+            DisclaimerKind::Sponsored,
+            "Paid promotion.",
+            Some("Acme Corp."),
+        );
+        let html = render_page(&p).into_string();
+        // aria-label includes the source for Sponsored kind
+        assert!(html.contains("aria-label=\"Sponsored content notice from Acme Corp.\""));
+        // Source line appears in visible chrome
+        assert!(html.contains("loom-disclaimer__source"));
+        assert!(html.contains(">Source: Acme Corp.</p>"));
+    }
+
+    #[test]
+    fn disclaimer_affiliate_source_appears_in_body_only() {
+        // Affiliate kind: source appears in visible chrome but NOT
+        // in aria-label (no per-kind aria template for affiliate;
+        // would surface "Affiliate link disclosure from Acme" which
+        // misframes the semantic — Acme isn't the source of the
+        // affiliate link in the same way they sponsor content).
+        let p = disclaimer_page(
+            DisclaimerKind::Affiliate,
+            "We earn a commission.",
+            Some("Acme Corp."),
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains("aria-label=\"Affiliate link disclosure\""));
+        assert!(!html.contains("aria-label=\"Affiliate link disclosure from"));
+        assert!(html.contains("loom-disclaimer__source"));
+    }
+
+    #[test]
+    fn disclaimer_other_kinds_omit_source_chrome_even_when_present() {
+        // ConflictOfInterest / EditorialNote / LegalNotice / AiAssisted
+        // don't get a `Source:` line even when source is present —
+        // the kind itself carries the semantic; an explicit source
+        // attribution would misframe (you don't attribute a COI to
+        // a specific person, you DISCLOSE it).
+        for kind in [
+            DisclaimerKind::ConflictOfInterest,
+            DisclaimerKind::EditorialNote,
+            DisclaimerKind::LegalNotice,
+            DisclaimerKind::AiAssisted,
+        ] {
+            let p = disclaimer_page(kind, "body", Some("source"));
+            let html = render_page(&p).into_string();
+            assert!(
+                !html.contains("loom-disclaimer__source"),
+                "kind {kind:?} should not render source chrome"
+            );
+        }
+    }
+
+    #[test]
+    fn disclaimer_no_source_omits_source_chrome() {
+        let p = disclaimer_page(DisclaimerKind::Sponsored, "Paid.", None);
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("loom-disclaimer__source"));
+    }
+
+    #[test]
+    fn disclaimer_body_html_escaped() {
+        let p = disclaimer_page(
+            DisclaimerKind::Sponsored,
+            "<script>alert(1)</script>",
+            Some("<img onerror=x>"),
+        );
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(!html.contains("<img onerror=x>"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn disclaimer_kind_modifier_strings_stable() {
+        // Wire-shape contract: loom-skin cascade rules target
+        // these stable strings.
+        assert_eq!(DisclaimerKind::Sponsored.modifier(), "sponsored");
+        assert_eq!(
+            DisclaimerKind::ConflictOfInterest.modifier(),
+            "conflict-of-interest"
+        );
+        assert_eq!(DisclaimerKind::AiAssisted.modifier(), "ai-assisted");
+    }
+
+    #[test]
+    fn disclaimer_section_parses_from_snake_case_kind() {
+        // Inner field is `disclosure_kind` (not `kind`) to avoid
+        // colliding with the outer serde tag — see Disclaimer
+        // variant doc.
+        let json = r#"{
+            "kind": "disclaimer",
+            "disclosure_kind": "sponsored",
+            "body": "This article was sponsored by Acme.",
+            "source": "Acme Corp."
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::Disclaimer { disclosure_kind, body, source } => {
+                assert_eq!(disclosure_kind, DisclaimerKind::Sponsored);
+                assert_eq!(body, "This article was sponsored by Acme.");
+                assert_eq!(source.as_deref(), Some("Acme Corp."));
+            }
+            _ => panic!("expected Disclaimer variant"),
         }
     }
 
