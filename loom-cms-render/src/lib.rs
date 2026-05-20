@@ -917,6 +917,34 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reading_time: Option<String>,
     },
+    /// Editorial chapter navigation — previous / index / next
+    /// links rendered as a single `<nav>` strip at the end of
+    /// a chapter in serialized long-form (book chapters,
+    /// multi-part essays, course modules). Pairs with
+    /// [`CmsSection::ChapterMark`] which marks the START of a
+    /// chapter; ChapterPager marks the END with cross-links.
+    /// Distinct from [`CmsSection::RelatedReads`] (semantic
+    /// "you may also like" suggestions across publications)
+    /// and from [`CmsSection::Steps`] / [`CmsSection::Tabs`]
+    /// (in-page progress, not cross-page).
+    ///
+    /// All three slots are independently optional: first chapter
+    /// has no `previous`, last has no `next`, single-page works
+    /// might only have `index`. An empty ChapterPager (all three
+    /// `None`) elides the `<nav>` entirely so audit phases can
+    /// still parse the JSON without producing visual noise.
+    ChapterPager {
+        /// Previous chapter — `None` on the first chapter.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        previous: Option<ChapterPagerLink>,
+        /// Optional "Contents" / "Index" link rendered between
+        /// previous + next.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        index: Option<ChapterPagerLink>,
+        /// Next chapter — `None` on the last chapter.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        next: Option<ChapterPagerLink>,
+    },
     /// End-of-document footnote. Renders as a numbered entry at
     /// the bottom of a long-form piece. Distinct from
     /// [`CmsSection::Footnote`] (which is inline / mid-flow); use
@@ -2956,7 +2984,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3105,34 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// One link entry inside a [`CmsSection::ChapterPager`].
+///
+/// Typed shape so the renderer can format the three slots
+/// (previous / index / next) consistently and `is_safe_url`
+/// can gate hostile schemes. Each link carries:
+/// - `label`: small eyebrow text ("Previous", "Next", "Contents")
+/// - `title`: the destination chapter title (link text)
+/// - `number`: optional chapter number / letter prefix
+/// - `href`: validated URL
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct ChapterPagerLink {
+    /// Slot label rendered as a small eyebrow above the title
+    /// (e.g. `"Previous"`, `"Next chapter"`, `"Contents"`).
+    pub label: String,
+    /// Destination chapter title — link text.
+    pub title: String,
+    /// Optional number / letter / label prefix
+    /// (e.g. `"02"`, `"II"`, `"Chapter 2"`). Rendered alongside
+    /// the title for readers who navigate by number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number: Option<String>,
+    /// Target URL. Validated through `is_safe_url`; hostile
+    /// schemes render as a plain span with
+    /// `data-blocked-href="true"` so XSS is impossible.
+    pub href: String,
 }
 
 /// One comparison row.
@@ -5702,6 +5758,58 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::ChapterPager {
+            previous,
+            index,
+            next,
+        } => {
+            let render_link = |link: &ChapterPagerLink, slot: &'static str| -> Markup {
+                let safe = is_safe_url(&link.href);
+                html! {
+                    li class={ "loom-chapter-pager__item loom-chapter-pager__item--" (slot) }
+                       data-slot=(slot)
+                    {
+                        @if safe {
+                            a class="loom-chapter-pager__link" href=(link.href) {
+                                span class="loom-chapter-pager__label" { (link.label) }
+                                @if let Some(n) = &link.number {
+                                    span class="loom-chapter-pager__number" { (n) }
+                                }
+                                span class="loom-chapter-pager__title" { (link.title) }
+                            }
+                        } @else {
+                            span class="loom-chapter-pager__link"
+                                 data-blocked-href="true"
+                            {
+                                span class="loom-chapter-pager__label" { (link.label) }
+                                @if let Some(n) = &link.number {
+                                    span class="loom-chapter-pager__number" { (n) }
+                                }
+                                span class="loom-chapter-pager__title" { (link.title) }
+                            }
+                        }
+                    }
+                }
+            };
+            if previous.is_none() && index.is_none() && next.is_none() {
+                // Empty pager — elide entire <nav> so audit-clean
+                // JSON doesn't add visual noise.
+                html! {}
+            } else {
+                html! {
+                    nav class="loom-chapter-pager"
+                        aria-label="Chapter navigation"
+                        data-loom-reveal
+                    {
+                        ol class="loom-chapter-pager__items" {
+                            @if let Some(p) = previous { (render_link(p, "previous")) }
+                            @if let Some(i) = index { (render_link(i, "index")) }
+                            @if let Some(n) = next { (render_link(n, "next")) }
+                        }
+                    }
+                }
+            }
+        }
         CmsSection::Endnote { number, text } => html! {
             aside class="loom-endnote" id={ "endnote-" (number.to_string()) } {
                 span class="loom-endnote__num" { (number.to_string()) "." } " " (text)
@@ -10147,6 +10255,144 @@ mod tests {
         assert!(html.contains("Solo"));
         assert!(!html.contains("loom-byline__role"));
         assert!(!html.contains("loom-byline__dateline"));
+    }
+
+    // #104 (2026-05-20) — ChapterPager prev/index/next nav.
+
+    #[test]
+    fn chapter_pager_renders_nav_with_three_slots() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "chapter_pager",
+                "previous": {"label": "Previous", "title": "On Risk", "number": "01", "href": "/ch01/"},
+                "index":    {"label": "Contents", "title": "All chapters", "href": "/contents/"},
+                "next":     {"label": "Next",     "title": "On Yield", "number": "03", "href": "/ch03/"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<nav class="loom-chapter-pager""#));
+        assert!(html.contains(r#"aria-label="Chapter navigation""#));
+        // All three slots appear with stable modifier classes.
+        assert!(html.contains("loom-chapter-pager__item--previous"));
+        assert!(html.contains("loom-chapter-pager__item--index"));
+        assert!(html.contains("loom-chapter-pager__item--next"));
+        assert!(html.contains(r#"data-slot="previous""#));
+        assert!(html.contains(r#"data-slot="index""#));
+        assert!(html.contains(r#"data-slot="next""#));
+        // Anchor hrefs present.
+        assert!(html.contains(r#"href="/ch01/""#));
+        assert!(html.contains(r#"href="/contents/""#));
+        assert!(html.contains(r#"href="/ch03/""#));
+        // Labels + numbers + titles render.
+        assert!(html.contains(">Previous<"));
+        assert!(html.contains(">Next<"));
+        assert!(html.contains(">Contents<"));
+        assert!(html.contains(">01<"));
+        assert!(html.contains(">03<"));
+        assert!(html.contains(">On Risk<"));
+        assert!(html.contains(">On Yield<"));
+        assert!(html.contains(">All chapters<"));
+    }
+
+    #[test]
+    fn chapter_pager_omits_unset_slots() {
+        // First chapter: only `next` is set.
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "chapter_pager",
+                "next": {"label": "Next", "title": "On Risk", "href": "/ch02/"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-chapter-pager__item--next"));
+        assert!(!html.contains("loom-chapter-pager__item--previous"));
+        assert!(!html.contains("loom-chapter-pager__item--index"));
+    }
+
+    #[test]
+    fn chapter_pager_empty_elides_nav_entirely() {
+        // No slots set — the renderer drops the <nav> so audit-
+        // clean JSON doesn't produce visual noise.
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{"kind": "chapter_pager"}]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("loom-chapter-pager"));
+    }
+
+    #[test]
+    fn chapter_pager_unsafe_href_falls_back_to_span() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "chapter_pager",
+                "next": {"label": "Next", "title": "Bad", "href": "javascript:alert(1)"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"data-blocked-href="true""#));
+        assert!(!html.contains("javascript:alert(1)"));
+        assert!(!html.contains(r#"<a class="loom-chapter-pager__link" href="javascript:"#));
+    }
+
+    #[test]
+    fn chapter_pager_omits_number_when_none() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "chapter_pager",
+                "next": {"label": "Next", "title": "Untitled", "href": "/x/"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(">Untitled<"));
+        assert!(!html.contains("loom-chapter-pager__number"));
+    }
+
+    #[test]
+    fn chapter_pager_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "chapter_pager",
+                "next": {
+                    "label": "<script>l</script>",
+                    "title": "<script>t</script>",
+                    "number": "<script>n</script>",
+                    "href": "/x/"
+                }
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>l</script>",
+            "<script>t</script>",
+            "<script>n</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
