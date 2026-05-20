@@ -9202,6 +9202,126 @@ mod page_shell_tests {
             &before_close[before_close.len().saturating_sub(40)..]
         );
     }
+
+    #[test]
+    fn sanitize_anchor_id_accepts_simple_slug() {
+        assert_eq!(sanitize_anchor_id("support"), Some("support".into()));
+        assert_eq!(sanitize_anchor_id("dark-sky"), Some("dark-sky".into()));
+        assert_eq!(sanitize_anchor_id("a"), Some("a".into()));
+        assert_eq!(sanitize_anchor_id("section-2026"), Some("section-2026".into()));
+    }
+
+    #[test]
+    fn sanitize_anchor_id_trims_whitespace() {
+        assert_eq!(sanitize_anchor_id("  support  "), Some("support".into()));
+        assert_eq!(sanitize_anchor_id("\tabout\n"), Some("about".into()));
+    }
+
+    #[test]
+    fn sanitize_anchor_id_rejects_uppercase() {
+        assert_eq!(sanitize_anchor_id("Support"), None);
+        assert_eq!(sanitize_anchor_id("DARK-SKY"), None);
+    }
+
+    #[test]
+    fn sanitize_anchor_id_rejects_underscores() {
+        // Underscore is not in [a-z0-9-]; slugs use dashes only.
+        assert_eq!(sanitize_anchor_id("dark_sky"), None);
+        assert_eq!(sanitize_anchor_id("a_b_c"), None);
+    }
+
+    #[test]
+    fn sanitize_anchor_id_rejects_unicode() {
+        // Multi-byte sequences must not slip through into attribute
+        // values — keep the slug strictly ASCII.
+        assert_eq!(sanitize_anchor_id("café"), None);
+        assert_eq!(sanitize_anchor_id("北区"), None);
+        assert_eq!(sanitize_anchor_id("naïve-id"), None);
+    }
+
+    #[test]
+    fn sanitize_anchor_id_rejects_attribute_break_attempts() {
+        // Quotes / angle brackets / spaces would let an attacker
+        // close the attribute and inject markup.
+        assert_eq!(sanitize_anchor_id("a\" onclick=alert(1)"), None);
+        assert_eq!(sanitize_anchor_id("x><script>"), None);
+        assert_eq!(sanitize_anchor_id("a b"), None);
+        assert_eq!(sanitize_anchor_id("a'b"), None);
+    }
+
+    #[test]
+    fn sanitize_anchor_id_rejects_leading_or_trailing_dash() {
+        // A leading dash makes the id look like a CSS attribute
+        // selector negation; trailing dash is just ugly. Reject both.
+        assert_eq!(sanitize_anchor_id("-support"), None);
+        assert_eq!(sanitize_anchor_id("support-"), None);
+        assert_eq!(sanitize_anchor_id("-"), None);
+        assert_eq!(sanitize_anchor_id("--"), None);
+    }
+
+    #[test]
+    fn sanitize_anchor_id_rejects_empty_and_too_long() {
+        assert_eq!(sanitize_anchor_id(""), None);
+        assert_eq!(sanitize_anchor_id("   "), None);
+        // Exactly 64 chars — accepted.
+        let sixty_four = "a".repeat(64);
+        assert_eq!(sanitize_anchor_id(&sixty_four), Some(sixty_four));
+        // 65 chars — rejected.
+        assert_eq!(sanitize_anchor_id(&"a".repeat(65)), None);
+    }
+
+    #[test]
+    fn heading_with_valid_id_renders_id_attribute() {
+        // End-to-end: a Heading variant carrying a valid id slug
+        // emits `id="..."` on the rendered tag.
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::Heading {
+            level: HeadingLevel::H2,
+            text: "Support.".into(),
+            id: Some("support".into()),
+            polish: Vec::new(),
+        }];
+        let h = page_shell_themed(&p, "/x.css", &render_page(&p).into_string(), None, None);
+        assert!(h.contains("id=\"support\""), "expected id attr on h2; got: {h}");
+    }
+
+    #[test]
+    fn heading_with_invalid_id_drops_id_attribute() {
+        // Invalid slug → no id attribute (no failure, no warning,
+        // attribute simply omitted — defense-in-depth posture).
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::Heading {
+            level: HeadingLevel::H2,
+            text: "Support.".into(),
+            id: Some("INVALID UPPER".into()),
+            polish: Vec::new(),
+        }];
+        let h = page_shell_themed(&p, "/x.css", &render_page(&p).into_string(), None, None);
+        // The heading still renders as h2; the id attr is omitted.
+        assert!(h.contains(">Support.<"));
+        assert!(!h.contains("id=\"INVALID UPPER\""));
+        assert!(!h.contains("INVALID UPPER"));
+    }
+
+    #[test]
+    fn heading_without_id_renders_no_id_attribute() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::Heading {
+            level: HeadingLevel::H2,
+            text: "No anchor.".into(),
+            id: None,
+            polish: Vec::new(),
+        }];
+        let body_only = render_page(&p).into_string();
+        // The heading body has no id="..." between the class and the text.
+        assert!(body_only.contains("<h2 class=\"loom-heading\" data-loom-level=\"2\">No anchor.</h2>"));
+    }
 }
 
 #[cfg(test)]
