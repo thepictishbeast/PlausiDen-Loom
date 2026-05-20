@@ -496,6 +496,30 @@ pub enum CmsSection {
         #[serde(default)]
         terminal: bool,
     },
+    /// Typed-line terminal transcript — the substrate-aware sibling
+    /// of [`CmsSection::Code`]. Where `Code` is a single flat body
+    /// string with a `terminal` flag, `CodeShell` carries per-line
+    /// semantic role annotation (Command / Output / Comment / Error)
+    /// so the skin can color + indent each line by its meaning. Wire
+    /// shape mirrors [`loom_components::CodeShell`].
+    ///
+    /// Use cases: forge build audit-chain proof, configuration walk-
+    /// throughs, terminal-style decoration inside a HeroEditorial.
+    CodeShell {
+        /// Header title — shell name, filename, or label. Only
+        /// emitted when `chrome` is `Header`.
+        title: Option<String>,
+        /// Prompt prefix for `Command` lines. `None` defaults to `$`.
+        prompt: Option<String>,
+        /// Transcript lines in order.
+        lines: Vec<CmsCodeShellLine>,
+        /// Color tone: `slate` (default) or `amoled` (true-black).
+        #[serde(default)]
+        tone: CodeShellTone,
+        /// Chrome treatment: `minimal` (default) or `header`.
+        #[serde(default)]
+        chrome: CodeShellChrome,
+    },
     /// Full-bleed image/gradient hero. Larger + more visually
     /// ambitious than [`CmsSection::Hero`]; spans the viewport
     /// width breaking out of the standard content max-width.
@@ -1372,6 +1396,57 @@ pub enum PullQuoteTone {
     Amoled,
 }
 
+/// Tone for [`CmsSection::CodeShell`]. Mirrors
+/// `loom_components::code_shell::CodeShellTone`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CodeShellTone {
+    /// Slate-900 ink on slate-50 surface.
+    #[default]
+    Slate,
+    /// Slate-100 ink on AMOLED true-black surface.
+    Amoled,
+}
+
+/// Chrome treatment for [`CmsSection::CodeShell`]. Mirrors
+/// `loom_components::code_shell::CodeShellChrome`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CodeShellChrome {
+    /// No header — just the code block, framed by a single border.
+    #[default]
+    Minimal,
+    /// Text-only header showing the shell name or filename. No
+    /// traffic-light circles, no gradient.
+    Header,
+}
+
+/// Semantic role of a single line in [`CmsSection::CodeShell`].
+/// Mirrors `loom_components::code_shell::CodeShellLineKind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CmsCodeShellLineKind {
+    /// User-typed shell command. Renders with the prompt prefix.
+    Command,
+    /// Program output. Indented to align with the command text.
+    Output,
+    /// Annotation by the author. Dimmed + italic, prefixed with `#`.
+    Comment,
+    /// Error line. Picks up the warn / error color.
+    Error,
+}
+
+/// One line of a `CodeShell` transcript. Owned-string variant of the
+/// `loom_components` primitive's `CodeShellLine<'a>`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct CmsCodeShellLine {
+    /// Line role.
+    pub kind: CmsCodeShellLineKind,
+    /// Line text. Rendered as-is via Maud (auto-escaped).
+    pub text: String,
+}
+
 /// Background tone for [`CmsSection::HeroEditorial`].
 ///
 /// Mirrors `loom_components::hero::HeroEditorialBackground`. `Slate`
@@ -1496,7 +1571,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 144;
+    pub const PRIMITIVE_COUNT: u32 = 145;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3161,6 +3236,78 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        // Typed-line terminal transcript. Renders <pre><code> with one
+        // <span> per line carrying a kind-specific class so the skin
+        // can color + indent by semantic role. Distinct from
+        // CmsSection::Code (flat body) and from the SaaS-mockup shell
+        // shape (no fake traffic-light circles emitted).
+        CmsSection::CodeShell {
+            title,
+            prompt,
+            lines,
+            tone,
+            chrome,
+        } => {
+            let tone_attr = match tone {
+                CodeShellTone::Slate => "slate",
+                CodeShellTone::Amoled => "amoled",
+            };
+            let chrome_attr = match chrome {
+                CodeShellChrome::Minimal => "minimal",
+                CodeShellChrome::Header => "header",
+            };
+            let prompt_glyph = prompt.as_deref().unwrap_or("$");
+            let show_header = matches!(chrome, CodeShellChrome::Header) && title.is_some();
+            html! {
+                section
+                    class="loom-code-shell"
+                    data-loom-code-shell
+                    data-tone=(tone_attr)
+                    data-chrome=(chrome_attr)
+                {
+                    @if show_header {
+                        @if let Some(t) = title {
+                            div class="loom-code-shell__header" { (t) }
+                        }
+                    }
+                    pre class="loom-code-shell__pre" {
+                        code class="loom-code-shell__code" {
+                            @for line in lines {
+                                @match line.kind {
+                                    CmsCodeShellLineKind::Command => {
+                                        span class="loom-code-shell__line loom-code-shell__line--command" {
+                                            span class="loom-code-shell__prompt" {
+                                                (prompt_glyph) " "
+                                            }
+                                            (line.text)
+                                        }
+                                        "\n"
+                                    }
+                                    CmsCodeShellLineKind::Output => {
+                                        span class="loom-code-shell__line loom-code-shell__line--output" {
+                                            (line.text)
+                                        }
+                                        "\n"
+                                    }
+                                    CmsCodeShellLineKind::Comment => {
+                                        span class="loom-code-shell__line loom-code-shell__line--comment" {
+                                            "# " (line.text)
+                                        }
+                                        "\n"
+                                    }
+                                    CmsCodeShellLineKind::Error => {
+                                        span class="loom-code-shell__line loom-code-shell__line--error" {
+                                            (line.text)
+                                        }
+                                        "\n"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         CmsSection::ImageHero {
             eyebrow,
             title,
@@ -6337,6 +6484,280 @@ mod tests {
         assert!(!html.contains("loom-quote-attribution"));
         assert!(!html.contains("loom-quote-role"));
         assert!(!html.contains("loom-quote-footer"));
+    }
+
+    #[test]
+    fn code_shell_renders_typed_lines() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::CodeShell {
+                title: None,
+                prompt: None,
+                lines: vec![
+                    CmsCodeShellLine {
+                        kind: CmsCodeShellLineKind::Command,
+                        text: "forge build --json".to_owned(),
+                    },
+                    CmsCodeShellLine {
+                        kind: CmsCodeShellLineKind::Output,
+                        text: "discipline-strict: 0 findings".to_owned(),
+                    },
+                    CmsCodeShellLine {
+                        kind: CmsCodeShellLineKind::Comment,
+                        text: "all phases clean.".to_owned(),
+                    },
+                    CmsCodeShellLine {
+                        kind: CmsCodeShellLineKind::Error,
+                        text: "warning: deprecated".to_owned(),
+                    },
+                ],
+                tone: CodeShellTone::Slate,
+                chrome: CodeShellChrome::Minimal,
+            }],
+        };
+        let html = render_to_string(&p);
+        // Semantic shell.
+        assert!(html.contains("<pre"));
+        assert!(html.contains("<code"));
+        assert!(html.contains("loom-code-shell"));
+        // Per-line kind classes emitted.
+        assert!(html.contains("loom-code-shell__line--command"));
+        assert!(html.contains("loom-code-shell__line--output"));
+        assert!(html.contains("loom-code-shell__line--comment"));
+        assert!(html.contains("loom-code-shell__line--error"));
+        // Default prompt glyph.
+        assert!(html.contains("loom-code-shell__prompt"));
+        assert!(html.contains(">$ <"));
+        // Comment carries `#` prefix.
+        assert!(html.contains("# all phases clean."));
+        // Command body present.
+        assert!(html.contains(">forge build --json<"));
+    }
+
+    #[test]
+    fn code_shell_custom_prompt_replaces_default() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::CodeShell {
+                title: None,
+                prompt: Some("›".to_owned()),
+                lines: vec![CmsCodeShellLine {
+                    kind: CmsCodeShellLineKind::Command,
+                    text: "ls".to_owned(),
+                }],
+                tone: CodeShellTone::Slate,
+                chrome: CodeShellChrome::Minimal,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(">› <"));
+        assert!(!html.contains(">$ <"));
+    }
+
+    #[test]
+    fn code_shell_header_chrome_renders_title() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::CodeShell {
+                title: Some("forge build".to_owned()),
+                prompt: None,
+                lines: vec![CmsCodeShellLine {
+                    kind: CmsCodeShellLineKind::Output,
+                    text: "ok".to_owned(),
+                }],
+                tone: CodeShellTone::Slate,
+                chrome: CodeShellChrome::Header,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"data-chrome="header""#));
+        assert!(html.contains("loom-code-shell__header"));
+        assert!(html.contains(">forge build<"));
+    }
+
+    #[test]
+    fn code_shell_minimal_chrome_omits_header_even_with_title() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::CodeShell {
+                title: Some("would-be-header".to_owned()),
+                prompt: None,
+                lines: vec![],
+                tone: CodeShellTone::Slate,
+                chrome: CodeShellChrome::Minimal,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(!html.contains(">would-be-header<"));
+        assert!(!html.contains("loom-code-shell__header"));
+    }
+
+    #[test]
+    fn code_shell_amoled_tone_attribute() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::CodeShell {
+                title: None,
+                prompt: None,
+                lines: vec![],
+                tone: CodeShellTone::Amoled,
+                chrome: CodeShellChrome::Minimal,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"data-tone="amoled""#));
+    }
+
+    #[test]
+    fn code_shell_parses_from_json_with_snake_case_kind() {
+        let json = r#"{
+            "kind": "code_shell",
+            "title": "forge build",
+            "lines": [
+                { "kind": "command", "text": "forge build" },
+                { "kind": "output", "text": "ok" }
+            ],
+            "tone": "amoled",
+            "chrome": "header"
+        }"#;
+        let s: CmsSection = serde_json::from_str(json).expect("parse");
+        match s {
+            CmsSection::CodeShell {
+                title,
+                prompt,
+                lines,
+                tone,
+                chrome,
+            } => {
+                assert_eq!(title.as_deref(), Some("forge build"));
+                assert!(prompt.is_none());
+                assert_eq!(lines.len(), 2);
+                assert!(matches!(lines[0].kind, CmsCodeShellLineKind::Command));
+                assert_eq!(lines[0].text, "forge build");
+                assert!(matches!(lines[1].kind, CmsCodeShellLineKind::Output));
+                assert!(matches!(tone, CodeShellTone::Amoled));
+                assert!(matches!(chrome, CodeShellChrome::Header));
+            }
+            other => unreachable!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn code_shell_tone_and_chrome_default_when_omitted() {
+        let json = r#"{
+            "kind": "code_shell",
+            "lines": []
+        }"#;
+        let s: CmsSection = serde_json::from_str(json).expect("parse");
+        match s {
+            CmsSection::CodeShell { tone, chrome, .. } => {
+                assert!(matches!(tone, CodeShellTone::Slate));
+                assert!(matches!(chrome, CodeShellChrome::Minimal));
+            }
+            other => unreachable!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn code_shell_no_saas_trope_ornaments() {
+        // Anti-shape guarantee: no fake macOS traffic-light circles,
+        // no gradient header bar, no copy-button decoration.
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::CodeShell {
+                title: Some("h".to_owned()),
+                prompt: None,
+                lines: vec![CmsCodeShellLine {
+                    kind: CmsCodeShellLineKind::Command,
+                    text: "ls".to_owned(),
+                }],
+                tone: CodeShellTone::Slate,
+                chrome: CodeShellChrome::Header,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(!html.contains("rounded-full"));
+        assert!(!html.contains("linear-gradient"));
+        assert!(!html.contains("bg-gradient"));
+        assert!(!html.contains("data-copy"));
     }
 
     #[test]
