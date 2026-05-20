@@ -1232,6 +1232,35 @@ pub enum CmsSection {
         /// Submit-button label.
         submit_label: String,
     },
+    /// Inline sparkline — small SVG line chart for editorial
+    /// number-trend display. The editorial counterpart to
+    /// [`CmsSection::StatBand`] (which is the SaaS "Numbers that
+    /// compose" stat-band trope per the slop dictionary).
+    ///
+    /// Pure-SVG, no JS, no external chart library. Given a Vec
+    /// of f64 data points, the renderer computes a normalized
+    /// polyline + emits inline SVG with an aria-label describing
+    /// the trend (min / max / last value). Accessible by default.
+    ///
+    /// Use cases: "GitHub stars over 90 days", "post engagement
+    /// over time", "build duration trending" — anywhere editorial
+    /// copy needs to show a small trend WITHOUT the SaaS-marketing
+    /// "10,000+ users!" stat-band shape.
+    Sparkline {
+        /// Visible label / caption shown above or beside the line.
+        /// Operator-supplied; renderer HTML-escapes.
+        label: String,
+        /// Data points in series order. The renderer normalizes
+        /// these to a 0..100 y-range; absolute values surface in
+        /// the aria-label. Empty Vec renders as a "no data"
+        /// placeholder.
+        data_points: Vec<f64>,
+        /// Tone — controls stroke color via CSS custom prop.
+        tone: SparklineTone,
+        /// Optional caption shown below the chart (e.g., "Last
+        /// 90 days, weekly aggregate"). Operator-supplied.
+        caption: Option<String>,
+    },
     /// In-session password change. Authenticated user updates
     /// their password without going through the forgot-password
     /// email flow. Distinct from [`CmsSection::PasswordReset`]
@@ -1442,6 +1471,42 @@ pub enum CmsSection {
         /// a primary "Continue to dashboard").
         secondary_cta: Option<HeroCta>,
     },
+}
+
+/// Visual tone for [`CmsSection::Sparkline`]. Drives stroke
+/// color via the `--loom-spark-stroke` CSS custom property the
+/// loom-skin cascade resolves per tone.
+///
+/// Tones map to semantic meaning (positive/negative/neutral) NOT
+/// to literal colors — the operator's theme decides the actual
+/// hue, the substrate just classifies. A `Positive` sparkline
+/// could render as green in the press theme and slate in the
+/// editorial theme; same intent, different cascade.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SparklineTone {
+    /// Neutral / default — slate or ink tone.
+    Neutral,
+    /// Positive trend — accent or success tone.
+    Positive,
+    /// Negative / downturn — warning or danger tone.
+    Negative,
+    /// Brand accent — primary brand color.
+    Accent,
+}
+
+impl SparklineTone {
+    /// Stable kebab-case modifier slug. Part of the wire shape;
+    /// the `.loom-sparkline--<slug>` cascade targets these.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::Neutral => "neutral",
+            Self::Positive => "positive",
+            Self::Negative => "negative",
+            Self::Accent => "accent",
+        }
+    }
 }
 
 /// One device / active-session entry shown on a [`CmsSection::DeviceList`].
@@ -1994,7 +2059,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 151;
+    pub const PRIMITIVE_COUNT: u32 = 152;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5619,6 +5684,82 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::Sparkline {
+            label,
+            data_points,
+            tone,
+            caption,
+        } => {
+            let modifier = tone.modifier();
+            if data_points.is_empty() {
+                return html! {
+                    figure class={ "loom-sparkline loom-sparkline--" (modifier) " loom-sparkline--empty" } data-loom-reveal {
+                        figcaption class="loom-sparkline__label" { (label) }
+                        p class="loom-sparkline__no-data" { "No data" }
+                        @if let Some(c) = caption {
+                            figcaption class="loom-sparkline__caption" { (c) }
+                        }
+                    }
+                };
+            }
+            let n = data_points.len();
+            let min = data_points
+                .iter()
+                .copied()
+                .fold(f64::INFINITY, f64::min);
+            let max = data_points
+                .iter()
+                .copied()
+                .fold(f64::NEG_INFINITY, f64::max);
+            let range = if (max - min).abs() < f64::EPSILON {
+                1.0_f64
+            } else {
+                max - min
+            };
+            const VBW: f64 = 200.0;
+            const VBH: f64 = 50.0;
+            const Y_PAD: f64 = 4.0;
+            const Y_USABLE: f64 = VBH - 2.0 * Y_PAD;
+            let last = data_points[n - 1];
+            let mut points = String::new();
+            for (i, v) in data_points.iter().enumerate() {
+                let x = if n == 1 {
+                    VBW / 2.0
+                } else {
+                    (i as f64) * VBW / ((n - 1) as f64)
+                };
+                let normalized = (v - min) / range;
+                let y = VBH - Y_PAD - normalized * Y_USABLE;
+                if i > 0 {
+                    points.push(' ');
+                }
+                points.push_str(&format!("{x:.1},{y:.1}"));
+            }
+            let aria_label = format!(
+                "{label} sparkline: {n} points, min {min:.2}, max {max:.2}, last {last:.2}"
+            );
+            html! {
+                figure class={ "loom-sparkline loom-sparkline--" (modifier) } data-loom-reveal {
+                    figcaption class="loom-sparkline__label" { (label) }
+                    svg class="loom-sparkline__svg"
+                        viewBox=(format!("0 0 {VBW:.0} {VBH:.0}"))
+                        preserveAspectRatio="none"
+                        role="img"
+                        aria-label=(aria_label) {
+                        polyline class="loom-sparkline__line"
+                                 points=(points)
+                                 fill="none"
+                                 stroke="currentColor"
+                                 stroke-width="1.5"
+                                 stroke-linecap="round"
+                                 stroke-linejoin="round";
+                    }
+                    @if let Some(c) = caption {
+                        figcaption class="loom-sparkline__caption" { (c) }
+                    }
+                }
+            }
+        }
         CmsSection::PasswordChange {
             title,
             description,
@@ -11592,6 +11733,163 @@ mod page_shell_tests {
             let back: EmailVerifyStatus = serde_json::from_str(&s).unwrap();
             assert_eq!(back, variant);
         }
+    }
+
+    // #104 (2026-05-20) — Sparkline editorial-charts primitive.
+    // Pure-SVG inline trend visualization; editorial counterpart
+    // to StatBand.
+
+    fn sparkline_page(data: Vec<f64>, tone: SparklineTone) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::Sparkline {
+            label: "GitHub stars".into(),
+            data_points: data,
+            tone,
+            caption: Some("Last 90 days".into()),
+        }];
+        p
+    }
+
+    #[test]
+    fn sparkline_empty_data_renders_no_data_placeholder() {
+        let p = sparkline_page(vec![], SparklineTone::Neutral);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-sparkline--empty"));
+        assert!(html.contains(">No data<"));
+        // No SVG when data is empty
+        assert!(!html.contains("<svg"));
+    }
+
+    #[test]
+    fn sparkline_renders_inline_svg_with_polyline() {
+        let p = sparkline_page(vec![1.0, 2.0, 3.0, 4.0], SparklineTone::Neutral);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("<svg"));
+        assert!(html.contains("viewBox=\"0 0 200 50\""));
+        assert!(html.contains("<polyline"));
+        assert!(html.contains("fill=\"none\""));
+        assert!(html.contains("stroke=\"currentColor\""));
+        assert!(html.contains("role=\"img\""));
+    }
+
+    #[test]
+    fn sparkline_aria_label_includes_min_max_last() {
+        let p = sparkline_page(vec![1.5, 9.0, 4.25], SparklineTone::Neutral);
+        let html = render_page(&p).into_string();
+        // Substring check — full label includes "GitHub stars sparkline:"
+        assert!(html.contains("aria-label=\""));
+        assert!(html.contains("3 points"));
+        assert!(html.contains("min 1.50"));
+        assert!(html.contains("max 9.00"));
+        assert!(html.contains("last 4.25"));
+    }
+
+    #[test]
+    fn sparkline_tone_emits_modifier_class() {
+        for (tone, expected) in [
+            (SparklineTone::Neutral, "loom-sparkline--neutral"),
+            (SparklineTone::Positive, "loom-sparkline--positive"),
+            (SparklineTone::Negative, "loom-sparkline--negative"),
+            (SparklineTone::Accent, "loom-sparkline--accent"),
+        ] {
+            let p = sparkline_page(vec![1.0, 2.0], tone);
+            let html = render_page(&p).into_string();
+            assert!(
+                html.contains(expected),
+                "tone {tone:?} missing modifier {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn sparkline_single_point_renders_centered() {
+        let p = sparkline_page(vec![5.0], SparklineTone::Neutral);
+        let html = render_page(&p).into_string();
+        // Single point: x should be at viewBox center (100.0).
+        assert!(html.contains("points=\"100.0,"));
+    }
+
+    #[test]
+    fn sparkline_flat_series_does_not_divide_by_zero() {
+        // All same value — min==max would naively make range=0.
+        // The renderer must handle this gracefully (force range=1).
+        let p = sparkline_page(vec![3.0, 3.0, 3.0], SparklineTone::Neutral);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("<polyline"));
+        // No NaN / Inf leaking through into the points attribute.
+        assert!(!html.contains("NaN"));
+        assert!(!html.contains("Inf"));
+    }
+
+    #[test]
+    fn sparkline_label_and_caption_html_escaped() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::Sparkline {
+            label: "<script>".into(),
+            data_points: vec![1.0],
+            tone: SparklineTone::Neutral,
+            caption: Some("<img onerror=x>".into()),
+        }];
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<img onerror=x>"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn sparkline_tone_serde_round_trip() {
+        for (tone, json) in [
+            (SparklineTone::Neutral, "\"neutral\""),
+            (SparklineTone::Positive, "\"positive\""),
+            (SparklineTone::Negative, "\"negative\""),
+            (SparklineTone::Accent, "\"accent\""),
+        ] {
+            let s = serde_json::to_string(&tone).unwrap();
+            assert_eq!(s, json);
+            let back: SparklineTone = serde_json::from_str(&s).unwrap();
+            assert_eq!(back, tone);
+        }
+    }
+
+    #[test]
+    fn sparkline_section_parses_from_snake_case_kind() {
+        let json = r#"{
+            "kind": "sparkline",
+            "label": "Daily users",
+            "data_points": [100.0, 120.0, 95.0, 140.0],
+            "tone": "positive",
+            "caption": null
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::Sparkline { label, data_points, tone, .. } => {
+                assert_eq!(label, "Daily users");
+                assert_eq!(data_points.len(), 4);
+                assert_eq!(tone, SparklineTone::Positive);
+            }
+            _ => panic!("expected Sparkline variant"),
+        }
+    }
+
+    #[test]
+    fn sparkline_polyline_has_n_points_separated_by_spaces() {
+        let p = sparkline_page(vec![1.0, 2.0, 3.0, 4.0], SparklineTone::Neutral);
+        let html = render_page(&p).into_string();
+        // Extract the points attribute value.
+        let needle = "points=\"";
+        let start = html.find(needle).expect("points attr present") + needle.len();
+        let end = html[start..].find('"').expect("points attr closed") + start;
+        let points = &html[start..end];
+        // 4 data points → 3 spaces between them.
+        assert_eq!(
+            points.matches(' ').count(),
+            3,
+            "expected 3 spaces in 4-point polyline, got {points}"
+        );
     }
 
     // #104 (2026-05-20) — PasswordChange primitive. In-session
