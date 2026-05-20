@@ -28,7 +28,6 @@ mod report;
 mod state_matrix;
 mod validate;
 
-use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -10481,6 +10480,7 @@ struct WebAuthnChallenge {
 /// surface the SAME error message regardless of variant to
 /// avoid leaking which condition tripped.
 #[derive(Debug, PartialEq, Eq)]
+#[allow(dead_code)] // T46 cycle-3 scaffolding — variants exercised by unit tests but not yet wired into the live consume path.
 enum WebAuthnChallengeError {
     /// The challenge did not exist in the store.
     NotFound,
@@ -10604,6 +10604,7 @@ impl WebAuthnChallengeStore {
     /// Returns the number of evictions. Called from the HTTP
     /// hot path (every N requests) AND from a future background
     /// sweep when the multi-tenant T45 store lands. Idempotent.
+    #[allow(dead_code)] // T45 sweep not wired yet; covered by unit tests.
     fn evict_expired(&self) -> usize {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -10693,6 +10694,7 @@ struct WebAuthnClientData {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[allow(dead_code)] // T46 cycle-3 scaffolding — verify_client_data path not yet wired into live auth flow.
 enum WebAuthnClientDataError {
     /// Input exceeded WEBAUTHN_CLIENT_DATA_MAX_BYTES.
     TooLarge,
@@ -10765,6 +10767,7 @@ fn parse_client_data_json(bytes: &[u8]) -> Result<WebAuthnClientData, WebAuthnCl
 /// constant time). Returns Ok(()) on success, specific error
 /// otherwise. Caller should map ALL errors to a single
 /// "verification failed" string at the HTTP boundary.
+#[allow(dead_code)] // T46 cycle-3 scaffolding — covered by unit tests, not yet wired into live auth flow.
 fn verify_client_data(
     parsed: &WebAuthnClientData,
     expected_type: &str,
@@ -10984,7 +10987,9 @@ mod webauthn_client_data_tests {
 
 const WEBAUTHN_AUTH_DATA_MAX_BYTES: usize = 64 * 1024;
 const WEBAUTHN_AUTH_DATA_MIN_BYTES: usize = 37; // rpIdHash(32) + flags(1) + signCount(4)
+#[allow(dead_code)] // T46 cycle-3 — UP flag bit, read only by AuthFlags helpers not yet on the hot path.
 const WEBAUTHN_FLAG_UP: u8 = 0b0000_0001;
+#[allow(dead_code)] // T46 cycle-3 — UV flag bit, read only by AuthFlags helpers not yet on the hot path.
 const WEBAUTHN_FLAG_UV: u8 = 0b0000_0100;
 const WEBAUTHN_FLAG_AT: u8 = 0b0100_0000;
 const WEBAUTHN_FLAG_ED: u8 = 0b1000_0000;
@@ -11006,6 +11011,7 @@ struct WebAuthnAuthData {
     extensions_cbor: Option<Vec<u8>>,
 }
 
+#[allow(dead_code)] // T46 cycle-3 scaffolding — flag-bit helpers covered by unit tests, not yet on live auth path.
 impl WebAuthnAuthData {
     /// Bit 0: user touched / pressed the authenticator.
     fn user_present(&self) -> bool {
@@ -12101,6 +12107,7 @@ struct WebAuthnRegisteredCredential {
     /// Monotonic counter; must strictly increase per auth.
     sign_count: u32,
     /// Unix-secs when credential was first registered.
+    #[allow(dead_code)] // audit-trail metadata; persisted but not yet queried by any code path.
     registered_at: u64,
 }
 
@@ -13696,6 +13703,7 @@ impl TenantStore {
         .ok_or(TenantError::NotFound)
     }
 
+    #[allow(dead_code)] // T45 multi-tenant admin op; covered by unit tests, not yet wired into a CLI subcommand.
     fn list_tenants(&self) -> Result<Vec<Tenant>, TenantError> {
         let conn = self
             .conn
@@ -13717,6 +13725,7 @@ impl TenantStore {
         Ok(rows)
     }
 
+    #[allow(dead_code)] // T45 multi-tenant admin op; covered by unit tests, not yet wired into a CLI subcommand.
     fn delete_tenant(&self, slug: &str) -> Result<(), TenantError> {
         let conn = self
             .conn
@@ -14310,6 +14319,7 @@ struct TenantSshKey {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[allow(dead_code)] // T46 SSH bridge scaffolding — SignatureInvalid only reached via authenticate_ssh_signature, not yet wired.
 enum SshKeyError {
     BadFormat(&'static str),
     BadLength,
@@ -14424,6 +14434,7 @@ fn ssh_authorized_key_format(pubkey: &[u8; 32], comment: &str) -> String {
 
 /// Verify an ed25519 signature over `message` from a 32-byte
 /// public key. Constant-time courtesy of the underlying crate.
+#[allow(dead_code)] // T46 SSH bridge scaffolding — covered by unit tests, not yet wired into bridge auth path.
 fn ssh_ed25519_verify(
     pubkey: &[u8; 32],
     message: &[u8],
@@ -14538,6 +14549,7 @@ impl TenantStore {
 
     /// Look up a tenant's active SSH key by fingerprint. Returns
     /// `NotFound` if no active key matches.
+    #[allow(dead_code)] // T46 SSH bridge scaffolding — covered by find_ssh_key_returns_active_only test; not yet on the live SSH-auth path.
     fn find_ssh_key(&self, tenant_id: i64, fingerprint: &str) -> Result<TenantSshKey, SshKeyError> {
         let conn = self
             .conn
@@ -14584,6 +14596,7 @@ impl TenantStore {
     /// Authenticate a signature: find the active key with the
     /// given fingerprint and verify the signature. Returns the
     /// authenticated key on success.
+    #[allow(dead_code)] // T46 SSH bridge scaffolding — covered by unit tests, not yet on the live SSH-auth path.
     fn authenticate_ssh_signature(
         &self,
         tenant_id: i64,
@@ -15116,6 +15129,7 @@ mod webauthn_challenge_tests {
 //     where the structure is clean.
 
 #[derive(Debug, PartialEq, Eq)]
+#[allow(dead_code)] // Heading variant: importer can identify HTML <h2>..<h6> but currently emits them as Group titles; variant kept for future fidelity.
 pub(crate) enum ImportedSection {
     Hero {
         eyebrow: String,
