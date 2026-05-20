@@ -7988,6 +7988,7 @@ pub const BASE_THEME_CSS: &str = ":root{\
 --loom-size-icon-sm:20px;--loom-size-icon-md:24px;\
 --loom-size-avatar-sm:40px;--loom-size-avatar-md:48px;\
 --loom-blur-sm:6px;--loom-blur-md:14px;--loom-blur-lg:24px;\
+--loom-offscreen-x:-9999px;\
 --loom-break-xl:80rem;\
 --loom-border-component:1px solid var(--loom-color-border,var(--loom-border));\
 --loom-transition-fast:120ms cubic-bezier(.22,1,.36,1)}\
@@ -8044,7 +8045,7 @@ transition:color var(--loom-motion-fast) var(--loom-ease-out)}\
 a:hover,a:focus{color:var(--loom-link-hover)}\
 h1,h2,h3,h4,h5,h6{font-family:var(--loom-font-display);letter-spacing:-.012em;line-height:1.2}\
 :focus-visible{outline:2px solid var(--loom-focus);outline-offset:3px;border-radius:var(--loom-radius-sm)}\
-.loom-skip{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}\
+.loom-skip{position:absolute;left:var(--loom-offscreen-x);top:auto;width:1px;height:1px;overflow:hidden}\
 .loom-skip:focus{left:1rem;top:1rem;width:auto;height:auto;padding:.5rem 1rem;\
 background:var(--loom-bg);color:var(--loom-fg);border:2px solid var(--loom-focus);\
 border-radius:var(--loom-radius);z-index:1000;box-shadow:var(--loom-shadow-md)}\
