@@ -51,6 +51,25 @@ pub enum Decoration {
     SoftShadow,
 }
 
+/// Corner / chrome shape. Adding a variant requires a doctrine review.
+///
+/// `Rounded` is the SaaS-canonical back-compat default (rounded-md
+/// for Sm/Md, rounded-xl for Lg). `Square` strips all corner radius
+/// — the button reads as a flat editorial-style chip rather than a
+/// pill or rounded panel. Pairs with the editorial composition
+/// vocabulary (HeroEditorial / KvPairCard / PullQuote display) and
+/// with `FormStyle::Editorial` so an editorial page can ship CTAs
+/// that don't break the visual register.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ButtonShape {
+    /// `rounded-md` / `rounded-xl` based on size. Back-compat default.
+    #[default]
+    Rounded,
+    /// `rounded-none` — flat editorial chip across all sizes.
+    Square,
+}
+
 /// HTML form-association role for a `<button>` element.
 ///
 /// Distinguishes a plain action button (default) from a form submit
@@ -111,6 +130,8 @@ pub struct Button<'a> {
     /// this to [`ButtonType::Submit`] so the surrounding `<form>`
     /// fires on click.
     pub button_type: ButtonType,
+    /// Corner / chrome shape. Defaults to [`ButtonShape::Rounded`].
+    pub shape: ButtonShape,
 }
 
 impl<'a> Button<'a> {
@@ -125,6 +146,7 @@ impl<'a> Button<'a> {
             icon: None,
             decoration: Decoration::None,
             button_type: ButtonType::Button,
+            shape: ButtonShape::Rounded,
         }
     }
 
@@ -133,15 +155,16 @@ impl<'a> Button<'a> {
     pub fn render(&self) -> Markup {
         let aria = self.aria_label.unwrap_or(self.label);
         let class = format!(
-            "{base} {size} {variant} {deco}",
+            "{base} {size} {shape} {variant} {deco}",
             base = base_classes(),
             size = size_classes(self.size),
+            shape = shape_classes(self.size, self.shape),
             variant = variant_classes(self.variant),
             deco = decoration_classes(self.decoration),
         );
         let btype = self.button_type.as_str();
         html! {
-            button type=(btype) class=(class.trim()) aria-label=(aria) {
+            button type=(btype) class=(class.trim()) aria-label=(aria) data-loom-button-shape=(shape_attr(self.shape)) {
                 @if let Some((svg, IconPosition::Before)) = self.icon {
                     (PreEscaped(svg))
                 }
@@ -154,6 +177,26 @@ impl<'a> Button<'a> {
     }
 }
 
+const fn shape_attr(s: ButtonShape) -> &'static str {
+    match s {
+        ButtonShape::Rounded => "rounded",
+        ButtonShape::Square => "square",
+    }
+}
+
+/// Radius class based on combined (size, shape). Rounded matches the
+/// legacy size-based radius (Sm/Md = `rounded-md`, Lg = `rounded-xl`).
+/// Square always strips to `rounded-none`.
+const fn shape_classes(s: ButtonSize, shape: ButtonShape) -> &'static str {
+    match shape {
+        ButtonShape::Rounded => match s {
+            ButtonSize::Sm | ButtonSize::Md => "rounded-md",
+            ButtonSize::Lg => "rounded-xl",
+        },
+        ButtonShape::Square => "rounded-none",
+    }
+}
+
 const fn base_classes() -> &'static str {
     // Stable across every button — focus ring, layout, transition.
     "inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium \
@@ -163,10 +206,11 @@ const fn base_classes() -> &'static str {
 }
 
 const fn size_classes(s: ButtonSize) -> &'static str {
+    // Radius is now owned by shape_classes — see ButtonShape.
     match s {
-        ButtonSize::Sm => "h-8 px-3 text-xs rounded-md",
-        ButtonSize::Md => "h-10 px-4 text-sm rounded-md",
-        ButtonSize::Lg => "h-12 px-8 py-6 text-lg rounded-xl",
+        ButtonSize::Sm => "h-8 px-3 text-xs",
+        ButtonSize::Md => "h-10 px-4 text-sm",
+        ButtonSize::Lg => "h-12 px-8 py-6 text-lg",
     }
 }
 
@@ -231,6 +275,7 @@ mod tests {
             icon: None,
             decoration: Decoration::None,
             button_type: ButtonType::Button,
+            shape: ButtonShape::default(),
         };
         let s = btn.render().into_string();
         assert!(s.contains(r#"aria-label="Continue""#));
@@ -260,6 +305,7 @@ mod tests {
             icon: Some(("<svg data-test=\"X\"></svg>", IconPosition::Before)),
             decoration: Decoration::None,
             button_type: ButtonType::Button,
+            shape: ButtonShape::default(),
         };
         let s = btn.render().into_string();
         // Anchor on inner-content positions, not the aria-label attribute.
@@ -281,6 +327,7 @@ mod tests {
             icon: Some(("<svg data-test=\"Y\"></svg>", IconPosition::After)),
             decoration: Decoration::None,
             button_type: ButtonType::Button,
+            shape: ButtonShape::default(),
         };
         let s = btn.render().into_string();
         let svg_pos = s.find("svg data-test=\"Y\"").unwrap();
@@ -301,6 +348,7 @@ mod tests {
             icon: None,
             decoration: Decoration::SoftShadow,
             button_type: ButtonType::Button,
+            shape: ButtonShape::default(),
         };
         let s = btn.render().into_string();
         assert!(s.contains("shadow-lg"));
@@ -333,6 +381,7 @@ mod tests {
             icon: None,
             decoration: Decoration::SoftShadow,
             button_type: ButtonType::Submit,
+            shape: ButtonShape::default(),
         };
         let s = btn.render().into_string();
         assert!(
@@ -351,8 +400,73 @@ mod tests {
             icon: None,
             decoration: Decoration::None,
             button_type: ButtonType::Reset,
+            shape: ButtonShape::default(),
         };
         let s = btn.render().into_string();
         assert!(s.contains(r#"type="reset""#));
+    }
+
+    // ----- ButtonShape -----
+
+    #[test]
+    fn rounded_default_matches_legacy_size_radius() {
+        // Sm/Md → rounded-md, Lg → rounded-xl. Back-compat.
+        let sm = Button::new("x", ButtonVariant::Primary, ButtonSize::Sm)
+            .render().into_string();
+        let md = Button::new("x", ButtonVariant::Primary, ButtonSize::Md)
+            .render().into_string();
+        let lg = Button::new("x", ButtonVariant::Primary, ButtonSize::Lg)
+            .render().into_string();
+        assert!(sm.contains("rounded-md"));
+        assert!(md.contains("rounded-md"));
+        assert!(lg.contains("rounded-xl"));
+        // Default shape attribute is "rounded".
+        assert!(sm.contains(r#"data-loom-button-shape="rounded""#));
+    }
+
+    #[test]
+    fn square_shape_strips_radius_across_all_sizes() {
+        for size in [ButtonSize::Sm, ButtonSize::Md, ButtonSize::Lg] {
+            let btn = Button {
+                label: "x",
+                variant: ButtonVariant::Primary,
+                size,
+                aria_label: None,
+                icon: None,
+                decoration: Decoration::None,
+                button_type: ButtonType::Button,
+                shape: ButtonShape::Square,
+            };
+            let s = btn.render().into_string();
+            assert!(s.contains("rounded-none"), "missing rounded-none at {size:?}");
+            assert!(!s.contains("rounded-md"), "stale rounded-md at {size:?}: {s}");
+            assert!(!s.contains("rounded-xl"), "stale rounded-xl at {size:?}: {s}");
+            assert!(s.contains(r#"data-loom-button-shape="square""#));
+        }
+    }
+
+    #[test]
+    fn square_keeps_size_padding_and_height() {
+        // Square only affects radius; padding + height stay
+        // size-driven.
+        let btn = Button {
+            label: "x",
+            variant: ButtonVariant::Primary,
+            size: ButtonSize::Lg,
+            aria_label: None,
+            icon: None,
+            decoration: Decoration::None,
+            button_type: ButtonType::Button,
+            shape: ButtonShape::Square,
+        };
+        let s = btn.render().into_string();
+        assert!(s.contains("h-12"));
+        assert!(s.contains("px-8"));
+        assert!(s.contains("text-lg"));
+    }
+
+    #[test]
+    fn button_shape_default_is_rounded() {
+        assert!(matches!(ButtonShape::default(), ButtonShape::Rounded));
     }
 }

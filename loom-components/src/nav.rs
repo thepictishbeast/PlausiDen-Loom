@@ -19,7 +19,9 @@
 //! non-matches get a hover-grow bar. There's no per-link override —
 //! the active state is derived, never asserted.
 
-use crate::button::{Button, ButtonSize, ButtonType, ButtonVariant, Decoration, IconPosition};
+use crate::button::{
+    Button, ButtonShape, ButtonSize, ButtonType, ButtonVariant, Decoration, IconPosition,
+};
 use loom_icons::Icon;
 use maud::{Markup, PreEscaped, html};
 
@@ -156,6 +158,7 @@ fn render_desktop_cta(cta: &NavCta<'_>) -> Markup {
         icon: icon_pair,
         decoration,
         button_type: ButtonType::Button,
+        shape: ButtonShape::default(),
     }
     .render();
     html! {
