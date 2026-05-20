@@ -626,6 +626,15 @@ pub enum CmsSection {
         /// Backdrop kind.
         #[serde(default)]
         background: HeroBackground,
+        /// Text + content alignment. Default is `Center` (SaaS
+        /// CTA-band posture); editorial sites can opt out via
+        /// `Start` for left-aligned. Same `HeroAlign` enum
+        /// reused so the cms author has one mental model across
+        /// hero + cta sections.
+        ///
+        /// 2026-05-20 substrate-de-consumer-shaping addition.
+        #[serde(default)]
+        align: HeroAlign,
     },
     /// Editorial pull-quote. Large display-italic body, optional
     /// attribution underneath. Distinct from `Quote` which is a
@@ -3336,7 +3345,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::CallToAction { eyebrow, title, lede, cta, background } => {
+        CmsSection::CallToAction { eyebrow, title, lede, cta, background, align } => {
             let bg_class = match background {
                 HeroBackground::GradientMesh => "gradient-mesh",
                 HeroBackground::Solid { .. } => "solid",
@@ -3344,10 +3353,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 HeroBackground::Dots => "dots",
                 HeroBackground::Photo { .. } => "photo",
             };
+            let align_attr = align.attr();
             let cta_href_safe = loom_components::composer::is_safe_url(&cta.href);
             html! {
                 section class={ "loom-cta-band loom-bleed bg-" (bg_class) }
-                    data-loom-cta-band data-loom-reveal {
+                    data-loom-cta-band data-loom-reveal data-align=(align_attr) {
                     div class="loom-cta-band__inner" {
                         @if let Some(e) = eyebrow {
                             span class="loom-cta-band__eyebrow" { (e) }
