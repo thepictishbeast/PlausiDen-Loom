@@ -63,6 +63,25 @@ pub struct CmsPage {
     #[serde(rename = "$schema", skip_serializing_if = "Option::is_none", default)]
     #[schemars(rename = "$schema")]
     pub schema: Option<String>,
+    /// Per-page version tuple (semver `MAJOR.MINOR.PATCH`).
+    /// Optional; when set, downstream gates (notably
+    /// `forge_phases::semver_enforcement` per
+    /// `[[backward-compat-version-discipline]]` doctrine) can
+    /// verify each artifact carries a declared version.
+    ///
+    /// Surfaced 2026-05-20 via PlausiDen-Forge #309: the
+    /// semver_enforcement gate wanted a `version` field on every
+    /// cms/*.json but the CmsPage struct's `deny_unknown_fields`
+    /// rejected it. Adding the field as `Option<String>` resolves
+    /// the conflict — pages can declare a version (gate passes)
+    /// or omit it (gate emits a warn but build still ships).
+    ///
+    /// Format: dotted-decimal semver; the substrate doesn't
+    /// validate the shape here (validate_cms is concerned with
+    /// schema not content), but consumer phases can apply
+    /// stricter checks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
     /// `<title>` text. Required.
     pub title: String,
     /// `<meta name="description">` text. Required for SEO.
@@ -8619,6 +8638,56 @@ mod tests {
     }
 
     #[test]
+    fn cms_page_version_field_absent_by_default() {
+        let raw = r#"{
+            "title": "T",
+            "description": "D",
+            "path": "/",
+            "sections": []
+        }"#;
+        let p: CmsPage = serde_json::from_str(raw).unwrap();
+        assert!(p.version.is_none(), "version must default to None");
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(
+            !json.contains("\"version\""),
+            "absent version must round-trip absent (skip_serializing_if): {json}"
+        );
+    }
+
+    #[test]
+    fn cms_page_version_field_round_trips_when_set() {
+        let raw = r#"{
+            "title": "T",
+            "description": "D",
+            "path": "/",
+            "version": "1.0.0",
+            "sections": []
+        }"#;
+        let p: CmsPage = serde_json::from_str(raw).unwrap();
+        assert_eq!(p.version.as_deref(), Some("1.0.0"));
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(
+            json.contains("\"version\":\"1.0.0\""),
+            "set version must serialize: {json}"
+        );
+    }
+
+    #[test]
+    fn cms_page_still_denies_unknown_fields() {
+        // Confirm we didn't accidentally relax deny_unknown_fields
+        // by adding the version field.
+        let raw = r#"{
+            "title": "T",
+            "description": "D",
+            "path": "/",
+            "completely_unknown_field": "x",
+            "sections": []
+        }"#;
+        let r: Result<CmsPage, _> = serde_json::from_str(raw);
+        assert!(r.is_err(), "deny_unknown_fields must still reject unknown");
+    }
+
+    #[test]
     fn empty_page_renders_div_wrapper() {
         // T70b-fix (2026-05-14): wrapper is now <div>, not <main>.
         // The <main> landmark belongs to page_shell, not render_page,
@@ -8630,6 +8699,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "Home".to_owned(),
             description: "x".to_owned(),
             path: "/".to_owned(),
@@ -8658,6 +8728,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -8684,6 +8755,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -8711,6 +8783,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -8749,6 +8822,7 @@ mod tests {
                 content_width: None,
                 nav_actions: vec![],
                 schema: None,
+            version: None,
                 title: "x".to_owned(),
                 description: "x".to_owned(),
                 path: "/x".to_owned(),
@@ -8847,6 +8921,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -8880,6 +8955,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -8995,6 +9071,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -9027,6 +9104,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -9064,6 +9142,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -9102,6 +9181,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -9189,6 +9269,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -9225,6 +9306,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -9261,6 +9343,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -9294,6 +9377,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -9383,6 +9467,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -9415,6 +9500,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -9476,6 +9562,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -9509,6 +9596,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -9543,6 +9631,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -9573,6 +9662,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -9654,6 +9744,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -9689,6 +9780,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -9723,6 +9815,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10186,6 +10279,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10217,6 +10311,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10268,6 +10363,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10389,6 +10485,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10420,6 +10517,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10447,6 +10545,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10479,6 +10578,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10507,6 +10607,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10538,6 +10639,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10572,6 +10674,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10599,6 +10702,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10627,6 +10731,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10653,6 +10758,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10679,6 +10785,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10728,6 +10835,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10761,6 +10869,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10798,6 +10907,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10867,6 +10977,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -10926,6 +11037,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -11021,6 +11133,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -11072,6 +11185,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -11120,6 +11234,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -11163,6 +11278,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -11198,6 +11314,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -11250,6 +11367,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".to_owned(),
             description: "x".to_owned(),
             path: "/x".to_owned(),
@@ -11376,6 +11494,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "C".to_owned(),
             description: "code-test".to_owned(),
             path: "/c".to_owned(),
@@ -11475,6 +11594,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "Q".to_owned(),
             description: "q-test".to_owned(),
             path: "/q".to_owned(),
@@ -11576,6 +11696,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "LW".to_owned(),
             description: "lw-test".to_owned(),
             path: "/lw".to_owned(),
@@ -11684,6 +11805,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "KV".to_owned(),
             description: "kv-test".to_owned(),
             path: "/kv".to_owned(),
@@ -11735,6 +11857,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".into(),
             description: "x".into(),
             path: "/x".into(),
@@ -11764,6 +11887,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".into(),
             description: "x".into(),
             path: "/x".into(),
@@ -11792,6 +11916,7 @@ mod tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "x".into(),
             description: "x".into(),
             path: "/x".into(),
@@ -13020,6 +13145,7 @@ mod page_shell_tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "T".into(),
             description: "D".into(),
             path: "/".into(),
@@ -13362,6 +13488,7 @@ mod page_shell_tests {
             content_width: None,
             nav_actions: vec![],
             schema: None,
+            version: None,
             title: "Test".into(),
             description: "T".into(),
             path: "/".into(),

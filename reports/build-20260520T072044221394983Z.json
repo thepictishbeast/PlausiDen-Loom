@@ -1,0 +1,65 @@
+{
+  "mode": "poc",
+  "findings": [
+    {
+      "phase": "loom_sync",
+      "path": "/home/paul/projects/PlausiDen-Loom/static/loom-skin.css",
+      "message": "PoC skin.css missing — run `forge --sync-loom` to bootstrap.",
+      "severity": "warn"
+    },
+    {
+      "phase": "self_check",
+      "path": "loom-skin.css",
+      "message": "skin.css not present — nothing to self-check",
+      "severity": "warn"
+    },
+    {
+      "phase": "theme_consistency",
+      "path": "static/",
+      "message": "no loom.css or loom-skin.css found — theme drift not verified",
+      "severity": "warn"
+    },
+    {
+      "phase": "theme_contrast",
+      "path": "static/",
+      "message": "no skin css at any known path (/home/paul/projects/PlausiDen-Loom/static/loom.css, /home/paul/projects/PlausiDen-Loom/static/loom-skin.css) — contrast not verified",
+      "severity": "warn"
+    },
+    {
+      "phase": "seo",
+      "path": "sitemap.xml",
+      "message": "missing sitemap.xml — search-engine crawl coverage suffers",
+      "severity": "warn"
+    },
+    {
+      "phase": "seo",
+      "path": "robots.txt",
+      "message": "missing robots.txt — crawler hint missing",
+      "severity": "warn"
+    },
+    {
+      "phase": "backend_coverage",
+      "path": "*",
+      "message": "no backends.toml — UI ↔ backend mapping unverified",
+      "severity": "warn"
+    },
+    {
+      "phase": "contrast",
+      "path": "loom-tokens.css",
+      "message": "tokens.css missing — skipping contrast phase",
+      "severity": "warn"
+    },
+    {
+      "phase": "crawl",
+      "path": "127.0.0.1:8123",
+      "message": "dev server not responding — start it (e.g. `python3 -m http.server 8123 --directory static`) and re-run; runtime audit skipped",
+      "severity": "warn"
+    }
+  ],
+  "strict_count": 0,
+  "warn_count": 9,
+  "duration_ms": 0,
+  "prev_hash": "9a5f997348711c6fecd97d3ec9d698ed43bf70dfb1045d761b83f9a4f5fa6ad4",
+  "chain_length": 2,
+  "started": "2026-05-20T07:20:44.221394983Z"
+}

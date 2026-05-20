@@ -1,0 +1,290 @@
+{
+  "mode": "poc",
+  "findings": [
+    {
+      "phase": "loom_sync",
+      "path": "PlausiDen-Loom/loom-tokens/src/skin.css",
+      "message": "Loom skin.css not found at PlausiDen-Loom/loom-tokens/src/skin.css. Set LOOM_PATH or check out PlausiDen-Loom as a sibling of PlausiDen-Forge.",
+      "severity": "warn"
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.Paragraph",
+      "message": "Loom.Primitive.Paragraph declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.Heading",
+      "message": "Loom.Primitive.Heading declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.PullQuote",
+      "message": "Loom.Primitive.PullQuote declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.Epigraph",
+      "message": "Loom.Primitive.Epigraph declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.KvPair",
+      "message": "Loom.Primitive.KvPair declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.Code",
+      "message": "Loom.Primitive.Code declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.Hero",
+      "message": "Loom.Primitive.Hero declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.ImageHero",
+      "message": "Loom.Primitive.ImageHero declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.SplitHero",
+      "message": "Loom.Primitive.SplitHero declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.FeatureSpotlight",
+      "message": "Loom.Primitive.FeatureSpotlight declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.StatBand",
+      "message": "Loom.Primitive.StatBand declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.Steps",
+      "message": "Loom.Primitive.Steps declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.Faq",
+      "message": "Loom.Primitive.Faq declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.LogoWall",
+      "message": "Loom.Primitive.LogoWall declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.CallToAction",
+      "message": "Loom.Primitive.CallToAction declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.Pricing",
+      "message": "Loom.Primitive.Pricing declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.Form",
+      "message": "Loom.Primitive.Form declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.AccordionGroup",
+      "message": "Loom.Primitive.AccordionGroup declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "trait_implications",
+      "path": "Loom.Primitive.Tabs",
+      "message": "Loom.Primitive.Tabs declares trait `no-site-specific` but is missing implied trait `substrate-native`",
+      "severity": "strict",
+      "advocacy": {
+        "why": "per TRAIT_DAG.md implication rules, declaring `no-site-specific` requires also declaring `substrate-native` — the substrate refuses to expand implications automatically (declaration is positive per [[deterministic-first-lfi-optional]])",
+        "substrate_fix": "add `substrate-native` to the entity's traits list in trait-manifest.{toml,json}",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "self_check",
+      "path": "loom-skin.css",
+      "message": "skin.css not present — nothing to self-check",
+      "severity": "warn"
+    },
+    {
+      "phase": "theme_consistency",
+      "path": "static/",
+      "message": "no loom.css or loom-skin.css found — theme drift not verified",
+      "severity": "warn",
+      "enforces_rules": [
+        "prim-007"
+      ],
+      "advocacy": {
+        "why": "without the loom-emitted skin.css, the theme-consistency gate can't verify cascade integrity; the build is shipping unchecked theme behavior",
+        "substrate_fix": "ensure `forge build` runs the render phase first (it emits skin.css to static/); if `loom sync --regenerate` was skipped, run it before the next forge build",
+        "skill": "add-loom-primitive"
+      }
+    },
+    {
+      "phase": "theme_contrast",
+      "path": "static/",
+      "message": "no skin css at any known path (./static/loom.css, ./static/loom-skin.css) — contrast not verified",
+      "severity": "warn"
+    },
+    {
+      "phase": "seo",
+      "path": "sitemap.xml",
+      "message": "missing sitemap.xml — search-engine crawl coverage suffers",
+      "severity": "warn"
+    },
+    {
+      "phase": "seo",
+      "path": "robots.txt",
+      "message": "missing robots.txt — crawler hint missing",
+      "severity": "warn"
+    },
+    {
+      "phase": "backend_coverage",
+      "path": "*",
+      "message": "no backends.toml — UI ↔ backend mapping unverified",
+      "severity": "warn",
+      "enforces_rules": [
+        "sec-007"
+      ],
+      "advocacy": {
+        "why": "without backends.toml the phantom_button + backend_coverage gates can't enforce capability declarations; UI buttons without backing data-backend slugs ship silently broken",
+        "substrate_fix": "create `backends.toml` at the project root with one `[[backend]] id = \"...\" kind = \"...\" endpoint = \"...\"` entry per UI affordance that needs server wiring",
+        "skill": "author-cms-content"
+      }
+    },
+    {
+      "phase": "contrast",
+      "path": "loom-tokens.css",
+      "message": "tokens.css missing — skipping contrast phase",
+      "severity": "warn"
+    },
+    {
+      "phase": "crawl",
+      "path": "127.0.0.1:8123",
+      "message": "dev server not responding — start it (e.g. `python3 -m http.server 8123 --directory static`) and re-run; runtime audit skipped",
+      "severity": "warn"
+    }
+  ],
+  "strict_count": 19,
+  "warn_count": 9,
+  "duration_ms": 0,
+  "prev_hash": "8b396bf42171b52f972ef04f590437ca5f273b2a6f1e62ea026ee8c3519f8560",
+  "chain_length": 3,
+  "started": "2026-05-20T07:23:18.143031149Z"
+}
