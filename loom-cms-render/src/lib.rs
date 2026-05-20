@@ -1232,6 +1232,42 @@ pub enum CmsSection {
         /// Submit-button label.
         submit_label: String,
     },
+    /// Backup-code display + acknowledge page. Rendered ONCE
+    /// immediately after the operator's MFA enrollment flow
+    /// generates a fresh set of single-use recovery codes. The
+    /// `state` field determines whether codes are displayed
+    /// (`Fresh` — operator just generated them) or whether the
+    /// page renders a "codes already generated; request new ones
+    /// to invalidate the old" path (`AlreadyGenerated`).
+    ///
+    /// SECURITY: surfacing fresh codes is allowed exactly once.
+    /// The backend should mark the codes as "viewed" on this
+    /// page's render and refuse to re-display them on any
+    /// subsequent visit — instead routing through this same
+    /// variant in the `AlreadyGenerated` state. The renderer
+    /// itself doesn't enforce that; it just emits the markup
+    /// per the state passed in.
+    BackupCodes {
+        /// Title shown above the code grid.
+        title: String,
+        /// Description / warning copy. Operator-supplied so
+        /// brand voice can vary.
+        description: String,
+        /// Render state. See [`BackupCodesState`] for the
+        /// security-contract narrative.
+        state: BackupCodesState,
+        /// The actual codes — typically 8-10 single-use strings.
+        /// Rendered as a monospace grid when state is `Fresh`;
+        /// ignored when state is `AlreadyGenerated`.
+        codes: Vec<String>,
+        /// Optional download CTA — typically points at a
+        /// signed-by-the-backend text/plain endpoint that
+        /// streams the codes one-time-only.
+        download_cta: Option<HeroCta>,
+        /// Optional acknowledge CTA — typically the user clicks
+        /// "I've saved my codes" which navigates onward.
+        acknowledge_cta: Option<HeroCta>,
+    },
     /// Email-verification result landing page. Rendered after a
     /// visitor clicks a one-click verification link emailed during
     /// sign-up. Carries a typed [`EmailVerifyStatus`] so the
@@ -1263,6 +1299,29 @@ pub enum CmsSection {
         /// a primary "Continue to dashboard").
         secondary_cta: Option<HeroCta>,
     },
+}
+
+/// Render state for [`CmsSection::BackupCodes`].
+///
+/// `Fresh` — codes were just generated and may be displayed
+/// EXACTLY ONCE. The backend's responsibility is to flip the
+/// underlying row from "fresh" to "viewed" the moment this page
+/// is rendered; subsequent visits then resolve to `AlreadyGenerated`.
+///
+/// `AlreadyGenerated` — codes exist for this account but have
+/// already been viewed. The renderer hides the codes and shows
+/// a "regenerate" path instead. Operators must invalidate the
+/// old codes server-side before showing fresh ones again — this
+/// variant exists to enforce that "fresh codes are seen at most
+/// once" property at the rendering boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BackupCodesState {
+    /// Codes are fresh + visible.
+    Fresh,
+    /// Codes were generated previously and have been viewed;
+    /// render the regenerate-to-replace path.
+    AlreadyGenerated,
 }
 
 /// Outcome of an email-verification attempt. Routed to a typed
@@ -1699,7 +1758,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 146;
+    pub const PRIMITIVE_COUNT: u32 = 147;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5324,6 +5383,50 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::BackupCodes {
+            title,
+            description,
+            state,
+            codes,
+            download_cta,
+            acknowledge_cta,
+        } => {
+            let modifier = match state {
+                BackupCodesState::Fresh => "fresh",
+                BackupCodesState::AlreadyGenerated => "already-generated",
+            };
+            let download_safe = download_cta.as_ref().is_some_and(|c| is_safe_url(&c.href));
+            let ack_safe = acknowledge_cta.as_ref().is_some_and(|c| is_safe_url(&c.href));
+            html! {
+                section class={ "loom-backup-codes loom-backup-codes--" (modifier) } data-loom-reveal {
+                    div class="loom-backup-codes__inner" {
+                        h2 class="loom-backup-codes__title" { (title) }
+                        p class="loom-backup-codes__description" { (description) }
+                        @if matches!(state, BackupCodesState::Fresh) {
+                            ol class="loom-backup-codes__list" aria-label="Recovery codes" {
+                                @for c in codes {
+                                    li class="loom-backup-codes__code" { code { (c) } }
+                                }
+                            }
+                        }
+                        @if download_cta.is_some() || acknowledge_cta.is_some() {
+                            div class="loom-backup-codes__actions" {
+                                @if let Some(c) = download_cta {
+                                    a class="loom-btn loom-btn--ghost loom-backup-codes__download"
+                                      href=(if download_safe { c.href.as_str() } else { "#invalid-cta" })
+                                      data-backend=(c.data_backend) { (c.label) }
+                                }
+                                @if let Some(c) = acknowledge_cta {
+                                    a class="loom-btn loom-btn--primary loom-backup-codes__ack"
+                                      href=(if ack_safe { c.href.as_str() } else { "#invalid-cta" })
+                                      data-backend=(c.data_backend) { (c.label) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         CmsSection::EmailVerifyResult { status, title, body, cta, secondary_cta } => {
             let resolved_title = title.as_deref().unwrap_or_else(|| status.default_title());
             let modifier = status.modifier();
@@ -11002,6 +11105,155 @@ mod page_shell_tests {
             assert_eq!(s, json, "expected {variant:?} to serialize as {json}");
             let back: EmailVerifyStatus = serde_json::from_str(&s).unwrap();
             assert_eq!(back, variant);
+        }
+    }
+
+    // #122 (2026-05-20) — BackupCodes follow-up to EmailVerifyResult.
+    // Account-flow primitive for the post-MFA-enrollment recovery-
+    // code display + acknowledge page.
+
+    fn backup_codes_page(state: BackupCodesState, codes: Vec<String>) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::BackupCodes {
+            title: "Save your codes".into(),
+            description: "Each code can be used once.".into(),
+            state,
+            codes,
+            download_cta: None,
+            acknowledge_cta: None,
+        }];
+        p
+    }
+
+    #[test]
+    fn backup_codes_fresh_renders_each_code_in_an_ordered_list() {
+        let codes = vec!["aaaa-1111".to_owned(), "bbbb-2222".to_owned()];
+        let p = backup_codes_page(BackupCodesState::Fresh, codes);
+        let html = render_page(&p).into_string();
+        // Modifier class
+        assert!(html.contains("loom-backup-codes--fresh"));
+        // Each code rendered inside a <code> inside a <li>
+        assert!(html.contains("<ol class=\"loom-backup-codes__list\""));
+        assert!(html.contains("<code>aaaa-1111</code>"));
+        assert!(html.contains("<code>bbbb-2222</code>"));
+        // aria-label on the list for assistive tech
+        assert!(html.contains("aria-label=\"Recovery codes\""));
+    }
+
+    #[test]
+    fn backup_codes_already_generated_omits_codes_grid() {
+        // Even if codes are passed in, AlreadyGenerated MUST NOT
+        // render them — security contract: fresh codes display
+        // exactly once.
+        let codes = vec!["should-not-render".to_owned()];
+        let p = backup_codes_page(BackupCodesState::AlreadyGenerated, codes);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-backup-codes--already-generated"));
+        assert!(!html.contains("should-not-render"));
+        assert!(!html.contains("loom-backup-codes__list"));
+    }
+
+    #[test]
+    fn backup_codes_escapes_individual_codes() {
+        let codes = vec!["<script>alert(1)</script>".to_owned()];
+        let p = backup_codes_page(BackupCodesState::Fresh, codes);
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    }
+
+    #[test]
+    fn backup_codes_renders_both_ctas_with_safe_urls() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::BackupCodes {
+            title: "T".into(),
+            description: "D".into(),
+            state: BackupCodesState::Fresh,
+            codes: vec!["abc".into()],
+            download_cta: Some(HeroCta {
+                label: "Download".into(),
+                href: "/codes.txt".into(),
+                data_backend: "codes-txt".into(),
+            }),
+            acknowledge_cta: Some(HeroCta {
+                label: "Continue".into(),
+                href: "/dashboard".into(),
+                data_backend: "dashboard".into(),
+            }),
+        }];
+        let html = render_page(&p).into_string();
+        assert!(html.contains("href=\"/codes.txt\""));
+        assert!(html.contains(">Download<"));
+        assert!(html.contains("loom-backup-codes__download"));
+        assert!(html.contains("href=\"/dashboard\""));
+        assert!(html.contains(">Continue<"));
+        assert!(html.contains("loom-backup-codes__ack"));
+    }
+
+    #[test]
+    fn backup_codes_rejects_javascript_url_in_ctas() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::BackupCodes {
+            title: "T".into(),
+            description: "D".into(),
+            state: BackupCodesState::Fresh,
+            codes: vec!["abc".into()],
+            download_cta: Some(HeroCta {
+                label: "D".into(),
+                href: "javascript:void(0)".into(),
+                data_backend: "x".into(),
+            }),
+            acknowledge_cta: None,
+        }];
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("javascript:void"));
+        assert!(html.contains("href=\"#invalid-cta\""));
+    }
+
+    #[test]
+    fn backup_codes_no_ctas_omits_actions_block() {
+        let p = backup_codes_page(BackupCodesState::Fresh, vec!["abc".into()]);
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("loom-backup-codes__actions"));
+    }
+
+    #[test]
+    fn backup_codes_state_serde_round_trip() {
+        for (variant, json) in [
+            (BackupCodesState::Fresh, "\"fresh\""),
+            (BackupCodesState::AlreadyGenerated, "\"already_generated\""),
+        ] {
+            let s = serde_json::to_string(&variant).unwrap();
+            assert_eq!(s, json);
+            let back: BackupCodesState = serde_json::from_str(&s).unwrap();
+            assert_eq!(back, variant);
+        }
+    }
+
+    #[test]
+    fn backup_codes_section_parses_from_snake_case_kind() {
+        let json = r#"{
+            "kind": "backup_codes",
+            "title": "Save these codes",
+            "description": "One-time only.",
+            "state": "fresh",
+            "codes": ["abc-123", "def-456"],
+            "download_cta": null,
+            "acknowledge_cta": null
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::BackupCodes { codes, state, .. } => {
+                assert_eq!(state, BackupCodesState::Fresh);
+                assert_eq!(codes, vec!["abc-123", "def-456"]);
+            }
+            _ => panic!("expected BackupCodes variant"),
         }
     }
 
