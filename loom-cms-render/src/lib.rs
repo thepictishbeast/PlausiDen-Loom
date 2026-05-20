@@ -1245,6 +1245,32 @@ pub enum CmsSection {
         /// Submit-button label.
         submit_label: String,
     },
+    /// Typed source/citation list for editorial appendices,
+    /// research write-up footers, "further reading" sections.
+    /// Distinct from [`CmsSection::Citation`] (inline single
+    /// citation) and [`CmsSection::Glossary`] (term definitions).
+    ///
+    /// Each item carries author + title + URL + date + kind so
+    /// the renderer can format consistently AND the substrate
+    /// can audit (e.g. flag missing-author entries, dead URLs in
+    /// a future Crawler pass).
+    ///
+    /// Use cases:
+    /// - Article "Further reading" footer
+    /// - Research write-up bibliography
+    /// - Linked-data essay endnote list with provenance
+    SourceList {
+        /// Section heading (e.g., "Sources", "Further reading",
+        /// "Bibliography"). Operator-supplied — different editorial
+        /// styles use different labels.
+        heading: String,
+        /// Items in display order. Renderer doesn't sort — operator
+        /// chooses chronological / alphabetical / topical.
+        items: Vec<SourceListItem>,
+        /// Visual style for the list. Operator picks the convention
+        /// that matches their editorial voice.
+        style: SourceListStyle,
+    },
     /// Box-and-whisker plot — quantile-based statistical summary
     /// per category. Completes the editorial-charts vocabulary
     /// alongside Sparkline / BarChart / Histogram / DivergingBar /
@@ -1622,6 +1648,102 @@ pub enum CmsSection {
         /// a primary "Continue to dashboard").
         secondary_cta: Option<HeroCta>,
     },
+}
+
+/// One entry in a [`CmsSection::SourceList`].
+///
+/// Typed shape so the renderer can format consistently + the
+/// audit phases can introspect (e.g. flag missing authors, dead
+/// URLs). Operators that have legacy free-form citations can
+/// migrate by parsing into this struct OR use `kind: Other`
+/// with a hand-formatted title until they're ready.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct SourceListItem {
+    /// Author / creator. May be a person, organization, or
+    /// composite ("Smith, J. and Lee, K.") — renderer escapes
+    /// verbatim.
+    pub author: String,
+    /// Work title.
+    pub title: String,
+    /// URL if available. Validated through `is_safe_url`;
+    /// hostile schemes (javascript:, etc.) render as plain
+    /// `<span>` instead of a clickable link.
+    pub url: Option<String>,
+    /// Publication date as operator-supplied string
+    /// (typically ISO-8601 yyyy-mm-dd, but renderer doesn't
+    /// validate — operators with classical-publication dates
+    /// like "1990" can ship that verbatim).
+    pub date_published: Option<String>,
+    /// Source kind — drives the modifier class on the rendered
+    /// `<li>` so loom-skin can apply per-kind chrome (icon /
+    /// background / etc.).
+    pub kind: SourceKind,
+}
+
+/// Kind of source — typed so per-kind formatting + per-kind
+/// audit rules become possible at the substrate layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceKind {
+    /// Book / monograph.
+    Book,
+    /// Journal article / paper.
+    Article,
+    /// Web page / blog post / online essay.
+    Web,
+    /// Podcast / talk / interview.
+    Audio,
+    /// Video / documentary / lecture recording.
+    Video,
+    /// Government / institutional report.
+    Report,
+    /// Catch-all for sources that don't fit the above.
+    Other,
+}
+
+impl SourceKind {
+    /// Stable kebab-case modifier slug. Wire-shape contract —
+    /// the `.loom-source-list__item--<modifier>` cascade targets
+    /// these.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::Book => "book",
+            Self::Article => "article",
+            Self::Web => "web",
+            Self::Audio => "audio",
+            Self::Video => "video",
+            Self::Report => "report",
+            Self::Other => "other",
+        }
+    }
+}
+
+/// Visual style for [`CmsSection::SourceList`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceListStyle {
+    /// Numbered citations (1. 2. 3.) — academic convention.
+    /// Substrate default.
+    #[default]
+    Numbered,
+    /// Bulleted citations — informal / web-style.
+    Bulleted,
+    /// Plain (no list markers) — editorial / minimal.
+    Plain,
+}
+
+impl SourceListStyle {
+    /// Modifier slug for the cascade.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::Numbered => "numbered",
+            Self::Bulleted => "bulleted",
+            Self::Plain => "plain",
+        }
+    }
 }
 
 /// One box-and-whisker entry shown on a [`CmsSection::Boxplot`].
@@ -2315,7 +2437,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 157;
+    pub const PRIMITIVE_COUNT: u32 = 158;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5978,6 +6100,38 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::SourceList {
+            heading,
+            items,
+            style,
+        } => {
+            let style_mod = style.modifier();
+            html! {
+                section class={ "loom-source-list loom-source-list--" (style_mod) } data-loom-reveal {
+                    h2 class="loom-source-list__heading" { (heading) }
+                    @if items.is_empty() {
+                        p class="loom-source-list__empty" { "No sources." }
+                    } @else {
+                        @match style {
+                            SourceListStyle::Numbered => {
+                                ol class="loom-source-list__items" {
+                                    @for item in items {
+                                        (render_source_list_item(item))
+                                    }
+                                }
+                            }
+                            SourceListStyle::Bulleted | SourceListStyle::Plain => {
+                                ul class="loom-source-list__items" {
+                                    @for item in items {
+                                        (render_source_list_item(item))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         CmsSection::Boxplot {
             label,
             boxes,
@@ -6989,6 +7143,34 @@ fn slugify(s: &str) -> String {
         .flat_map(|c| c.to_lowercase())
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect()
+}
+
+fn render_source_list_item(item: &SourceListItem) -> Markup {
+    let kind_mod = item.kind.modifier();
+    let url_safe = item.url.as_deref().is_some_and(is_safe_url);
+    html! {
+        li class={ "loom-source-list__item loom-source-list__item--" (kind_mod) } {
+            span class="loom-source-list__author" { (item.author) }
+            ". "
+            @if let Some(u) = &item.url {
+                @if url_safe {
+                    a class="loom-source-list__title"
+                      href=(u.as_str())
+                      rel="noopener" { (item.title) }
+                } @else {
+                    span class="loom-source-list__title loom-source-list__title--invalid"
+                         data-invalid="true" { (item.title) }
+                }
+            } @else {
+                span class="loom-source-list__title" { (item.title) }
+            }
+            @if let Some(d) = &item.date_published {
+                ". "
+                time class="loom-source-list__date" datetime=(d.as_str()) { (d) }
+            }
+            "."
+        }
+    }
 }
 
 fn render_avatar(a: &CmsAvatar) -> Markup {
@@ -12698,6 +12880,213 @@ mod page_shell_tests {
                 html.contains(&expected),
                 "render_form must emit {expected} attr; got: {html}"
             );
+        }
+    }
+
+    // #104 (2026-05-20) — SourceList editorial primitive for
+    // bibliographies / further-reading / appendix citation lists.
+
+    fn source(author: &str, title: &str, url: Option<&str>, kind: SourceKind) -> SourceListItem {
+        SourceListItem {
+            author: author.into(),
+            title: title.into(),
+            url: url.map(str::to_owned),
+            date_published: None,
+            kind,
+        }
+    }
+
+    fn source_list_page(items: Vec<SourceListItem>, style: SourceListStyle) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::SourceList {
+            heading: "Further reading".into(),
+            items,
+            style,
+        }];
+        p
+    }
+
+    #[test]
+    fn source_list_empty_renders_placeholder() {
+        let p = source_list_page(vec![], SourceListStyle::Numbered);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-source-list--numbered"));
+        assert!(html.contains(">No sources.<"));
+        assert!(!html.contains("<ol"));
+        assert!(!html.contains("<ul"));
+    }
+
+    #[test]
+    fn source_list_numbered_emits_ol() {
+        let p = source_list_page(
+            vec![source("Smith, J.", "On Editorial Density", None, SourceKind::Article)],
+            SourceListStyle::Numbered,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains("<ol class=\"loom-source-list__items\""));
+        assert!(!html.contains("<ul class=\"loom-source-list__items\""));
+    }
+
+    #[test]
+    fn source_list_bulleted_emits_ul() {
+        let p = source_list_page(
+            vec![source("Lee, K.", "Substrate Doctrine", None, SourceKind::Book)],
+            SourceListStyle::Bulleted,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains("<ul class=\"loom-source-list__items\""));
+        assert!(html.contains("loom-source-list--bulleted"));
+    }
+
+    #[test]
+    fn source_list_plain_also_emits_ul() {
+        let p = source_list_page(
+            vec![source("Author", "Title", None, SourceKind::Other)],
+            SourceListStyle::Plain,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains("<ul class=\"loom-source-list__items\""));
+        assert!(html.contains("loom-source-list--plain"));
+    }
+
+    #[test]
+    fn source_list_kind_emits_modifier_class() {
+        for (kind, modifier) in [
+            (SourceKind::Book, "book"),
+            (SourceKind::Article, "article"),
+            (SourceKind::Web, "web"),
+            (SourceKind::Audio, "audio"),
+            (SourceKind::Video, "video"),
+            (SourceKind::Report, "report"),
+            (SourceKind::Other, "other"),
+        ] {
+            let p = source_list_page(
+                vec![source("A", "T", None, kind)],
+                SourceListStyle::Numbered,
+            );
+            let html = render_page(&p).into_string();
+            let expected = format!("loom-source-list__item--{modifier}");
+            assert!(
+                html.contains(&expected),
+                "kind {kind:?} missing modifier class {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn source_list_safe_url_renders_as_link() {
+        let p = source_list_page(
+            vec![source(
+                "Smith, J.",
+                "On Density",
+                Some("https://example.com/density"),
+                SourceKind::Web,
+            )],
+            SourceListStyle::Numbered,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains("href=\"https://example.com/density\""));
+        assert!(html.contains("rel=\"noopener\""));
+        assert!(html.contains(">On Density<"));
+    }
+
+    #[test]
+    fn source_list_hostile_url_renders_as_invalid_span_not_link() {
+        let p = source_list_page(
+            vec![source(
+                "X",
+                "Y",
+                Some("javascript:alert(1)"),
+                SourceKind::Web,
+            )],
+            SourceListStyle::Numbered,
+        );
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("href=\"javascript:alert"));
+        assert!(html.contains("loom-source-list__title--invalid"));
+        assert!(html.contains("data-invalid=\"true\""));
+    }
+
+    #[test]
+    fn source_list_date_published_renders_in_time_element() {
+        let mut item = source(
+            "Author",
+            "Work",
+            None,
+            SourceKind::Article,
+        );
+        item.date_published = Some("2024-03-15".into());
+        let p = source_list_page(vec![item], SourceListStyle::Numbered);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("<time class=\"loom-source-list__date\" datetime=\"2024-03-15\">"));
+        assert!(html.contains(">2024-03-15<"));
+    }
+
+    #[test]
+    fn source_list_html_escapes_author_title_date() {
+        let mut item = SourceListItem {
+            author: "<script>".into(),
+            title: "<img onerror=x>".into(),
+            url: None,
+            date_published: Some("<svg/>".into()),
+            kind: SourceKind::Other,
+        };
+        let p = source_list_page(vec![item.clone()], SourceListStyle::Plain);
+        let _ = &mut item; // silence unused-mut warning
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<img onerror=x>"));
+        assert!(!html.contains("<svg/>"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn source_list_style_default_is_numbered() {
+        assert_eq!(SourceListStyle::default(), SourceListStyle::Numbered);
+    }
+
+    #[test]
+    fn source_kind_modifier_strings_are_stable_kebab_case() {
+        for (kind, modifier) in [
+            (SourceKind::Book, "book"),
+            (SourceKind::Article, "article"),
+            (SourceKind::Web, "web"),
+            (SourceKind::Audio, "audio"),
+            (SourceKind::Video, "video"),
+            (SourceKind::Report, "report"),
+            (SourceKind::Other, "other"),
+        ] {
+            assert_eq!(kind.modifier(), modifier);
+        }
+    }
+
+    #[test]
+    fn source_list_section_parses_from_snake_case_kind() {
+        let json = r#"{
+            "kind": "source_list",
+            "heading": "Bibliography",
+            "items": [
+                {
+                    "author": "Smith, J.",
+                    "title": "On Density",
+                    "url": "https://example.com",
+                    "date_published": "2024",
+                    "kind": "article"
+                }
+            ],
+            "style": "numbered"
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::SourceList { heading, items, style } => {
+                assert_eq!(heading, "Bibliography");
+                assert_eq!(items.len(), 1);
+                assert_eq!(items[0].kind, SourceKind::Article);
+                assert_eq!(style, SourceListStyle::Numbered);
+            }
+            _ => panic!("expected SourceList variant"),
         }
     }
 
