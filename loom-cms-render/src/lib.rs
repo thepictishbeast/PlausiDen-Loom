@@ -9343,6 +9343,40 @@ pub const ERUDA_LOADER_JS: &str = "(function(){try{if(localStorage.getItem('loom
 /// so first paint paints the button correctly without FOUC.
 pub const THEME_TOGGLE_CSS: &str = ".loom-theme-toggle{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:var(--loom-tap-min);height:var(--loom-tap-min);border-radius:var(--loom-radius-full);border:1px solid var(--loom-color-border,var(--loom-border));background:var(--loom-color-surface,var(--loom-bg));color:var(--loom-color-ink,var(--loom-fg));font-size:1.15rem;cursor:pointer;line-height:1;padding:0;transition:background var(--loom-motion-fast,120ms) var(--loom-ease-out,ease),border-color var(--loom-motion-fast,120ms) var(--loom-ease-out,ease)}.loom-theme-toggle:hover{background:var(--loom-color-surface-muted,var(--loom-grad-soft));border-color:var(--loom-color-primary,var(--loom-accent))}.loom-theme-toggle:focus-visible{outline:2px solid var(--loom-color-primary,var(--loom-accent));outline-offset:3px}";
 
+/// #102 forward step (2026-05-20): CSS-only theme toggle for
+/// `LOOM_NOSCRIPT_MODE` page renders. Replaces the JS-driven
+/// `<button data-loom-theme-toggle>` with a radio-group fieldset.
+/// Theme changes drive CSS custom properties via `:has()` selectors
+/// — Safari 15.4+, Chrome 105+, Firefox 121+ all support
+/// `selector(:has(...))`.
+///
+/// SCOPE: covers the core 9 swap properties (`--loom-bg`,
+/// `--loom-fg`, `--loom-muted`, `--loom-accent`, `--loom-accent-2`,
+/// `--loom-border`, `--loom-link`, `--loom-link-hover`,
+/// `--loom-focus`) — enough for a coherent dark mode at first
+/// paint. The full palette (shadows, gradients) keeps the
+/// server-rendered `[data-theme]` cascade as its primary driver;
+/// the `:has()` overrides take precedence when a fallback radio
+/// is checked.
+///
+/// PERSISTENCE: per-page session only. Without JS there's no way
+/// to write to localStorage, so a page reload resets the radios
+/// to their default `checked` state (auto). Operators wanting
+/// cross-page persistence without JS need a server-side cookie
+/// roundtrip — that's a separate `Set-Cookie` form-based toggle,
+/// not this one.
+///
+/// ACCESSIBILITY: fieldset + `<legend class="loom-sr-only">` for
+/// the group label; each radio's `<label>` carries the visual
+/// glyph and a `title` for tooltips. `:focus-visible` ring on the
+/// active label.
+pub const THEME_TOGGLE_NOSCRIPT_CSS: &str = ".loom-theme-toggle-nf{margin-left:auto;display:inline-flex;gap:.125rem;align-items:center;border:1px solid var(--loom-color-border,var(--loom-border));border-radius:var(--loom-radius-full);padding:.125rem;background:var(--loom-color-surface,var(--loom-bg))}.loom-theme-toggle-nf input[type=\"radio\"]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.loom-theme-toggle-nf label{display:inline-flex;align-items:center;justify-content:center;width:calc(var(--loom-tap-min) - .5rem);height:calc(var(--loom-tap-min) - .5rem);border-radius:var(--loom-radius-full);cursor:pointer;font-size:1.05rem;line-height:1;color:var(--loom-color-muted,var(--loom-muted))}.loom-theme-toggle-nf input[type=\"radio\"]:checked+label{background:var(--loom-color-primary,var(--loom-accent));color:var(--loom-color-surface,var(--loom-bg))}.loom-theme-toggle-nf input[type=\"radio\"]:focus-visible+label{outline:2px solid var(--loom-color-primary,var(--loom-accent));outline-offset:3px}:root:has(input[name=\"loom-theme-nf\"][value=\"dark\"]:checked){--loom-bg:#0F1019;--loom-fg:#ECEEF6;--loom-muted:#8B92A6;--loom-accent:#A5A6FF;--loom-accent-2:#FFA771;--loom-border:#25283A;--loom-link:#A5A6FF;--loom-link-hover:#DCDDFF;--loom-focus:#A5A6FF}:root:has(input[name=\"loom-theme-nf\"][value=\"light\"]:checked){--loom-bg:#FBFAF7;--loom-fg:#1B1F2A;--loom-muted:#6B7280;--loom-accent:#4338CA;--loom-accent-2:#E07A5F;--loom-border:#E6E2DA;--loom-link:#4338CA;--loom-link-hover:#3730A3;--loom-focus:#4338CA}@media(prefers-color-scheme:dark){:root:has(input[name=\"loom-theme-nf\"][value=\"auto\"]:checked){--loom-bg:#0F1019;--loom-fg:#ECEEF6;--loom-muted:#8B92A6;--loom-accent:#A5A6FF;--loom-accent-2:#FFA771;--loom-border:#25283A;--loom-link:#A5A6FF;--loom-link-hover:#DCDDFF;--loom-focus:#A5A6FF}}";
+
+/// Rendered HTML for the noscript theme-toggle radio group.
+/// Inlined verbatim into the page shell when `noscript_mode` is on.
+/// Defaults `auto` to `checked` so a fresh load tracks OS preference.
+pub const THEME_TOGGLE_NOSCRIPT_HTML: &str = "<fieldset class=\"loom-theme-toggle-nf\"><legend class=\"loom-sr-only\">Theme</legend><input type=\"radio\" name=\"loom-theme-nf\" id=\"loom-theme-nf-auto\" value=\"auto\" checked><label for=\"loom-theme-nf-auto\" title=\"Auto (match OS)\">◐</label><input type=\"radio\" name=\"loom-theme-nf\" id=\"loom-theme-nf-light\" value=\"light\"><label for=\"loom-theme-nf-light\" title=\"Light\">☀</label><input type=\"radio\" name=\"loom-theme-nf\" id=\"loom-theme-nf-dark\" value=\"dark\"><label for=\"loom-theme-nf-dark\" title=\"Dark\">☾</label></fieldset>";
+
 /// T76 (Crawler dogfood 2026-05-14): every page emits a default
 /// inline-SVG favicon so browser tabs / bookmarks / history don't
 /// render the generic globe glyph. Inline data URL means there's
@@ -9620,13 +9654,6 @@ pub fn page_shell_themed(
     } else {
         format!("\n    <h1 class=\"loom-page-title\">{title}</h1>")
     };
-    // T72: bundle the theme-toggle button CSS into the inline
-    // critical-CSS block. Recomputes the hash naturally.
-    let base_with_toggle = format!("{BASE_THEME_CSS}{THEME_TOGGLE_CSS}");
-    let base_theme_hash = csp_sha256(base_with_toggle.as_bytes());
-    let base_theme_block = format!("<style>{base_with_toggle}</style>\n  ");
-    let toggle_script_hash = csp_sha256(THEME_TOGGLE_JS.as_bytes());
-    let eruda_hash = csp_sha256(ERUDA_LOADER_JS.as_bytes());
     // LOOM_NOSCRIPT_MODE — process-level env that drops every
     // inline script and the defer-stylesheet onload swap. Used
     // by Forge when forge.toml `[noscript_strict] enabled = true`
@@ -9635,6 +9662,21 @@ pub fn page_shell_themed(
     let noscript_mode = std::env::var("LOOM_NOSCRIPT_MODE")
         .map(|v| !v.is_empty() && v != "0")
         .unwrap_or(false);
+    // T72 + #102 (2026-05-20): bundle the theme-toggle CSS into
+    // the inline critical-CSS block. In noscript_mode the JS-
+    // driven toggle is replaced by a CSS-only :has()-driven radio
+    // group, and the matching fallback CSS is appended so the
+    // group's checked state actually swaps the palette. Hash is
+    // recomputed naturally from whichever CSS string we bundled.
+    let base_with_toggle = if noscript_mode {
+        format!("{BASE_THEME_CSS}{THEME_TOGGLE_CSS}{THEME_TOGGLE_NOSCRIPT_CSS}")
+    } else {
+        format!("{BASE_THEME_CSS}{THEME_TOGGLE_CSS}")
+    };
+    let base_theme_hash = csp_sha256(base_with_toggle.as_bytes());
+    let base_theme_block = format!("<style>{base_with_toggle}</style>\n  ");
+    let toggle_script_hash = csp_sha256(THEME_TOGGLE_JS.as_bytes());
+    let eruda_hash = csp_sha256(ERUDA_LOADER_JS.as_bytes());
     // Dev-only devtools loader: emitted in <head>, gated on
     // localStorage["loom_eruda"] == "on" so it does nothing for
     // strangers who happen onto a dev page. Forced off in
@@ -9797,17 +9839,36 @@ fn render_chrome_body(
 ) -> String {
     let _ = nav_actions_html; // PageShell ignores nav_actions today
     let cw = content_width.attr_value();
-    // Suppress the theme-toggle button + its bootstrap script in
-    // noscript_mode. The site retains its server-rendered
-    // data-theme; visitors who want a different theme set their
-    // OS preference (the auto media query handles it).
+    // #102 (2026-05-20): in noscript_mode emit a CSS-only :has()
+    // radio fieldset in place of the JS-driven button. The
+    // matching CSS (THEME_TOGGLE_NOSCRIPT_CSS) is bundled into the
+    // critical-CSS block by page_shell_themed. Without it, this
+    // markup would render but clicks wouldn't swap the palette.
     let toggle_btn_pageshell = if noscript_mode {
-        ""
+        concat!(
+            "<fieldset class=\"loom-theme-toggle-nf\"><legend class=\"loom-sr-only\">Theme</legend>",
+            "<input type=\"radio\" name=\"loom-theme-nf\" id=\"loom-theme-nf-auto\" value=\"auto\" checked>",
+            "<label for=\"loom-theme-nf-auto\" title=\"Auto (match OS)\">◐</label>",
+            "<input type=\"radio\" name=\"loom-theme-nf\" id=\"loom-theme-nf-light\" value=\"light\">",
+            "<label for=\"loom-theme-nf-light\" title=\"Light\">☀</label>",
+            "<input type=\"radio\" name=\"loom-theme-nf\" id=\"loom-theme-nf-dark\" value=\"dark\">",
+            "<label for=\"loom-theme-nf-dark\" title=\"Dark\">☾</label>",
+            "</fieldset>\n    "
+        )
     } else {
         "<button type=\"button\" class=\"loom-theme-toggle\" data-loom-theme-toggle aria-label=\"Theme: light (click to cycle)\" aria-pressed=\"false\">☀</button>\n    "
     };
     let toggle_btn_floating = if noscript_mode {
-        ""
+        concat!(
+            "<fieldset class=\"loom-theme-toggle-nf\"><legend class=\"loom-sr-only\">Theme</legend>",
+            "<input type=\"radio\" name=\"loom-theme-nf\" id=\"loom-theme-nf-auto-fp\" value=\"auto\" checked>",
+            "<label for=\"loom-theme-nf-auto-fp\" title=\"Auto (match OS)\">◐</label>",
+            "<input type=\"radio\" name=\"loom-theme-nf\" id=\"loom-theme-nf-light-fp\" value=\"light\">",
+            "<label for=\"loom-theme-nf-light-fp\" title=\"Light\">☀</label>",
+            "<input type=\"radio\" name=\"loom-theme-nf\" id=\"loom-theme-nf-dark-fp\" value=\"dark\">",
+            "<label for=\"loom-theme-nf-dark-fp\" title=\"Dark\">☾</label>",
+            "</fieldset>\n      "
+        )
     } else {
         "<button type=\"button\" class=\"loom-theme-toggle\" data-loom-theme-toggle aria-label=\"Theme: light (click to cycle)\" aria-pressed=\"false\">☀</button>\n      "
     };
@@ -10278,6 +10339,130 @@ mod page_shell_tests {
             after_media
                 .starts_with("@media (prefers-color-scheme:dark){:root[data-theme=\"auto\"]"),
             "media block must IMMEDIATELY scope to data-theme=auto"
+        );
+    }
+
+    // #102 (2026-05-20): CSS-only theme-toggle fallback. The
+    // constants below ship the no-JS path of the toggle. Full
+    // page_shell_themed integration is covered by setting
+    // LOOM_NOSCRIPT_MODE in a serial test, but the constants
+    // themselves carry the load-bearing shape — and constants
+    // are testable in isolation without env-var fiddling.
+    #[test]
+    fn noscript_theme_toggle_css_has_palette_swap_via_has_selector() {
+        // The fallback swaps the core 9 palette properties via
+        // `:root:has(input[name="loom-theme-nf"][value="..."]:checked)`.
+        assert!(
+            THEME_TOGGLE_NOSCRIPT_CSS
+                .contains(":root:has(input[name=\"loom-theme-nf\"][value=\"dark\"]:checked)"),
+            "dark :has() selector must apply the dark palette"
+        );
+        assert!(
+            THEME_TOGGLE_NOSCRIPT_CSS
+                .contains(":root:has(input[name=\"loom-theme-nf\"][value=\"light\"]:checked)"),
+            "light :has() selector must apply the light palette"
+        );
+        // The auto branch is wrapped in `prefers-color-scheme: dark`
+        // so it falls back to the :root defaults when OS is light.
+        assert!(
+            THEME_TOGGLE_NOSCRIPT_CSS.contains(
+                "@media(prefers-color-scheme:dark){:root:has(input[name=\"loom-theme-nf\"][value=\"auto\"]:checked)"
+            ),
+            "auto branch must scope to prefers-color-scheme:dark"
+        );
+    }
+
+    #[test]
+    fn noscript_theme_toggle_css_swaps_all_core_properties() {
+        // Every theme MUST set at least the 9 palette properties
+        // the base cascade reads from. Missing any of these causes
+        // visible inconsistencies (e.g. dark bg but light link).
+        let dark_block_start = THEME_TOGGLE_NOSCRIPT_CSS
+            .find(":root:has(input[name=\"loom-theme-nf\"][value=\"dark\"]:checked)")
+            .expect("dark block must exist");
+        let dark_block_end = THEME_TOGGLE_NOSCRIPT_CSS[dark_block_start..]
+            .find('}')
+            .map(|i| dark_block_start + i)
+            .expect("dark block must close");
+        let dark_block = &THEME_TOGGLE_NOSCRIPT_CSS[dark_block_start..dark_block_end];
+        for prop in [
+            "--loom-bg",
+            "--loom-fg",
+            "--loom-muted",
+            "--loom-accent",
+            "--loom-accent-2",
+            "--loom-border",
+            "--loom-link",
+            "--loom-link-hover",
+            "--loom-focus",
+        ] {
+            assert!(
+                dark_block.contains(prop),
+                "dark :has() block must set {prop} or the palette swap is incomplete"
+            );
+        }
+    }
+
+    #[test]
+    fn noscript_theme_toggle_html_is_accessible_radio_group() {
+        // Accessibility shape: <fieldset> with a screen-reader-only
+        // <legend>, three radio inputs sharing a name, default
+        // `auto` checked, each with a labelled glyph.
+        let html = THEME_TOGGLE_NOSCRIPT_HTML;
+        assert!(
+            html.contains("<fieldset class=\"loom-theme-toggle-nf\">"),
+            "must use semantic <fieldset> chrome"
+        );
+        assert!(
+            html.contains("<legend class=\"loom-sr-only\">Theme</legend>"),
+            "screen-reader-only legend names the radio group"
+        );
+        for val in ["auto", "light", "dark"] {
+            assert!(
+                html.contains(&format!(
+                    "name=\"loom-theme-nf\" id=\"loom-theme-nf-{val}\" value=\"{val}\""
+                )),
+                "missing radio for theme={val}"
+            );
+            assert!(
+                html.contains(&format!("for=\"loom-theme-nf-{val}\"")),
+                "missing matching label for theme={val}"
+            );
+        }
+        // Default-checked is `auto` — fresh page-load tracks OS preference.
+        assert!(
+            html.contains(
+                "<input type=\"radio\" name=\"loom-theme-nf\" id=\"loom-theme-nf-auto\" value=\"auto\" checked>"
+            ),
+            "auto must be the default-checked radio"
+        );
+        // No `<input>` is checked-by-default other than auto.
+        assert_eq!(
+            html.matches(" checked").count(),
+            1,
+            "exactly one radio is checked by default (auto)"
+        );
+    }
+
+    #[test]
+    fn noscript_theme_toggle_html_hides_radios_via_sr_only_pattern() {
+        // The CSS hides the radio inputs themselves (visual chrome
+        // lives on the labels). Verify the hide pattern is the
+        // standard `clip:rect(0,0,0,0)` sr-only approach, not
+        // `display:none` (which would also hide them from screen
+        // readers and break keyboard nav).
+        assert!(
+            THEME_TOGGLE_NOSCRIPT_CSS.contains(".loom-theme-toggle-nf input[type=\"radio\"]{"),
+            "must scope hidden-radio rule to the noscript fieldset"
+        );
+        assert!(
+            THEME_TOGGLE_NOSCRIPT_CSS.contains("clip:rect(0,0,0,0)"),
+            "must hide radios via sr-only clip rect, not display:none"
+        );
+        assert!(
+            !THEME_TOGGLE_NOSCRIPT_CSS
+                .contains(".loom-theme-toggle-nf input[type=\"radio\"]{display:none"),
+            "must NOT use display:none — breaks keyboard nav + screen readers"
         );
     }
 
