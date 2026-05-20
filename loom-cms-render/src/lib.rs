@@ -769,6 +769,39 @@ pub enum CmsSection {
         #[serde(default)]
         position: MarginaliaPosition,
     },
+    /// Editorial chapter / major-section marker — large numbered
+    /// or lettered break that signals the start of a new section
+    /// in long-form content. Renders asymmetrically: large prefix
+    /// on one side, title on the other. Distinct from
+    /// [`CmsSection::Heading`] (used for sub-sections inside the
+    /// chapter) and from [`CmsSection::Divider`] (purely visual).
+    /// Use one per chapter; pairs with trailing
+    /// [`CmsSection::Paragraph`] body.
+    ///
+    /// Editorial intent: literary press / long-form essay /
+    /// premium book-style content where each major break gets a
+    /// numbered marker, not a generic h2. Anti-SaaS by
+    /// construction — no centered card, no shadow, no gradient.
+    ChapterMark {
+        /// Chapter number / letter / label shown in the prefix
+        /// slot (e.g. `"01"`, `"I"`, `"Chapter 1"`, `"§4"`).
+        /// Optional — when `None` the prefix slot is suppressed
+        /// and the title renders alone with the same display
+        /// typography.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        number: Option<String>,
+        /// Chapter title (e.g. `"On Compounding"`).
+        title: String,
+        /// Optional kicker above the title — small uppercase
+        /// eyebrow (`"Part Two"`, `"Continued"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kicker: Option<String>,
+        /// Layout style: how the prefix and title are arranged
+        /// at wide viewports. All layouts collapse to stacked
+        /// at narrow viewports.
+        #[serde(default)]
+        layout: ChapterMarkLayout,
+    },
     /// Account-summary card — typed surface for a logged-in
     /// user's at-a-glance state. Renders avatar + display name +
     /// plan + member-since. Read-only; editing flows through
@@ -2738,6 +2771,27 @@ pub enum PullQuoteTone {
     Amoled,
 }
 
+/// Layout for [`CmsSection::ChapterMark`]. Controls how the
+/// prefix slot (number / letter) and the title are arranged
+/// at wide viewports; all layouts collapse to stacked at
+/// narrow viewports.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ChapterMarkLayout {
+    /// Editorial premium — large prefix on the left, title on
+    /// the right. Default.
+    #[default]
+    Asymmetric,
+    /// Prefix above title, both left-aligned. Quieter rhythm
+    /// for shorter chapters.
+    Stacked,
+    /// Prefix and title on a single line separated by an
+    /// em-dash. For brief markers (e.g. essay subsections).
+    Inline,
+}
+
 /// Layout density for [`CmsSection::KvPair`]. Mirrors
 /// `loom_components::card::KvPairDensity`. Affects vertical rhythm
 /// inside each item; horizontal sizing is the grid's job.
@@ -2956,7 +3010,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5581,6 +5635,37 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::ChapterMark {
+            number,
+            title,
+            kicker,
+            layout,
+        } => {
+            let layout_attr = match layout {
+                ChapterMarkLayout::Asymmetric => "asymmetric",
+                ChapterMarkLayout::Stacked => "stacked",
+                ChapterMarkLayout::Inline => "inline",
+            };
+            html! {
+                section
+                    class="loom-chapter-mark"
+                    data-loom-reveal
+                    data-layout=(layout_attr)
+                    role="heading"
+                    aria-level="2"
+                {
+                    @if let Some(n) = number {
+                        span class="loom-chapter-mark__number" aria-hidden="true" { (n) }
+                    }
+                    div class="loom-chapter-mark__body" {
+                        @if let Some(k) = kicker {
+                            span class="loom-chapter-mark__kicker" { (k) }
+                        }
+                        span class="loom-chapter-mark__title" { (title) }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9365,6 +9450,114 @@ mod tests {
             CmsSection::PullQuote { emphasis, tone, .. } => {
                 assert!(matches!(emphasis, PullQuoteEmphasis::Inline));
                 assert!(matches!(tone, PullQuoteTone::Slate));
+            }
+            other => unreachable!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn chapter_mark_renders_asymmetric_with_number_and_kicker() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::ChapterMark {
+                number: Some("01".to_owned()),
+                title: "On Compounding".to_owned(),
+                kicker: Some("Part Two".to_owned()),
+                layout: ChapterMarkLayout::Asymmetric,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"class="loom-chapter-mark""#));
+        assert!(html.contains(r#"data-layout="asymmetric""#));
+        assert!(html.contains(r#"role="heading""#));
+        assert!(html.contains(r#"aria-level="2""#));
+        assert!(html.contains(r#"class="loom-chapter-mark__number""#));
+        assert!(html.contains(">01<"));
+        assert!(html.contains(r#"class="loom-chapter-mark__kicker""#));
+        assert!(html.contains(">Part Two<"));
+        assert!(html.contains(r#"class="loom-chapter-mark__title""#));
+        assert!(html.contains(">On Compounding<"));
+    }
+
+    #[test]
+    fn chapter_mark_omits_number_and_kicker_when_none() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::ChapterMark {
+                number: None,
+                title: "Untitled Section".to_owned(),
+                kicker: None,
+                layout: ChapterMarkLayout::Stacked,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"data-layout="stacked""#));
+        assert!(html.contains(r#"class="loom-chapter-mark__title""#));
+        assert!(html.contains(">Untitled Section<"));
+        // No number / kicker slots emitted when their fields are None.
+        assert!(!html.contains("loom-chapter-mark__number"));
+        assert!(!html.contains("loom-chapter-mark__kicker"));
+    }
+
+    #[test]
+    fn chapter_mark_parses_from_json_with_defaults() {
+        // Minimal JSON: only `title` is required. layout defaults to
+        // asymmetric; number + kicker default to None.
+        let json = r#"{
+            "kind": "chapter_mark",
+            "title": "Beginnings"
+        }"#;
+        let s: CmsSection = serde_json::from_str(json).expect("parse");
+        match s {
+            CmsSection::ChapterMark {
+                number,
+                title,
+                kicker,
+                layout,
+            } => {
+                assert_eq!(title, "Beginnings");
+                assert!(number.is_none());
+                assert!(kicker.is_none());
+                assert!(matches!(layout, ChapterMarkLayout::Asymmetric));
+            }
+            other => unreachable!("wrong variant: {other:?}"),
+        }
+        // Inline layout parses from its snake_case wire form.
+        let inline_json = r#"{
+            "kind": "chapter_mark",
+            "title": "Brief",
+            "layout": "inline"
+        }"#;
+        let s: CmsSection = serde_json::from_str(inline_json).expect("parse");
+        match s {
+            CmsSection::ChapterMark { layout, .. } => {
+                assert!(matches!(layout, ChapterMarkLayout::Inline));
             }
             other => unreachable!("wrong variant: {other:?}"),
         }
