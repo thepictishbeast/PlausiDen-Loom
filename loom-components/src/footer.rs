@@ -53,6 +53,22 @@ pub struct FooterLegalLink<'a> {
     pub label: &'a str,
 }
 
+/// Visual chrome — drives the brand logo badge style.
+///
+/// `Standard` keeps the legacy `rounded-lg` logo badge; `Editorial`
+/// switches to `rounded-none` for the flat editorial register that
+/// pairs with `NavStyle::Editorial`, `ButtonShape::Square`,
+/// `CardShape::Square`, etc. A page composing the editorial
+/// vocabulary should ship a footer that doesn't break it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FooterStyle {
+    /// `rounded-lg` logo badge. Back-compat default.
+    #[default]
+    Standard,
+    /// `rounded-none` logo badge — editorial flat register.
+    Editorial,
+}
+
 /// The full site footer.
 pub struct Footer<'a> {
     /// Brand logo icon (typically a shield).
@@ -69,6 +85,8 @@ pub struct Footer<'a> {
     pub copyright: &'a str,
     /// Bottom-band legal links (Privacy, Terms, etc.).
     pub legal_links: &'a [FooterLegalLink<'a>],
+    /// Visual chrome style. Defaults to [`FooterStyle::Standard`].
+    pub style: FooterStyle,
 }
 
 impl Footer<'_> {
@@ -76,14 +94,22 @@ impl Footer<'_> {
     #[must_use]
     pub fn render(&self) -> Markup {
         let logo_svg = self.brand_logo.render_with_class("w-6 h-6 text-white");
+        let logo_class = match self.style {
+            FooterStyle::Standard => "bg-primary p-1.5 rounded-lg",
+            FooterStyle::Editorial => "bg-primary p-1.5 rounded-none",
+        };
+        let style_attr = match self.style {
+            FooterStyle::Standard => "standard",
+            FooterStyle::Editorial => "editorial",
+        };
         html! {
-            footer class="bg-slate-900 text-slate-300 py-16" {
+            footer class="bg-slate-900 text-slate-300 py-16" data-loom-footer-style=(style_attr) {
                 div class="container mx-auto px-4 md:px-6" {
                     div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12" {
                         // Brand column
                         div class="space-y-6" {
                             div class="flex items-center gap-2 text-white" {
-                                div class="bg-primary p-1.5 rounded-lg" {
+                                div class=(logo_class) {
                                     (PreEscaped(logo_svg))
                                 }
                                 span class="font-display font-bold text-xl tracking-tight" {
@@ -238,6 +264,7 @@ mod tests {
             columns: COLS,
             copyright: "© PlausiDen LLC.",
             legal_links: LEGAL,
+            style: FooterStyle::default(),
         }
     }
 
@@ -301,5 +328,30 @@ mod tests {
         assert!(s.contains(r#"href="/privacy""#));
         assert!(s.contains(r#"href="/terms""#));
         assert!(s.contains("PlausiDen LLC"));
+    }
+
+    #[test]
+    fn default_style_emits_rounded_logo_badge() {
+        let s = fixture().render().into_string();
+        assert!(s.contains("bg-primary p-1.5 rounded-lg"));
+        assert!(s.contains(r#"data-loom-footer-style="standard""#));
+    }
+
+    #[test]
+    fn editorial_style_emits_rounded_none_logo_badge() {
+        let s = Footer {
+            style: FooterStyle::Editorial,
+            ..fixture()
+        }
+        .render()
+        .into_string();
+        assert!(s.contains("bg-primary p-1.5 rounded-none"));
+        assert!(!s.contains("bg-primary p-1.5 rounded-lg"));
+        assert!(s.contains(r#"data-loom-footer-style="editorial""#));
+    }
+
+    #[test]
+    fn footer_style_default_is_standard() {
+        assert!(matches!(FooterStyle::default(), FooterStyle::Standard));
     }
 }
