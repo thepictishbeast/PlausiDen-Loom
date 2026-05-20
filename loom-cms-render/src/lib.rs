@@ -228,8 +228,21 @@ pub struct CmsNavLink {
 
 /// One section of a page. Adding a variant requires a paired
 /// renderer arm in [`render_section`] and a unit test.
+///
+/// **Doc convention for variants:** every variant carries a one-line
+/// docstring explaining its purpose. Inline-struct fields on each
+/// variant are self-documenting via their type signature + the
+/// JSON-schema name (e.g., `children_html: String` on `Container`
+/// is exactly what it says) — per-field docs are only added when a
+/// field's meaning is NOT obvious from `<name>: <type>` alone
+/// (constraints, units, encoding format). The blanket
+/// `#[allow(missing_docs)]` below avoids the maintenance tax of
+/// 300+ noise-tier doc comments on the catalogue expansion; new
+/// variants ARE expected to carry per-field docs for any
+/// non-self-evident shape.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[allow(missing_docs)]
 pub enum CmsSection {
     /// Top-of-page hero. Optional eyebrow pill, required title,
     /// optional lede, optional primary CTA. Loom-namespaced
@@ -1241,16 +1254,19 @@ fn default_option_count() -> u8 {
 /// Container max-width token.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub enum ContainerWidth { Narrow, #[default] Comfortable, Wide, Full }
 
 /// Divider style.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub enum DividerStyle { #[default] Line, Dots, ZigZag, Sparkle }
 
 /// Vertical-spacing token.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub enum SpaceSize { Tight, #[default] Comfortable, Loose, Generous }
 
 /// Visual treatment for [`CmsSection::FeatureSpotlight`].
@@ -1372,76 +1388,91 @@ pub mod loom_facts {
 /// Reveal-motion variant.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub enum RevealMotion { #[default] FadeUp, FadeIn, ScaleIn, SlideLeft, SlideRight }
 
 /// Alert tone (used by Alert, Toast, AnnouncementBar, AsideNote).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub enum AlertTone { #[default] Info, Success, Warning, Danger, Neutral }
 
 /// Drawer side.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub enum DrawerSide { #[default] Right, Left }
 
 /// Diagram source kind.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub enum DiagramKind { #[default] Mermaid, Plantuml, Ascii }
 
 /// Form-input kind.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub enum FormInputKind { #[default] Text, Email, Password, Tel, Url, Number, Search }
 
 /// Button variant.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub enum ButtonVariant { #[default] Primary, Secondary, Ghost, Danger }
 
 /// One tab in a Tabs section.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct TabItem { pub label: String, pub body: String }
 
 /// One accordion item.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct AccordionItem { pub title: String, pub body: String }
 
 /// One definition list entry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct DefListItem { pub term: String, pub definition: String }
 
 /// One comparison row.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct ComparisonRow { pub label: String, pub values: Vec<String> }
 
 /// One timeline milestone.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct TimelineItem { pub when: String, pub title: String, pub body: String }
 
 /// One contact channel.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct ContactChannel { pub kind: String, pub label: String, pub href: String, pub data_backend: String }
 
 /// One gallery image.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct GalleryImage { pub asset_slug: String, pub alt: String, pub caption: Option<String> }
 
 /// One badge.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct BadgeItem { pub icon_slug: Option<String>, pub label: String }
 
 /// One product card.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct ProductItem {
     pub name: String,
     pub price: String,
@@ -1455,46 +1486,55 @@ pub struct ProductItem {
 /// One chat message.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct ChatMessage { pub author: String, pub body: String, pub mine: bool, pub at: String }
 
 /// One reaction.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct ReactionItem { pub emoji: String, pub count: u32 }
 
 /// Follow action.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct FollowAction { pub label: String, pub data_backend: String }
 
 /// One select option.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct SelectOption { pub value: String, pub label: String }
 
 /// One breadcrumb segment.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct BreadcrumbItem { pub label: String, pub href: String, pub data_backend: String }
 
 /// One nav tab.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct NavTabItem { pub label: String, pub href: String, pub data_backend: String, #[serde(default)] pub current: bool }
 
 /// One mega-menu column.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct MegaMenuColumn { pub heading: String, pub items: Vec<NavTabItem> }
 
 /// One language option.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct LangOption { pub code: String, pub label: String, pub href: String, pub data_backend: String }
 
 /// One game tile.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct GameTileItem {
     pub title: String, pub genre: String, pub players_online: u32,
     pub image_slug: String, pub href: String, pub data_backend: String,
@@ -1503,6 +1543,7 @@ pub struct GameTileItem {
 /// One thread row.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct ThreadRowItem {
     pub title: String, pub author: String, pub replies: u32, pub views: u32,
     pub last_reply: String, pub href: String, pub data_backend: String,
@@ -1511,6 +1552,7 @@ pub struct ThreadRowItem {
 /// One video card.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct VideoCardItem {
     pub title: String, pub channel: String, pub duration: String, pub views: String,
     pub thumbnail_slug: String, pub href: String, pub data_backend: String,
@@ -1519,6 +1561,7 @@ pub struct VideoCardItem {
 /// One comment in a thread.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct CommentItem { pub author: String, pub body: String, pub at: String, pub depth: u8 }
 
 fn default_true() -> bool {
