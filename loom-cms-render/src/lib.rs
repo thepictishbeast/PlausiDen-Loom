@@ -929,6 +929,34 @@ pub enum CmsSection {
     },
     /// Initial-letter drop-cap paragraph.
     DropCap { text: String },
+    /// Editorial "key takeaway" — a visually-distinct boxed
+    /// summary that lets the reader extract the load-bearing
+    /// claim from a long-form piece without re-reading the body.
+    /// Renders as an `<aside>` with role="note" so it's
+    /// programmatically distinct from body prose for screen
+    /// readers + the LFI Critic.
+    ///
+    /// Typed (not just feature_spotlight with a heading) so:
+    /// 1. The Critic can verify every long-form piece has at
+    ///    least one explicit takeaway (editorial discipline).
+    /// 2. Future structured-output consumers (RSS-summary,
+    ///    chat-export, voice-readout) can pull key points
+    ///    without re-parsing body markup.
+    /// 3. Theme variants can style takeaways consistently
+    ///    across every site that ships them.
+    KeyTakeaway {
+        /// Required headline of the takeaway (short — single line).
+        title: String,
+        /// Optional body explaining the takeaway. Multi-paragraph
+        /// bodies split on `\n\n` into separate `<p>` tags.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        body: Option<String>,
+        /// Visual emphasis. `Compact` is a single-line note;
+        /// `Standard` adds the body block; `Display` is a full
+        /// editorial block (default).
+        #[serde(default)]
+        emphasis: KeyTakeawayEmphasis,
+    },
     /// Renderer-supplied "fact about Loom" — a typed slot that
     /// expands to the current value at render time so cms/*.json
     /// authors never hand-write counts that go stale.
@@ -2721,6 +2749,22 @@ pub enum PullQuoteEmphasis {
     #[default]
     Inline,
     /// Hero-side / decoration-slot voice. `text-2xl md:text-3xl lg:text-4xl`.
+    Display,
+}
+
+/// Emphasis tier for [`CmsSection::KeyTakeaway`].
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum KeyTakeawayEmphasis {
+    /// Single-line note. No body block even if `body` is set.
+    Compact,
+    /// Title + body block.
+    Standard,
+    /// Title + body block at hero-side voice. Default for
+    /// editorial pages where the takeaway IS the headline.
+    #[default]
     Display,
 }
 
@@ -5581,6 +5625,38 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::KeyTakeaway {
+            title,
+            body,
+            emphasis,
+        } => {
+            let emphasis_str = match emphasis {
+                KeyTakeawayEmphasis::Compact => "compact",
+                KeyTakeawayEmphasis::Standard => "standard",
+                KeyTakeawayEmphasis::Display => "display",
+            };
+            // role="note" is the ARIA pattern for an aside that
+            // SR users can locate via the landmark rotor without
+            // it interrupting the article flow.
+            html! {
+                aside class="loom-key-takeaway"
+                      role="note"
+                      data-loom-reveal
+                      data-emphasis=(emphasis_str) {
+                    p class="loom-key-takeaway__eyebrow" { "Key takeaway" }
+                    h3 class="loom-key-takeaway__title" { (title) }
+                    @if !matches!(emphasis, KeyTakeawayEmphasis::Compact) {
+                        @if let Some(b) = body {
+                            div class="loom-key-takeaway__body" {
+                                @for p in b.split("\n\n") {
+                                    p { (p) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9214,6 +9290,101 @@ mod tests {
         assert!(html.contains(r##"href="#invalid-cta""##));
         assert!(html.contains(r#"data-invalid="true""#));
         assert!(!html.contains("javascript:"));
+    }
+
+    #[test]
+    fn key_takeaway_renders_with_default_emphasis() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::KeyTakeaway {
+                title: "Insurance is the foundation of every financial plan.".to_owned(),
+                body: Some(
+                    "Returns matter only if the principal is protected. Risk before return."
+                        .to_owned(),
+                ),
+                emphasis: KeyTakeawayEmphasis::default(),
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"class="loom-key-takeaway""#));
+        assert!(html.contains(r#"role="note""#));
+        assert!(html.contains(r#"data-emphasis="display""#));
+        assert!(html.contains("Key takeaway"));
+        assert!(html.contains("Insurance is the foundation"));
+        assert!(html.contains("Risk before return"));
+    }
+
+    #[test]
+    fn key_takeaway_compact_emphasis_omits_body() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::KeyTakeaway {
+                title: "Compact takeaway".to_owned(),
+                body: Some("This body must not render.".to_owned()),
+                emphasis: KeyTakeawayEmphasis::Compact,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"data-emphasis="compact""#));
+        assert!(html.contains("Compact takeaway"));
+        assert!(
+            !html.contains("This body must not render"),
+            "compact emphasis must suppress body"
+        );
+    }
+
+    #[test]
+    fn key_takeaway_splits_paragraphs_on_blank_lines() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::KeyTakeaway {
+                title: "Multi-paragraph takeaway".to_owned(),
+                body: Some("First paragraph.\n\nSecond paragraph.".to_owned()),
+                emphasis: KeyTakeawayEmphasis::Standard,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains("<p>First paragraph.</p>"));
+        assert!(html.contains("<p>Second paragraph.</p>"));
     }
 
     #[test]
