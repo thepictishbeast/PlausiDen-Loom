@@ -15,10 +15,72 @@
 use maud::{Markup, html};
 use serde::{Deserialize, Serialize};
 
-const INPUT_CLASSES: &str = "flex w-full rounded-md border border-input px-3 py-2 text-base ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:text-sm h-12 bg-slate-50";
-const TEXTAREA_CLASSES: &str = "flex w-full rounded-md border border-input px-3 py-2 text-base ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:text-sm min-h-[150px] bg-slate-50 resize-none";
-const SELECT_CLASSES: &str = "flex w-full rounded-md border border-input px-3 py-2 text-base ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:text-sm h-12 bg-slate-50";
 const LABEL_CLASSES: &str = "text-sm font-medium leading-none";
+
+/// Visual chrome for form controls.
+///
+/// `Rounded` is the SaaS-shape default (rounded-md, slate-50 background).
+/// `Editorial` strips the rounded corners and background — just a 1px
+/// bottom border on the input, transparent surface, no pill chrome.
+/// `Minimal` is editorial minus the visible border — underline on focus
+/// only, designed for in-prose editorial forms (newsletter signups
+/// embedded in body text, etc.).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FormStyle {
+    /// SaaS-friendly rounded pill input. Back-compat default.
+    #[default]
+    Rounded,
+    /// Editorial flat input: no rounded corners, bottom-border only,
+    /// transparent background. Pairs with `HeroEditorial` + `PullQuote`
+    /// editorial compositions.
+    Editorial,
+    /// Stripped-to-the-bone editorial: no visible border in resting
+    /// state, underline on focus. For in-prose form embeds.
+    Minimal,
+}
+
+/// Vertical density for form controls. `Compact` collapses height
+/// from h-12 to h-9; `Comfortable` keeps the spacious default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FormDensity {
+    /// Tight rhythm — h-9, smaller padding. For dense form grids.
+    Compact,
+    /// Default rhythm — h-12.
+    #[default]
+    Comfortable,
+}
+
+fn input_classes(style: FormStyle, density: FormDensity, multiline: bool) -> String {
+    let mut out = String::with_capacity(200);
+    out.push_str("flex w-full border ");
+    out.push_str(
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background text-base md:text-sm",
+    );
+    // Style-dependent classes.
+    match style {
+        FormStyle::Rounded => {
+            out.push_str(" rounded-md border-input bg-slate-50 px-3 py-2");
+        }
+        FormStyle::Editorial => {
+            out.push_str(" rounded-none border-0 border-b border-slate-300 bg-transparent px-1 py-2");
+        }
+        FormStyle::Minimal => {
+            out.push_str(" rounded-none border-0 border-b border-transparent bg-transparent px-1 py-2 focus-visible:border-slate-400");
+        }
+    }
+    // Density-dependent height.
+    if multiline {
+        out.push_str(" min-h-[150px] resize-none");
+    } else {
+        match density {
+            FormDensity::Compact => out.push_str(" h-9"),
+            FormDensity::Comfortable => out.push_str(" h-12"),
+        }
+    }
+    out
+}
 
 /// HTML5 input `type=` attribute. Constrained — adding a variant is a
 /// doctrine review.
@@ -63,25 +125,38 @@ pub struct TextInput<'a> {
     pub max_length: Option<usize>,
     /// `required` attribute.
     pub required: bool,
+    /// Visual chrome. Defaults to `Rounded` (the back-compat SaaS shape).
+    pub style: FormStyle,
+    /// Vertical density. Defaults to `Comfortable` (h-12).
+    pub density: FormDensity,
 }
 
 impl TextInput<'_> {
     /// Render label + input pair.
     #[must_use]
     pub fn render(&self) -> Markup {
+        let class = input_classes(self.style, self.density, false);
         html! {
-            div class="space-y-2" {
+            div class="space-y-2" data-loom-form-style=(form_style_attr(self.style)) {
                 label class=(LABEL_CLASSES) for=(self.id) { (self.label) }
                 input
                     type=(self.input_type.html())
                     id=(self.id)
                     name=(self.name)
-                    class=(INPUT_CLASSES)
+                    class=(class)
                     placeholder=[self.placeholder]
                     maxlength=[self.max_length.map(|n| n.to_string())]
                     required[self.required];
             }
         }
+    }
+}
+
+fn form_style_attr(style: FormStyle) -> &'static str {
+    match style {
+        FormStyle::Rounded => "rounded",
+        FormStyle::Editorial => "editorial",
+        FormStyle::Minimal => "minimal",
     }
 }
 
@@ -99,19 +174,24 @@ pub struct TextArea<'a> {
     pub max_length: Option<usize>,
     /// `required` attribute.
     pub required: bool,
+    /// Visual chrome. Defaults to `Rounded`.
+    pub style: FormStyle,
+    /// Density (unused for multiline — kept for symmetry with `TextInput`).
+    pub density: FormDensity,
 }
 
 impl TextArea<'_> {
     /// Render label + textarea pair.
     #[must_use]
     pub fn render(&self) -> Markup {
+        let class = input_classes(self.style, self.density, true);
         html! {
-            div class="space-y-2" {
+            div class="space-y-2" data-loom-form-style=(form_style_attr(self.style)) {
                 label class=(LABEL_CLASSES) for=(self.id) { (self.label) }
                 textarea
                     id=(self.id)
                     name=(self.name)
-                    class=(TEXTAREA_CLASSES)
+                    class=(class)
                     placeholder=[self.placeholder]
                     maxlength=[self.max_length.map(|n| n.to_string())]
                     required[self.required] {}
@@ -138,16 +218,21 @@ pub struct Select<'a> {
     pub label: &'a str,
     /// Options. Order is preserved.
     pub options: &'a [SelectOption<'a>],
+    /// Visual chrome. Defaults to `Rounded`.
+    pub style: FormStyle,
+    /// Vertical density. Defaults to `Comfortable`.
+    pub density: FormDensity,
 }
 
 impl Select<'_> {
     /// Render label + select pair.
     #[must_use]
     pub fn render(&self) -> Markup {
+        let class = input_classes(self.style, self.density, false);
         html! {
-            div class="space-y-2" {
+            div class="space-y-2" data-loom-form-style=(form_style_attr(self.style)) {
                 label class=(LABEL_CLASSES) for=(self.id) { (self.label) }
-                select id=(self.id) name=(self.name) class=(SELECT_CLASSES) {
+                select id=(self.id) name=(self.name) class=(class) {
                     @for opt in self.options {
                         option value=(opt.value) { (opt.label) }
                     }
@@ -171,6 +256,8 @@ mod tests {
             placeholder: Some("you@example.com"),
             max_length: Some(200),
             required: true,
+            style: FormStyle::default(),
+            density: FormDensity::default(),
         };
         let s = i.render().into_string();
         assert!(s.contains(r#"for="contact-email""#));
@@ -181,6 +268,10 @@ mod tests {
         assert!(s.contains(r#"maxlength="200""#));
         assert!(s.contains("required"));
         assert!(s.contains(">Email Address<"));
+        // Default style is Rounded — rounded-md class present.
+        assert!(s.contains("rounded-md"));
+        assert!(s.contains("bg-slate-50"));
+        assert!(s.contains(r#"data-loom-form-style="rounded""#));
     }
 
     #[test]
@@ -193,11 +284,91 @@ mod tests {
             placeholder: None,
             max_length: None,
             required: false,
+            style: FormStyle::default(),
+            density: FormDensity::default(),
         };
         let s = i.render().into_string();
         assert!(!s.contains("placeholder"));
         assert!(!s.contains("maxlength"));
         assert!(!s.contains(" required"));
+    }
+
+    #[test]
+    fn text_input_editorial_style_strips_rounded_and_bg() {
+        let i = TextInput {
+            id: "x",
+            name: "x",
+            label: "X",
+            input_type: InputType::Text,
+            placeholder: None,
+            max_length: None,
+            required: false,
+            style: FormStyle::Editorial,
+            density: FormDensity::default(),
+        };
+        let s = i.render().into_string();
+        // Editorial style: no rounded, no slate-50 bg.
+        assert!(!s.contains("rounded-md"));
+        assert!(!s.contains("bg-slate-50"));
+        assert!(s.contains("rounded-none"));
+        assert!(s.contains("border-b"));
+        assert!(s.contains("bg-transparent"));
+        assert!(s.contains(r#"data-loom-form-style="editorial""#));
+    }
+
+    #[test]
+    fn text_input_minimal_style_no_resting_border() {
+        let i = TextInput {
+            id: "x",
+            name: "x",
+            label: "X",
+            input_type: InputType::Text,
+            placeholder: None,
+            max_length: None,
+            required: false,
+            style: FormStyle::Minimal,
+            density: FormDensity::default(),
+        };
+        let s = i.render().into_string();
+        assert!(s.contains("border-transparent"));
+        assert!(s.contains("focus-visible:border-slate-400"));
+        assert!(s.contains(r#"data-loom-form-style="minimal""#));
+    }
+
+    #[test]
+    fn text_input_compact_density_uses_h9() {
+        let i = TextInput {
+            id: "x",
+            name: "x",
+            label: "X",
+            input_type: InputType::Text,
+            placeholder: None,
+            max_length: None,
+            required: false,
+            style: FormStyle::default(),
+            density: FormDensity::Compact,
+        };
+        let s = i.render().into_string();
+        assert!(s.contains("h-9"));
+        assert!(!s.contains("h-12"));
+    }
+
+    #[test]
+    fn text_input_comfortable_density_uses_h12() {
+        let i = TextInput {
+            id: "x",
+            name: "x",
+            label: "X",
+            input_type: InputType::Text,
+            placeholder: None,
+            max_length: None,
+            required: false,
+            style: FormStyle::default(),
+            density: FormDensity::Comfortable,
+        };
+        let s = i.render().into_string();
+        assert!(s.contains("h-12"));
+        assert!(!s.contains("h-9"));
     }
 
     #[test]
@@ -209,6 +380,8 @@ mod tests {
             placeholder: Some("Your message..."),
             max_length: Some(5000),
             required: true,
+            style: FormStyle::default(),
+            density: FormDensity::default(),
         };
         let s = t.render().into_string();
         assert!(s.contains("<textarea"));
@@ -216,6 +389,28 @@ mod tests {
         assert!(s.contains(r#"id="msg""#));
         assert!(s.contains(r#"maxlength="5000""#));
         assert!(s.contains("required"));
+        // Textarea uses min-h-[150px] regardless of density.
+        assert!(s.contains("min-h-[150px]"));
+        assert!(s.contains("resize-none"));
+    }
+
+    #[test]
+    fn textarea_editorial_style_strips_pill_chrome() {
+        let t = TextArea {
+            id: "x",
+            name: "x",
+            label: "X",
+            placeholder: None,
+            max_length: None,
+            required: false,
+            style: FormStyle::Editorial,
+            density: FormDensity::default(),
+        };
+        let s = t.render().into_string();
+        assert!(!s.contains("rounded-md"));
+        assert!(s.contains("rounded-none"));
+        assert!(s.contains("border-b"));
+        assert!(s.contains("bg-transparent"));
     }
 
     #[test]
@@ -239,6 +434,8 @@ mod tests {
             name: "service",
             label: "Service",
             options: &opts,
+            style: FormStyle::default(),
+            density: FormDensity::default(),
         };
         let s = sel.render().into_string();
         assert!(s.contains(r#"<select id="service""#));
@@ -247,6 +444,32 @@ mod tests {
         let beta_pos = s.find("Beta").unwrap();
         assert!(pick_pos < alpha_pos);
         assert!(alpha_pos < beta_pos);
+    }
+
+    #[test]
+    fn select_editorial_style_strips_pill_chrome() {
+        let opts = [SelectOption { value: "a", label: "Alpha" }];
+        let sel = Select {
+            id: "x",
+            name: "x",
+            label: "X",
+            options: &opts,
+            style: FormStyle::Editorial,
+            density: FormDensity::default(),
+        };
+        let s = sel.render().into_string();
+        assert!(!s.contains("rounded-md"));
+        assert!(!s.contains("bg-slate-50"));
+        assert!(s.contains("rounded-none"));
+        assert!(s.contains("border-b"));
+    }
+
+    #[test]
+    fn form_style_default_is_rounded() {
+        // Back-compat guarantee: code that omits the style field via
+        // FormStyle::default() gets the legacy SaaS shape.
+        assert!(matches!(FormStyle::default(), FormStyle::Rounded));
+        assert!(matches!(FormDensity::default(), FormDensity::Comfortable));
     }
 
     #[test]
