@@ -27,6 +27,7 @@ mod new;
 mod report;
 mod state_matrix;
 mod validate;
+mod version_admin;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -4866,6 +4867,14 @@ fn handle_edit_request(
     if path == "forge/audit" && is_get {
         return serve_forge_audit(request, cms_root);
     }
+    // #141 backcompat-v5: operator version-inventory surface.
+    // Read-only v1; migration / rollback actions are a follow-up.
+    if path == "admin/versions" && is_get {
+        return serve_admin_versions_json(request, cms_root);
+    }
+    if path == "admin/versions/html" && is_get {
+        return serve_admin_versions_html(request, cms_root);
+    }
     // T62 step 3: new-page POST.
     if is_post && path == "new-page" {
         return handle_new_page(request, cms_root, forge_path);
@@ -5740,6 +5749,28 @@ fn serve_forge_backends(
     body.push_str("</table>");
     let html = forge_admin_shell("backends", &body);
     respond_html(request, 200, &html)
+}
+
+/// `GET /admin/versions` — JSON version inventory (#141).
+fn serve_admin_versions_json(
+    request: tiny_http::Request,
+    cms_root: &std::path::Path,
+) -> std::io::Result<()> {
+    let inv = version_admin::scan(cms_root);
+    match version_admin::to_json_pretty(&inv) {
+        Ok(body) => respond_json(request, 200, &body),
+        Err(e) => respond_text(request, 500, &format!("inventory serialize: {e}")),
+    }
+}
+
+/// `GET /admin/versions/html` — operator-facing version inventory (#141).
+fn serve_admin_versions_html(
+    request: tiny_http::Request,
+    cms_root: &std::path::Path,
+) -> std::io::Result<()> {
+    let inv = version_admin::scan(cms_root);
+    let body = version_admin::to_html(&inv);
+    respond_html(request, 200, &body)
 }
 
 /// `GET /forge/audit` — latest crawler positive-signal snapshot.
