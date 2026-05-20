@@ -17,6 +17,7 @@
 pub mod axes;
 pub mod color;
 pub mod icons;
+pub mod polish;
 pub mod radius;
 pub mod scale;
 pub mod stock_photos;
@@ -35,6 +36,7 @@ pub mod style_packs;
 pub const SKIN_CSS: &str = include_str!("skin.css");
 
 pub use color::{Color, ColorRole};
+pub use polish::{PolishCategory, PolishSet, PolishToken};
 pub use radius::Radius;
 pub use scale::{Breakpoint, FontSize, Spacing};
 
