@@ -15,6 +15,21 @@ pub enum SectionTheme {
     Dark,
     /// `primary/5` background — used for the final CTA before footer.
     Tinted,
+    /// Press-tier monochrome editorial palette — `slate-100`
+    /// background, `slate-900` text. Use for editorial bands
+    /// inside a press-themed page (theme="press"). Distinct from
+    /// `Muted` because it sits BETWEEN `Light` and `Muted` in
+    /// elevation, matching the editorial publication feel
+    /// (newspaper-stock background, not corporate-marketing tint).
+    Editorial,
+    /// True-black AMOLED-friendly dark band. Per memory
+    /// [[dark-theme-amoled-true-black]] — bg `#000000` on dark
+    /// theme so OLED pixels are off (battery + contrast). Use
+    /// for hero bands on dark theme where the substrate doctrine
+    /// is "OLED-pixels-off." Distinct from `Dark` (slate-900)
+    /// because `Dark` is corporate-tech dark; `Amoled` is true
+    /// black for OLED-screen reading economy.
+    Amoled,
 }
 
 /// Inner-container max-width. Closed enum so callers can't sneak
@@ -45,6 +60,12 @@ pub enum SectionWidth {
 pub enum SectionPadding {
     /// `py-8` — tight insets, used for inline-card bands.
     Compact,
+    /// `py-10` — editorial-density bands. Sits between Compact
+    /// and Tight; designed for editorial pages where the
+    /// substrate doctrine is high-density (per
+    /// `DensityTier::Dense`). Choose this when the page declares
+    /// `[composition] target_density = "dense"` in forge.toml.
+    Dense,
     /// `py-12` — form bodies sitting under a hero.
     Tight,
     /// `py-16` — most content sections.
@@ -104,12 +125,15 @@ const fn theme_classes(t: SectionTheme) -> &'static str {
         SectionTheme::Muted => "bg-slate-50 text-slate-900",
         SectionTheme::Dark => "bg-slate-900 text-white",
         SectionTheme::Tinted => "bg-primary/5 text-slate-900",
+        SectionTheme::Editorial => "bg-slate-100 text-slate-900",
+        SectionTheme::Amoled => "bg-black text-slate-100",
     }
 }
 
 const fn padding_classes(p: SectionPadding) -> &'static str {
     match p {
         SectionPadding::Compact => "py-8",
+        SectionPadding::Dense => "py-10",
         SectionPadding::Tight => "py-12",
         SectionPadding::Default => "py-16",
         SectionPadding::Loose => "py-20",
@@ -174,15 +198,67 @@ mod tests {
     }
 
     #[test]
+    fn editorial_theme_uses_slate_100_bg() {
+        let body = html! { p { "x" } };
+        let s = Section::new(&body, SectionTheme::Editorial)
+            .render()
+            .into_string();
+        assert!(s.contains("bg-slate-100"), "editorial bg wrong: {s}");
+        assert!(s.contains("text-slate-900"), "editorial text wrong: {s}");
+        // Verify it's DISTINCT from Muted (slate-50) and Light (white).
+        assert!(!s.contains("bg-slate-50"));
+        assert!(!s.contains("bg-white"));
+    }
+
+    #[test]
+    fn amoled_theme_uses_pure_black_for_oled() {
+        // Per memory [[dark-theme-amoled-true-black]] — bg must be
+        // `bg-black` (resolves to #000000), not `bg-slate-900`
+        // (which is a near-black gray). OLED pixels are OFF only
+        // for true black.
+        let body = html! { p { "x" } };
+        let s = Section::new(&body, SectionTheme::Amoled)
+            .render()
+            .into_string();
+        assert!(s.contains("bg-black"), "amoled bg wrong: {s}");
+        // Verify it's NOT bg-slate-900 (that's the Dark variant).
+        assert!(!s.contains("bg-slate-900"));
+        // Text should be slate-100 (high contrast on black).
+        assert!(s.contains("text-slate-100"));
+    }
+
+    #[test]
+    fn dense_padding_is_py_10() {
+        // Dense sits between Compact (py-8) and Tight (py-12).
+        // Maps semantically to DensityTier::Dense from loom-tokens.
+        let body = html! {};
+        let s = Section {
+            body: &body,
+            theme: SectionTheme::Light,
+            width: SectionWidth::Default,
+            padding: SectionPadding::Dense,
+        }
+        .render()
+        .into_string();
+        assert!(s.contains("py-10"), "dense padding missing: {s}");
+        // Verify it's distinct from Compact and Tight.
+        assert!(!s.contains("py-8"));
+        assert!(!s.contains("py-12"));
+    }
+
+    #[test]
     fn every_theme_padding_pair_is_consistent() {
         for theme in [
             SectionTheme::Light,
             SectionTheme::Muted,
             SectionTheme::Dark,
             SectionTheme::Tinted,
+            SectionTheme::Editorial,
+            SectionTheme::Amoled,
         ] {
             for padding in [
                 SectionPadding::Compact,
+                SectionPadding::Dense,
                 SectionPadding::Tight,
                 SectionPadding::Default,
                 SectionPadding::Loose,
