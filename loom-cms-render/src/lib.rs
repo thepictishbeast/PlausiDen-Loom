@@ -2596,6 +2596,39 @@ pub enum AuthMethodChoice {
         /// Button label.
         label: String,
     },
+    /// Sign in with a previously-issued single-use recovery code.
+    ///
+    /// Surfaces a two-field "voter code + recovery code" form whose
+    /// submit burns the recovery slot server-side and (per the
+    /// caller's policy) wipes any existing WebAuthn credentials so
+    /// the user re-enrolls fresh. Used by Sacred.Vote when a voter
+    /// loses their passkey-bearing device.
+    RecoveryCode {
+        /// Voter-code input placeholder ("Voter code").
+        identifier_placeholder: String,
+        /// Recovery-code input placeholder ("Recovery code").
+        recovery_placeholder: String,
+        /// Submit-button label.
+        submit_label: String,
+        /// Optional helper text shown above the form.
+        helper: Option<String>,
+    },
+    /// Sign in with an opaque per-tenant identifier code.
+    ///
+    /// The "voter code" pattern: a printable alphanumeric token
+    /// (e.g. `SV-7K9F-2X3M`) issued out of band that proves
+    /// membership without revealing identity. Sacred.Vote uses
+    /// this as the tier-0 login during the cutover to discoverable
+    /// passkeys; other consumers can use it as a single-factor
+    /// invite-token pattern.
+    OpaqueIdentifierCode {
+        /// Input placeholder ("Voter code", "Invite code", etc.).
+        placeholder: String,
+        /// Submit-button label.
+        submit_label: String,
+        /// Optional helper text under the input.
+        helper: Option<String>,
+    },
     /// Visual divider between method groups ("or").
     Divider {
         /// Divider label.
@@ -8124,6 +8157,34 @@ fn render_auth_method(m: &AuthMethodChoice) -> Markup {
                 (label)
             }
         },
+        AuthMethodChoice::RecoveryCode {
+            identifier_placeholder,
+            recovery_placeholder,
+            submit_label,
+            helper,
+        } => html! {
+            form class="loom-auth-method loom-auth-method--recovery-code" {
+                @if let Some(h) = helper {
+                    p class="loom-auth-method__helper" { (h) }
+                }
+                input type="text" name="identifier" required autocomplete="username" placeholder=(identifier_placeholder) aria-label=(identifier_placeholder);
+                input type="text" name="recovery_code" required inputmode="numeric" placeholder=(recovery_placeholder) aria-label=(recovery_placeholder);
+                button type="submit" class="loom-btn loom-btn--primary" { (submit_label) }
+            }
+        },
+        AuthMethodChoice::OpaqueIdentifierCode {
+            placeholder,
+            submit_label,
+            helper,
+        } => html! {
+            form class="loom-auth-method loom-auth-method--opaque-identifier" {
+                input type="text" name="identifier" required autocomplete="off" placeholder=(placeholder) aria-label=(placeholder);
+                @if let Some(h) = helper {
+                    p class="loom-auth-method__helper" { (h) }
+                }
+                button type="submit" class="loom-btn loom-btn--primary" { (submit_label) }
+            }
+        },
         AuthMethodChoice::Divider { label } => html! {
             div class="loom-auth-method-divider" aria-hidden="true" {
                 span class="loom-auth-method-divider__line" {}
@@ -12033,6 +12094,133 @@ mod tests {
         // the bug visually rather than the renderer collapsing.
         assert!(html.contains(r#"<dl class="loom-kv-list">"#));
         assert!(!html.contains("loom-kv-row"));
+    }
+
+    // ─── AuthMethodChoice render tests (LOOP-V3.1#447) ───────────────
+    //
+    // Coverage for the RecoveryCode + OpaqueIdentifierCode variants
+    // added so consumers like Sacred.Vote can express their tier-0
+    // (voter code) login + the "lost device → burn recovery code"
+    // reset path through the typed CmsSection surface. The render
+    // contract is locked here so a future refactor can't accidentally
+    // drop the helper text or rename a CSS class without tripping
+    // these assertions.
+
+    fn auth_card_page(methods: Vec<AuthMethodChoice>) -> CmsPage {
+        CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "Sign in".to_owned(),
+            description: "x".to_owned(),
+            path: "/auth".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::AuthCard {
+                title: "Sign in".to_owned(),
+                tagline: None,
+                methods,
+                footer: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn auth_method_recovery_code_renders_two_input_form() {
+        let html = render_to_string(&auth_card_page(vec![AuthMethodChoice::RecoveryCode {
+            identifier_placeholder: "Voter code".into(),
+            recovery_placeholder: "Recovery code".into(),
+            submit_label: "Restore access".into(),
+            helper: Some("Use one of the codes from your printed sheet.".into()),
+        }]));
+        assert!(html.contains("loom-auth-method--recovery-code"));
+        assert!(html.contains(r#"name="identifier""#));
+        assert!(html.contains(r#"name="recovery_code""#));
+        assert!(html.contains("Voter code"));
+        assert!(html.contains("Recovery code"));
+        assert!(html.contains("Restore access"));
+        assert!(html.contains("Use one of the codes from your printed sheet."));
+        assert!(html.contains(r#"inputmode="numeric""#));
+    }
+
+    #[test]
+    fn auth_method_recovery_code_helper_optional() {
+        let html = render_to_string(&auth_card_page(vec![AuthMethodChoice::RecoveryCode {
+            identifier_placeholder: "Voter code".into(),
+            recovery_placeholder: "Recovery code".into(),
+            submit_label: "Restore".into(),
+            helper: None,
+        }]));
+        assert!(html.contains("loom-auth-method--recovery-code"));
+        // When `helper` is None the renderer must NOT emit the
+        // helper-text paragraph at all (no stray <p> with empty text).
+        assert!(!html.contains("loom-auth-method__helper"));
+    }
+
+    #[test]
+    fn auth_method_opaque_identifier_renders_single_input_form() {
+        let html = render_to_string(&auth_card_page(vec![
+            AuthMethodChoice::OpaqueIdentifierCode {
+                placeholder: "Voter code".into(),
+                submit_label: "Continue".into(),
+                helper: Some("Look on your registration card.".into()),
+            },
+        ]));
+        assert!(html.contains("loom-auth-method--opaque-identifier"));
+        assert!(html.contains(r#"name="identifier""#));
+        assert!(html.contains(r#"autocomplete="off""#));
+        assert!(html.contains("Voter code"));
+        assert!(html.contains("Continue"));
+        assert!(html.contains("Look on your registration card."));
+        // Single input — no `recovery_code` field on this variant.
+        assert!(!html.contains(r#"name="recovery_code""#));
+    }
+
+    #[test]
+    fn auth_method_opaque_identifier_helper_optional() {
+        let html = render_to_string(&auth_card_page(vec![
+            AuthMethodChoice::OpaqueIdentifierCode {
+                placeholder: "Voter code".into(),
+                submit_label: "Continue".into(),
+                helper: None,
+            },
+        ]));
+        assert!(html.contains("loom-auth-method--opaque-identifier"));
+        assert!(!html.contains("loom-auth-method__helper"));
+    }
+
+    #[test]
+    fn auth_method_recovery_code_serde_roundtrip() {
+        let m = AuthMethodChoice::RecoveryCode {
+            identifier_placeholder: "Voter code".into(),
+            recovery_placeholder: "Recovery code".into(),
+            submit_label: "Restore".into(),
+            helper: None,
+        };
+        let s = serde_json::to_string(&m).unwrap();
+        // Tag is snake_case per the enum's serde rename.
+        assert!(s.contains(r#""kind":"recovery_code""#));
+        let back: AuthMethodChoice = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, m);
+    }
+
+    #[test]
+    fn auth_method_opaque_identifier_serde_roundtrip() {
+        let m = AuthMethodChoice::OpaqueIdentifierCode {
+            placeholder: "Invite code".into(),
+            submit_label: "Continue".into(),
+            helper: Some("Check your invite email.".into()),
+        };
+        let s = serde_json::to_string(&m).unwrap();
+        assert!(s.contains(r#""kind":"opaque_identifier_code""#));
+        let back: AuthMethodChoice = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, m);
     }
 }
 
