@@ -1232,6 +1232,36 @@ pub enum CmsSection {
         /// Submit-button label.
         submit_label: String,
     },
+    /// In-session password change. Authenticated user updates
+    /// their password without going through the forgot-password
+    /// email flow. Distinct from [`CmsSection::PasswordReset`]
+    /// (which kicks off the forgot-password email send).
+    ///
+    /// Standard fields: current password, new password, confirm
+    /// new password. The renderer never validates passwords —
+    /// that's server-side. Renderer emits the form fields with
+    /// proper autocomplete tokens + standard hardening.
+    ///
+    /// Password requirements (length / character classes) get
+    /// surfaced visibly so the user knows the rules before
+    /// submission — typed as a `Vec<String>` because the actual
+    /// rules vary by operator (some require 12 chars + symbol,
+    /// some accept passphrases of any length, etc.).
+    PasswordChange {
+        /// Section title (e.g., "Change password").
+        title: String,
+        /// Optional description / context copy.
+        description: Option<String>,
+        /// Visible requirements list. Operator-supplied bullets
+        /// (e.g., "Minimum 12 characters", "At least one
+        /// non-alphanumeric"). Renderer HTML-escapes each.
+        /// Empty Vec omits the requirements block.
+        requirements: Vec<String>,
+        /// Submit CTA. POSTs to the password-change endpoint.
+        submit_cta: HeroCta,
+        /// Cancel CTA. Routes back to account settings.
+        cancel_cta: HeroCta,
+    },
     /// Irreversible account-deletion confirm screen. Typed-input
     /// gated — visitor must type the configured `confirm_phrase`
     /// exactly (typically their username or "delete <handle>") AND
@@ -1964,7 +1994,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 150;
+    pub const PRIMITIVE_COUNT: u32 = 151;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5589,6 +5619,71 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::PasswordChange {
+            title,
+            description,
+            requirements,
+            submit_cta,
+            cancel_cta,
+        } => {
+            let submit_safe = is_safe_url(&submit_cta.href);
+            let cancel_safe = is_safe_url(&cancel_cta.href);
+            html! {
+                section class="loom-password-change" data-loom-reveal {
+                    div class="loom-password-change__inner" {
+                        h2 class="loom-password-change__title" { (title) }
+                        @if let Some(d) = description {
+                            p class="loom-password-change__description" { (d) }
+                        }
+                        @if !requirements.is_empty() {
+                            ul class="loom-password-change__requirements" aria-label="Password requirements" {
+                                @for req in requirements {
+                                    li class="loom-password-change__requirement" { (req) }
+                                }
+                            }
+                        }
+                        form class="loom-password-change__form"
+                             method="post"
+                             action=(if submit_safe { submit_cta.href.as_str() } else { "#invalid-cta" }) {
+                            label class="loom-password-change__field" {
+                                span { "Current password" }
+                                input type="password"
+                                      name="current_password"
+                                      required
+                                      autocomplete="current-password"
+                                      aria-required="true";
+                            }
+                            label class="loom-password-change__field" {
+                                span { "New password" }
+                                input type="password"
+                                      name="new_password"
+                                      required
+                                      autocomplete="new-password"
+                                      aria-required="true";
+                            }
+                            label class="loom-password-change__field" {
+                                span { "Confirm new password" }
+                                input type="password"
+                                      name="confirm_new_password"
+                                      required
+                                      autocomplete="new-password"
+                                      aria-required="true";
+                            }
+                            div class="loom-password-change__actions" {
+                                a class="loom-btn loom-btn--ghost loom-password-change__cancel"
+                                  href=(if cancel_safe { cancel_cta.href.as_str() } else { "#invalid-cta" })
+                                  data-backend=(cancel_cta.data_backend) { (cancel_cta.label) }
+                                button type="submit"
+                                       class="loom-btn loom-btn--primary loom-password-change__submit"
+                                       data-backend=(submit_cta.data_backend) {
+                                    (submit_cta.label)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         CmsSection::AccountDelete {
             title,
             warning,
@@ -11496,6 +11591,154 @@ mod page_shell_tests {
             assert_eq!(s, json, "expected {variant:?} to serialize as {json}");
             let back: EmailVerifyStatus = serde_json::from_str(&s).unwrap();
             assert_eq!(back, variant);
+        }
+    }
+
+    // #104 (2026-05-20) — PasswordChange primitive. In-session
+    // change distinct from PasswordReset (which is forgot-password).
+
+    fn password_change_page(requirements: Vec<String>) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::PasswordChange {
+            title: "Change password".into(),
+            description: Some("Choose a new password for your account.".into()),
+            requirements,
+            submit_cta: cta("Update password", "/account/password"),
+            cancel_cta: cta("Cancel", "/account/settings"),
+        }];
+        p
+    }
+
+    #[test]
+    fn password_change_renders_three_password_fields_with_correct_autocomplete() {
+        let p = password_change_page(vec![]);
+        let html = render_page(&p).into_string();
+        // Current password — autocomplete=current-password (existing
+        // password the user is re-supplying)
+        assert!(html.contains("name=\"current_password\""));
+        assert!(html.contains("autocomplete=\"current-password\""));
+        // New password — autocomplete=new-password (helps password
+        // managers suggest a generated one)
+        assert!(html.contains("name=\"new_password\""));
+        // Confirm new password — also autocomplete=new-password so
+        // the same manager-generated value can be auto-filled
+        assert!(html.contains("name=\"confirm_new_password\""));
+        // All three fields type="password" + required + aria-required
+        let pw_count = html.matches("type=\"password\"").count();
+        assert!(
+            pw_count >= 3,
+            "expected >=3 password inputs, got {pw_count}"
+        );
+        let new_pw_count = html.matches("autocomplete=\"new-password\"").count();
+        assert_eq!(
+            new_pw_count, 2,
+            "expected exactly 2 new-password autocomplete fields, got {new_pw_count}"
+        );
+    }
+
+    #[test]
+    fn password_change_renders_requirements_when_nonempty() {
+        let p = password_change_page(vec![
+            "Minimum 12 characters".to_owned(),
+            "At least one non-alphanumeric".to_owned(),
+        ]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-password-change__requirements"));
+        assert!(html.contains("aria-label=\"Password requirements\""));
+        assert!(html.contains(">Minimum 12 characters<"));
+        assert!(html.contains(">At least one non-alphanumeric<"));
+    }
+
+    #[test]
+    fn password_change_omits_requirements_block_when_empty() {
+        let p = password_change_page(vec![]);
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("loom-password-change__requirements"));
+    }
+
+    #[test]
+    fn password_change_form_posts_to_safe_url() {
+        let p = password_change_page(vec![]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("method=\"post\""));
+        assert!(html.contains("action=\"/account/password\""));
+    }
+
+    #[test]
+    fn password_change_form_action_falls_back_for_hostile_url() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::PasswordChange {
+            title: "T".into(),
+            description: None,
+            requirements: vec![],
+            submit_cta: cta("Update", "javascript:alert(1)"),
+            cancel_cta: cta("Cancel", "/c"),
+        }];
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("action=\"javascript:alert"));
+        assert!(html.contains("action=\"#invalid-cta\""));
+    }
+
+    #[test]
+    fn password_change_submit_is_button_cancel_is_link() {
+        // Submit MUST be <button type="submit"> so the form posts
+        // with the password fields. Cancel MUST be <a> (no inputs
+        // travel with cancel; it just navigates away).
+        let p = password_change_page(vec![]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("type=\"submit\""));
+        assert!(html.contains(">Update password<"));
+        assert!(html.contains("loom-btn--primary"));
+        assert!(html.contains("loom-btn--ghost"));
+        assert!(html.contains("href=\"/account/settings\""));
+    }
+
+    #[test]
+    fn password_change_escapes_title_description_requirements() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::PasswordChange {
+            title: "<script>".into(),
+            description: Some("<img onerror=x>".into()),
+            requirements: vec!["<svg onload=y>".into()],
+            submit_cta: cta("S", "/s"),
+            cancel_cta: cta("C", "/c"),
+        }];
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<img onerror=x>"));
+        assert!(!html.contains("<svg onload=y>"));
+    }
+
+    #[test]
+    fn password_change_section_parses_from_snake_case_kind() {
+        let json = r#"{
+            "kind": "password_change",
+            "title": "Change password",
+            "description": null,
+            "requirements": ["Min 12 chars"],
+            "submit_cta": {
+                "label": "Update",
+                "href": "/account/password",
+                "data_backend": "pw-update"
+            },
+            "cancel_cta": {
+                "label": "Cancel",
+                "href": "/account/settings",
+                "data_backend": "cancel"
+            }
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::PasswordChange { requirements, .. } => {
+                assert_eq!(requirements, vec!["Min 12 chars".to_owned()]);
+            }
+            _ => panic!("expected PasswordChange variant"),
         }
     }
 
