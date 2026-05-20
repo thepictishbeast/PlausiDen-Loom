@@ -8521,10 +8521,20 @@ body[data-chrome="floating-pill"]::after {
 }
 .loom-floating-pill__links {
   display: flex; gap: 0.3rem; flex: 1 1 auto;
+  /* 2026-05-20: allow pills to wrap to a second row at tablet widths
+   * (~760-1100px) where the brand + nav + actions can't fit on one
+   * line. Without this the labels squeeze and each word wraps INSIDE
+   * its pill, which is unreadable. */
+  flex-wrap: wrap;
   margin-left: 0.75rem;
+  row-gap: 0.4rem;
 }
 .loom-floating-pill__links a {
   text-decoration: none;
+  /* 2026-05-20: nowrap on the label keeps each nav item on a single
+   * line. The wrap happens at the container (flex-wrap above), not
+   * inside the pill. */
+  white-space: nowrap;
   color: color-mix(in oklab, var(--loom-color-ink, var(--loom-fg)) 65%, transparent);
   padding: 0.45rem 0.9rem;
   border-radius: 999px;
