@@ -24,6 +24,7 @@ pub mod nav;
 pub mod picture;
 pub mod pull_quote;
 pub mod section;
+pub mod slots;
 pub mod toast;
 pub mod typography;
 
@@ -48,6 +49,7 @@ pub use nav::{Nav, NavCta, NavLink, NavStyle};
 pub use picture::{Picture, PictureFit, PictureLoading, PicturePriority};
 pub use pull_quote::{PullQuote, PullQuoteEmphasis, PullQuoteTone};
 pub use section::{Section, SectionPadding, SectionTheme, SectionWidth};
+pub use slots::EditorialSlot;
 pub use toast::{Toast, ToastDuration, ToastElevation, ToastShape, ToastTone};
 pub use typography::{
     BodyText, Heading, HeadingLevel, HeadingTone, HeadingVariant, HelperSize, HelperText, Lede,
