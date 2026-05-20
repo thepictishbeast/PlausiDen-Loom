@@ -53,6 +53,24 @@ pub struct NavCta<'a> {
     pub aria_label: Option<&'a str>,
 }
 
+/// Visual chrome — drives logo + active-link animations.
+///
+/// `Standard` keeps the legacy SaaS-flavor chrome: animated
+/// `group-hover:scale-105` logo badge + sliding underline on
+/// non-active links. `Editorial` drops the animations: static logo
+/// badge (no scale-on-hover), static underline (visible on active /
+/// invisible otherwise — no slide-in). Pairs with `ButtonShape::
+/// Square`, `CardShape::Square`, etc. so a fully-editorial page can
+/// ship a nav that doesn't break the visual register.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NavStyle {
+    /// Animated SaaS-flavor chrome. Back-compat default.
+    #[default]
+    Standard,
+    /// No-animation editorial chrome.
+    Editorial,
+}
+
 /// The full top nav.
 pub struct Nav<'a> {
     /// Brand logo (typically a shield).
@@ -67,6 +85,8 @@ pub struct Nav<'a> {
     pub ctas: &'a [NavCta<'a>],
     /// Current request path. Drives active styling on links.
     pub current: &'a str,
+    /// Visual chrome style. Defaults to [`NavStyle::Standard`].
+    pub style: NavStyle,
 }
 
 impl Nav<'_> {
@@ -78,13 +98,26 @@ impl Nav<'_> {
             .brand_logo
             .render_with_class("lucide lucide-shield w-6 h-6 text-white");
         let menu_icon = MENU_ICON_SVG;
+        // Logo badge: Standard animates scale-105 on hover + rounded-lg;
+        // Editorial drops the animation + uses rounded-none for the flat
+        // editorial register.
+        let logo_class = match self.style {
+            NavStyle::Standard => {
+                "bg-primary p-1.5 rounded-lg group-hover:scale-105 transition-transform duration-300"
+            }
+            NavStyle::Editorial => "bg-primary p-1.5 rounded-none",
+        };
+        let nav_style_attr = match self.style {
+            NavStyle::Standard => "standard",
+            NavStyle::Editorial => "editorial",
+        };
 
         html! {
-            nav id="site-nav" class="fixed top-0 left-0 right-0 z-50 transition-all duration-300 border-b bg-transparent border-transparent py-5" {
+            nav id="site-nav" class="fixed top-0 left-0 right-0 z-50 transition-all duration-300 border-b bg-transparent border-transparent py-5" data-loom-nav-style=(nav_style_attr) {
                 div class="container mx-auto px-4 md:px-6 flex items-center justify-between" {
                     a href="/" {
                         div class="flex items-center gap-2 cursor-pointer group" {
-                            div class="bg-primary p-1.5 rounded-lg group-hover:scale-105 transition-transform duration-300" {
+                            div class=(logo_class) {
                                 (PreEscaped(logo_svg))
                             }
                             span class="font-display font-bold text-xl tracking-tight transition-colors text-slate-900" {
@@ -94,7 +127,7 @@ impl Nav<'_> {
                     }
                     div class="hidden md:flex items-center gap-6" {
                         @for link in self.links {
-                            (render_desktop_link(link, self.current))
+                            (render_desktop_link(link, self.current, self.style))
                         }
                         @for cta in self.ctas {
                             (render_desktop_cta(cta))
@@ -119,24 +152,42 @@ impl Nav<'_> {
     }
 }
 
-fn render_desktop_link(link: &NavLink<'_>, current: &str) -> Markup {
+fn render_desktop_link(link: &NavLink<'_>, current: &str, style: NavStyle) -> Markup {
     let is_active = link.href == current;
     let text_class = if is_active {
         "text-primary"
     } else {
         "text-slate-600"
     };
-    let bar_class = if is_active {
-        "absolute -bottom-1 left-0 h-0.5 bg-primary transition-all duration-300 w-full"
-    } else {
-        "absolute -bottom-1 left-0 h-0.5 bg-primary transition-all duration-300 w-0 group-hover:w-full"
+    // Editorial style strips the slide-in underline animation; the
+    // bar is either fully visible (active) or fully absent (inactive),
+    // no `w-0 group-hover:w-full` transition.
+    let bar_class = match (style, is_active) {
+        (NavStyle::Standard, true) => {
+            "absolute -bottom-1 left-0 h-0.5 bg-primary transition-all duration-300 w-full"
+        }
+        (NavStyle::Standard, false) => {
+            "absolute -bottom-1 left-0 h-0.5 bg-primary transition-all duration-300 w-0 group-hover:w-full"
+        }
+        (NavStyle::Editorial, true) => {
+            "absolute -bottom-1 left-0 h-0.5 bg-primary w-full"
+        }
+        (NavStyle::Editorial, false) => {
+            "absolute -bottom-1 left-0 h-0.5 bg-primary w-0"
+        }
+    };
+    // Editorial drops the hover:text-primary transition too — the
+    // link state is the link state, not a hover affordance.
+    let transition_classes = match style {
+        NavStyle::Standard => "transition-colors hover:text-primary",
+        NavStyle::Editorial => "",
     };
     let span_class = format!(
-        "text-sm font-medium transition-colors hover:text-primary cursor-pointer relative group {text_class}"
+        "text-sm font-medium {transition_classes} cursor-pointer relative group {text_class}"
     );
     html! {
         a href=(link.href) {
-            span class=(span_class) {
+            span class=(span_class.trim()) {
                 (link.label)
                 span class=(bar_class) {}
             }
@@ -236,6 +287,7 @@ mod tests {
             links: LINKS,
             ctas: CTAS,
             current: "/services",
+            style: NavStyle::default(),
         }
     }
 
@@ -303,5 +355,82 @@ mod tests {
         assert!(s.contains("text-emerald-700"));
         // Primary CTA pill uses bg-primary.
         assert!(s.contains("bg-primary text-primary-foreground"));
+    }
+
+    #[test]
+    fn default_style_is_standard_with_logo_animation() {
+        let s = fixture().render().into_string();
+        // Standard logo class includes scale-105 hover animation +
+        // rounded-lg + transition-transform.
+        assert!(s.contains("group-hover:scale-105"));
+        assert!(s.contains("rounded-lg"));
+        assert!(s.contains("transition-transform"));
+        // Data-attribute reflects style.
+        assert!(s.contains(r#"data-loom-nav-style="standard""#));
+    }
+
+    #[test]
+    fn editorial_style_strips_logo_animation() {
+        let s = Nav {
+            style: NavStyle::Editorial,
+            ..fixture()
+        }
+        .render()
+        .into_string();
+        assert!(!s.contains("group-hover:scale-105"));
+        assert!(!s.contains("transition-transform"));
+        // Logo badge swaps to rounded-none.
+        assert!(s.contains("bg-primary p-1.5 rounded-none"));
+        assert!(s.contains(r#"data-loom-nav-style="editorial""#));
+    }
+
+    #[test]
+    fn editorial_style_strips_sliding_underline() {
+        let s = Nav {
+            style: NavStyle::Editorial,
+            ..fixture()
+        }
+        .render()
+        .into_string();
+        // Editorial: no `w-0 group-hover:w-full` transition on inactive
+        // links. The bar is either visible (active = w-full) or
+        // invisible (inactive = w-0 static).
+        assert!(!s.contains("w-0 group-hover:w-full"));
+        assert!(!s.contains("transition-all duration-300 w-full"));
+        // Active link still gets w-full (static).
+        let services_pos = s
+            .find(r#"href="/services""#)
+            .expect("services link present");
+        let services_block = &s[services_pos..services_pos + 400];
+        assert!(
+            services_block.contains("w-full"),
+            "active link still has w-full bar in editorial style: {services_block}"
+        );
+    }
+
+    #[test]
+    fn editorial_style_strips_hover_text_transition_in_desktop_strip() {
+        let s = Nav {
+            style: NavStyle::Editorial,
+            ..fixture()
+        }
+        .render()
+        .into_string();
+        // The desktop links lose the hover-text transition. Scope to
+        // the desktop strip — `<div class="hidden md:flex ...">` —
+        // since the mobile drawer's links still use the hover
+        // transition (tap-only context, not editorial-relevant).
+        let desktop_pos = s.find("hidden md:flex").expect("desktop strip present");
+        let mobile_pos = s.find(r#"id="mobile-menu""#).expect("mobile drawer present");
+        let desktop_block = &s[desktop_pos..mobile_pos];
+        assert!(
+            !desktop_block.contains("transition-colors hover:text-primary"),
+            "desktop strip should drop the hover transition in editorial style: {desktop_block}"
+        );
+    }
+
+    #[test]
+    fn nav_style_default_is_standard() {
+        assert!(matches!(NavStyle::default(), NavStyle::Standard));
     }
 }
