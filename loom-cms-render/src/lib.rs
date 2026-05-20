@@ -441,6 +441,15 @@ pub enum CmsSection {
         heading: Option<String>,
         /// Items, top to bottom.
         items: Vec<CmsKvItem>,
+        /// Layout density. Defaults to `comfortable`. Mirrors the
+        /// loom-components KvPairCard density knob; affects vertical
+        /// rhythm inside each item.
+        #[serde(default)]
+        density: KvPairDensity,
+        /// Color tone. Defaults to `slate`. `amoled` honors
+        /// `[[dark-theme-amoled-true-black]]` for OLED rendering.
+        #[serde(default)]
+        tone: KvPairTone,
     },
     /// T660 P1 LogoWall — a wall of vetted brand logos used as
     /// social-proof on marketing landings ("Trusted by Stripe,
@@ -1389,6 +1398,33 @@ pub enum PullQuoteEmphasis {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PullQuoteTone {
+    /// Slate text on light surface.
+    #[default]
+    Slate,
+    /// Slate-100 ink on AMOLED true-black surface.
+    Amoled,
+}
+
+/// Layout density for [`CmsSection::KvPair`]. Mirrors
+/// `loom_components::card::KvPairDensity`. Affects vertical rhythm
+/// inside each item; horizontal sizing is the grid's job.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum KvPairDensity {
+    /// Tight rhythm — for grids of 4-6 items with short values.
+    Compact,
+    /// Default rhythm — most KV grids.
+    #[default]
+    Comfortable,
+    /// Generous rhythm — for grids of 2-3 items with long values.
+    Spacious,
+}
+
+/// Color tone for [`CmsSection::KvPair`]. Mirrors
+/// `loom_components::card::KvPairTone`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum KvPairTone {
     /// Slate text on light surface.
     #[default]
     Slate,
@@ -3147,26 +3183,46 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 },
             }
         }
-        CmsSection::KvPair { heading, items } => html! {
-            section class="loom-kv-section" {
-                @if let Some(h) = heading {
-                    h2 class="loom-kv-heading" { (h) }
-                }
-                dl class="loom-kv-list" {
-                    @for item in items {
-                        div class="loom-kv-row" {
-                            dt class="loom-kv-key" { (item.key) }
-                            dd class="loom-kv-value" {
-                                span class="loom-kv-text" { (item.value) }
-                                @if let Some(hint) = &item.hint {
-                                    span class="loom-kv-hint" { (hint) }
+        CmsSection::KvPair {
+            heading,
+            items,
+            density,
+            tone,
+        } => {
+            let density_attr = match density {
+                KvPairDensity::Compact => "compact",
+                KvPairDensity::Comfortable => "comfortable",
+                KvPairDensity::Spacious => "spacious",
+            };
+            let tone_attr = match tone {
+                KvPairTone::Slate => "slate",
+                KvPairTone::Amoled => "amoled",
+            };
+            html! {
+                section
+                    class="loom-kv-section"
+                    data-density=(density_attr)
+                    data-tone=(tone_attr)
+                {
+                    @if let Some(h) = heading {
+                        h2 class="loom-kv-heading" { (h) }
+                    }
+                    dl class="loom-kv-list" {
+                        @for item in items {
+                            div class="loom-kv-row" {
+                                dt class="loom-kv-key" { (item.key) }
+                                dd class="loom-kv-value" {
+                                    span class="loom-kv-text" { (item.value) }
+                                    @if let Some(hint) = &item.hint {
+                                        span class="loom-kv-hint" { (hint) }
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        },
+        }
         // T660 P1: typographic LogoWall fallback until loom-brand-icons
         // ships the vetted SVG registry. Each item renders as the name
         // in display font; if href is set, wraps in <a>.
@@ -8750,6 +8806,8 @@ mod tests {
             sections: vec![CmsSection::KvPair {
                 heading: heading.map(|s| s.to_owned()),
                 items,
+                density: KvPairDensity::default(),
+                tone: KvPairTone::default(),
             }],
         }
     }
@@ -8769,6 +8827,160 @@ mod tests {
         assert!(html.contains(r#"<dt class="loom-kv-key">Match length</dt>"#));
         assert!(html.contains(r#"<dd class="loom-kv-value">"#));
         assert!(html.contains("3 rounds"));
+        // Default density + tone surface as data attributes.
+        assert!(html.contains(r#"data-density="comfortable""#));
+        assert!(html.contains(r#"data-tone="slate""#));
+    }
+
+    #[test]
+    fn kv_pair_density_compact_surfaces_attribute() {
+        let items = vec![CmsKvItem {
+            key: "k".into(),
+            value: "v".into(),
+            hint: None,
+        }];
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".into(),
+            description: "x".into(),
+            path: "/x".into(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::KvPair {
+                heading: None,
+                items,
+                density: KvPairDensity::Compact,
+                tone: KvPairTone::Slate,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"data-density="compact""#));
+        assert!(!html.contains(r#"data-density="comfortable""#));
+    }
+
+    #[test]
+    fn kv_pair_density_spacious_surfaces_attribute() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".into(),
+            description: "x".into(),
+            path: "/x".into(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::KvPair {
+                heading: None,
+                items: vec![],
+                density: KvPairDensity::Spacious,
+                tone: KvPairTone::Slate,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"data-density="spacious""#));
+    }
+
+    #[test]
+    fn kv_pair_amoled_tone_surfaces_attribute() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".into(),
+            description: "x".into(),
+            path: "/x".into(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::KvPair {
+                heading: None,
+                items: vec![],
+                density: KvPairDensity::Comfortable,
+                tone: KvPairTone::Amoled,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"data-tone="amoled""#));
+        assert!(!html.contains(r#"data-tone="slate""#));
+    }
+
+    #[test]
+    fn kv_pair_density_tone_default_when_omitted_in_json() {
+        let json = r#"{
+            "kind": "kv_pair",
+            "items": []
+        }"#;
+        let s: CmsSection = serde_json::from_str(json).expect("parse");
+        match s {
+            CmsSection::KvPair { density, tone, .. } => {
+                assert!(matches!(density, KvPairDensity::Comfortable));
+                assert!(matches!(tone, KvPairTone::Slate));
+            }
+            other => unreachable!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn kv_pair_density_tone_parse_from_json_when_present() {
+        let json = r#"{
+            "kind": "kv_pair",
+            "items": [],
+            "density": "spacious",
+            "tone": "amoled"
+        }"#;
+        let s: CmsSection = serde_json::from_str(json).expect("parse");
+        match s {
+            CmsSection::KvPair { density, tone, .. } => {
+                assert!(matches!(density, KvPairDensity::Spacious));
+                assert!(matches!(tone, KvPairTone::Amoled));
+            }
+            other => unreachable!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn kv_pair_legacy_two_field_json_still_parses() {
+        // Back-compat: existing CMS files written before this commit
+        // carry only `heading` + `items`. The new fields must default.
+        let json = r#"{
+            "kind": "kv_pair",
+            "heading": "Legacy",
+            "items": [{ "key": "k", "value": "v" }]
+        }"#;
+        let s: CmsSection = serde_json::from_str(json).expect("parse");
+        match s {
+            CmsSection::KvPair {
+                heading,
+                items,
+                density,
+                tone,
+            } => {
+                assert_eq!(heading.as_deref(), Some("Legacy"));
+                assert_eq!(items.len(), 1);
+                assert!(matches!(density, KvPairDensity::Comfortable));
+                assert!(matches!(tone, KvPairTone::Slate));
+            }
+            other => unreachable!("wrong variant: {other:?}"),
+        }
     }
 
     #[test]
@@ -8890,7 +9102,7 @@ mod tests {
         let parsed: CmsPage = serde_json::from_str(&j).expect("deserialize");
         assert_eq!(parsed.sections.len(), 1);
         match &parsed.sections[0] {
-            CmsSection::KvPair { heading, items } => {
+            CmsSection::KvPair { heading, items, .. } => {
                 assert_eq!(heading.as_deref(), Some("My list"));
                 assert_eq!(items.len(), 1);
                 assert_eq!(items[0].key, "k");
