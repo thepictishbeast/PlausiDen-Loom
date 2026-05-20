@@ -267,6 +267,35 @@ pub enum CmsSection {
         /// Optional primary CTA.
         cta: Option<HeroCta>,
     },
+    /// Editorial asymmetric hero — the substrate-aware sibling of
+    /// [`CmsSection::Hero`]. Where `Hero` ships the canonical centered
+    /// SaaS shape (eyebrow pill, gradient overlay, animate-fade-in
+    /// chain), `HeroEditorial` is the editorial 2-column composition:
+    /// monospace kicker, dominant headline, lede that sets its own
+    /// measure via `max-w-prose`, optional CTA, optional right-column
+    /// decoration. No SaaS-trope ornaments emitted.
+    ///
+    /// Wire shape mirrors [`loom_components::HeroEditorial`]; the CMS
+    /// authors a section, the renderer emits editorial markup.
+    HeroEditorial {
+        /// Plain uppercase monospace metadata line above the headline
+        /// (e.g., `"DISPATCH · 2026-05-20"`). NOT a pill.
+        kicker: Option<String>,
+        /// Headline body. Renders as the dominant typographic mass.
+        headline: String,
+        /// Optional accent fragment rendered after the headline in
+        /// brand primary color.
+        headline_accent: Option<String>,
+        /// Lede paragraph. Use long-form editorial prose; the renderer
+        /// lets prose set its own measure.
+        lede: String,
+        /// Optional primary CTA.
+        cta: Option<HeroCta>,
+        /// Background tone. Accepts `slate` (default), `plain`,
+        /// or `amoled` (true-black).
+        #[serde(default)]
+        background: HeroEditorialBackground,
+    },
     /// Group: a heading + a body paragraph, framed as a `<section>`.
     /// Useful for "How it works" / "Rules" type explainer blocks.
     Group {
@@ -1300,6 +1329,24 @@ pub enum DividerStyle { #[default] Line, Dots, ZigZag, Sparkle }
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub enum SpaceSize { Tight, #[default] Comfortable, Loose, Generous }
 
+/// Background tone for [`CmsSection::HeroEditorial`].
+///
+/// Mirrors `loom_components::hero::HeroEditorialBackground`. `Slate`
+/// is the recommended default — lets content carry the page. `Amoled`
+/// honors `[[dark-theme-amoled-true-black]]` for OLED pixels-off
+/// rendering.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum HeroEditorialBackground {
+    /// Plain slate-50.
+    #[default]
+    Slate,
+    /// Plain white.
+    Plain,
+    /// AMOLED true-black (`#000`).
+    Amoled,
+}
+
 /// Visual treatment for [`CmsSection::FeatureSpotlight`].
 ///
 /// The default `Decorated` is the legacy SaaS-card shape (rounded
@@ -1406,7 +1453,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 142;
+    pub const PRIMITIVE_COUNT: u32 = 143;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -2778,6 +2825,52 @@ pub fn render_section(section: &CmsSection) -> Markup {
                             data-invalid=[(!cta_href_safe).then_some("true")]
                         {
                             (c.label)
+                        }
+                    }
+                }
+            }
+        }
+        CmsSection::HeroEditorial {
+            kicker,
+            headline,
+            headline_accent,
+            lede,
+            cta,
+            background,
+        } => {
+            let cta_href_safe = cta
+                .as_ref()
+                .is_none_or(|c| loom_components::composer::is_safe_url(&c.href));
+            let bg_attr = match background {
+                HeroEditorialBackground::Slate => "slate",
+                HeroEditorialBackground::Plain => "plain",
+                HeroEditorialBackground::Amoled => "amoled",
+            };
+            html! {
+                section class="loom-section-hero-editorial" data-loom-hero-editorial data-background=(bg_attr) {
+                    div class="loom-section-hero-editorial__grid" {
+                        div class="loom-section-hero-editorial__lead" {
+                            @if let Some(k) = kicker {
+                                p class="loom-section-hero-editorial__kicker" { (k) }
+                            }
+                            h1 class="loom-section-hero-editorial__headline" {
+                                (headline)
+                                @if let Some(accent) = headline_accent {
+                                    " "
+                                    span class="loom-section-hero-editorial__accent" { (accent) }
+                                }
+                            }
+                            p class="loom-section-hero-editorial__lede" { (lede) }
+                            @if let Some(c) = cta {
+                                a
+                                    class="loom-section-hero-editorial__cta"
+                                    href=(if cta_href_safe { c.href.as_str() } else { "#invalid-cta" })
+                                    data-backend=(c.data_backend)
+                                    data-invalid=[(!cta_href_safe).then_some("true")]
+                                {
+                                    (c.label)
+                                }
+                            }
                         }
                     }
                 }
@@ -5819,6 +5912,167 @@ mod tests {
         assert!(html.contains(r#"href="/sign-up""#));
         assert!(html.contains(r#"data-backend="sign-up""#));
         assert!(html.contains(">Sign up<"));
+    }
+
+    #[test]
+    fn hero_editorial_renders_required_fields() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::HeroEditorial {
+                kicker: None,
+                headline: "The substrate carries the page".to_owned(),
+                headline_accent: None,
+                lede: "Editorial composition replaces the centered SaaS shape.".to_owned(),
+                cta: None,
+                background: HeroEditorialBackground::Slate,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains("loom-section-hero-editorial"));
+        assert!(html.contains("data-loom-hero-editorial"));
+        assert!(html.contains(r#"data-background="slate""#));
+        assert!(html.contains(">The substrate carries the page"));
+        assert!(html.contains(">Editorial composition replaces"));
+        // Kicker + accent + CTA absent.
+        assert!(!html.contains("loom-section-hero-editorial__kicker"));
+        assert!(!html.contains("loom-section-hero-editorial__accent"));
+        assert!(!html.contains("loom-section-hero-editorial__cta"));
+    }
+
+    #[test]
+    fn hero_editorial_renders_all_optional_slots() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::HeroEditorial {
+                kicker: Some("DISPATCH · 2026-05-20".to_owned()),
+                headline: "The substrate".to_owned(),
+                headline_accent: Some("carries the page".to_owned()),
+                lede: "Editorial composition replaces SaaS heroes.".to_owned(),
+                cta: Some(HeroCta {
+                    label: "Read the dispatch".to_owned(),
+                    href: "/dispatch".to_owned(),
+                    data_backend: "view-dispatch".to_owned(),
+                }),
+                background: HeroEditorialBackground::Amoled,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(">DISPATCH · 2026-05-20<"));
+        assert!(html.contains("loom-section-hero-editorial__kicker"));
+        assert!(html.contains(">carries the page<"));
+        assert!(html.contains("loom-section-hero-editorial__accent"));
+        assert!(html.contains(r#"href="/dispatch""#));
+        assert!(html.contains(r#"data-backend="view-dispatch""#));
+        assert!(html.contains(">Read the dispatch<"));
+        // AMOLED background attribute wires through.
+        assert!(html.contains(r#"data-background="amoled""#));
+    }
+
+    #[test]
+    fn hero_editorial_parses_from_json_with_snake_case_kind() {
+        let json = r#"{
+            "kind": "hero_editorial",
+            "headline": "From JSON",
+            "lede": "Wire shape works.",
+            "background": "plain"
+        }"#;
+        let s: CmsSection = serde_json::from_str(json).expect("parse");
+        match s {
+            CmsSection::HeroEditorial {
+                kicker,
+                headline,
+                headline_accent,
+                lede,
+                cta,
+                background,
+            } => {
+                assert!(kicker.is_none());
+                assert_eq!(headline, "From JSON");
+                assert!(headline_accent.is_none());
+                assert_eq!(lede, "Wire shape works.");
+                assert!(cta.is_none());
+                assert!(matches!(background, HeroEditorialBackground::Plain));
+            }
+            other => unreachable!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hero_editorial_background_defaults_to_slate_when_omitted() {
+        let json = r#"{
+            "kind": "hero_editorial",
+            "headline": "X",
+            "lede": "Y"
+        }"#;
+        let s: CmsSection = serde_json::from_str(json).expect("parse");
+        match s {
+            CmsSection::HeroEditorial { background, .. } => {
+                assert!(matches!(background, HeroEditorialBackground::Slate));
+            }
+            other => unreachable!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hero_editorial_invalid_cta_href_substitutes_placeholder() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::HeroEditorial {
+                kicker: None,
+                headline: "x".to_owned(),
+                headline_accent: None,
+                lede: "x".to_owned(),
+                cta: Some(HeroCta {
+                    label: "bad".to_owned(),
+                    href: "javascript:alert(1)".to_owned(),
+                    data_backend: "x".to_owned(),
+                }),
+                background: HeroEditorialBackground::Slate,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r##"href="#invalid-cta""##));
+        assert!(html.contains(r#"data-invalid="true""#));
+        assert!(!html.contains("javascript:"));
     }
 
     #[test]
