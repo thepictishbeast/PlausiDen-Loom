@@ -109,6 +109,7 @@ fn build_state_matrix_page() -> loom_cms_render::CmsPage {
         content_width: None,
         nav_actions: vec![],
         schema: None,
+            version: None,
         title: "Loom state matrix".into(),
         description: "Every CmsSection variant + named state, on one page.".into(),
         path: "/state-matrix".into(),

@@ -4,3 +4,6 @@ target/
 # 2026-05-17 because cargo doc/clippy --locked were failing in CI.)
 .DS_Store
 *.swp
+
+# Forge build reports — generated artifacts, not source
+reports/
