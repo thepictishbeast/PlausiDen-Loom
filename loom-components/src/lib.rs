@@ -21,6 +21,7 @@ pub mod link;
 pub mod modal;
 pub mod nav;
 pub mod picture;
+pub mod pull_quote;
 pub mod section;
 pub mod toast;
 pub mod typography;
@@ -39,6 +40,7 @@ pub use link::{TextLink, TextLinkSize, TextLinkVariant};
 pub use modal::{Modal, ModalSize};
 pub use nav::{Nav, NavCta, NavLink};
 pub use picture::{Picture, PictureFit, PictureLoading, PicturePriority};
+pub use pull_quote::{PullQuote, PullQuoteEmphasis, PullQuoteTone};
 pub use section::{Section, SectionPadding, SectionTheme, SectionWidth};
 pub use toast::{Toast, ToastDuration, ToastTone};
 pub use typography::{
