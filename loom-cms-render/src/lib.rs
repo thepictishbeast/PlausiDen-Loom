@@ -917,6 +917,35 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reading_time: Option<String>,
     },
+    /// End-of-document author biography block — avatar + name +
+    /// role + bio body + optional follow-up links. Distinct from
+    /// [`CmsSection::Byline`] (top-of-article minimal
+    /// attribution: author + role + dateline + reading-time) and
+    /// from [`CmsSection::AccountSummary`] (logged-in user's own
+    /// at-a-glance state, not a public author footer).
+    ///
+    /// Editorial intent: long-form article / blog post / essay
+    /// footer where readers can learn about the author + follow
+    /// them elsewhere. Anti-SaaS by construction — left-aligned
+    /// editorial block, no centered card, no shadow, no gradient.
+    AuthorBio {
+        /// Author display name (required).
+        name: String,
+        /// Role / title (e.g. `"Senior Editor"`,
+        /// `"Licensed Insurance Agent"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        role: Option<String>,
+        /// Bio body — multi-paragraph splits on `\n\n`.
+        bio: String,
+        /// Avatar — typed enum (`None` / `Initials` / `Image`).
+        /// Defaults to `None` (text-only bio block).
+        #[serde(default = "default_no_avatar")]
+        avatar: CmsAvatar,
+        /// Optional follow-up links (website, social, email,
+        /// RSS). Rendered as an inline list under the bio.
+        #[serde(default)]
+        links: Vec<AuthorLink>,
+    },
     /// End-of-document footnote. Renders as a numbered entry at
     /// the bottom of a long-form piece. Distinct from
     /// [`CmsSection::Footnote`] (which is inline / mid-flow); use
@@ -2956,7 +2985,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -4389,6 +4418,71 @@ pub enum CmsAvatar {
     },
 }
 
+/// One link entry inside a [`CmsSection::AuthorBio`].
+///
+/// Typed kind so the renderer can pick the right icon / chip
+/// class without parsing the URL, and the audit phases can
+/// flag unsafe schemes via [`is_safe_url`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct AuthorLink {
+    /// Visible label (e.g. `"Twitter"`, `"deborah@example.com"`).
+    pub label: String,
+    /// Target URL. Validated through `is_safe_url`; hostile
+    /// schemes (`javascript:`, etc.) render as a plain span
+    /// (no `<a>`).
+    pub href: String,
+    /// Typed kind drives the chip class + accessible-name
+    /// template.
+    #[serde(default)]
+    pub kind: AuthorLinkKind,
+}
+
+/// Kind for [`AuthorLink`]. Drives the modifier class on the
+/// rendered `<li>` + the accessible-name template.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthorLinkKind {
+    /// Personal site / blog / portfolio.
+    #[default]
+    Website,
+    /// Twitter / X profile.
+    Twitter,
+    /// Mastodon profile.
+    Mastodon,
+    /// GitHub profile.
+    #[serde(rename = "github")]
+    GitHub,
+    /// LinkedIn profile.
+    #[serde(rename = "linkedin")]
+    LinkedIn,
+    /// Email contact (`mailto:` href).
+    Email,
+    /// RSS feed.
+    Rss,
+    /// Anything that doesn't fit the above. Renderer uses the
+    /// generic chip class.
+    Other,
+}
+
+impl AuthorLinkKind {
+    /// Stable kebab-case modifier slug. The
+    /// `.loom-author-bio__link--<modifier>` cascade targets these.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::Website => "website",
+            Self::Twitter => "twitter",
+            Self::Mastodon => "mastodon",
+            Self::GitHub => "github",
+            Self::LinkedIn => "linkedin",
+            Self::Email => "email",
+            Self::Rss => "rss",
+            Self::Other => "other",
+        }
+    }
+}
+
 /// Mirror of [`PictureLoading`].
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -5699,6 +5793,51 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
                 @if let Some(rt) = reading_time {
                     " · " span class="loom-byline__reading-time" { (rt) }
+                }
+            }
+        },
+        CmsSection::AuthorBio {
+            name,
+            role,
+            bio,
+            avatar,
+            links,
+        } => html! {
+            section class="loom-author-bio" data-loom-reveal aria-label="About the author" {
+                @if !matches!(avatar, CmsAvatar::None) {
+                    div class="loom-author-bio__avatar" { (render_avatar(avatar)) }
+                }
+                div class="loom-author-bio__body" {
+                    p class="loom-author-bio__name" { (name) }
+                    @if let Some(r) = role {
+                        p class="loom-author-bio__role" { (r) }
+                    }
+                    div class="loom-author-bio__text" {
+                        @for para in bio.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
+                            p { (para) }
+                        }
+                    }
+                    @if !links.is_empty() {
+                        ul class="loom-author-bio__links" {
+                            @for l in links {
+                                @let modifier = l.kind.modifier();
+                                @if is_safe_url(&l.href) {
+                                    li class={ "loom-author-bio__link loom-author-bio__link--" (modifier) }
+                                        data-kind=(modifier)
+                                    {
+                                        a href=(l.href) rel="me" { (l.label) }
+                                    }
+                                } @else {
+                                    li class={ "loom-author-bio__link loom-author-bio__link--" (modifier) }
+                                        data-kind=(modifier)
+                                        data-blocked-href="true"
+                                    {
+                                        span { (l.label) }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -10147,6 +10286,137 @@ mod tests {
         assert!(html.contains("Solo"));
         assert!(!html.contains("loom-byline__role"));
         assert!(!html.contains("loom-byline__dateline"));
+    }
+
+    // #104 (2026-05-20) — AuthorBio editorial primitive
+    // (end-of-document author footer with avatar + links).
+
+    #[test]
+    fn author_bio_renders_section_with_aria_label_and_required_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "author_bio",
+                "name": "Deborah Armstrong",
+                "bio": "Licensed insurance agent + author."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<section class="loom-author-bio""#));
+        assert!(html.contains(r#"aria-label="About the author""#));
+        assert!(html.contains(r#"class="loom-author-bio__name""#));
+        assert!(html.contains(">Deborah Armstrong<"));
+        assert!(html.contains(r#"class="loom-author-bio__text""#));
+        assert!(html.contains(">Licensed insurance agent + author.<"));
+        // Avatar slot omitted when CmsAvatar::None (the default).
+        assert!(!html.contains("loom-author-bio__avatar"));
+        // Role + links omitted when absent.
+        assert!(!html.contains("loom-author-bio__role"));
+        assert!(!html.contains("loom-author-bio__links"));
+    }
+
+    #[test]
+    fn author_bio_renders_avatar_role_and_links_when_present() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "author_bio",
+                "name": "Jane Doe",
+                "role": "Senior Editor",
+                "bio": "First paragraph.\n\nSecond paragraph.",
+                "avatar": {"kind": "initials", "letters": "JD"},
+                "links": [
+                    {"label": "Website", "href": "https://jane.example", "kind": "website"},
+                    {"label": "GitHub",  "href": "https://github.com/jane", "kind": "github"},
+                    {"label": "RSS",     "href": "https://jane.example/rss.xml", "kind": "rss"}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // Avatar slot present + render_avatar's initials chip lands inside.
+        assert!(html.contains("loom-author-bio__avatar"));
+        assert!(html.contains(r#"data-kind="initials""#));
+        assert!(html.contains(">JD<"));
+        // Role visible.
+        assert!(html.contains(r#"class="loom-author-bio__role""#));
+        assert!(html.contains(">Senior Editor<"));
+        // Multi-paragraph bio.
+        let text_open = html.find("loom-author-bio__text").expect("text class");
+        let text_close = html[text_open..].find("</div>").expect("/div") + text_open;
+        let text_slice = &html[text_open..text_close];
+        assert_eq!(text_slice.matches("<p>").count(), 2);
+        // All three link kinds emit modifier classes + data-kind + <a href>.
+        assert!(html.contains("loom-author-bio__link--website"));
+        assert!(html.contains("loom-author-bio__link--github"));
+        assert!(html.contains("loom-author-bio__link--rss"));
+        assert!(html.contains(r#"href="https://jane.example""#));
+        assert!(html.contains(r#"href="https://github.com/jane""#));
+        assert!(html.contains(r#"rel="me""#));
+    }
+
+    #[test]
+    fn author_bio_unsafe_link_href_falls_back_to_span() {
+        // javascript: scheme is unsafe — renderer should drop the
+        // <a> and emit a labeled span with data-blocked-href.
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "author_bio",
+                "name": "X",
+                "bio": "Y",
+                "links": [
+                    {"label": "Bad", "href": "javascript:alert(1)", "kind": "other"}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"data-blocked-href="true""#));
+        assert!(!html.contains("javascript:alert(1)"));
+        assert!(!html.contains(r#"<a href="javascript:"#));
+    }
+
+    #[test]
+    fn author_bio_link_kind_modifiers_stable() {
+        for (kind, modifier) in [
+            (AuthorLinkKind::Website, "website"),
+            (AuthorLinkKind::Twitter, "twitter"),
+            (AuthorLinkKind::Mastodon, "mastodon"),
+            (AuthorLinkKind::GitHub, "github"),
+            (AuthorLinkKind::LinkedIn, "linkedin"),
+            (AuthorLinkKind::Email, "email"),
+            (AuthorLinkKind::Rss, "rss"),
+            (AuthorLinkKind::Other, "other"),
+        ] {
+            assert_eq!(kind.modifier(), modifier);
+        }
+    }
+
+    #[test]
+    fn author_bio_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "author_bio",
+                "name": "<script>n</script>",
+                "bio": "<script>alert(1)</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>n</script>"));
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
