@@ -1232,6 +1232,49 @@ pub enum CmsSection {
         /// Submit-button label.
         submit_label: String,
     },
+    /// Irreversible account-deletion confirm screen. Typed-input
+    /// gated — visitor must type the configured `confirm_phrase`
+    /// exactly (typically their username or "delete <handle>") AND
+    /// supply their current password. Renders a destructive primary
+    /// CTA that POSTs to a soft-delete-or-permanent-delete endpoint
+    /// + a safe-default cancel CTA.
+    ///
+    /// SECURITY: the renderer does NOT validate that the visitor
+    /// actually typed the phrase or the password — that's server-
+    /// side. The renderer just emits the form fields. Backend MUST
+    /// re-check both on POST + MUST require recent re-auth (within
+    /// the last ~5 minutes) before honoring the deletion.
+    AccountDelete {
+        /// Section title (e.g., "Delete your account").
+        title: String,
+        /// Lede / warning copy explaining what deletion does. Operator-
+        /// supplied because consequence framing is brand-voice-sensitive.
+        warning: String,
+        /// Optional typed consequences list — explicit bullets of
+        /// "you will lose access to X / Y / Z." Each entry is plain
+        /// text the renderer HTML-escapes.
+        consequences: Vec<String>,
+        /// The literal phrase the visitor must type to confirm.
+        /// Operator-supplied (typically the username, or a literal
+        /// like "delete my account"). Renderer surfaces it in the
+        /// label so the user knows what to type; backend re-checks.
+        confirm_phrase: String,
+        /// Visible label for the confirmation text input. Operator-
+        /// supplied so brand voice can vary ("Type your username to
+        /// confirm" vs "Confirm deletion").
+        confirm_field_label: String,
+        /// Whether to include a password-confirmation input. Typically
+        /// `true` for any password-authenticated account; `false` for
+        /// passkey-only accounts where the WebAuthn assertion is the
+        /// re-auth signal supplied at the previous step.
+        require_password: bool,
+        /// Destructive submit CTA. POSTs to the deletion endpoint.
+        /// Renderer styles this as `.loom-btn--danger`.
+        delete_cta: HeroCta,
+        /// Safe-default cancel CTA. Operator typically routes this
+        /// back to the account-settings page.
+        cancel_cta: HeroCta,
+    },
     /// Active-sessions / device list. Renders the logged-in
     /// user's list of authenticated sessions with per-session
     /// revoke CTAs + an optional "sign out everywhere" overflow.
@@ -1921,7 +1964,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 149;
+    pub const PRIMITIVE_COUNT: u32 = 150;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5546,6 +5589,71 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::AccountDelete {
+            title,
+            warning,
+            consequences,
+            confirm_phrase,
+            confirm_field_label,
+            require_password,
+            delete_cta,
+            cancel_cta,
+        } => {
+            let delete_safe = is_safe_url(&delete_cta.href);
+            let cancel_safe = is_safe_url(&cancel_cta.href);
+            html! {
+                section class="loom-account-delete" data-loom-reveal {
+                    div class="loom-account-delete__inner" {
+                        h2 class="loom-account-delete__title" { (title) }
+                        p class="loom-account-delete__warning" role="alert" { (warning) }
+                        @if !consequences.is_empty() {
+                            ul class="loom-account-delete__consequences" aria-label="Consequences" {
+                                @for line in consequences {
+                                    li class="loom-account-delete__consequence" { (line) }
+                                }
+                            }
+                        }
+                        form class="loom-account-delete__form"
+                             method="post"
+                             action=(if delete_safe { delete_cta.href.as_str() } else { "#invalid-cta" }) {
+                            label class="loom-account-delete__confirm-label" {
+                                span class="loom-account-delete__confirm-label-text" {
+                                    (confirm_field_label)
+                                    " "
+                                    code class="loom-account-delete__confirm-phrase" { (confirm_phrase) }
+                                }
+                                input type="text"
+                                      name="confirm_phrase"
+                                      required
+                                      autocomplete="off"
+                                      spellcheck="false"
+                                      aria-required="true";
+                            }
+                            @if *require_password {
+                                label class="loom-account-delete__password-label" {
+                                    span { "Current password" }
+                                    input type="password"
+                                          name="current_password"
+                                          required
+                                          autocomplete="current-password"
+                                          aria-required="true";
+                                }
+                            }
+                            div class="loom-account-delete__actions" {
+                                a class="loom-btn loom-btn--ghost loom-account-delete__cancel"
+                                  href=(if cancel_safe { cancel_cta.href.as_str() } else { "#invalid-cta" })
+                                  data-backend=(cancel_cta.data_backend) { (cancel_cta.label) }
+                                button type="submit"
+                                       class="loom-btn loom-btn--danger loom-account-delete__delete"
+                                       data-backend=(delete_cta.data_backend) {
+                                    (delete_cta.label)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         CmsSection::DeviceList {
             title,
             description,
@@ -11388,6 +11496,201 @@ mod page_shell_tests {
             assert_eq!(s, json, "expected {variant:?} to serialize as {json}");
             let back: EmailVerifyStatus = serde_json::from_str(&s).unwrap();
             assert_eq!(back, variant);
+        }
+    }
+
+    // #104 (2026-05-20) — AccountDelete primitive. Irreversible
+    // deletion confirm gate. Typed-input gated form posting to
+    // server-side handler that re-validates phrase + password.
+
+    fn account_delete_page(require_password: bool) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::AccountDelete {
+            title: "Delete your account".into(),
+            warning: "This action cannot be undone.".into(),
+            consequences: vec![
+                "All your posts will be permanently removed.".into(),
+                "Active subscriptions will be cancelled.".into(),
+            ],
+            confirm_phrase: "delete my account".into(),
+            confirm_field_label: "Type this phrase to confirm:".into(),
+            require_password,
+            delete_cta: cta("Delete account permanently", "/account/delete"),
+            cancel_cta: cta("Cancel", "/account/settings"),
+        }];
+        p
+    }
+
+    #[test]
+    fn account_delete_renders_warning_with_role_alert() {
+        let p = account_delete_page(true);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-account-delete"));
+        assert!(html.contains(">Delete your account<"));
+        assert!(html.contains("role=\"alert\""));
+        assert!(html.contains(">This action cannot be undone.<"));
+    }
+
+    #[test]
+    fn account_delete_renders_consequences_when_nonempty() {
+        let p = account_delete_page(true);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-account-delete__consequences"));
+        assert!(html.contains("aria-label=\"Consequences\""));
+        assert!(html.contains(">All your posts will be permanently removed.<"));
+        assert!(html.contains(">Active subscriptions will be cancelled.<"));
+    }
+
+    #[test]
+    fn account_delete_omits_consequences_block_when_empty() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::AccountDelete {
+            title: "T".into(),
+            warning: "W".into(),
+            consequences: vec![],
+            confirm_phrase: "delete".into(),
+            confirm_field_label: "Type:".into(),
+            require_password: true,
+            delete_cta: cta("Delete", "/d"),
+            cancel_cta: cta("Cancel", "/c"),
+        }];
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("loom-account-delete__consequences"));
+    }
+
+    #[test]
+    fn account_delete_form_posts_to_safe_delete_cta() {
+        let p = account_delete_page(true);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("method=\"post\""));
+        assert!(html.contains("action=\"/account/delete\""));
+    }
+
+    #[test]
+    fn account_delete_form_action_falls_back_to_invalid_for_hostile_url() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::AccountDelete {
+            title: "T".into(),
+            warning: "W".into(),
+            consequences: vec![],
+            confirm_phrase: "delete".into(),
+            confirm_field_label: "Type:".into(),
+            require_password: true,
+            delete_cta: cta("Delete", "javascript:alert(1)"),
+            cancel_cta: cta("Cancel", "/c"),
+        }];
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("action=\"javascript:alert"));
+        assert!(html.contains("action=\"#invalid-cta\""));
+    }
+
+    #[test]
+    fn account_delete_surfaces_confirm_phrase_in_label_code() {
+        let p = account_delete_page(true);
+        let html = render_page(&p).into_string();
+        // Confirm phrase shown literally inside a <code> tag so the
+        // user can verify the exact characters they must type.
+        assert!(html.contains("<code class=\"loom-account-delete__confirm-phrase\">delete my account</code>"));
+        // Confirm input has the standard hardening attributes
+        assert!(html.contains("autocomplete=\"off\""));
+        assert!(html.contains("spellcheck=\"false\""));
+        assert!(html.contains("name=\"confirm_phrase\""));
+    }
+
+    #[test]
+    fn account_delete_password_field_omitted_when_require_password_false() {
+        let p = account_delete_page(false);
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("name=\"current_password\""));
+        assert!(!html.contains("autocomplete=\"current-password\""));
+    }
+
+    #[test]
+    fn account_delete_password_field_rendered_when_require_password_true() {
+        let p = account_delete_page(true);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("name=\"current_password\""));
+        assert!(html.contains("autocomplete=\"current-password\""));
+        assert!(html.contains("type=\"password\""));
+    }
+
+    #[test]
+    fn account_delete_renders_dual_ctas_with_destructive_styling() {
+        let p = account_delete_page(true);
+        let html = render_page(&p).into_string();
+        // Cancel: ghost button, link element
+        assert!(html.contains("loom-btn--ghost"));
+        assert!(html.contains("href=\"/account/settings\""));
+        // Delete: danger button, submit button element (not <a>)
+        assert!(html.contains("loom-btn--danger"));
+        assert!(html.contains("type=\"submit\""));
+        assert!(html.contains(">Delete account permanently<"));
+    }
+
+    #[test]
+    fn account_delete_escapes_title_warning_consequences() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::AccountDelete {
+            title: "<script>".into(),
+            warning: "<img onerror=x>".into(),
+            consequences: vec!["<svg onload=y>".into()],
+            confirm_phrase: "<script>".into(),
+            confirm_field_label: "<svg/>".into(),
+            require_password: false,
+            delete_cta: cta("D", "/d"),
+            cancel_cta: cta("C", "/c"),
+        }];
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<img onerror=x>"));
+        assert!(!html.contains("<svg onload=y>"));
+        assert!(!html.contains("<svg/>"));
+        // Heavy literal escape on the title's leading marker
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn account_delete_section_parses_from_snake_case_kind() {
+        let json = r#"{
+            "kind": "account_delete",
+            "title": "Delete your account",
+            "warning": "Cannot be undone.",
+            "consequences": ["lose posts", "lose subs"],
+            "confirm_phrase": "delete me",
+            "confirm_field_label": "Type:",
+            "require_password": true,
+            "delete_cta": {
+                "label": "Delete",
+                "href": "/account/delete",
+                "data_backend": "delete"
+            },
+            "cancel_cta": {
+                "label": "Cancel",
+                "href": "/account/settings",
+                "data_backend": "cancel"
+            }
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::AccountDelete {
+                confirm_phrase,
+                require_password,
+                consequences,
+                ..
+            } => {
+                assert_eq!(confirm_phrase, "delete me");
+                assert!(require_password);
+                assert_eq!(consequences.len(), 2);
+            }
+            _ => panic!("expected AccountDelete variant"),
         }
     }
 
