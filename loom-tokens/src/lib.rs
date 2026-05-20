@@ -16,12 +16,15 @@
 
 pub mod axes;
 pub mod color;
+pub mod density;
 pub mod icons;
 pub mod polish;
 pub mod radius;
 pub mod scale;
 pub mod stock_photos;
 pub mod style_packs;
+
+pub use density::DensityTier;
 
 /// T69 (cycle 96 iter 13): the canonical Loom skin CSS bytes,
 /// bundled at compile time. Forge's render phase writes these
