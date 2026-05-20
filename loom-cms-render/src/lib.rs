@@ -1232,6 +1232,31 @@ pub enum CmsSection {
         /// Submit-button label.
         submit_label: String,
     },
+    /// Active-sessions / device list. Renders the logged-in
+    /// user's list of authenticated sessions with per-session
+    /// revoke CTAs + an optional "sign out everywhere" overflow.
+    ///
+    /// Pairs with `BackupCodes` + `MfaPrompt` as a third account-
+    /// security primitive — users who've lost a device need to
+    /// remotely revoke its session. Each entry carries a typed
+    /// `DeviceEntry` with the device label, optional location,
+    /// optional last-active timestamp, and an `current` flag.
+    /// The "current" session typically does NOT carry a revoke
+    /// CTA (revoking your current session mid-page is a UX trap;
+    /// route through the dedicated sign-out flow instead).
+    DeviceList {
+        /// Section title.
+        title: String,
+        /// Optional description / instructional copy.
+        description: Option<String>,
+        /// Active sessions / devices. Order is significant —
+        /// renderer emits them in the supplied order.
+        devices: Vec<DeviceEntry>,
+        /// Optional "Sign out everywhere" CTA. POSTs to the
+        /// revoke-all-other-sessions endpoint. Typically the
+        /// only destructive bulk action surfaced from this view.
+        revoke_all_cta: Option<HeroCta>,
+    },
     /// OAuth consent screen. Rendered when a third-party app
     /// requests access to the visitor's account; the visitor
     /// reviews the requested scopes + grants or denies.
@@ -1344,6 +1369,45 @@ pub enum CmsSection {
         /// a primary "Continue to dashboard").
         secondary_cta: Option<HeroCta>,
     },
+}
+
+/// One device / active-session entry shown on a [`CmsSection::DeviceList`].
+///
+/// Each row carries a human-readable label (typically
+/// `<device-class> · <browser>` like "MacBook Pro · Chrome"),
+/// optional location + last-active strings (operator pre-
+/// formatted — the renderer does NOT format timestamps; see
+/// memory [[iso-standards]] for why localization is operator-
+/// owned), and a `current` flag indicating whether this row is
+/// the session the page itself is being rendered for.
+///
+/// Per-row revoke CTAs are typed `HeroCta`; the renderer
+/// routes hostile URLs through the existing is_safe_url +
+/// #invalid-cta fallback the rest of the substrate uses.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct DeviceEntry {
+    /// Display label. Typically `<device-class> · <browser>`,
+    /// e.g., "MacBook Pro · Chrome", "iPhone 15 · Safari".
+    /// Operator-supplied; renderer escapes.
+    pub label: String,
+    /// Optional location (city / country / IP city-lookup
+    /// result). Operator pre-formatted; renderer escapes.
+    pub location: Option<String>,
+    /// Optional last-active timestamp / relative phrase
+    /// (operator pre-formatted; renderer does NOT format dates).
+    pub last_active: Option<String>,
+    /// `true` iff this row is the session the page itself was
+    /// rendered for. Renderer emits a "current session" badge
+    /// AND suppresses the per-row revoke CTA on this entry
+    /// (revoking your own session mid-page is a UX trap; route
+    /// through the dedicated sign-out flow instead).
+    pub current: bool,
+    /// Per-row revoke CTA. Required for non-current rows; the
+    /// renderer ignores it on `current: true` rows. Typically
+    /// POSTs to the revoke-this-session endpoint with the
+    /// session id encoded in the URL or the data_backend.
+    pub revoke_cta: Option<HeroCta>,
 }
 
 /// One OAuth scope shown on a [`CmsSection::ConsentScreen`].
@@ -1857,7 +1921,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 148;
+    pub const PRIMITIVE_COUNT: u32 = 149;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5482,6 +5546,62 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::DeviceList {
+            title,
+            description,
+            devices,
+            revoke_all_cta,
+        } => {
+            let revoke_all_safe =
+                revoke_all_cta.as_ref().is_some_and(|c| is_safe_url(&c.href));
+            html! {
+                section class="loom-device-list" data-loom-reveal {
+                    div class="loom-device-list__inner" {
+                        h2 class="loom-device-list__title" { (title) }
+                        @if let Some(d) = description {
+                            p class="loom-device-list__description" { (d) }
+                        }
+                        ul class="loom-device-list__rows" aria-label="Active sessions" {
+                            @for device in devices {
+                                li class={ "loom-device" (if device.current { " loom-device--current" } else { "" }) } {
+                                    div class="loom-device__identity" {
+                                        span class="loom-device__label" { (device.label) }
+                                        @if device.current {
+                                            span class="loom-device__badge" aria-label="Current session" { "current" }
+                                        }
+                                    }
+                                    @if device.location.is_some() || device.last_active.is_some() {
+                                        div class="loom-device__meta" {
+                                            @if let Some(loc) = &device.location {
+                                                span class="loom-device__location" { (loc) }
+                                            }
+                                            @if let Some(la) = &device.last_active {
+                                                span class="loom-device__last-active" { (la) }
+                                            }
+                                        }
+                                    }
+                                    @if !device.current {
+                                        @if let Some(rc) = &device.revoke_cta {
+                                            @let safe = is_safe_url(&rc.href);
+                                            a class="loom-btn loom-btn--ghost loom-device__revoke"
+                                              href=(if safe { rc.href.as_str() } else { "#invalid-cta" })
+                                              data-backend=(rc.data_backend) { (rc.label) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        @if let Some(c) = revoke_all_cta {
+                            div class="loom-device-list__actions" {
+                                a class="loom-btn loom-btn--danger loom-device-list__revoke-all"
+                                  href=(if revoke_all_safe { c.href.as_str() } else { "#invalid-cta" })
+                                  data-backend=(c.data_backend) { (c.label) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         CmsSection::ConsentScreen {
             title,
             app_name,
@@ -11268,6 +11388,182 @@ mod page_shell_tests {
             assert_eq!(s, json, "expected {variant:?} to serialize as {json}");
             let back: EmailVerifyStatus = serde_json::from_str(&s).unwrap();
             assert_eq!(back, variant);
+        }
+    }
+
+    // #104 (2026-05-20) — DeviceList primitive. Active-sessions
+    // / device management for the post-MFA-aware account flow.
+
+    fn device(label: &str, current: bool, revoke_href: Option<&str>) -> DeviceEntry {
+        DeviceEntry {
+            label: label.into(),
+            location: None,
+            last_active: None,
+            current,
+            revoke_cta: revoke_href.map(|h| HeroCta {
+                label: "Revoke".into(),
+                href: h.into(),
+                data_backend: "revoke".into(),
+            }),
+        }
+    }
+
+    fn device_list_page(devices: Vec<DeviceEntry>) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::DeviceList {
+            title: "Active sessions".into(),
+            description: Some("Sessions where you're signed in.".into()),
+            devices,
+            revoke_all_cta: None,
+        }];
+        p
+    }
+
+    #[test]
+    fn device_list_renders_each_row_with_label() {
+        let p = device_list_page(vec![
+            device("MacBook Pro · Chrome", false, Some("/sessions/1/revoke")),
+            device("iPhone 15 · Safari", true, None),
+        ]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-device-list"));
+        assert!(html.contains(">MacBook Pro · Chrome<"));
+        assert!(html.contains(">iPhone 15 · Safari<"));
+        assert!(html.contains("aria-label=\"Active sessions\""));
+    }
+
+    #[test]
+    fn device_list_current_session_carries_modifier_and_badge() {
+        let p = device_list_page(vec![device("iPhone · Safari", true, None)]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-device--current"));
+        assert!(html.contains("aria-label=\"Current session\""));
+        assert!(html.contains(">current<"));
+    }
+
+    #[test]
+    fn device_list_suppresses_revoke_on_current_session() {
+        // Security UX: revoking your CURRENT session mid-page is a
+        // trap. Render-side enforcement: even if operator passes a
+        // revoke_cta on current=true, suppress it.
+        let p = device_list_page(vec![device(
+            "iPhone · Safari",
+            true,
+            Some("/sessions/current/revoke"),
+        )]);
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("/sessions/current/revoke"));
+        assert!(!html.contains("loom-device__revoke"));
+    }
+
+    #[test]
+    fn device_list_renders_revoke_cta_on_non_current_rows() {
+        let p = device_list_page(vec![device(
+            "MacBook · Chrome",
+            false,
+            Some("/sessions/123/revoke"),
+        )]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("href=\"/sessions/123/revoke\""));
+        assert!(html.contains("loom-device__revoke"));
+    }
+
+    #[test]
+    fn device_list_rejects_javascript_url_in_per_row_revoke() {
+        let p = device_list_page(vec![device(
+            "MacBook · Chrome",
+            false,
+            Some("javascript:alert(1)"),
+        )]);
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("javascript:alert"));
+        assert!(html.contains("href=\"#invalid-cta\""));
+    }
+
+    #[test]
+    fn device_list_renders_revoke_all_cta_when_present() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::DeviceList {
+            title: "T".into(),
+            description: None,
+            devices: vec![device("D1", true, None)],
+            revoke_all_cta: Some(HeroCta {
+                label: "Sign out everywhere".into(),
+                href: "/sessions/revoke-all".into(),
+                data_backend: "revoke-all".into(),
+            }),
+        }];
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-device-list__revoke-all"));
+        assert!(html.contains("loom-btn--danger"));
+        assert!(html.contains("href=\"/sessions/revoke-all\""));
+        assert!(html.contains(">Sign out everywhere<"));
+    }
+
+    #[test]
+    fn device_list_rejects_javascript_url_in_revoke_all() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::DeviceList {
+            title: "T".into(),
+            description: None,
+            devices: vec![device("D", true, None)],
+            revoke_all_cta: Some(HeroCta {
+                label: "X".into(),
+                href: "javascript:alert(1)".into(),
+                data_backend: "x".into(),
+            }),
+        }];
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("javascript:alert"));
+        assert!(html.contains("href=\"#invalid-cta\""));
+    }
+
+    #[test]
+    fn device_list_escapes_label_location_last_active() {
+        let entry = DeviceEntry {
+            label: "<script>".into(),
+            location: Some("<img onerror=x>".into()),
+            last_active: Some("<svg onload=y>".into()),
+            current: false,
+            revoke_cta: None,
+        };
+        let p = device_list_page(vec![entry]);
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<img onerror=x>"));
+        assert!(!html.contains("<svg onload=y>"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn device_list_section_parses_from_snake_case_kind() {
+        let json = r#"{
+            "kind": "device_list",
+            "title": "Sessions",
+            "description": null,
+            "devices": [{
+                "label": "MacBook",
+                "location": null,
+                "last_active": null,
+                "current": true,
+                "revoke_cta": null
+            }],
+            "revoke_all_cta": null
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::DeviceList { devices, .. } => {
+                assert_eq!(devices.len(), 1);
+                assert!(devices[0].current);
+                assert_eq!(devices[0].label, "MacBook");
+            }
+            _ => panic!("expected DeviceList variant"),
         }
     }
 
