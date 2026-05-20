@@ -1093,6 +1093,39 @@
     pointer-events: none;
   }
   .loom-btn[data-variant="primary"]:hover::before { transform: translateX(100%); }
+
+  /* Editorial CTA variant — solid accent background, no gradient,
+   * no sheen-sweep pseudo. Sibling to "primary" for sites whose
+   * brand voice is editorial press (Northbrook, prosperityclub,
+   * any forge.toml with [editorial_purity] enforce = true).
+   *
+   * Doctrine surfaced via PlausiDen-Forge #300 + the
+   * editorial_purity_gate's gradient-CTA SaaS-trope detection:
+   * the gradient-clipped sheen-sweep button is the substrate's
+   * own audit flagging itself as "the SaaS-marketing CTA shape".
+   * The editorial variant is the substrate-correct alternative.
+   *
+   * Composition: solid `--loom-color-accent` background (ochre on
+   * warm theme, default theme accent otherwise), `--loom-color-on-
+   * accent` foreground for guaranteed AA contrast. No transitions
+   * beyond the standard hover-brightness so the visual stays
+   * tactile + considered rather than animated.
+   */
+  .loom-btn[data-variant="editorial"] {
+    --comp-btn-bg: var(--loom-color-accent);
+    --comp-btn-fg: var(--loom-color-on-accent);
+    --comp-btn-shadow: none;
+    --comp-btn-border: 0;
+  }
+  .loom-btn[data-variant="editorial"]:hover {
+    /* Use brightness filter inherited from .loom-btn:hover —
+     * no per-variant override needed; keeps the editorial voice
+     * subtle vs primary's sheen-sweep performance. */
+  }
+  .loom-btn[data-variant="editorial"]:active {
+    transform: translateY(1px);
+  }
+
   .loom-btn[data-variant="ghost"]   {
     --comp-btn-fg: var(--loom-color-ink-muted);
   }
