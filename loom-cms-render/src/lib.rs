@@ -1245,6 +1245,40 @@ pub enum CmsSection {
         /// Submit-button label.
         submit_label: String,
     },
+    /// 2D heatmap — grid of cells colored by intensity. Editorial
+    /// axis for showing categorical × categorical numeric data.
+    /// Distinct from [`CmsSection::BarChart`] (1D categorical) and
+    /// [`CmsSection::Histogram`] (1D distribution).
+    ///
+    /// Use cases:
+    /// - "Commits by day-of-week × hour-of-day" (GitHub-style
+    ///   contribution heatmap)
+    /// - "Engagement rate by post-category × audience-segment"
+    /// - "Error frequency by service × time-bucket"
+    ///
+    /// Each cell is rendered as an SVG `<rect>` with opacity
+    /// scaling to value/max. Labels for rows + columns render
+    /// outside the grid for screen-reader navigation. Pure-SVG,
+    /// no JS.
+    Heatmap {
+        /// Visible label / heading.
+        label: String,
+        /// Row labels (y-axis). Length must match the outer
+        /// dimension of `cells`; renderer truncates/pads silently
+        /// if mismatched.
+        row_labels: Vec<String>,
+        /// Column labels (x-axis). Length must match the inner
+        /// dimension of `cells`.
+        column_labels: Vec<String>,
+        /// 2D grid of values, row-major. `cells[row][col]` is
+        /// the value at the intersection. Empty rows or empty
+        /// outer Vec render as a "No data" placeholder.
+        cells: Vec<Vec<f64>>,
+        /// Tone (drives cell color via cascade).
+        tone: SparklineTone,
+        /// Optional caption shown below the chart.
+        caption: Option<String>,
+    },
     /// Diverging bar chart — bars extend left (negative) or right
     /// (positive) of a center axis at viewBox midline. Editorial
     /// shape for "delta from baseline" or "approval margin"
@@ -2228,7 +2262,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 155;
+    pub const PRIMITIVE_COUNT: u32 = 156;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5891,6 +5925,109 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::Heatmap {
+            label,
+            row_labels,
+            column_labels,
+            cells,
+            tone,
+            caption,
+        } => {
+            let tone_mod = tone.modifier();
+            let outer_class = format!("loom-heatmap loom-heatmap--{tone_mod}");
+            let has_data = !cells.is_empty()
+                && !cells.iter().all(std::vec::Vec::is_empty);
+            if !has_data {
+                return html! {
+                    figure class=(format!("{outer_class} loom-heatmap--empty")) data-loom-reveal {
+                        figcaption class="loom-heatmap__label" { (label) }
+                        p class="loom-heatmap__no-data" { "No data" }
+                        @if let Some(c) = caption {
+                            figcaption class="loom-heatmap__caption" { (c) }
+                        }
+                    }
+                };
+            }
+            let n_rows = cells.len();
+            let n_cols = cells.iter().map(std::vec::Vec::len).max().unwrap_or(0);
+            let max_abs = cells
+                .iter()
+                .flat_map(|row| row.iter().map(|v| v.abs()))
+                .fold(0.0_f64, f64::max)
+                .max(1.0_f64);
+            const VBW: f64 = 200.0;
+            const VBH: f64 = 80.0;
+            const PAD: f64 = 4.0;
+            let cell_w = if n_cols == 0 {
+                0.0
+            } else {
+                (VBW - 2.0 * PAD) / (n_cols as f64)
+            };
+            let cell_h = if n_rows == 0 {
+                0.0
+            } else {
+                (VBH - 2.0 * PAD) / (n_rows as f64)
+            };
+            let total_cells: usize = cells.iter().map(std::vec::Vec::len).sum();
+            let aria_label = format!(
+                "{label} heatmap: {n_rows} rows × {n_cols} columns, {total_cells} cells, max absolute value {max_abs:.2}"
+            );
+            html! {
+                figure class=(outer_class) data-loom-reveal {
+                    figcaption class="loom-heatmap__label" { (label) }
+                    svg class="loom-heatmap__svg"
+                        viewBox=(format!("0 0 {VBW:.0} {VBH:.0}"))
+                        preserveAspectRatio="none"
+                        role="img"
+                        aria-label=(aria_label) {
+                        @for (r, row) in cells.iter().enumerate() {
+                            @for (c, v) in row.iter().enumerate() {
+                                @let x = PAD + (c as f64) * cell_w;
+                                @let y = PAD + (r as f64) * cell_h;
+                                @let opacity = (v.abs() / max_abs).clamp(0.0, 1.0);
+                                rect class="loom-heatmap__cell"
+                                     x=(format!("{x:.1}"))
+                                     y=(format!("{y:.1}"))
+                                     width=(format!("{cell_w:.1}"))
+                                     height=(format!("{cell_h:.1}"))
+                                     fill="currentColor"
+                                     fill-opacity=(format!("{opacity:.3}")) {}
+                            }
+                        }
+                    }
+                    @if !row_labels.is_empty() || !column_labels.is_empty() {
+                        table class="loom-heatmap__legend" {
+                            caption class="loom-sr-only" { "Heatmap values by row and column" }
+                            thead {
+                                tr {
+                                    th { "" }
+                                    @for cl in column_labels {
+                                        th scope="col" { (cl) }
+                                    }
+                                }
+                            }
+                            tbody {
+                                @for (r, row) in cells.iter().enumerate() {
+                                    tr {
+                                        @if r < row_labels.len() {
+                                            th scope="row" { (row_labels[r]) }
+                                        } @else {
+                                            th scope="row" { "" }
+                                        }
+                                        @for v in row {
+                                            td { (format!("{v:.2}")) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    @if let Some(c) = caption {
+                        figcaption class="loom-heatmap__caption" { (c) }
+                    }
+                }
+            }
+        }
         CmsSection::DivergingBar {
             label,
             items,
@@ -12369,6 +12506,155 @@ mod page_shell_tests {
                 html.contains(&expected),
                 "render_form must emit {expected} attr; got: {html}"
             );
+        }
+    }
+
+    // #104 (2026-05-20) — Heatmap editorial-charts primitive.
+    // 2D categorical × categorical. Fifth chart vocab member.
+
+    fn heatmap_page(cells: Vec<Vec<f64>>) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::Heatmap {
+            label: "Commits by day × hour".into(),
+            row_labels: vec!["Mon".into(), "Tue".into(), "Wed".into()],
+            column_labels: vec!["AM".into(), "PM".into()],
+            cells,
+            tone: SparklineTone::Accent,
+            caption: None,
+        }];
+        p
+    }
+
+    #[test]
+    fn heatmap_empty_cells_renders_no_data() {
+        let p = heatmap_page(vec![]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-heatmap--empty"));
+        assert!(html.contains(">No data<"));
+        assert!(!html.contains("<svg"));
+    }
+
+    #[test]
+    fn heatmap_all_empty_rows_renders_no_data() {
+        // cells is non-empty but every row is empty — still "no data"
+        let p = heatmap_page(vec![vec![], vec![], vec![]]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-heatmap--empty"));
+        assert!(!html.contains("<svg"));
+    }
+
+    #[test]
+    fn heatmap_renders_one_rect_per_cell() {
+        let p = heatmap_page(vec![
+            vec![1.0, 5.0],
+            vec![3.0, 8.0],
+            vec![2.0, 4.0],
+        ]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-heatmap"));
+        assert!(html.contains("<svg"));
+        // 3 rows × 2 cols = 6 cells
+        assert_eq!(
+            html.matches("<rect").count(),
+            6,
+            "expected 6 rects for 3x2 grid"
+        );
+    }
+
+    #[test]
+    fn heatmap_cell_opacity_scales_to_max_abs() {
+        // Max cell value = 10.0. A cell at 5.0 should have
+        // fill-opacity=0.500; a cell at 10.0 should have 1.000.
+        let p = heatmap_page(vec![vec![5.0, 10.0]]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("fill-opacity=\"0.500\""));
+        assert!(html.contains("fill-opacity=\"1.000\""));
+    }
+
+    #[test]
+    fn heatmap_aria_label_describes_dimensions() {
+        let p = heatmap_page(vec![vec![1.0, 2.0], vec![3.0, 4.0]]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("aria-label=\""));
+        assert!(html.contains("2 rows × 2 columns"));
+        assert!(html.contains("4 cells"));
+        assert!(html.contains("max absolute value 4.00"));
+    }
+
+    #[test]
+    fn heatmap_emits_screen_reader_legend_table() {
+        // Heatmap doubles as an accessible table for screen-reader
+        // users — visual is SVG, semantic is <table>.
+        let p = heatmap_page(vec![vec![1.0, 2.0], vec![3.0, 4.0]]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("<table class=\"loom-heatmap__legend\""));
+        assert!(html.contains("<caption class=\"loom-sr-only\">Heatmap values"));
+        assert!(html.contains("scope=\"col\""));
+        assert!(html.contains("scope=\"row\""));
+        // Row labels present
+        assert!(html.contains(">Mon<"));
+        assert!(html.contains(">Tue<"));
+        // Column labels present
+        assert!(html.contains(">AM<"));
+        assert!(html.contains(">PM<"));
+        // Cell values formatted to 2 decimals
+        assert!(html.contains(">1.00<"));
+        assert!(html.contains(">4.00<"));
+    }
+
+    #[test]
+    fn heatmap_zero_values_does_not_div_by_zero() {
+        let p = heatmap_page(vec![vec![0.0, 0.0], vec![0.0, 0.0]]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("<rect"));
+        assert!(!html.contains("NaN"));
+        assert!(!html.contains("Inf"));
+        // All zero → all cells fill-opacity=0
+        assert!(html.contains("fill-opacity=\"0.000\""));
+    }
+
+    #[test]
+    fn heatmap_label_and_caption_escaped() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::Heatmap {
+            label: "<script>".into(),
+            row_labels: vec!["<img onerror=x>".into()],
+            column_labels: vec!["<svg/>".into()],
+            cells: vec![vec![1.0]],
+            tone: SparklineTone::Neutral,
+            caption: Some("<a onclick=z>".into()),
+        }];
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<img onerror=x>"));
+        assert!(!html.contains("<svg/>"));
+        assert!(!html.contains("<a onclick=z>"));
+    }
+
+    #[test]
+    fn heatmap_section_parses_from_snake_case_kind() {
+        let json = r#"{
+            "kind": "heatmap",
+            "label": "Activity",
+            "row_labels": ["Mon", "Tue"],
+            "column_labels": ["AM", "PM"],
+            "cells": [[1.0, 2.0], [3.0, 4.0]],
+            "tone": "accent",
+            "caption": null
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::Heatmap { cells, tone, .. } => {
+                assert_eq!(cells.len(), 2);
+                assert_eq!(cells[0].len(), 2);
+                assert_eq!(cells[1][1], 4.0);
+                assert_eq!(tone, SparklineTone::Accent);
+            }
+            _ => panic!("expected Heatmap variant"),
         }
     }
 
