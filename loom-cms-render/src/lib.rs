@@ -1232,6 +1232,28 @@ pub enum CmsSection {
         /// Submit-button label.
         submit_label: String,
     },
+    /// Frequency-distribution histogram. Pre-bucketed data input
+    /// (operator computes bins; renderer draws). Editorial axis
+    /// for showing distribution shape — "request latency", "post
+    /// length", "review-score distribution" — distinct from
+    /// [`CmsSection::BarChart`] which is for categorical compare.
+    ///
+    /// Each bucket carries `range_min`, `range_max`, `count`.
+    /// Renderer emits SVG rects sized to the max(count) across
+    /// buckets, with the bin range surfaced in the legend below
+    /// (so the user can map a visual bin to the numeric range
+    /// without hovering for tooltips that don't exist in pure-
+    /// SVG no-JS rendering).
+    Histogram {
+        /// Visible label / heading.
+        label: String,
+        /// Buckets in display order (typically ascending range).
+        buckets: Vec<HistogramBucket>,
+        /// Tone for bars.
+        tone: SparklineTone,
+        /// Optional caption shown below the chart.
+        caption: Option<String>,
+    },
     /// Inline bar chart — small SVG bar chart for editorial
     /// categorical-data display. Editorial counterpart to
     /// [`CmsSection::Pricing`]-style tier-comparison shapes when
@@ -1500,6 +1522,30 @@ pub enum CmsSection {
         /// a primary "Continue to dashboard").
         secondary_cta: Option<HeroCta>,
     },
+}
+
+/// One frequency bucket shown on a [`CmsSection::Histogram`].
+///
+/// Pre-bucketed: the operator runs whatever bin-strategy they
+/// want (linear / log / quantile / Freedman-Diaconis) and hands
+/// the substrate the result. The renderer doesn't re-bin; it
+/// just draws what's given.
+///
+/// Bucket ranges are typically contiguous + non-overlapping
+/// (`[0,10), [10,20), [20,30)` etc.) but the renderer doesn't
+/// enforce that — operators with weird bin schemes (sparse,
+/// overlapping for confidence-interval visualizations) can use
+/// the primitive too.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct HistogramBucket {
+    /// Lower bound of the bin range (inclusive).
+    pub range_min: f64,
+    /// Upper bound of the bin range (exclusive by convention,
+    /// but the renderer doesn't enforce — operators choose).
+    pub range_max: f64,
+    /// Sample count in this bucket.
+    pub count: u32,
 }
 
 /// One bar inside a [`CmsSection::BarChart`]. Carries its own
@@ -2130,7 +2176,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 153;
+    pub const PRIMITIVE_COUNT: u32 = 154;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5755,6 +5801,89 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::Histogram {
+            label,
+            buckets,
+            tone,
+            caption,
+        } => {
+            let tone_mod = tone.modifier();
+            let outer_class = format!("loom-histogram loom-histogram--{tone_mod}");
+            if buckets.is_empty() {
+                return html! {
+                    figure class=(format!("{outer_class} loom-histogram--empty")) data-loom-reveal {
+                        figcaption class="loom-histogram__label" { (label) }
+                        p class="loom-histogram__no-data" { "No data" }
+                        @if let Some(c) = caption {
+                            figcaption class="loom-histogram__caption" { (c) }
+                        }
+                    }
+                };
+            }
+            let n = buckets.len();
+            let max_count = buckets
+                .iter()
+                .map(|b| b.count)
+                .max()
+                .unwrap_or(0)
+                .max(1);
+            let total: u64 = buckets.iter().map(|b| u64::from(b.count)).sum();
+            let range_min = buckets
+                .iter()
+                .map(|b| b.range_min)
+                .fold(f64::INFINITY, f64::min);
+            let range_max = buckets
+                .iter()
+                .map(|b| b.range_max)
+                .fold(f64::NEG_INFINITY, f64::max);
+            const VBW: f64 = 200.0;
+            const VBH: f64 = 80.0;
+            const PAD: f64 = 4.0;
+            let aria_label = format!(
+                "{label} histogram: {n} bins, {total} total samples, range {range_min:.2}–{range_max:.2}"
+            );
+            html! {
+                figure class=(outer_class) data-loom-reveal {
+                    figcaption class="loom-histogram__label" { (label) }
+                    svg class="loom-histogram__svg"
+                        viewBox=(format!("0 0 {VBW:.0} {VBH:.0}"))
+                        preserveAspectRatio="none"
+                        role="img"
+                        aria-label=(aria_label) {
+                        @let bar_w = (VBW - 2.0 * PAD) / (n as f64);
+                        @for (i, bucket) in buckets.iter().enumerate() {
+                            @let h = (f64::from(bucket.count) / f64::from(max_count)) * (VBH - 2.0 * PAD);
+                            @let x = PAD + (i as f64) * bar_w;
+                            @let y = VBH - PAD - h;
+                            // Histogram bars touch (no gap) — that's the
+                            // visual signal that distinguishes Histogram
+                            // from BarChart (BarChart has bar_gap=0.3*bar_w).
+                            rect class="loom-histogram__bar"
+                                 x=(format!("{x:.1}"))
+                                 y=(format!("{y:.1}"))
+                                 width=(format!("{bar_w:.1}"))
+                                 height=(format!("{h:.1}"))
+                                 fill="currentColor" {}
+                        }
+                    }
+                    ol class="loom-histogram__legend" {
+                        @for bucket in buckets {
+                            li class="loom-histogram__legend-item" {
+                                span class="loom-histogram__legend-range" {
+                                    (format!("{:.2}–{:.2}", bucket.range_min, bucket.range_max))
+                                }
+                                span class="loom-histogram__legend-count" {
+                                    (bucket.count.to_string())
+                                }
+                            }
+                        }
+                    }
+                    @if let Some(c) = caption {
+                        figcaption class="loom-histogram__caption" { (c) }
+                    }
+                }
+            }
+        }
         CmsSection::BarChart {
             label,
             bars,
@@ -11901,6 +12030,160 @@ mod page_shell_tests {
             assert_eq!(s, json, "expected {variant:?} to serialize as {json}");
             let back: EmailVerifyStatus = serde_json::from_str(&s).unwrap();
             assert_eq!(back, variant);
+        }
+    }
+
+    // #104 (2026-05-20) — Histogram editorial-charts primitive.
+    // Frequency-distribution. Bars touch (no gap) — that's the
+    // visual signal distinguishing Histogram from BarChart.
+
+    fn bucket(r_min: f64, r_max: f64, count: u32) -> HistogramBucket {
+        HistogramBucket {
+            range_min: r_min,
+            range_max: r_max,
+            count,
+        }
+    }
+
+    fn histogram_page(buckets: Vec<HistogramBucket>) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::Histogram {
+            label: "Request latency".into(),
+            buckets,
+            tone: SparklineTone::Neutral,
+            caption: Some("p50=20ms p95=85ms".into()),
+        }];
+        p
+    }
+
+    #[test]
+    fn histogram_empty_buckets_renders_no_data_placeholder() {
+        let p = histogram_page(vec![]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-histogram--empty"));
+        assert!(html.contains(">No data<"));
+        assert!(!html.contains("<svg"));
+    }
+
+    #[test]
+    fn histogram_renders_one_rect_per_bucket() {
+        let p = histogram_page(vec![
+            bucket(0.0, 10.0, 5),
+            bucket(10.0, 20.0, 15),
+            bucket(20.0, 30.0, 8),
+            bucket(30.0, 40.0, 2),
+        ]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-histogram"));
+        assert!(html.contains("<svg"));
+        assert_eq!(
+            html.matches("<rect").count(),
+            4,
+            "expected 4 rects for 4 buckets"
+        );
+    }
+
+    #[test]
+    fn histogram_bars_touch_with_no_gap() {
+        // The defining visual difference between Histogram and
+        // BarChart — histogram bars span the full bin width with
+        // no inter-bar gap. We verify by computing the expected
+        // bar_w for 4 bins at viewBox 0..192 (after 4px padding
+        // on each side = 192 usable) and checking the second
+        // bar's x matches the first bar's x + bar_w exactly.
+        let p = histogram_page(vec![
+            bucket(0.0, 10.0, 5),
+            bucket(10.0, 20.0, 15),
+        ]);
+        let html = render_page(&p).into_string();
+        // First bar starts at x=PAD=4.0; bar_w=(200-8)/2=96.0;
+        // second bar should start at x=4.0+96.0=100.0
+        assert!(
+            html.contains("x=\"4.0\""),
+            "first bar should start at x=4.0: {html}"
+        );
+        assert!(
+            html.contains("x=\"100.0\""),
+            "second bar should start at first+bar_w=100.0: {html}"
+        );
+    }
+
+    #[test]
+    fn histogram_aria_label_includes_bins_total_range() {
+        let p = histogram_page(vec![
+            bucket(0.0, 10.0, 5),
+            bucket(10.0, 20.0, 15),
+            bucket(20.0, 30.0, 30),
+        ]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("aria-label=\""));
+        assert!(html.contains("3 bins"));
+        assert!(html.contains("50 total samples"));
+        // Range surfaced; check the en-dash + endpoints
+        assert!(html.contains("0.00–30.00"));
+    }
+
+    #[test]
+    fn histogram_legend_lists_range_and_count_per_bucket() {
+        let p = histogram_page(vec![bucket(0.0, 10.0, 5), bucket(10.0, 20.0, 15)]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-histogram__legend"));
+        assert!(html.contains(">0.00–10.00<"));
+        assert!(html.contains(">5<"));
+        assert!(html.contains(">10.00–20.00<"));
+        assert!(html.contains(">15<"));
+    }
+
+    #[test]
+    fn histogram_zero_counts_does_not_div_by_zero() {
+        // All zero counts. max(count) would be 0; we floor to 1
+        // so the proportional height computation is stable.
+        let p = histogram_page(vec![bucket(0.0, 10.0, 0), bucket(10.0, 20.0, 0)]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("<rect"));
+        assert!(!html.contains("NaN"));
+        assert!(!html.contains("Inf"));
+    }
+
+    #[test]
+    fn histogram_label_and_caption_escaped() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::Histogram {
+            label: "<script>".into(),
+            buckets: vec![bucket(0.0, 1.0, 1)],
+            tone: SparklineTone::Neutral,
+            caption: Some("<img onerror=x>".into()),
+        }];
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<img onerror=x>"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn histogram_section_parses_from_snake_case_kind() {
+        let json = r#"{
+            "kind": "histogram",
+            "label": "Latency",
+            "buckets": [
+                { "range_min": 0.0, "range_max": 10.0, "count": 5 },
+                { "range_min": 10.0, "range_max": 20.0, "count": 12 }
+            ],
+            "tone": "accent",
+            "caption": null
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::Histogram { buckets, tone, .. } => {
+                assert_eq!(buckets.len(), 2);
+                assert_eq!(buckets[1].count, 12);
+                assert_eq!(tone, SparklineTone::Accent);
+            }
+            _ => panic!("expected Histogram variant"),
         }
     }
 
