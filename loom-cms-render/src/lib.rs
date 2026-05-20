@@ -486,6 +486,16 @@ pub enum CmsSection {
         /// Visual height ramp. Affects min-height + padding.
         #[serde(default)]
         height: HeroHeight,
+        /// Text + content alignment. Default is `Center` (SaaS hero
+        /// posture). Editorial sites can opt out via `Start` for
+        /// left-aligned headline + lede + cta — the substrate
+        /// emits a `data-align` attribute the skin keys on.
+        ///
+        /// 2026-05-20 substrate-de-consumer-shaping addition.
+        /// Northbrook Observatory ships with `align: "start"` to
+        /// avoid the SaaS-trope centered hero.
+        #[serde(default)]
+        align: HeroAlign,
         /// Typed slot — sections that render ABOVE the title.
         /// Use for trust signals, badges, version chips,
         /// announcement banners, additional eyebrow content.
@@ -1674,6 +1684,35 @@ pub enum HeroHeight {
     Compact,
     /// Tall — about 80vh, only for top-of-funnel landings.
     Tall,
+}
+
+/// Text + content alignment for [`CmsSection::ImageHero`]. Default
+/// is `Center` (existing SaaS-hero posture); editorial sites opt
+/// out via `Start` for left-aligned headline + lede + cta.
+///
+/// Substrate-de-consumer-shaping doctrine: the substrate ships the
+/// posture; the cms author chooses whether to take it. Backwards
+/// compatible — existing CmsPage JSON that omits `align` keeps
+/// rendering centered.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum HeroAlign {
+    /// Headline + lede + cta centered. SaaS-marketing default.
+    #[default]
+    Center,
+    /// Left-aligned editorial posture. Use for editorial content
+    /// sites where centered marketing copy reads as ad-tier.
+    Start,
+}
+
+impl HeroAlign {
+    /// String value emitted as `data-align="..."`.
+    fn attr(self) -> &'static str {
+        match self {
+            HeroAlign::Center => "center",
+            HeroAlign::Start => "start",
+        }
+    }
 }
 
 /// The visual half of a [`CmsSection::SplitHero`].
@@ -2984,6 +3023,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
             cta,
             background,
             height,
+            align,
             before_headline,
             after_cta,
         } => {
@@ -2999,6 +3039,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 HeroHeight::Compact => "h-compact",
                 HeroHeight::Tall => "h-tall",
             };
+            let align_attr = align.attr();
             let cta_href_safe = cta
                 .as_ref()
                 .is_none_or(|c| loom_components::composer::is_safe_url(&c.href));
@@ -3019,7 +3060,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
             };
             html! {
                 section class={ "loom-image-hero loom-bleed bg-" (bg_class) " " (height_class) }
-                    data-loom-image-hero data-loom-reveal {
+                    data-loom-image-hero data-loom-reveal data-align=(align_attr) {
                     @if let Some((src, alt, overlay_class, src_safe)) = photo_block {
                         img class={ "loom-image-hero__photo " (overlay_class) }
                             src=(if src_safe { src.as_str() } else { "" })
