@@ -13,6 +13,7 @@
 pub mod badge;
 pub mod button;
 pub mod card;
+pub mod code_shell;
 pub mod composer;
 pub mod footer;
 pub mod form;
@@ -32,6 +33,7 @@ pub use card::{
     Card, CardElevation, CardHover, CardPadding, FeatureCard, FeatureCardStyle, KvPairCard,
     KvPairDensity, KvPairTone, LinkCard,
 };
+pub use code_shell::{CodeShell, CodeShellChrome, CodeShellLine, CodeShellLineKind, CodeShellTone};
 pub use composer::{Composer, ComposerAvatar, ComposerSize, PromptAction, is_safe_url};
 pub use footer::{Footer, FooterColumn, FooterItem, FooterLegalLink};
 pub use form::{InputType, Select, SelectOption, TextArea, TextInput};
