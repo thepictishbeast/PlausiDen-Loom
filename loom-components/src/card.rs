@@ -45,6 +45,20 @@ pub enum CardHover {
     Lift,
 }
 
+/// Corner / chrome shape. `Rounded` is the SaaS-canonical back-compat
+/// default (`rounded-xl`); `Square` strips to `rounded-none` for the
+/// flat editorial composition that pairs with `ButtonShape::Square`,
+/// `ModalShape::Square`, `ToastShape::Square`, etc.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CardShape {
+    /// `rounded-xl` SaaS card. Back-compat default.
+    #[default]
+    Rounded,
+    /// `rounded-none` flat editorial panel.
+    Square,
+}
+
 /// Content card — pass arbitrary inner markup.
 pub struct Card<'a> {
     /// Inner content. Pre-rendered.
@@ -55,18 +69,28 @@ pub struct Card<'a> {
     pub padding: CardPadding,
     /// Hover behavior.
     pub hover: CardHover,
+    /// Corner shape. Defaults to [`CardShape::Rounded`].
+    pub shape: CardShape,
 }
 
 impl Card<'_> {
     /// Render as a `<div>` wrapper.
     #[must_use]
     pub fn render(&self) -> Markup {
-        let class = compose_class(self.elevation, self.padding, self.hover);
+        let class = compose_class(self.elevation, self.padding, self.hover, self.shape);
+        let shape_attr = card_shape_attr(self.shape);
         html! {
-            div class=(class) {
+            div class=(class) data-loom-card-shape=(shape_attr) {
                 (PreEscaped(self.body.0.clone()))
             }
         }
+    }
+}
+
+const fn card_shape_attr(s: CardShape) -> &'static str {
+    match s {
+        CardShape::Rounded => "rounded",
+        CardShape::Square => "square",
     }
 }
 
@@ -122,7 +146,12 @@ impl FeatureCard<'_> {
                 "text-slate-600 leading-relaxed",
             ),
         };
-        let card_class = compose_class(CardElevation::Soft, card_padding, CardHover::Lift);
+        let card_class = compose_class(
+            CardElevation::Soft,
+            card_padding,
+            CardHover::Lift,
+            CardShape::Rounded,
+        );
         // Bold style hooks on `.group` so its child can `group-hover:`.
         let outer_class = match style {
             FeatureCardStyle::Subtle => card_class,
@@ -157,7 +186,12 @@ impl LinkCard<'_> {
     /// Render as `<a><div>...</div></a>`.
     #[must_use]
     pub fn render(&self) -> Markup {
-        let class = compose_class(CardElevation::Soft, CardPadding::Roomy, CardHover::Lift);
+        let class = compose_class(
+            CardElevation::Soft,
+            CardPadding::Roomy,
+            CardHover::Lift,
+            CardShape::Rounded,
+        );
         html! {
             a href=(self.href) class="group block" {
                 article class=(class) {
@@ -168,8 +202,18 @@ impl LinkCard<'_> {
     }
 }
 
-fn compose_class(elev: CardElevation, pad: CardPadding, hover: CardHover) -> String {
-    let base = "rounded-xl border bg-white";
+fn compose_class(
+    elev: CardElevation,
+    pad: CardPadding,
+    hover: CardHover,
+    shape: CardShape,
+) -> String {
+    // Radius is now shape-driven; the base keeps only border + surface.
+    let base = "border bg-white";
+    let radius = match shape {
+        CardShape::Rounded => "rounded-xl",
+        CardShape::Square => "rounded-none",
+    };
     let border_color = "border-slate-200";
     let shadow = match elev {
         CardElevation::Flat => "",
@@ -188,6 +232,8 @@ fn compose_class(elev: CardElevation, pad: CardPadding, hover: CardHover) -> Str
         }
     };
     let mut s = String::with_capacity(160);
+    s.push_str(radius);
+    s.push(' ');
     s.push_str(base);
     s.push(' ');
     s.push_str(border_color);
@@ -340,12 +386,15 @@ mod tests {
             elevation: CardElevation::Soft,
             padding: CardPadding::Comfortable,
             hover: CardHover::Lift,
+            shape: CardShape::default(),
         }
         .render()
         .into_string();
         assert!(s.contains("<p>hello</p>"));
         assert!(s.contains("rounded-xl"));
         assert!(s.contains("hover:border-primary/40"));
+        // Default shape is Rounded — data attribute reflects that.
+        assert!(s.contains(r#"data-loom-card-shape="rounded""#));
     }
 
     #[test]
@@ -384,6 +433,7 @@ mod tests {
             elevation: CardElevation::Flat,
             padding: CardPadding::Tight,
             hover: CardHover::None,
+            shape: CardShape::default(),
         }
         .render()
         .into_string();
@@ -392,6 +442,7 @@ mod tests {
             elevation: CardElevation::Flat,
             padding: CardPadding::Roomy,
             hover: CardHover::None,
+            shape: CardShape::default(),
         }
         .render()
         .into_string();
@@ -407,10 +458,51 @@ mod tests {
             elevation: CardElevation::Flat,
             padding: CardPadding::Comfortable,
             hover: CardHover::None,
+            shape: CardShape::default(),
         }
         .render()
         .into_string();
         assert!(!s.contains("shadow-"));
+    }
+
+    #[test]
+    fn square_shape_strips_radius() {
+        let body = html! {};
+        let s = Card {
+            body: &body,
+            elevation: CardElevation::Flat,
+            padding: CardPadding::Comfortable,
+            hover: CardHover::None,
+            shape: CardShape::Square,
+        }
+        .render()
+        .into_string();
+        assert!(s.contains("rounded-none"));
+        assert!(!s.contains("rounded-xl"));
+        assert!(s.contains(r#"data-loom-card-shape="square""#));
+    }
+
+    #[test]
+    fn square_keeps_border_and_surface() {
+        // Square only affects radius — border + bg-white stay.
+        let body = html! {};
+        let s = Card {
+            body: &body,
+            elevation: CardElevation::Soft,
+            padding: CardPadding::Comfortable,
+            hover: CardHover::None,
+            shape: CardShape::Square,
+        }
+        .render()
+        .into_string();
+        assert!(s.contains("border"));
+        assert!(s.contains("bg-white"));
+        assert!(s.contains("shadow-sm"));
+    }
+
+    #[test]
+    fn card_shape_default_is_rounded() {
+        assert!(matches!(CardShape::default(), CardShape::Rounded));
     }
 
     #[test]
@@ -453,6 +545,7 @@ mod tests {
             elevation: CardElevation::Pronounced,
             padding: CardPadding::Roomy,
             hover: CardHover::None,
+            shape: CardShape::default(),
         }
         .render()
         .into_string();

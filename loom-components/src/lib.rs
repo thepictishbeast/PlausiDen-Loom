@@ -32,8 +32,8 @@ pub use button::{
     Button, ButtonShape, ButtonSize, ButtonType, ButtonVariant, Decoration, IconPosition,
 };
 pub use card::{
-    Card, CardElevation, CardHover, CardPadding, FeatureCard, FeatureCardStyle, KvPairCard,
-    KvPairDensity, KvPairTone, LinkCard,
+    Card, CardElevation, CardHover, CardPadding, CardShape, FeatureCard, FeatureCardStyle,
+    KvPairCard, KvPairDensity, KvPairTone, LinkCard,
 };
 pub use code_shell::{CodeShell, CodeShellChrome, CodeShellLine, CodeShellLineKind, CodeShellTone};
 pub use composer::{Composer, ComposerAvatar, ComposerSize, PromptAction, is_safe_url};
