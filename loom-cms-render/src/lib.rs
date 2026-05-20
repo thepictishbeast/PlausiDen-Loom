@@ -1245,6 +1245,32 @@ pub enum CmsSection {
         /// Submit-button label.
         submit_label: String,
     },
+    /// Box-and-whisker plot — quantile-based statistical summary
+    /// per category. Completes the editorial-charts vocabulary
+    /// alongside Sparkline / BarChart / Histogram / DivergingBar /
+    /// Heatmap.
+    ///
+    /// Use cases:
+    /// - "Response time distribution by endpoint" (per-endpoint
+    ///   box showing p25/p50/p75 spread + outlier whiskers)
+    /// - "Review score distribution by category"
+    /// - "Compile time per crate" (showing variance + outliers)
+    ///
+    /// Each entry is rendered as an SVG box (q1→q3 range) +
+    /// median line + whiskers extending to min/max. Pure-SVG,
+    /// no JS. Pre-computed quantiles — operator runs whatever
+    /// quantile estimation they want (linear / nearest /
+    /// midpoint) and hands the substrate the five-number summary.
+    Boxplot {
+        /// Visible label / heading.
+        label: String,
+        /// One box per category, in display order.
+        boxes: Vec<BoxplotEntry>,
+        /// Tone (drives box + whisker color via cascade).
+        tone: SparklineTone,
+        /// Optional caption shown below the chart.
+        caption: Option<String>,
+    },
     /// 2D heatmap — grid of cells colored by intensity. Editorial
     /// axis for showing categorical × categorical numeric data.
     /// Distinct from [`CmsSection::BarChart`] (1D categorical) and
@@ -1596,6 +1622,33 @@ pub enum CmsSection {
         /// a primary "Continue to dashboard").
         secondary_cta: Option<HeroCta>,
     },
+}
+
+/// One box-and-whisker entry shown on a [`CmsSection::Boxplot`].
+///
+/// Five-number summary: min, q1, median, q3, max. Operator
+/// computes the quantiles (any standard method); renderer just
+/// draws.
+///
+/// Renderer doesn't validate the ordering (e.g. `min <= q1 <=
+/// median <= q3 <= max`) — operators with weird inputs get weird
+/// boxes but no panic. The standard quantile relationships are
+/// expected but not enforced.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct BoxplotEntry {
+    /// Category label.
+    pub label: String,
+    /// Minimum value (lower whisker endpoint).
+    pub min: f64,
+    /// First quartile (lower edge of the box).
+    pub q1: f64,
+    /// Median (line inside the box).
+    pub median: f64,
+    /// Third quartile (upper edge of the box).
+    pub q3: f64,
+    /// Maximum value (upper whisker endpoint).
+    pub max: f64,
 }
 
 /// One signed-value item shown on a [`CmsSection::DivergingBar`].
@@ -2262,7 +2315,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 156;
+    pub const PRIMITIVE_COUNT: u32 = 157;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5925,6 +5978,145 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::Boxplot {
+            label,
+            boxes,
+            tone,
+            caption,
+        } => {
+            let tone_mod = tone.modifier();
+            let outer_class = format!("loom-boxplot loom-boxplot--{tone_mod}");
+            if boxes.is_empty() {
+                return html! {
+                    figure class=(format!("{outer_class} loom-boxplot--empty")) data-loom-reveal {
+                        figcaption class="loom-boxplot__label" { (label) }
+                        p class="loom-boxplot__no-data" { "No data" }
+                        @if let Some(c) = caption {
+                            figcaption class="loom-boxplot__caption" { (c) }
+                        }
+                    }
+                };
+            }
+            let n = boxes.len();
+            // Compute global min / max across all whiskers so all
+            // boxes share an axis.
+            let g_min = boxes
+                .iter()
+                .map(|b| b.min)
+                .fold(f64::INFINITY, f64::min);
+            let g_max = boxes
+                .iter()
+                .map(|b| b.max)
+                .fold(f64::NEG_INFINITY, f64::max);
+            let range = if (g_max - g_min).abs() < f64::EPSILON {
+                1.0_f64
+            } else {
+                g_max - g_min
+            };
+            const VBW: f64 = 200.0;
+            const VBH: f64 = 80.0;
+            const PAD: f64 = 4.0;
+            let col_w = (VBW - 2.0 * PAD) / (n as f64);
+            // Each box gets centered in its column with box width
+            // = 60% of column width.
+            let box_w = col_w * 0.6;
+            let aria_label = format!(
+                "{label} boxplot: {n} categories, range {g_min:.2}–{g_max:.2}"
+            );
+            // Helper: map data value to SVG y (inverted: higher
+            // values render higher on screen).
+            let map_y = |v: f64| -> f64 {
+                let normalized = (v - g_min) / range;
+                VBH - PAD - normalized * (VBH - 2.0 * PAD)
+            };
+            html! {
+                figure class=(outer_class) data-loom-reveal {
+                    figcaption class="loom-boxplot__label" { (label) }
+                    svg class="loom-boxplot__svg"
+                        viewBox=(format!("0 0 {VBW:.0} {VBH:.0}"))
+                        preserveAspectRatio="none"
+                        role="img"
+                        aria-label=(aria_label) {
+                        @for (i, b) in boxes.iter().enumerate() {
+                            @let col_x = PAD + (i as f64) * col_w;
+                            @let center_x = col_x + col_w / 2.0;
+                            @let box_x = center_x - box_w / 2.0;
+                            @let y_min = map_y(b.min);
+                            @let y_q1 = map_y(b.q1);
+                            @let y_median = map_y(b.median);
+                            @let y_q3 = map_y(b.q3);
+                            @let y_max = map_y(b.max);
+                            // q1→q3 box (height = |y_q1 - y_q3|).
+                            // y_q3 is the TOP edge (lower y because SVG y is inverted).
+                            @let box_top = y_q3.min(y_q1);
+                            @let box_height = (y_q1 - y_q3).abs();
+                            // Whiskers: line from min to q1, q3 to max.
+                            line class="loom-boxplot__whisker loom-boxplot__whisker--lower"
+                                 x1=(format!("{center_x:.1}"))
+                                 y1=(format!("{y_min:.1}"))
+                                 x2=(format!("{center_x:.1}"))
+                                 y2=(format!("{y_q1:.1}"))
+                                 stroke="currentColor"
+                                 stroke-width="1" {}
+                            line class="loom-boxplot__whisker loom-boxplot__whisker--upper"
+                                 x1=(format!("{center_x:.1}"))
+                                 y1=(format!("{y_q3:.1}"))
+                                 x2=(format!("{center_x:.1}"))
+                                 y2=(format!("{y_max:.1}"))
+                                 stroke="currentColor"
+                                 stroke-width="1" {}
+                            // Whisker caps (small horizontal lines at min and max).
+                            line class="loom-boxplot__cap loom-boxplot__cap--lower"
+                                 x1=(format!("{:.1}", center_x - box_w * 0.3))
+                                 y1=(format!("{y_min:.1}"))
+                                 x2=(format!("{:.1}", center_x + box_w * 0.3))
+                                 y2=(format!("{y_min:.1}"))
+                                 stroke="currentColor"
+                                 stroke-width="1" {}
+                            line class="loom-boxplot__cap loom-boxplot__cap--upper"
+                                 x1=(format!("{:.1}", center_x - box_w * 0.3))
+                                 y1=(format!("{y_max:.1}"))
+                                 x2=(format!("{:.1}", center_x + box_w * 0.3))
+                                 y2=(format!("{y_max:.1}"))
+                                 stroke="currentColor"
+                                 stroke-width="1" {}
+                            // q1→q3 box.
+                            rect class="loom-boxplot__box"
+                                 x=(format!("{box_x:.1}"))
+                                 y=(format!("{box_top:.1}"))
+                                 width=(format!("{box_w:.1}"))
+                                 height=(format!("{box_height:.1}"))
+                                 fill="currentColor"
+                                 fill-opacity="0.2"
+                                 stroke="currentColor"
+                                 stroke-width="1" {}
+                            // Median line.
+                            line class="loom-boxplot__median"
+                                 x1=(format!("{box_x:.1}"))
+                                 y1=(format!("{y_median:.1}"))
+                                 x2=(format!("{:.1}", box_x + box_w))
+                                 y2=(format!("{y_median:.1}"))
+                                 stroke="currentColor"
+                                 stroke-width="2" {}
+                        }
+                    }
+                    ol class="loom-boxplot__legend" {
+                        @for b in boxes {
+                            li class="loom-boxplot__legend-item" {
+                                span class="loom-boxplot__legend-label" { (b.label) }
+                                span class="loom-boxplot__legend-summary" {
+                                    (format!("min {:.2} · q1 {:.2} · med {:.2} · q3 {:.2} · max {:.2}",
+                                        b.min, b.q1, b.median, b.q3, b.max))
+                                }
+                            }
+                        }
+                    }
+                    @if let Some(c) = caption {
+                        figcaption class="loom-boxplot__caption" { (c) }
+                    }
+                }
+            }
+        }
         CmsSection::Heatmap {
             label,
             row_labels,
@@ -12506,6 +12698,164 @@ mod page_shell_tests {
                 html.contains(&expected),
                 "render_form must emit {expected} attr; got: {html}"
             );
+        }
+    }
+
+    // #104 (2026-05-20) — Boxplot editorial-charts primitive.
+    // Quantile-based statistical summary per category.
+
+    fn boxplot_entry(label: &str, min: f64, q1: f64, median: f64, q3: f64, max: f64) -> BoxplotEntry {
+        BoxplotEntry {
+            label: label.into(),
+            min,
+            q1,
+            median,
+            q3,
+            max,
+        }
+    }
+
+    fn boxplot_page(boxes: Vec<BoxplotEntry>) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::Boxplot {
+            label: "Response time by endpoint".into(),
+            boxes,
+            tone: SparklineTone::Neutral,
+            caption: None,
+        }];
+        p
+    }
+
+    #[test]
+    fn boxplot_empty_boxes_renders_no_data() {
+        let p = boxplot_page(vec![]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-boxplot--empty"));
+        assert!(html.contains(">No data<"));
+        assert!(!html.contains("<svg"));
+    }
+
+    #[test]
+    fn boxplot_renders_box_whiskers_caps_median_per_entry() {
+        let p = boxplot_page(vec![boxplot_entry("/api/users", 10.0, 25.0, 40.0, 80.0, 200.0)]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-boxplot"));
+        assert!(html.contains("<svg"));
+        // Per box: 1 rect (box) + 1 line (median) + 2 lines (whiskers) + 2 lines (caps) = 1 rect + 5 lines.
+        assert_eq!(html.matches("<rect class=\"loom-boxplot__box\"").count(), 1);
+        assert_eq!(html.matches("loom-boxplot__median").count(), 1);
+        assert_eq!(html.matches("loom-boxplot__whisker--lower").count(), 1);
+        assert_eq!(html.matches("loom-boxplot__whisker--upper").count(), 1);
+        assert_eq!(html.matches("loom-boxplot__cap--lower").count(), 1);
+        assert_eq!(html.matches("loom-boxplot__cap--upper").count(), 1);
+    }
+
+    #[test]
+    fn boxplot_multiple_boxes_share_axis_via_global_minmax() {
+        // Two boxes with overlapping ranges; verify both render
+        // (one rect each).
+        let p = boxplot_page(vec![
+            boxplot_entry("a", 0.0, 10.0, 20.0, 30.0, 40.0),
+            boxplot_entry("b", 50.0, 60.0, 70.0, 80.0, 100.0),
+        ]);
+        let html = render_page(&p).into_string();
+        assert_eq!(html.matches("loom-boxplot__box").count(), 2);
+        // aria-label should describe the global range 0.00–100.00
+        assert!(html.contains("range 0.00–100.00"));
+    }
+
+    #[test]
+    fn boxplot_aria_label_includes_n_categories_and_range() {
+        let p = boxplot_page(vec![
+            boxplot_entry("a", 0.0, 1.0, 2.0, 3.0, 4.0),
+            boxplot_entry("b", 0.0, 1.0, 2.0, 3.0, 4.0),
+            boxplot_entry("c", 0.0, 1.0, 2.0, 3.0, 4.0),
+        ]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("3 categories"));
+        assert!(html.contains("range 0.00–4.00"));
+    }
+
+    #[test]
+    fn boxplot_legend_lists_five_number_summary_per_box() {
+        let p = boxplot_page(vec![boxplot_entry(
+            "/api/orders",
+            5.0,
+            12.5,
+            25.0,
+            50.0,
+            120.0,
+        )]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-boxplot__legend"));
+        assert!(html.contains(">/api/orders<"));
+        // 5-number summary in expected format
+        assert!(html.contains("min 5.00 · q1 12.50 · med 25.00 · q3 50.00 · max 120.00"));
+    }
+
+    #[test]
+    fn boxplot_flat_series_does_not_div_by_zero() {
+        // All boxes have same values across all 5 numbers — range = 0.
+        let p = boxplot_page(vec![
+            boxplot_entry("a", 5.0, 5.0, 5.0, 5.0, 5.0),
+            boxplot_entry("b", 5.0, 5.0, 5.0, 5.0, 5.0),
+        ]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("<rect"));
+        assert!(!html.contains("NaN"));
+        assert!(!html.contains("Inf"));
+    }
+
+    #[test]
+    fn boxplot_label_and_caption_html_escaped() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::Boxplot {
+            label: "<script>".into(),
+            boxes: vec![BoxplotEntry {
+                label: "<img onerror=x>".into(),
+                min: 0.0,
+                q1: 1.0,
+                median: 2.0,
+                q3: 3.0,
+                max: 4.0,
+            }],
+            tone: SparklineTone::Neutral,
+            caption: Some("<svg onload=y>".into()),
+        }];
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<img onerror=x>"));
+        assert!(!html.contains("<svg onload=y>"));
+    }
+
+    #[test]
+    fn boxplot_section_parses_from_snake_case_kind() {
+        let json = r#"{
+            "kind": "boxplot",
+            "label": "Latency by endpoint",
+            "boxes": [{
+                "label": "/api/users",
+                "min": 10.0,
+                "q1": 25.0,
+                "median": 40.0,
+                "q3": 80.0,
+                "max": 200.0
+            }],
+            "tone": "neutral",
+            "caption": null
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::Boxplot { boxes, .. } => {
+                assert_eq!(boxes.len(), 1);
+                assert_eq!(boxes[0].median, 40.0);
+                assert_eq!(boxes[0].max, 200.0);
+            }
+            _ => panic!("expected Boxplot variant"),
         }
     }
 
