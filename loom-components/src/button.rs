@@ -412,11 +412,14 @@ mod tests {
     fn rounded_default_matches_legacy_size_radius() {
         // Sm/Md → rounded-md, Lg → rounded-xl. Back-compat.
         let sm = Button::new("x", ButtonVariant::Primary, ButtonSize::Sm)
-            .render().into_string();
+            .render()
+            .into_string();
         let md = Button::new("x", ButtonVariant::Primary, ButtonSize::Md)
-            .render().into_string();
+            .render()
+            .into_string();
         let lg = Button::new("x", ButtonVariant::Primary, ButtonSize::Lg)
-            .render().into_string();
+            .render()
+            .into_string();
         assert!(sm.contains("rounded-md"));
         assert!(md.contains("rounded-md"));
         assert!(lg.contains("rounded-xl"));
@@ -438,9 +441,18 @@ mod tests {
                 shape: ButtonShape::Square,
             };
             let s = btn.render().into_string();
-            assert!(s.contains("rounded-none"), "missing rounded-none at {size:?}");
-            assert!(!s.contains("rounded-md"), "stale rounded-md at {size:?}: {s}");
-            assert!(!s.contains("rounded-xl"), "stale rounded-xl at {size:?}: {s}");
+            assert!(
+                s.contains("rounded-none"),
+                "missing rounded-none at {size:?}"
+            );
+            assert!(
+                !s.contains("rounded-md"),
+                "stale rounded-md at {size:?}: {s}"
+            );
+            assert!(
+                !s.contains("rounded-xl"),
+                "stale rounded-xl at {size:?}: {s}"
+            );
             assert!(s.contains(r#"data-loom-button-shape="square""#));
         }
     }

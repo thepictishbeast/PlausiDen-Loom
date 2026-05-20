@@ -345,15 +345,10 @@ impl KvPairCard<'_> {
                 "text-slate-400",
             ),
         };
-        let outer = format!(
-            "flex flex-col {gap} border {border} {surface} {padding}"
-        );
-        let label_class = format!(
-            "text-xs font-mono uppercase tracking-widest {label_tone}"
-        );
-        let value_class = format!(
-            "font-display text-2xl md:text-3xl font-semibold leading-tight {value_tone}"
-        );
+        let outer = format!("flex flex-col {gap} border {border} {surface} {padding}");
+        let label_class = format!("text-xs font-mono uppercase tracking-widest {label_tone}");
+        let value_class =
+            format!("font-display text-2xl md:text-3xl font-semibold leading-tight {value_tone}");
         let source_class = format!("text-sm leading-snug {source_tone}");
         html! {
             div class=(outer) {

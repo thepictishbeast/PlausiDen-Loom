@@ -74,10 +74,7 @@ pub fn render_section_lines(section: &CmsSection) -> Vec<Line<'static>> {
             let prefix = "#".repeat(heading_level_to_int(level));
             vec![Line::from(vec![
                 Span::raw(format!("{prefix} ")),
-                Span::styled(
-                    text.clone(),
-                    Style::default().add_modifier(Modifier::BOLD),
-                ),
+                Span::styled(text.clone(), Style::default().add_modifier(Modifier::BOLD)),
             ])]
         }
         CmsSection::SubHeading { text, level } => {
@@ -94,8 +91,11 @@ pub fn render_section_lines(section: &CmsSection) -> Vec<Line<'static>> {
             ))]
         }
         CmsSection::DropCap { text } => wrap_to_lines(text, Style::default()),
-        CmsSection::PullQuote { body, attribution, .. } => {
-            let mut out: Vec<Line<'static>> = wrap_to_lines(body, Style::default().add_modifier(Modifier::ITALIC));
+        CmsSection::PullQuote {
+            body, attribution, ..
+        } => {
+            let mut out: Vec<Line<'static>> =
+                wrap_to_lines(body, Style::default().add_modifier(Modifier::ITALIC));
             if let Some(a) = attribution {
                 out.push(Line::from(Span::styled(
                     format!("    — {a}"),
@@ -105,7 +105,8 @@ pub fn render_section_lines(section: &CmsSection) -> Vec<Line<'static>> {
             out
         }
         CmsSection::Epigraph { body, attribution } => {
-            let mut out: Vec<Line<'static>> = wrap_to_lines(body, Style::default().add_modifier(Modifier::ITALIC));
+            let mut out: Vec<Line<'static>> =
+                wrap_to_lines(body, Style::default().add_modifier(Modifier::ITALIC));
             if let Some(a) = attribution {
                 out.push(Line::from(Span::styled(
                     format!("    — {a}"),
@@ -120,7 +121,9 @@ pub fn render_section_lines(section: &CmsSection) -> Vec<Line<'static>> {
                 Style::default().add_modifier(Modifier::DIM),
             ))]
         }
-        CmsSection::Quote { body, attribution, .. } => {
+        CmsSection::Quote {
+            body, attribution, ..
+        } => {
             let mut out: Vec<Line<'static>> = wrap_to_lines(body, Style::default());
             out.push(Line::from(Span::styled(
                 format!("— {attribution}"),
@@ -146,12 +149,19 @@ pub fn render_section_lines(section: &CmsSection) -> Vec<Line<'static>> {
         CmsSection::Spacer { .. } => {
             vec![Line::from("")]
         }
-        CmsSection::Hero { eyebrow, title, lede, cta } => {
-            render_hero_textual(eyebrow.as_deref(), title, lede.as_deref(), cta.as_ref())
-        }
-        CmsSection::ImageHero { eyebrow, title, lede, cta, .. } => {
-            render_hero_textual(eyebrow.as_deref(), title, lede.as_deref(), cta.as_ref())
-        }
+        CmsSection::Hero {
+            eyebrow,
+            title,
+            lede,
+            cta,
+        } => render_hero_textual(eyebrow.as_deref(), title, lede.as_deref(), cta.as_ref()),
+        CmsSection::ImageHero {
+            eyebrow,
+            title,
+            lede,
+            cta,
+            ..
+        } => render_hero_textual(eyebrow.as_deref(), title, lede.as_deref(), cta.as_ref()),
         CmsSection::Banner { text, .. } => wrap_to_lines(text, Style::default()),
         CmsSection::Code { body, lang, .. } => {
             let mut out: Vec<Line<'static>> = Vec::new();
@@ -175,11 +185,13 @@ pub fn render_section_lines(section: &CmsSection) -> Vec<Line<'static>> {
                 Style::default().add_modifier(Modifier::DIM),
             ))]
         }
-        CmsSection::Figure { caption, credit, asset_slug } => {
+        CmsSection::Figure {
+            caption,
+            credit,
+            asset_slug,
+        } => {
             let mut out: Vec<Line<'static>> = Vec::new();
-            let label = asset_slug
-                .clone()
-                .unwrap_or_else(|| "no-asset".to_owned());
+            let label = asset_slug.clone().unwrap_or_else(|| "no-asset".to_owned());
             out.push(Line::from(Span::styled(
                 format!("[figure {label}]"),
                 Style::default().add_modifier(Modifier::DIM),
@@ -352,7 +364,10 @@ mod tests {
         let json = serde_json::json!({ "kind": "paragraph", "text": long });
         let s: CmsSection = serde_json::from_value(json).unwrap();
         let lines = render_section_lines(&s);
-        assert!(lines.len() > 1, "long paragraph should wrap to multiple lines");
+        assert!(
+            lines.len() > 1,
+            "long paragraph should wrap to multiple lines"
+        );
     }
 
     #[test]
@@ -427,9 +442,16 @@ mod tests {
     #[test]
     fn full_page_render_produces_more_lines_than_sections() {
         let secs: Vec<CmsSection> = vec![
-            serde_json::from_value(serde_json::json!({"kind":"heading","text":"Section A","level":2})).unwrap(),
-            serde_json::from_value(serde_json::json!({"kind":"paragraph","text":"Body of A."})).unwrap(),
-            serde_json::from_value(serde_json::json!({"kind":"heading","text":"Section B","level":2})).unwrap(),
+            serde_json::from_value(
+                serde_json::json!({"kind":"heading","text":"Section A","level":2}),
+            )
+            .unwrap(),
+            serde_json::from_value(serde_json::json!({"kind":"paragraph","text":"Body of A."}))
+                .unwrap(),
+            serde_json::from_value(
+                serde_json::json!({"kind":"heading","text":"Section B","level":2}),
+            )
+            .unwrap(),
         ];
         let p = page_with(secs);
         let text = render_page(&p);

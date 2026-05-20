@@ -120,9 +120,8 @@ impl Toast<'_> {
             ToastElevation::Soft => "soft",
             ToastElevation::Flat => "flat",
         };
-        let wrapper_class = format!(
-            "{shape_class} border {elevation_class} px-4 py-3 max-w-sm {tone_classes}"
-        );
+        let wrapper_class =
+            format!("{shape_class} border {elevation_class} px-4 py-3 max-w-sm {tone_classes}");
         html! {
             div
                 role=(role)

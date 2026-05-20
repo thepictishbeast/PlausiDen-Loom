@@ -64,7 +64,9 @@ fn input_classes(style: FormStyle, density: FormDensity, multiline: bool) -> Str
             out.push_str(" rounded-md border-input bg-slate-50 px-3 py-2");
         }
         FormStyle::Editorial => {
-            out.push_str(" rounded-none border-0 border-b border-slate-300 bg-transparent px-1 py-2");
+            out.push_str(
+                " rounded-none border-0 border-b border-slate-300 bg-transparent px-1 py-2",
+            );
         }
         FormStyle::Minimal => {
             out.push_str(" rounded-none border-0 border-b border-transparent bg-transparent px-1 py-2 focus-visible:border-slate-400");
@@ -448,7 +450,10 @@ mod tests {
 
     #[test]
     fn select_editorial_style_strips_pill_chrome() {
-        let opts = [SelectOption { value: "a", label: "Alpha" }];
+        let opts = [SelectOption {
+            value: "a",
+            label: "Alpha",
+        }];
         let sel = Select {
             id: "x",
             name: "x",

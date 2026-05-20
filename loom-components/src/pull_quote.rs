@@ -79,24 +79,15 @@ impl PullQuote<'_> {
     pub fn render(&self) -> Markup {
         let (body_size, padding_left) = match self.emphasis {
             PullQuoteEmphasis::Inline => ("text-xl md:text-2xl", "pl-5 md:pl-6"),
-            PullQuoteEmphasis::Display => (
-                "text-2xl md:text-3xl lg:text-4xl",
-                "pl-6 md:pl-8",
-            ),
+            PullQuoteEmphasis::Display => ("text-2xl md:text-3xl lg:text-4xl", "pl-6 md:pl-8"),
         };
         let (border_color, body_color, attr_color) = match self.tone {
             PullQuoteTone::Slate => ("border-slate-300", "text-slate-900", "text-slate-600"),
             PullQuoteTone::Amoled => ("border-slate-700", "text-slate-100", "text-slate-400"),
         };
-        let outer = format!(
-            "border-l-2 {border_color} {padding_left} flex flex-col gap-3"
-        );
-        let body_class = format!(
-            "font-display font-medium leading-snug {body_size} {body_color}"
-        );
-        let attr_class = format!(
-            "text-sm md:text-base leading-relaxed {attr_color}"
-        );
+        let outer = format!("border-l-2 {border_color} {padding_left} flex flex-col gap-3");
+        let body_class = format!("font-display font-medium leading-snug {body_size} {body_color}");
+        let attr_class = format!("text-sm md:text-base leading-relaxed {attr_color}");
         let paragraphs: Vec<&str> = self
             .body
             .split("\n\n")
@@ -278,7 +269,10 @@ mod tests {
         .into_string();
         // Two <p> tags expected — count opens.
         let p_open_count = s.matches("<p").count();
-        assert_eq!(p_open_count, 2, "expected 2 <p> tags, got {p_open_count}: {s}");
+        assert_eq!(
+            p_open_count, 2,
+            "expected 2 <p> tags, got {p_open_count}: {s}"
+        );
         assert!(s.contains(">First paragraph.<"));
         assert!(s.contains(">Second paragraph.<"));
     }

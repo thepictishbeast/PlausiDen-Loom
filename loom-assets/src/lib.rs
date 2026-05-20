@@ -248,8 +248,7 @@ impl AssetSearch {
                 return false;
             }
         }
-        if !self.tags_any.is_empty()
-            && !self.tags_any.iter().any(|t| a.tags.iter().any(|x| x == t))
+        if !self.tags_any.is_empty() && !self.tags_any.iter().any(|t| a.tags.iter().any(|x| x == t))
         {
             return false;
         }
@@ -288,8 +287,15 @@ fn seed_icons() -> Vec<Asset> {
             slug: "icon-arrow-right".into(),
             kind: AssetKind::Icon,
             label: "Arrow, right".into(),
-            tags: vec!["arrow".into(), "right".into(), "navigation".into(), "cta".into()],
-            description: "Right-pointing arrow for forward navigation, CTAs, and pagination next-buttons.".into(),
+            tags: vec![
+                "arrow".into(),
+                "right".into(),
+                "navigation".into(),
+                "cta".into(),
+            ],
+            description:
+                "Right-pointing arrow for forward navigation, CTAs, and pagination next-buttons."
+                    .into(),
             path: "icons/arrow-right.svg".into(),
             license: LicenseClass::Platform,
             source: "platform-authored".into(),
@@ -301,7 +307,12 @@ fn seed_icons() -> Vec<Asset> {
             slug: "icon-check".into(),
             kind: AssetKind::Icon,
             label: "Check mark".into(),
-            tags: vec!["check".into(), "confirm".into(), "success".into(), "form".into()],
+            tags: vec![
+                "check".into(),
+                "confirm".into(),
+                "success".into(),
+                "form".into(),
+            ],
             description: "Check / confirmation mark for completed states and feature lists.".into(),
             path: "icons/check.svg".into(),
             license: LicenseClass::Platform,
@@ -314,8 +325,14 @@ fn seed_icons() -> Vec<Asset> {
             slug: "icon-x-close".into(),
             kind: AssetKind::Icon,
             label: "X / close".into(),
-            tags: vec!["close".into(), "x".into(), "dismiss".into(), "cancel".into()],
-            description: "X-shaped close button for modals, banners, and dismissable surfaces.".into(),
+            tags: vec![
+                "close".into(),
+                "x".into(),
+                "dismiss".into(),
+                "cancel".into(),
+            ],
+            description: "X-shaped close button for modals, banners, and dismissable surfaces."
+                .into(),
             path: "icons/x-close.svg".into(),
             license: LicenseClass::Platform,
             source: "platform-authored".into(),
@@ -446,7 +463,10 @@ mod tests {
             ..Default::default()
         };
         let hits = r.search(&q);
-        assert!(hits.iter().all(|a| a.tags.iter().any(|t| t == "navigation")));
+        assert!(
+            hits.iter()
+                .all(|a| a.tags.iter().any(|t| t == "navigation"))
+        );
     }
 
     #[test]

@@ -88,8 +88,7 @@ pub fn scan(cms_root: &Path) -> VersionInventory {
             .collect();
         paths.sort();
         for path in paths {
-            inv.artifacts
-                .push(scan_json_file(&path, project_root));
+            inv.artifacts.push(scan_json_file(&path, project_root));
         }
     }
 
@@ -474,21 +473,9 @@ mod tests {
         let root = tmp_root("summary");
         let cms = root.join("cms");
         fs::create_dir_all(&cms).unwrap();
-        fs::write(
-            cms.join("a.json"),
-            r#"{"schema_version": "1.0.0"}"#,
-        )
-        .unwrap();
-        fs::write(
-            cms.join("b.json"),
-            r#"{"schema_version": "1.0.0"}"#,
-        )
-        .unwrap();
-        fs::write(
-            cms.join("c.json"),
-            r#"{"schema_version": "2.0.0"}"#,
-        )
-        .unwrap();
+        fs::write(cms.join("a.json"), r#"{"schema_version": "1.0.0"}"#).unwrap();
+        fs::write(cms.join("b.json"), r#"{"schema_version": "1.0.0"}"#).unwrap();
+        fs::write(cms.join("c.json"), r#"{"schema_version": "2.0.0"}"#).unwrap();
         fs::write(cms.join("d.json"), r#"{"title": "no ver"}"#).unwrap();
         let inv = scan(&cms);
         assert_eq!(inv.total, 4);

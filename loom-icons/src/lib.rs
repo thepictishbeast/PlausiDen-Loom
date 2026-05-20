@@ -246,10 +246,7 @@ pub const fn all() -> &'static [&'static Icon] {
 #[must_use]
 pub fn by_slug(slug: &str) -> Option<&'static Icon> {
     let normalized = slug.strip_prefix("icon-").unwrap_or(slug);
-    all()
-        .iter()
-        .find(|icon| icon.id == normalized)
-        .copied()
+    all().iter().find(|icon| icon.id == normalized).copied()
 }
 
 #[cfg(test)]

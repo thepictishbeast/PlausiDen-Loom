@@ -140,12 +140,7 @@ impl DensityTier {
     /// rendering tier-pickers + for iterating all tiers in tests.
     #[must_use]
     pub const fn all() -> [Self; 4] {
-        [
-            Self::Sparse,
-            Self::Comfortable,
-            Self::Dense,
-            Self::Extreme,
-        ]
+        [Self::Sparse, Self::Comfortable, Self::Dense, Self::Extreme]
     }
 
     /// Classify an empirical char-per-1000sqpx measurement to the

@@ -39,9 +39,7 @@ pub use card::{
 pub use code_shell::{CodeShell, CodeShellChrome, CodeShellLine, CodeShellLineKind, CodeShellTone};
 pub use composer::{Composer, ComposerAvatar, ComposerSize, PromptAction, is_safe_url};
 pub use footer::{Footer, FooterColumn, FooterItem, FooterLegalLink, FooterStyle};
-pub use form::{
-    FormDensity, FormStyle, InputType, Select, SelectOption, TextArea, TextInput,
-};
+pub use form::{FormDensity, FormStyle, InputType, Select, SelectOption, TextArea, TextInput};
 pub use hero::{Hero, HeroBackground, HeroEditorial, HeroEditorialBackground};
 pub use link::{TextLink, TextLinkSize, TextLinkVariant};
 pub use modal::{Modal, ModalElevation, ModalShape, ModalSize};

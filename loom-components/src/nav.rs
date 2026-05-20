@@ -169,12 +169,8 @@ fn render_desktop_link(link: &NavLink<'_>, current: &str, style: NavStyle) -> Ma
         (NavStyle::Standard, false) => {
             "absolute -bottom-1 left-0 h-0.5 bg-primary transition-all duration-300 w-0 group-hover:w-full"
         }
-        (NavStyle::Editorial, true) => {
-            "absolute -bottom-1 left-0 h-0.5 bg-primary w-full"
-        }
-        (NavStyle::Editorial, false) => {
-            "absolute -bottom-1 left-0 h-0.5 bg-primary w-0"
-        }
+        (NavStyle::Editorial, true) => "absolute -bottom-1 left-0 h-0.5 bg-primary w-full",
+        (NavStyle::Editorial, false) => "absolute -bottom-1 left-0 h-0.5 bg-primary w-0",
     };
     // Editorial drops the hover:text-primary transition too — the
     // link state is the link state, not a hover affordance.
@@ -421,7 +417,9 @@ mod tests {
         // since the mobile drawer's links still use the hover
         // transition (tap-only context, not editorial-relevant).
         let desktop_pos = s.find("hidden md:flex").expect("desktop strip present");
-        let mobile_pos = s.find(r#"id="mobile-menu""#).expect("mobile drawer present");
+        let mobile_pos = s
+            .find(r#"id="mobile-menu""#)
+            .expect("mobile drawer present");
         let desktop_block = &s[desktop_pos..mobile_pos];
         assert!(
             !desktop_block.contains("transition-colors hover:text-primary"),

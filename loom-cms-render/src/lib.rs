@@ -856,7 +856,10 @@ pub enum CmsSection {
     // ─── T660 P5 catalogue expansion ───────────────────────
     // Layout primitives (10).
     /// Bounded-width content container.
-    Container { children_html: String, max_width: ContainerWidth },
+    Container {
+        children_html: String,
+        max_width: ContainerWidth,
+    },
     /// Visual section break.
     Divider { style: DividerStyle },
     /// Vertical whitespace token slot.
@@ -948,7 +951,11 @@ pub enum CmsSection {
         shape: LoomFactShape,
     },
     /// Figure with caption + optional credit line.
-    Figure { caption: String, credit: Option<String>, asset_slug: Option<String> },
+    Figure {
+        caption: String,
+        credit: Option<String>,
+        asset_slug: Option<String>,
+    },
     /// Image caption text (used outside a figure).
     Caption { text: String },
     /// Numbered footnote.
@@ -962,7 +969,11 @@ pub enum CmsSection {
     /// Auto-derived table of contents marker.
     TocBlock { heading: Option<String> },
     /// Mermaid-shaped diagram (typed source).
-    Diagram { notation: DiagramKind, source: String, alt: String },
+    Diagram {
+        notation: DiagramKind,
+        source: String,
+        alt: String,
+    },
     /// Math block (LaTeX-shape source string).
     MathBlock { source: String, display: bool },
     /// Citation block (academic-style).
@@ -998,41 +1009,97 @@ pub enum CmsSection {
         decoration: TestimonialDecoration,
     },
     /// Richer logo cloud with grayscale + hover-color treatment.
-    LogoCloud { heading: Option<String>, items: Vec<String> },
+    LogoCloud {
+        heading: Option<String>,
+        items: Vec<String>,
+    },
     /// Side-by-side feature/spec comparison.
-    Comparison { heading: Option<String>, columns: Vec<String>, rows: Vec<ComparisonRow> },
+    Comparison {
+        heading: Option<String>,
+        columns: Vec<String>,
+        rows: Vec<ComparisonRow>,
+    },
     /// Vertical milestone timeline.
-    Timeline { heading: Option<String>, items: Vec<TimelineItem> },
+    Timeline {
+        heading: Option<String>,
+        items: Vec<TimelineItem>,
+    },
     /// Public-facing product roadmap (now/next/later).
-    Roadmap { now: Vec<String>, next: Vec<String>, later: Vec<String> },
+    Roadmap {
+        now: Vec<String>,
+        next: Vec<String>,
+        later: Vec<String>,
+    },
     /// Case-study card with quote + metrics.
-    CaseStudy { headline: String, body: String, metrics: Vec<StatItem>, href: Option<String>, data_backend: Option<String> },
+    CaseStudy {
+        headline: String,
+        body: String,
+        metrics: Vec<StatItem>,
+        href: Option<String>,
+        data_backend: Option<String>,
+    },
     /// Top-of-viewport announcement bar.
-    AnnouncementBar { text: String, cta: Option<HeroCta>, tone: AlertTone },
+    AnnouncementBar {
+        text: String,
+        cta: Option<HeroCta>,
+        tone: AlertTone,
+    },
     /// Cookie notice band.
-    CookieNotice { text: String, accept_label: String, reject_label: String },
+    CookieNotice {
+        text: String,
+        accept_label: String,
+        reject_label: String,
+    },
     /// Mid-page promo strip with CTA.
     PromoStrip { text: String, cta: HeroCta },
     /// Row of award badges.
-    AwardBadges { heading: Option<String>, items: Vec<String> },
+    AwardBadges {
+        heading: Option<String>,
+        items: Vec<String>,
+    },
     /// Email-signup capture row.
-    NewsletterSignup { heading: String, lede: Option<String>, placeholder: String, submit_label: String },
+    NewsletterSignup {
+        heading: String,
+        lede: Option<String>,
+        placeholder: String,
+        submit_label: String,
+    },
     /// Compact contact strip with channels.
     ContactStrip { items: Vec<ContactChannel> },
 
     // Media (10).
     /// Photo grid gallery.
-    ImageGrid { items: Vec<GalleryImage>, columns: u8 },
+    ImageGrid {
+        items: Vec<GalleryImage>,
+        columns: u8,
+    },
     /// Group of figures arranged horizontally.
     FigureGroup { items: Vec<GalleryImage> },
     /// HTML5 video embed (typed source allowlist).
-    VideoEmbed { src: String, poster: Option<String>, alt: String, mime: String },
+    VideoEmbed {
+        src: String,
+        poster: Option<String>,
+        alt: String,
+        mime: String,
+    },
     /// HTML5 audio embed.
-    AudioEmbed { src: String, alt: String, mime: String },
+    AudioEmbed {
+        src: String,
+        alt: String,
+        mime: String,
+    },
     /// Auto-rotating image slideshow.
-    Slideshow { items: Vec<GalleryImage>, interval_ms: u32 },
+    Slideshow {
+        items: Vec<GalleryImage>,
+        interval_ms: u32,
+    },
     /// Before/after slider comparison.
-    BeforeAfter { before_alt: String, after_alt: String, before_slug: String, after_slug: String },
+    BeforeAfter {
+        before_alt: String,
+        after_alt: String,
+        before_slug: String,
+        after_slug: String,
+    },
     /// Lightbox trigger row (click to enlarge).
     Lightbox { items: Vec<GalleryImage> },
     /// Irregular mosaic grid.
@@ -1044,13 +1111,32 @@ pub enum CmsSection {
 
     // Commerce (10).
     /// Product card.
-    ProductCard { name: String, price: String, rating: Option<f32>, image_alt: String, image_slug: String, href: String, data_backend: String },
+    ProductCard {
+        name: String,
+        price: String,
+        rating: Option<f32>,
+        image_alt: String,
+        image_slug: String,
+        href: String,
+        data_backend: String,
+    },
     /// Product grid (collection of ProductCard payloads).
-    ProductGrid { heading: Option<String>, items: Vec<ProductItem> },
+    ProductGrid {
+        heading: Option<String>,
+        items: Vec<ProductItem>,
+    },
     /// Inline price tag.
-    PriceTag { amount: String, currency: String, was: Option<String> },
+    PriceTag {
+        amount: String,
+        currency: String,
+        was: Option<String>,
+    },
     /// Add-to-cart button.
-    AddToCart { label: String, sku: String, data_backend: String },
+    AddToCart {
+        label: String,
+        sku: String,
+        data_backend: String,
+    },
     /// Slide-in cart drawer trigger.
     CartDrawer { label: String, count: u32 },
     /// Wishlist heart toggle.
@@ -1062,57 +1148,140 @@ pub enum CmsSection {
     /// 0..=5 star rating with optional count.
     ReviewStars { value: f32, count: Option<u32> },
     /// Single review card.
-    ReviewCard { author: String, rating: f32, body: String, date: Option<String> },
+    ReviewCard {
+        author: String,
+        rating: f32,
+        body: String,
+        date: Option<String>,
+    },
 
     // Social (10).
     /// Single avatar.
-    Avatar { avatar: CmsAvatar, label: Option<String> },
+    Avatar {
+        avatar: CmsAvatar,
+        label: Option<String>,
+    },
     /// Overlapping avatar stack.
-    AvatarStack { items: Vec<CmsAvatar>, more: Option<u32> },
+    AvatarStack {
+        items: Vec<CmsAvatar>,
+        more: Option<u32>,
+    },
     /// Chat bubble.
-    ChatBubble { author: String, body: String, mine: bool },
+    ChatBubble {
+        author: String,
+        body: String,
+        mine: bool,
+    },
     /// Threaded chat.
     ChatThread { items: Vec<ChatMessage> },
     /// Like/love/etc reaction row.
     ReactionRow { items: Vec<ReactionItem> },
     /// @username inline mention.
-    MentionInline { username: String, href: String, data_backend: String },
+    MentionInline {
+        username: String,
+        href: String,
+        data_backend: String,
+    },
     /// #tag inline hashtag.
-    HashtagInline { tag: String, href: String, data_backend: String },
+    HashtagInline {
+        tag: String,
+        href: String,
+        data_backend: String,
+    },
     /// Row of share buttons.
     ShareRow { url: String, title: String },
     /// Follow button with count.
-    FollowButton { label: String, count: u32, data_backend: String },
+    FollowButton {
+        label: String,
+        count: u32,
+        data_backend: String,
+    },
     /// Profile card.
-    ProfileCard { name: String, handle: String, bio: String, avatar: CmsAvatar, follow: Option<FollowAction> },
+    ProfileCard {
+        name: String,
+        handle: String,
+        bio: String,
+        avatar: CmsAvatar,
+        follow: Option<FollowAction>,
+    },
 
     // Forms (10).
     /// Single labeled input.
-    FormInput { name: String, label: String, input_type: FormInputKind, placeholder: Option<String>, required: bool },
+    FormInput {
+        name: String,
+        label: String,
+        input_type: FormInputKind,
+        placeholder: Option<String>,
+        required: bool,
+    },
     /// Labeled select.
-    FormSelect { name: String, label: String, options: Vec<SelectOption>, required: bool },
+    FormSelect {
+        name: String,
+        label: String,
+        options: Vec<SelectOption>,
+        required: bool,
+    },
     /// Switch toggle.
-    FormToggle { name: String, label: String, on: bool },
+    FormToggle {
+        name: String,
+        label: String,
+        on: bool,
+    },
     /// Range slider.
-    FormSlider { name: String, label: String, min: i32, max: i32, value: i32 },
+    FormSlider {
+        name: String,
+        label: String,
+        min: i32,
+        max: i32,
+        value: i32,
+    },
     /// Date picker.
-    FormDate { name: String, label: String, required: bool },
+    FormDate {
+        name: String,
+        label: String,
+        required: bool,
+    },
     /// File upload dropzone.
-    FormFile { name: String, label: String, accept: String },
+    FormFile {
+        name: String,
+        label: String,
+        accept: String,
+    },
     /// Search input with submit.
-    FormSearch { placeholder: String, data_backend: String },
+    FormSearch {
+        placeholder: String,
+        data_backend: String,
+    },
     /// Color picker.
-    FormColor { name: String, label: String, value: String },
+    FormColor {
+        name: String,
+        label: String,
+        value: String,
+    },
     /// Long-form textarea.
-    FormTextarea { name: String, label: String, placeholder: Option<String>, rows: u8 },
+    FormTextarea {
+        name: String,
+        label: String,
+        placeholder: Option<String>,
+        rows: u8,
+    },
     /// Submit button.
-    FormSubmit { label: String, data_backend: String, variant: ButtonVariant },
+    FormSubmit {
+        label: String,
+        data_backend: String,
+        variant: ButtonVariant,
+    },
 
     // Navigation (8).
     /// Breadcrumb trail.
     Breadcrumb { items: Vec<BreadcrumbItem> },
     /// Numbered pagination.
-    Pagination { current: u32, total: u32, base_href: String, data_backend: String },
+    Pagination {
+        current: u32,
+        total: u32,
+        base_href: String,
+        data_backend: String,
+    },
     /// Tab nav (links, not in-page tabs).
     NavTabs { items: Vec<NavTabItem> },
     /// Vertical sidebar nav.
@@ -1124,17 +1293,34 @@ pub enum CmsSection {
     /// Jump-to-anchor list.
     AnchorList { items: Vec<NavTabItem> },
     /// Language picker.
-    LangSwitch { current: String, options: Vec<LangOption> },
+    LangSwitch {
+        current: String,
+        options: Vec<LangOption>,
+    },
 
     // Feedback (8).
     /// Tonal alert box.
-    Alert { tone: AlertTone, title: String, body: String, dismissible: bool },
+    Alert {
+        tone: AlertTone,
+        title: String,
+        body: String,
+        dismissible: bool,
+    },
     /// Transient toast (visible target for live regions).
     Toast { tone: AlertTone, body: String },
     /// Modal dialog placeholder (rendered as a typed section).
-    Modal { title: String, body: String, primary: HeroCta, secondary: Option<HeroCta> },
+    Modal {
+        title: String,
+        body: String,
+        primary: HeroCta,
+        secondary: Option<HeroCta>,
+    },
     /// Side drawer.
-    Drawer { title: String, body: String, side: DrawerSide },
+    Drawer {
+        title: String,
+        body: String,
+        side: DrawerSide,
+    },
     /// Tooltip target slot.
     Tooltip { trigger: String, body: String },
     /// Progress bar.
@@ -1142,25 +1328,72 @@ pub enum CmsSection {
     /// Loading skeleton group.
     Skeleton { rows: u8, height: SpaceSize },
     /// Empty-state placeholder.
-    EmptyState { title: String, body: String, cta: Option<HeroCta> },
+    EmptyState {
+        title: String,
+        body: String,
+        cta: Option<HeroCta>,
+    },
 
     // Game / Forum / Video (8).
     /// Game tile thumbnail.
-    GameTile { title: String, genre: String, players_online: u32, image_slug: String, href: String, data_backend: String },
+    GameTile {
+        title: String,
+        genre: String,
+        players_online: u32,
+        image_slug: String,
+        href: String,
+        data_backend: String,
+    },
     /// Game grid.
-    GameGrid { heading: Option<String>, items: Vec<GameTileItem> },
+    GameGrid {
+        heading: Option<String>,
+        items: Vec<GameTileItem>,
+    },
     /// Thread list row.
-    ThreadRow { title: String, author: String, replies: u32, views: u32, last_reply: String, href: String, data_backend: String },
+    ThreadRow {
+        title: String,
+        author: String,
+        replies: u32,
+        views: u32,
+        last_reply: String,
+        href: String,
+        data_backend: String,
+    },
     /// List of thread rows.
-    ThreadList { heading: Option<String>, items: Vec<ThreadRowItem> },
+    ThreadList {
+        heading: Option<String>,
+        items: Vec<ThreadRowItem>,
+    },
     /// Video card with thumbnail + meta.
-    VideoCard { title: String, channel: String, duration: String, views: String, thumbnail_slug: String, href: String, data_backend: String },
+    VideoCard {
+        title: String,
+        channel: String,
+        duration: String,
+        views: String,
+        thumbnail_slug: String,
+        href: String,
+        data_backend: String,
+    },
     /// Grid of video cards.
-    VideoGridSection { heading: Option<String>, items: Vec<VideoCardItem> },
+    VideoGridSection {
+        heading: Option<String>,
+        items: Vec<VideoCardItem>,
+    },
     /// Comment thread (post + nested replies).
-    CommentThread { post_id: String, items: Vec<CommentItem> },
+    CommentThread {
+        post_id: String,
+        items: Vec<CommentItem>,
+    },
     /// Social-feed post card.
-    FeedPost { author: String, handle: String, avatar: CmsAvatar, body: String, posted_at: String, reactions: u32, comments: u32 },
+    FeedPost {
+        author: String,
+        handle: String,
+        avatar: CmsAvatar,
+        body: String,
+        posted_at: String,
+        reactions: u32,
+        comments: u32,
+    },
 
     // ─── T660 P6 — auth + Crucible widget primitives ───
     /// Typed sign-in / sign-up card. Holds an ordered list of
@@ -1794,7 +2027,9 @@ impl ChangelogChangeKind {
 }
 
 /// Visual style for [`CmsSection::ChangelogList`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ChangelogListStyle {
     /// Full per-change rows with kind-tag badges + change text.
@@ -1953,7 +2188,9 @@ impl SourceKind {
 }
 
 /// Visual style for [`CmsSection::SourceList`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceListStyle {
     /// Numbered citations (1. 2. 3.) — academic convention.
@@ -2367,7 +2604,9 @@ pub enum AuthMethodChoice {
 }
 
 /// Second-factor kind shown in [`CmsSection::MfaPrompt`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum MfaFactorKind {
     /// Time-based OTP from an authenticator app.
@@ -2385,7 +2624,9 @@ pub enum MfaFactorKind {
 
 /// Crucible challenge kind mirror (kept independent from
 /// crucible-core to avoid creating a Loom-→-Crucible dep).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum CrucibleKind {
     /// Multi-image classification.
@@ -2404,7 +2645,9 @@ pub enum CrucibleKind {
 }
 
 /// Crucible difficulty mirror.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum CrucibleDifficulty {
     /// Easy.
@@ -2426,26 +2669,52 @@ fn default_option_count() -> u8 {
 }
 
 /// Container max-width token.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub enum ContainerWidth { Narrow, #[default] Comfortable, Wide, Full }
+pub enum ContainerWidth {
+    Narrow,
+    #[default]
+    Comfortable,
+    Wide,
+    Full,
+}
 
 /// Divider style.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub enum DividerStyle { #[default] Line, Dots, ZigZag, Sparkle }
+pub enum DividerStyle {
+    #[default]
+    Line,
+    Dots,
+    ZigZag,
+    Sparkle,
+}
 
 /// Vertical-spacing token.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub enum SpaceSize { Tight, #[default] Comfortable, Loose, Generous }
+pub enum SpaceSize {
+    Tight,
+    #[default]
+    Comfortable,
+    Loose,
+    Generous,
+}
 
 /// Emphasis tier for [`CmsSection::PullQuote`]. Mirrors
 /// `loom_components::pull_quote::PullQuoteEmphasis`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum PullQuoteEmphasis {
     /// Inline-with-body voice. `text-xl md:text-2xl`.
@@ -2457,7 +2726,9 @@ pub enum PullQuoteEmphasis {
 
 /// Color tone for [`CmsSection::PullQuote`]. Mirrors
 /// `loom_components::pull_quote::PullQuoteTone`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum PullQuoteTone {
     /// Slate text on light surface.
@@ -2470,7 +2741,9 @@ pub enum PullQuoteTone {
 /// Layout density for [`CmsSection::KvPair`]. Mirrors
 /// `loom_components::card::KvPairDensity`. Affects vertical rhythm
 /// inside each item; horizontal sizing is the grid's job.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum KvPairDensity {
     /// Tight rhythm — for grids of 4-6 items with short values.
@@ -2484,7 +2757,9 @@ pub enum KvPairDensity {
 
 /// Color tone for [`CmsSection::KvPair`]. Mirrors
 /// `loom_components::card::KvPairTone`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum KvPairTone {
     /// Slate text on light surface.
@@ -2496,7 +2771,9 @@ pub enum KvPairTone {
 
 /// Tone for [`CmsSection::CodeShell`]. Mirrors
 /// `loom_components::code_shell::CodeShellTone`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum CodeShellTone {
     /// Slate-900 ink on slate-50 surface.
@@ -2508,7 +2785,9 @@ pub enum CodeShellTone {
 
 /// Chrome treatment for [`CmsSection::CodeShell`]. Mirrors
 /// `loom_components::code_shell::CodeShellChrome`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum CodeShellChrome {
     /// No header — just the code block, framed by a single border.
@@ -2551,7 +2830,9 @@ pub struct CmsCodeShellLine {
 /// is the recommended default — lets content carry the page. `Amoled`
 /// honors `[[dark-theme-amoled-true-black]]` for OLED pixels-off
 /// rendering.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum HeroEditorialBackground {
     /// Plain slate-50.
@@ -2569,7 +2850,9 @@ pub enum HeroEditorialBackground {
 /// chrome + gradient icon tile + hover lift + shadow). The
 /// `Editorial` and `Minimal` variants strip the trope chrome for
 /// callers that want dense, non-card composition.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum FeatureSpotlightDecoration {
     /// SaaS-card shape: rounded chrome, gradient icon tile,
@@ -2599,7 +2882,9 @@ impl FeatureSpotlightDecoration {
 /// `Decorated` (default) is the legacy avatar+quote card.
 /// `Editorial` drops card chrome for pull-quote typography.
 /// `Minimal` is just the quote + attribution line.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum TestimonialDecoration {
     /// Legacy avatar+quote card. Back-compat default.
@@ -2643,7 +2928,9 @@ pub enum LoomFactKind {
 }
 
 /// How a [`CmsSection::LoomFact`] renders.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum LoomFactShape {
     /// Just the numeric value, no markup. For inline use inside
@@ -2680,88 +2967,166 @@ pub mod loom_facts {
 }
 
 /// Reveal-motion variant.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub enum RevealMotion { #[default] FadeUp, FadeIn, ScaleIn, SlideLeft, SlideRight }
+pub enum RevealMotion {
+    #[default]
+    FadeUp,
+    FadeIn,
+    ScaleIn,
+    SlideLeft,
+    SlideRight,
+}
 
 /// Alert tone (used by Alert, Toast, AnnouncementBar, AsideNote).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub enum AlertTone { #[default] Info, Success, Warning, Danger, Neutral }
+pub enum AlertTone {
+    #[default]
+    Info,
+    Success,
+    Warning,
+    Danger,
+    Neutral,
+}
 
 /// Drawer side.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub enum DrawerSide { #[default] Right, Left }
+pub enum DrawerSide {
+    #[default]
+    Right,
+    Left,
+}
 
 /// Diagram source kind.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub enum DiagramKind { #[default] Mermaid, Plantuml, Ascii }
+pub enum DiagramKind {
+    #[default]
+    Mermaid,
+    Plantuml,
+    Ascii,
+}
 
 /// Form-input kind.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub enum FormInputKind { #[default] Text, Email, Password, Tel, Url, Number, Search }
+pub enum FormInputKind {
+    #[default]
+    Text,
+    Email,
+    Password,
+    Tel,
+    Url,
+    Number,
+    Search,
+}
 
 /// Button variant.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub enum ButtonVariant { #[default] Primary, Secondary, Ghost, Danger }
+pub enum ButtonVariant {
+    #[default]
+    Primary,
+    Secondary,
+    Ghost,
+    Danger,
+}
 
 /// One tab in a Tabs section.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub struct TabItem { pub label: String, pub body: String }
+pub struct TabItem {
+    pub label: String,
+    pub body: String,
+}
 
 /// One accordion item.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub struct AccordionItem { pub title: String, pub body: String }
+pub struct AccordionItem {
+    pub title: String,
+    pub body: String,
+}
 
 /// One definition list entry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub struct DefListItem { pub term: String, pub definition: String }
+pub struct DefListItem {
+    pub term: String,
+    pub definition: String,
+}
 
 /// One comparison row.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub struct ComparisonRow { pub label: String, pub values: Vec<String> }
+pub struct ComparisonRow {
+    pub label: String,
+    pub values: Vec<String>,
+}
 
 /// One timeline milestone.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub struct TimelineItem { pub when: String, pub title: String, pub body: String }
+pub struct TimelineItem {
+    pub when: String,
+    pub title: String,
+    pub body: String,
+}
 
 /// One contact channel.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub struct ContactChannel { pub kind: String, pub label: String, pub href: String, pub data_backend: String }
+pub struct ContactChannel {
+    pub kind: String,
+    pub label: String,
+    pub href: String,
+    pub data_backend: String,
+}
 
 /// One gallery image.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub struct GalleryImage { pub asset_slug: String, pub alt: String, pub caption: Option<String> }
+pub struct GalleryImage {
+    pub asset_slug: String,
+    pub alt: String,
+    pub caption: Option<String>,
+}
 
 /// One badge.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub struct BadgeItem { pub icon_slug: Option<String>, pub label: String }
+pub struct BadgeItem {
+    pub icon_slug: Option<String>,
+    pub label: String,
+}
 
 /// One product card.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -2781,57 +3146,93 @@ pub struct ProductItem {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub struct ChatMessage { pub author: String, pub body: String, pub mine: bool, pub at: String }
+pub struct ChatMessage {
+    pub author: String,
+    pub body: String,
+    pub mine: bool,
+    pub at: String,
+}
 
 /// One reaction.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub struct ReactionItem { pub emoji: String, pub count: u32 }
+pub struct ReactionItem {
+    pub emoji: String,
+    pub count: u32,
+}
 
 /// Follow action.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub struct FollowAction { pub label: String, pub data_backend: String }
+pub struct FollowAction {
+    pub label: String,
+    pub data_backend: String,
+}
 
 /// One select option.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub struct SelectOption { pub value: String, pub label: String }
+pub struct SelectOption {
+    pub value: String,
+    pub label: String,
+}
 
 /// One breadcrumb segment.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub struct BreadcrumbItem { pub label: String, pub href: String, pub data_backend: String }
+pub struct BreadcrumbItem {
+    pub label: String,
+    pub href: String,
+    pub data_backend: String,
+}
 
 /// One nav tab.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub struct NavTabItem { pub label: String, pub href: String, pub data_backend: String, #[serde(default)] pub current: bool }
+pub struct NavTabItem {
+    pub label: String,
+    pub href: String,
+    pub data_backend: String,
+    #[serde(default)]
+    pub current: bool,
+}
 
 /// One mega-menu column.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub struct MegaMenuColumn { pub heading: String, pub items: Vec<NavTabItem> }
+pub struct MegaMenuColumn {
+    pub heading: String,
+    pub items: Vec<NavTabItem>,
+}
 
 /// One language option.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub struct LangOption { pub code: String, pub label: String, pub href: String, pub data_backend: String }
+pub struct LangOption {
+    pub code: String,
+    pub label: String,
+    pub href: String,
+    pub data_backend: String,
+}
 
 /// One game tile.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct GameTileItem {
-    pub title: String, pub genre: String, pub players_online: u32,
-    pub image_slug: String, pub href: String, pub data_backend: String,
+    pub title: String,
+    pub genre: String,
+    pub players_online: u32,
+    pub image_slug: String,
+    pub href: String,
+    pub data_backend: String,
 }
 
 /// One thread row.
@@ -2839,8 +3240,13 @@ pub struct GameTileItem {
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct ThreadRowItem {
-    pub title: String, pub author: String, pub replies: u32, pub views: u32,
-    pub last_reply: String, pub href: String, pub data_backend: String,
+    pub title: String,
+    pub author: String,
+    pub replies: u32,
+    pub views: u32,
+    pub last_reply: String,
+    pub href: String,
+    pub data_backend: String,
 }
 
 /// One video card.
@@ -2848,15 +3254,25 @@ pub struct ThreadRowItem {
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct VideoCardItem {
-    pub title: String, pub channel: String, pub duration: String, pub views: String,
-    pub thumbnail_slug: String, pub href: String, pub data_backend: String,
+    pub title: String,
+    pub channel: String,
+    pub duration: String,
+    pub views: String,
+    pub thumbnail_slug: String,
+    pub href: String,
+    pub data_backend: String,
 }
 
 /// One comment in a thread.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
-pub struct CommentItem { pub author: String, pub body: String, pub at: String, pub depth: u8 }
+pub struct CommentItem {
+    pub author: String,
+    pub body: String,
+    pub at: String,
+    pub depth: u8,
+}
 
 fn default_true() -> bool {
     true
@@ -2873,7 +3289,9 @@ fn default_speed() -> u8 {
 /// modifier on the same shell. Operators pick per-page via
 /// `CmsPage::chrome`; new sites typically pick `FloatingPill`,
 /// legacy sites stay on `PageShell` for backward compat.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ChromeKind {
     /// Sticky-blur top bar with brand-left / nav-right and an
@@ -2933,7 +3351,9 @@ pub enum HeroBackground {
 
 /// Overlay tint applied on top of [`HeroBackground::Photo`] so the
 /// title remains legible.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum PhotoOverlay {
     /// No overlay — image renders raw.
@@ -2946,7 +3366,9 @@ pub enum PhotoOverlay {
 }
 
 /// Visual-height ramp for hero sections.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum HeroHeight {
     /// Comfortable default — about 60vh on desktop.
@@ -2966,7 +3388,9 @@ pub enum HeroHeight {
 /// posture; the cms author chooses whether to take it. Backwards
 /// compatible — existing CmsPage JSON that omits `align` keeps
 /// rendering centered.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum HeroAlign {
     /// Headline + lede + cta centered. SaaS-marketing default.
@@ -3094,7 +3518,9 @@ pub struct FaqItem {
 }
 
 /// Marquee scroll direction.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum MarqueeDirection {
     /// Scroll right-to-left.
@@ -3247,7 +3673,9 @@ pub fn polish_class_string(tokens: &[PolishToken]) -> String {
 /// Content-width preference for `main#content`. Wires through
 /// to a `data-content-width="X"` attribute on `<body>` that
 /// skin.css matches with `main#content { max-inline-size: ... }`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ContentWidth {
     /// 42rem — editorial-press measure (~70 characters).
@@ -3382,7 +3810,9 @@ pub struct LegalSection {
 }
 
 /// Wide-viewport float side for [`CmsSection::Marginalia`].
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum MarginaliaPosition {
     /// Float to the right of the body text (start of inline-axis
@@ -3408,7 +3838,9 @@ pub enum MarginaliaPosition {
 ///   muted color. Renders with `class="loom-paragraph--aside"`.
 ///
 /// Pure decoration. Text content is unaffected.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ParagraphDecoration {
     /// Default body text. No extra class.
@@ -3599,7 +4031,9 @@ pub struct CmsFormSubmit {
 /// Default is `Rounded` for back-compat — every existing CMS
 /// JSON file gets the historical SaaS shape; opting into a
 /// different chrome is an explicit additive change.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum CmsFormStyle {
     /// `rounded-md` / `rounded-xl` inputs + soft borders. The
@@ -4247,7 +4681,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
             };
             html! { p class=(class) { (text) } }
         }
-        CmsSection::Heading { text, level, id, polish } => {
+        CmsSection::Heading {
+            text,
+            level,
+            id,
+            polish,
+        } => {
             // T36 (2026-05-14): typed HeadingLevel enum makes
             // out-of-range values uncompilable. The runtime clamp
             // + data-cms-warn fallback are gone — invalid levels
@@ -4548,7 +4987,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
                     }
                 }
             }
-        },
+        }
         CmsSection::SplitHero {
             eyebrow,
             title,
@@ -4557,7 +4996,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
             visual,
             visual_right,
         } => {
-            let order_class = if *visual_right { "visual-right" } else { "visual-left" };
+            let order_class = if *visual_right {
+                "visual-right"
+            } else {
+                "visual-left"
+            };
             let cta_href_safe = cta
                 .as_ref()
                 .is_none_or(|c| loom_components::composer::is_safe_url(&c.href));
@@ -4605,7 +5048,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
                     }
                 }
             }
-        },
+        }
         CmsSection::FeatureSpotlight {
             heading,
             lede,
@@ -4651,8 +5094,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
                     }
                 }
             }
-        },
-        CmsSection::StatBand { heading, lede, items } => html! {
+        }
+        CmsSection::StatBand {
+            heading,
+            lede,
+            items,
+        } => html! {
             section class="loom-stat-band" data-loom-stat-band data-loom-reveal {
                 @if let Some(h) = heading {
                     h2 class="loom-stat-band__heading" { (h) }
@@ -4675,7 +5122,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::Steps { heading, lede, items } => html! {
+        CmsSection::Steps {
+            heading,
+            lede,
+            items,
+        } => html! {
             section class="loom-steps" data-loom-steps data-loom-reveal {
                 @if let Some(h) = heading {
                     h2 class="loom-steps__heading" { (h) }
@@ -4696,7 +5147,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::Pricing { heading, lede, tiers } => html! {
+        CmsSection::Pricing {
+            heading,
+            lede,
+            tiers,
+        } => html! {
             section class="loom-pricing" data-loom-pricing data-loom-reveal {
                 @if let Some(h) = heading {
                     h2 class="loom-pricing__heading" { (h) }
@@ -4741,7 +5196,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::Faq { heading, lede, items, single_expand } => html! {
+        CmsSection::Faq {
+            heading,
+            lede,
+            items,
+            single_expand,
+        } => html! {
             section class="loom-faq" data-loom-faq
                 data-single-expand=[single_expand.then_some("true")]
                 data-loom-reveal {
@@ -4765,7 +5225,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::Marquee { items, direction, speed } => {
+        CmsSection::Marquee {
+            items,
+            direction,
+            speed,
+        } => {
             let dir_class = match direction {
                 MarqueeDirection::Left => "marquee-left",
                 MarqueeDirection::Right => "marquee-right",
@@ -4783,8 +5247,15 @@ pub fn render_section(section: &CmsSection) -> Markup {
                     }
                 }
             }
-        },
-        CmsSection::CallToAction { eyebrow, title, lede, cta, background, align } => {
+        }
+        CmsSection::CallToAction {
+            eyebrow,
+            title,
+            lede,
+            cta,
+            background,
+            align,
+        } => {
             let bg_class = match background {
                 HeroBackground::GradientMesh => "gradient-mesh",
                 HeroBackground::Solid { .. } => "solid",
@@ -4812,7 +5283,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
                     }
                 }
             }
-        },
+        }
         CmsSection::Marginalia { body, position } => {
             let pos_class = match position {
                 MarginaliaPosition::Left => "loom-marginalia--left",
@@ -5111,7 +5582,10 @@ pub fn render_section(section: &CmsSection) -> Markup {
             }
         },
         // ─── T660 P5 — catalogue expansion render arms ───
-        CmsSection::Container { children_html, max_width } => {
+        CmsSection::Container {
+            children_html,
+            max_width,
+        } => {
             let w = match max_width {
                 ContainerWidth::Narrow => "narrow",
                 ContainerWidth::Comfortable => "comfortable",
@@ -5121,7 +5595,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
             html! { div class={ "loom-container w-" (w) } { (maud::PreEscaped(escape_html_text(children_html).to_string())) } }
         }
         CmsSection::Divider { style } => {
-            let s = match style { DividerStyle::Line => "line", DividerStyle::Dots => "dots", DividerStyle::ZigZag => "zigzag", DividerStyle::Sparkle => "sparkle" };
+            let s = match style {
+                DividerStyle::Line => "line",
+                DividerStyle::Dots => "dots",
+                DividerStyle::ZigZag => "zigzag",
+                DividerStyle::Sparkle => "sparkle",
+            };
             html! { hr class={ "loom-divider style-" (s) } aria-hidden="true"; }
         }
         CmsSection::Spacer { size } => {
@@ -5178,8 +5657,10 @@ pub fn render_section(section: &CmsSection) -> Markup {
         },
         CmsSection::Reveal { motion, body } => {
             let m = match motion {
-                RevealMotion::FadeUp => "fade-up", RevealMotion::FadeIn => "fade-in",
-                RevealMotion::ScaleIn => "scale-in", RevealMotion::SlideLeft => "slide-left",
+                RevealMotion::FadeUp => "fade-up",
+                RevealMotion::FadeIn => "fade-in",
+                RevealMotion::ScaleIn => "scale-in",
+                RevealMotion::SlideLeft => "slide-left",
                 RevealMotion::SlideRight => "slide-right",
             };
             html! { div class={ "loom-reveal motion-" (m) } data-loom-reveal { (body) } }
@@ -5202,7 +5683,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
         CmsSection::Kicker { text } => html! {
             span class="loom-kicker" data-loom-reveal { (text) }
         },
-        CmsSection::Byline { author, role, dateline, reading_time } => html! {
+        CmsSection::Byline {
+            author,
+            role,
+            dateline,
+            reading_time,
+        } => html! {
             p class="loom-byline" data-loom-reveal {
                 span class="loom-byline__author" { (author) }
                 @if let Some(r) = role {
@@ -5221,7 +5707,9 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 span class="loom-endnote__num" { (number.to_string()) "." } " " (text)
             }
         },
-        CmsSection::DropCap { text } => html! { p class="loom-dropcap" data-loom-reveal { (text) } },
+        CmsSection::DropCap { text } => {
+            html! { p class="loom-dropcap" data-loom-reveal { (text) } }
+        }
         CmsSection::LoomFact { which, shape } => {
             let value = match which {
                 LoomFactKind::PrimitiveCount => loom_facts::PRIMITIVE_COUNT,
@@ -5247,7 +5735,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 },
             }
         }
-        CmsSection::Figure { caption, credit, asset_slug } => html! {
+        CmsSection::Figure {
+            caption,
+            credit,
+            asset_slug,
+        } => html! {
             figure class="loom-figure" data-loom-reveal {
                 @if let Some(slug) = asset_slug {
                     div class="loom-figure__media" data-asset-slug=(slug) {
@@ -5297,8 +5789,16 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 ol class="loom-toc__list" data-loom-toc-auto {}
             }
         },
-        CmsSection::Diagram { notation, source, alt } => {
-            let n = match notation { DiagramKind::Mermaid => "mermaid", DiagramKind::Plantuml => "plantuml", DiagramKind::Ascii => "ascii" };
+        CmsSection::Diagram {
+            notation,
+            source,
+            alt,
+        } => {
+            let n = match notation {
+                DiagramKind::Mermaid => "mermaid",
+                DiagramKind::Plantuml => "plantuml",
+                DiagramKind::Ascii => "ascii",
+            };
             html! {
                 figure class={ "loom-diagram notation-" (n) } role="img" aria-label=(alt) data-loom-reveal {
                     pre class="loom-diagram__source" { (source) }
@@ -5324,7 +5824,13 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 span class="loom-pull-stat__label" { (label) }
             }
         },
-        CmsSection::Testimonial { body, attribution, role, avatar_slug, decoration } => {
+        CmsSection::Testimonial {
+            body,
+            attribution,
+            role,
+            avatar_slug,
+            decoration,
+        } => {
             let deco = decoration.modifier_class();
             let show_avatar = matches!(decoration, TestimonialDecoration::Decorated);
             html! {
@@ -5341,14 +5847,18 @@ pub fn render_section(section: &CmsSection) -> Markup {
                     }
                 }
             }
-        },
+        }
         CmsSection::LogoCloud { heading, items } => html! {
             section class="loom-logo-cloud" data-loom-reveal {
                 @if let Some(h) = heading { h2 class="loom-logo-cloud__heading" { (h) } }
                 div class="loom-logo-cloud__row" { @for it in items { span class="loom-logo-cloud__item" { (it) } } }
             }
         },
-        CmsSection::Comparison { heading, columns, rows } => html! {
+        CmsSection::Comparison {
+            heading,
+            columns,
+            rows,
+        } => html! {
             section class="loom-comparison" data-loom-reveal {
                 @if let Some(h) = heading { h2 class="loom-comparison__heading" { (h) } }
                 table class="loom-comparison__table" {
@@ -5395,7 +5905,13 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::CaseStudy { headline, body, metrics, href, data_backend } => {
+        CmsSection::CaseStudy {
+            headline,
+            body,
+            metrics,
+            href,
+            data_backend,
+        } => {
             let safe = href.as_deref().map_or(true, is_safe_url);
             html! {
                 article class="loom-case-study" data-loom-reveal {
@@ -5432,7 +5948,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         }
-        CmsSection::CookieNotice { text, accept_label, reject_label } => html! {
+        CmsSection::CookieNotice {
+            text,
+            accept_label,
+            reject_label,
+        } => html! {
             div class="loom-cookie-notice" role="dialog" aria-label="Cookie notice" data-loom-cookie {
                 p class="loom-cookie-notice__text" { (text) }
                 div class="loom-cookie-notice__actions" {
@@ -5458,7 +5978,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 ul class="loom-award-badges__list" { @for it in items { li class="loom-award-badges__item" { (it) } } }
             }
         },
-        CmsSection::NewsletterSignup { heading, lede, placeholder, submit_label } => html! {
+        CmsSection::NewsletterSignup {
+            heading,
+            lede,
+            placeholder,
+            submit_label,
+        } => html! {
             section class="loom-newsletter-signup" data-loom-reveal {
                 h2 class="loom-newsletter-signup__heading" { (heading) }
                 @if let Some(l) = lede { p class="loom-newsletter-signup__lede" { (l) } }
@@ -5509,7 +6034,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::VideoEmbed { src, poster, alt, mime } => {
+        CmsSection::VideoEmbed {
+            src,
+            poster,
+            alt,
+            mime,
+        } => {
             let src_safe = is_safe_url(src);
             let poster_safe = poster.as_deref().map(is_safe_url).unwrap_or(true);
             let mime_ok = ALLOWED_VIDEO_MIME.contains(&mime.as_str());
@@ -5554,7 +6084,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::BeforeAfter { before_alt, after_alt, before_slug, after_slug } => html! {
+        CmsSection::BeforeAfter {
+            before_alt,
+            after_alt,
+            before_slug,
+            after_slug,
+        } => html! {
             div class="loom-before-after" data-loom-before-after data-loom-reveal {
                 figure class="loom-before-after__before" data-asset-slug=(before_slug) {
                     img src={ "/assets/" (before_slug) ".jpg" }
@@ -5608,7 +6143,15 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::ProductCard { name, price, rating, image_alt, image_slug, href, data_backend } => {
+        CmsSection::ProductCard {
+            name,
+            price,
+            rating,
+            image_alt,
+            image_slug,
+            href,
+            data_backend,
+        } => {
             let safe = is_safe_url(href);
             html! {
                 article class="loom-product-card" data-loom-reveal {
@@ -5658,14 +6201,22 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::PriceTag { amount, currency, was } => html! {
+        CmsSection::PriceTag {
+            amount,
+            currency,
+            was,
+        } => html! {
             span class="loom-price-tag" {
                 @if let Some(w) = was { s class="loom-price-tag__was" { (w) } " " }
                 span class="loom-price-tag__amount" { (amount) }
                 span class="loom-price-tag__currency" { " " (currency) }
             }
         },
-        CmsSection::AddToCart { label, sku, data_backend } => html! {
+        CmsSection::AddToCart {
+            label,
+            sku,
+            data_backend,
+        } => html! {
             button type="button" class="loom-btn loom-btn--primary loom-add-to-cart"
                 data-sku=(sku) data-backend=(data_backend) { (label) }
         },
@@ -5709,7 +6260,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 @if let Some(c) = count { span class="loom-review-stars__count" { " (" (c.to_string()) ")" } }
             }
         },
-        CmsSection::ReviewCard { author, rating, body, date } => html! {
+        CmsSection::ReviewCard {
+            author,
+            rating,
+            body,
+            date,
+        } => html! {
             article class="loom-review-card" data-loom-reveal {
                 header class="loom-review-card__header" {
                     span class="loom-review-card__author" { (author) }
@@ -5762,7 +6318,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::MentionInline { username, href, data_backend } => {
+        CmsSection::MentionInline {
+            username,
+            href,
+            data_backend,
+        } => {
             let safe = is_safe_url(href);
             html! {
                 a class="loom-mention"
@@ -5770,7 +6330,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                   data-backend=(data_backend) { "@" (username) }
             }
         }
-        CmsSection::HashtagInline { tag, href, data_backend } => {
+        CmsSection::HashtagInline {
+            tag,
+            href,
+            data_backend,
+        } => {
             let safe = is_safe_url(href);
             html! {
                 a class="loom-hashtag"
@@ -5785,12 +6349,22 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 button type="button" class="loom-share-row__btn" data-network="print" aria-label="Print" { "🖨" }
             }
         },
-        CmsSection::FollowButton { label, count, data_backend } => html! {
+        CmsSection::FollowButton {
+            label,
+            count,
+            data_backend,
+        } => html! {
             button type="button" class="loom-follow-btn loom-btn loom-btn--primary" data-backend=(data_backend) {
                 (label) " · " span class="loom-follow-btn__count" { (count.to_string()) }
             }
         },
-        CmsSection::ProfileCard { name, handle, bio, avatar, follow } => html! {
+        CmsSection::ProfileCard {
+            name,
+            handle,
+            bio,
+            avatar,
+            follow,
+        } => html! {
             article class="loom-profile-card" data-loom-reveal {
                 (render_avatar(avatar))
                 h3 class="loom-profile-card__name" { (name) }
@@ -5801,11 +6375,20 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::FormInput { name, label, input_type, placeholder, required } => {
+        CmsSection::FormInput {
+            name,
+            label,
+            input_type,
+            placeholder,
+            required,
+        } => {
             let t = match input_type {
-                FormInputKind::Text => "text", FormInputKind::Email => "email",
-                FormInputKind::Password => "password", FormInputKind::Tel => "tel",
-                FormInputKind::Url => "url", FormInputKind::Number => "number",
+                FormInputKind::Text => "text",
+                FormInputKind::Email => "email",
+                FormInputKind::Password => "password",
+                FormInputKind::Tel => "tel",
+                FormInputKind::Url => "url",
+                FormInputKind::Number => "number",
                 FormInputKind::Search => "search",
             };
             html! {
@@ -5815,7 +6398,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         }
-        CmsSection::FormSelect { name, label, options, required } => html! {
+        CmsSection::FormSelect {
+            name,
+            label,
+            options,
+            required,
+        } => html! {
             label class="loom-form-select" {
                 span class="loom-form-select__label" { (label) @if *required { " *" } }
                 select name=(name) required=[required.then_some("required")] {
@@ -5830,25 +6418,42 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 span class="loom-form-toggle__label" { (label) }
             }
         },
-        CmsSection::FormSlider { name, label, min, max, value } => html! {
+        CmsSection::FormSlider {
+            name,
+            label,
+            min,
+            max,
+            value,
+        } => html! {
             label class="loom-form-slider" {
                 span class="loom-form-slider__label" { (label) }
                 input type="range" name=(name) min=(min.to_string()) max=(max.to_string()) value=(value.to_string());
             }
         },
-        CmsSection::FormDate { name, label, required } => html! {
+        CmsSection::FormDate {
+            name,
+            label,
+            required,
+        } => html! {
             label class="loom-form-date" {
                 span class="loom-form-date__label" { (label) @if *required { " *" } }
                 input type="date" name=(name) required=[required.then_some("required")];
             }
         },
-        CmsSection::FormFile { name, label, accept } => html! {
+        CmsSection::FormFile {
+            name,
+            label,
+            accept,
+        } => html! {
             label class="loom-form-file" {
                 span class="loom-form-file__label" { (label) }
                 input type="file" name=(name) accept=(accept);
             }
         },
-        CmsSection::FormSearch { placeholder, data_backend } => html! {
+        CmsSection::FormSearch {
+            placeholder,
+            data_backend,
+        } => html! {
             form class="loom-form-search" role="search" data-backend=(data_backend) {
                 input type="search" name="q" placeholder=(placeholder) aria-label="Search";
                 button type="submit" class="loom-btn loom-btn--primary" { "Search" }
@@ -5860,14 +6465,28 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 input type="color" name=(name) value=(value);
             }
         },
-        CmsSection::FormTextarea { name, label, placeholder, rows } => html! {
+        CmsSection::FormTextarea {
+            name,
+            label,
+            placeholder,
+            rows,
+        } => html! {
             label class="loom-form-textarea" {
                 span class="loom-form-textarea__label" { (label) }
                 textarea name=(name) rows=(rows.to_string()) placeholder=[placeholder.as_deref()] {}
             }
         },
-        CmsSection::FormSubmit { label, data_backend, variant } => {
-            let v = match variant { ButtonVariant::Primary => "primary", ButtonVariant::Secondary => "secondary", ButtonVariant::Ghost => "ghost", ButtonVariant::Danger => "danger" };
+        CmsSection::FormSubmit {
+            label,
+            data_backend,
+            variant,
+        } => {
+            let v = match variant {
+                ButtonVariant::Primary => "primary",
+                ButtonVariant::Secondary => "secondary",
+                ButtonVariant::Ghost => "ghost",
+                ButtonVariant::Danger => "danger",
+            };
             html! {
                 button type="submit" class={ "loom-btn loom-btn--" (v) } data-backend=(data_backend) { (label) }
             }
@@ -5885,7 +6504,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::Pagination { current, total, base_href, data_backend } => html! {
+        CmsSection::Pagination {
+            current,
+            total,
+            base_href,
+            data_backend,
+        } => html! {
             nav class="loom-pagination" aria-label="Pagination" {
                 @for n in 1..=*total {
                     a class={ "loom-pagination__page " (if n == *current { "current" } else { "" }) }
@@ -5965,7 +6589,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::Alert { tone, title, body, dismissible } => {
+        CmsSection::Alert {
+            tone,
+            title,
+            body,
+            dismissible,
+        } => {
             let t = alert_tone_class(tone);
             html! {
                 div class={ "loom-alert tone-" (t) } role="alert" data-loom-reveal {
@@ -5983,7 +6612,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 div class={ "loom-toast tone-" (t) } role="status" aria-live="polite" { (body) }
             }
         }
-        CmsSection::Modal { title, body, primary, secondary } => {
+        CmsSection::Modal {
+            title,
+            body,
+            primary,
+            secondary,
+        } => {
             let p_safe = is_safe_url(&primary.href);
             html! {
                 dialog class="loom-modal" data-loom-modal {
@@ -6004,7 +6638,10 @@ pub fn render_section(section: &CmsSection) -> Markup {
             }
         }
         CmsSection::Drawer { title, body, side } => {
-            let s = match side { DrawerSide::Right => "right", DrawerSide::Left => "left" };
+            let s = match side {
+                DrawerSide::Right => "right",
+                DrawerSide::Left => "left",
+            };
             html! {
                 aside class={ "loom-drawer side-" (s) } data-loom-drawer {
                     header class="loom-drawer__header" {
@@ -6053,7 +6690,14 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::GameTile { title, genre, players_online, image_slug, href, data_backend } => {
+        CmsSection::GameTile {
+            title,
+            genre,
+            players_online,
+            image_slug,
+            href,
+            data_backend,
+        } => {
             let safe = is_safe_url(href);
             html! {
                 article class="loom-game-tile" data-loom-reveal {
@@ -6098,7 +6742,15 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::ThreadRow { title, author, replies, views, last_reply, href, data_backend } => {
+        CmsSection::ThreadRow {
+            title,
+            author,
+            replies,
+            views,
+            last_reply,
+            href,
+            data_backend,
+        } => {
             let safe = is_safe_url(href);
             html! {
                 article class="loom-thread-row" {
@@ -6127,7 +6779,15 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::VideoCard { title, channel, duration, views, thumbnail_slug, href, data_backend } => {
+        CmsSection::VideoCard {
+            title,
+            channel,
+            duration,
+            views,
+            thumbnail_slug,
+            href,
+            data_backend,
+        } => {
             let safe = is_safe_url(href);
             html! {
                 article class="loom-video-card" data-loom-reveal {
@@ -6182,7 +6842,15 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::FeedPost { author, handle, avatar, body, posted_at, reactions, comments } => html! {
+        CmsSection::FeedPost {
+            author,
+            handle,
+            avatar,
+            body,
+            posted_at,
+            reactions,
+            comments,
+        } => html! {
             article class="loom-feed-post" data-loom-reveal {
                 header class="loom-feed-post__header" {
                     (render_avatar(avatar))
@@ -6198,7 +6866,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::AuthCard { title, tagline, methods, footer } => html! {
+        CmsSection::AuthCard {
+            title,
+            tagline,
+            methods,
+            footer,
+        } => html! {
             section class="loom-auth-card" data-loom-reveal {
                 header class="loom-auth-card__header" {
                     h2 class="loom-auth-card__title" { (title) }
@@ -6212,12 +6885,19 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::MfaPrompt { title, factor, instructions, otp_length, submit_label, switch_label } => {
+        CmsSection::MfaPrompt {
+            title,
+            factor,
+            instructions,
+            otp_length,
+            submit_label,
+            switch_label,
+        } => {
             let factor_class = match factor {
-                MfaFactorKind::Totp       => "totp",
-                MfaFactorKind::Webauthn   => "webauthn",
-                MfaFactorKind::SmsOtp     => "sms-otp",
-                MfaFactorKind::EmailOtp   => "email-otp",
+                MfaFactorKind::Totp => "totp",
+                MfaFactorKind::Webauthn => "webauthn",
+                MfaFactorKind::SmsOtp => "sms-otp",
+                MfaFactorKind::EmailOtp => "email-otp",
                 MfaFactorKind::BackupCode => "backup-code",
             };
             html! {
@@ -6247,20 +6927,27 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         }
-        CmsSection::CrucibleWidget { challenge_kind, prompt, difficulty, option_count, submit_label, attribution_hint } => {
+        CmsSection::CrucibleWidget {
+            challenge_kind,
+            prompt,
+            difficulty,
+            option_count,
+            submit_label,
+            attribution_hint,
+        } => {
             let kind_class = match challenge_kind {
-                CrucibleKind::ImageClassify         => "image-classify",
-                CrucibleKind::SemanticSimilarity    => "semantic-similarity",
-                CrucibleKind::AudioTranscribe       => "audio-transcribe",
-                CrucibleKind::MathArithmetic        => "math-arithmetic",
-                CrucibleKind::DrawingReconstruct    => "drawing-reconstruct",
+                CrucibleKind::ImageClassify => "image-classify",
+                CrucibleKind::SemanticSimilarity => "semantic-similarity",
+                CrucibleKind::AudioTranscribe => "audio-transcribe",
+                CrucibleKind::MathArithmetic => "math-arithmetic",
+                CrucibleKind::DrawingReconstruct => "drawing-reconstruct",
                 CrucibleKind::PromptInjectionDetect => "prompt-injection-detect",
             };
             let diff_class = match difficulty {
-                CrucibleDifficulty::Easy         => "easy",
-                CrucibleDifficulty::Medium       => "medium",
-                CrucibleDifficulty::Hard         => "hard",
-                CrucibleDifficulty::Adversarial  => "adversarial",
+                CrucibleDifficulty::Easy => "easy",
+                CrucibleDifficulty::Medium => "medium",
+                CrucibleDifficulty::Hard => "hard",
+                CrucibleDifficulty::Adversarial => "adversarial",
             };
             let n = (*option_count).clamp(1, 16);
             html! {
@@ -6307,7 +6994,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         }
-        CmsSection::SignedInCard { display_name, handle, avatar, sign_out } => {
+        CmsSection::SignedInCard {
+            display_name,
+            handle,
+            avatar,
+            sign_out,
+        } => {
             let safe = is_safe_url(&sign_out.href);
             html! {
                 section class="loom-signed-in-card" data-loom-reveal {
@@ -6322,7 +7014,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         }
-        CmsSection::PasswordReset { title, description, placeholder, submit_label } => html! {
+        CmsSection::PasswordReset {
+            title,
+            description,
+            placeholder,
+            submit_label,
+        } => html! {
             section class="loom-password-reset" data-loom-reveal {
                 h2 class="loom-password-reset__title" { (title) }
                 p class="loom-password-reset__description" { (description) }
@@ -6332,7 +7029,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
-        CmsSection::ChangelogList { heading, entries, style } => {
+        CmsSection::ChangelogList {
+            heading,
+            entries,
+            style,
+        } => {
             let style_mod = style.modifier();
             html! {
                 section class={ "loom-changelog loom-changelog--" (style_mod) } data-loom-reveal {
@@ -6386,7 +7087,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         }
-        CmsSection::Disclaimer { disclosure_kind, body, source } => {
+        CmsSection::Disclaimer {
+            disclosure_kind,
+            body,
+            source,
+        } => {
             let modifier = disclosure_kind.modifier();
             let mut aria_label = disclosure_kind.accessible_label().to_owned();
             if matches!(disclosure_kind, DisclaimerKind::Sponsored) {
@@ -6465,10 +7170,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
             let n = boxes.len();
             // Compute global min / max across all whiskers so all
             // boxes share an axis.
-            let g_min = boxes
-                .iter()
-                .map(|b| b.min)
-                .fold(f64::INFINITY, f64::min);
+            let g_min = boxes.iter().map(|b| b.min).fold(f64::INFINITY, f64::min);
             let g_max = boxes
                 .iter()
                 .map(|b| b.max)
@@ -6485,9 +7187,8 @@ pub fn render_section(section: &CmsSection) -> Markup {
             // Each box gets centered in its column with box width
             // = 60% of column width.
             let box_w = col_w * 0.6;
-            let aria_label = format!(
-                "{label} boxplot: {n} categories, range {g_min:.2}–{g_max:.2}"
-            );
+            let aria_label =
+                format!("{label} boxplot: {n} categories, range {g_min:.2}–{g_max:.2}");
             // Helper: map data value to SVG y (inverted: higher
             // values render higher on screen).
             let map_y = |v: f64| -> f64 {
@@ -6592,8 +7293,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
         } => {
             let tone_mod = tone.modifier();
             let outer_class = format!("loom-heatmap loom-heatmap--{tone_mod}");
-            let has_data = !cells.is_empty()
-                && !cells.iter().all(std::vec::Vec::is_empty);
+            let has_data = !cells.is_empty() && !cells.iter().all(std::vec::Vec::is_empty);
             if !has_data {
                 return html! {
                     figure class=(format!("{outer_class} loom-heatmap--empty")) data-loom-reveal {
@@ -6717,9 +7417,8 @@ pub fn render_section(section: &CmsSection) -> Markup {
             const MIDLINE_X: f64 = VBW / 2.0;
             // Each side has half the viewBox minus padding for bars.
             let half_usable = MIDLINE_X - PAD;
-            let aria_label = format!(
-                "{label} diverging bar: {n} rows, max absolute value {max_abs:.2}"
-            );
+            let aria_label =
+                format!("{label} diverging bar: {n} rows, max absolute value {max_abs:.2}");
             html! {
                 figure class=(outer_class) data-loom-reveal {
                     figcaption class="loom-divbar__label" { (label) }
@@ -6797,12 +7496,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 };
             }
             let n = buckets.len();
-            let max_count = buckets
-                .iter()
-                .map(|b| b.count)
-                .max()
-                .unwrap_or(0)
-                .max(1);
+            let max_count = buckets.iter().map(|b| b.count).max().unwrap_or(0).max(1);
             let total: u64 = buckets.iter().map(|b| u64::from(b.count)).sum();
             let range_min = buckets
                 .iter()
@@ -6869,9 +7563,8 @@ pub fn render_section(section: &CmsSection) -> Markup {
         } => {
             let orient_mod = orientation.modifier();
             let tone_mod = tone.modifier();
-            let outer_class = format!(
-                "loom-barchart loom-barchart--{orient_mod} loom-barchart--{tone_mod}"
-            );
+            let outer_class =
+                format!("loom-barchart loom-barchart--{orient_mod} loom-barchart--{tone_mod}");
             if bars.is_empty() {
                 return html! {
                     figure class=(format!("{outer_class} loom-barchart--empty")) data-loom-reveal {
@@ -6886,17 +7579,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
             let n = bars.len();
             // Clamp negatives + compute max.
             let clamped: Vec<f64> = bars.iter().map(|b| b.value.max(0.0)).collect();
-            let max = clamped
-                .iter()
-                .copied()
-                .fold(0.0_f64, f64::max)
-                .max(1.0_f64); // floor max at 1 so a zero-only chart still has a stable axis
+            let max = clamped.iter().copied().fold(0.0_f64, f64::max).max(1.0_f64); // floor max at 1 so a zero-only chart still has a stable axis
             const VBW: f64 = 200.0;
             const VBH: f64 = 80.0;
             const PAD: f64 = 4.0;
-            let aria_label = format!(
-                "{label} bar chart: {n} bars, max value {max:.2}"
-            );
+            let aria_label = format!("{label} bar chart: {n} bars, max value {max:.2}");
             html! {
                 figure class=(outer_class) data-loom-reveal {
                     figcaption class="loom-barchart__label" { (label) }
@@ -6977,10 +7664,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 };
             }
             let n = data_points.len();
-            let min = data_points
-                .iter()
-                .copied()
-                .fold(f64::INFINITY, f64::min);
+            let min = data_points.iter().copied().fold(f64::INFINITY, f64::min);
             let max = data_points
                 .iter()
                 .copied()
@@ -7170,8 +7854,9 @@ pub fn render_section(section: &CmsSection) -> Markup {
             devices,
             revoke_all_cta,
         } => {
-            let revoke_all_safe =
-                revoke_all_cta.as_ref().is_some_and(|c| is_safe_url(&c.href));
+            let revoke_all_safe = revoke_all_cta
+                .as_ref()
+                .is_some_and(|c| is_safe_url(&c.href));
             html! {
                 section class="loom-device-list" data-loom-reveal {
                     div class="loom-device-list__inner" {
@@ -7297,7 +7982,9 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 BackupCodesState::AlreadyGenerated => "already-generated",
             };
             let download_safe = download_cta.as_ref().is_some_and(|c| is_safe_url(&c.href));
-            let ack_safe = acknowledge_cta.as_ref().is_some_and(|c| is_safe_url(&c.href));
+            let ack_safe = acknowledge_cta
+                .as_ref()
+                .is_some_and(|c| is_safe_url(&c.href));
             html! {
                 section class={ "loom-backup-codes loom-backup-codes--" (modifier) } data-loom-reveal {
                     div class="loom-backup-codes__inner" {
@@ -7328,7 +8015,13 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         }
-        CmsSection::EmailVerifyResult { status, title, body, cta, secondary_cta } => {
+        CmsSection::EmailVerifyResult {
+            status,
+            title,
+            body,
+            cta,
+            secondary_cta,
+        } => {
             let resolved_title = title.as_deref().unwrap_or_else(|| status.default_title());
             let modifier = status.modifier();
             let primary_safe = cta.as_ref().is_some_and(|c| is_safe_url(&c.href));
@@ -7385,19 +8078,30 @@ fn render_auth_method(m: &AuthMethodChoice) -> Markup {
                 span class="loom-auth-method__label" { (label) }
             }
         },
-        AuthMethodChoice::MagicLink { placeholder, submit_label } => html! {
+        AuthMethodChoice::MagicLink {
+            placeholder,
+            submit_label,
+        } => html! {
             form class="loom-auth-method loom-auth-method--magic-link" {
                 input type="email" name="email" required placeholder=(placeholder) aria-label="Email";
                 button type="submit" class="loom-btn loom-btn--primary" { (submit_label) }
             }
         },
-        AuthMethodChoice::SmsOtp { placeholder, submit_label } => html! {
+        AuthMethodChoice::SmsOtp {
+            placeholder,
+            submit_label,
+        } => html! {
             form class="loom-auth-method loom-auth-method--sms-otp" {
                 input type="tel" name="phone" required placeholder=(placeholder) aria-label="Phone";
                 button type="submit" class="loom-btn loom-btn--primary" { (submit_label) }
             }
         },
-        AuthMethodChoice::Password { email_placeholder, password_placeholder, submit_label, forgot_label } => html! {
+        AuthMethodChoice::Password {
+            email_placeholder,
+            password_placeholder,
+            submit_label,
+            forgot_label,
+        } => html! {
             form class="loom-auth-method loom-auth-method--password" {
                 input type="email" name="email" required placeholder=(email_placeholder) aria-label="Email";
                 input type="password" name="password" required placeholder=(password_placeholder) aria-label="Password";
@@ -7486,7 +8190,9 @@ fn render_source_list_item(item: &SourceListItem) -> Markup {
 
 fn render_avatar(a: &CmsAvatar) -> Markup {
     match a {
-        CmsAvatar::None => html! { span class="loom-avatar" data-kind="none" aria-hidden="true" {} },
+        CmsAvatar::None => {
+            html! { span class="loom-avatar" data-kind="none" aria-hidden="true" {} }
+        }
         CmsAvatar::Initials { letters } => html! {
             span class="loom-avatar" data-kind="initials" aria-hidden="true" { (letters) }
         },
@@ -8038,10 +8744,10 @@ mod tests {
         ] {
             let p = CmsPage {
                 brand: None,
-            theme: None,
-            chrome: None,
-            content_width: None,
-            nav_actions: vec![],
+                theme: None,
+                chrome: None,
+                content_width: None,
+                nav_actions: vec![],
                 schema: None,
                 title: "x".to_owned(),
                 description: "x".to_owned(),
@@ -8612,7 +9318,10 @@ mod tests {
         let bq_close = html[bq_open..].find("</blockquote>").expect("/blockquote") + bq_open;
         let body_slice = &html[bq_open..bq_close];
         let p_open_count = body_slice.matches("<p>").count();
-        assert_eq!(p_open_count, 2, "expected 2 body <p> tags, got {p_open_count}: {body_slice}");
+        assert_eq!(
+            p_open_count, 2,
+            "expected 2 body <p> tags, got {p_open_count}: {body_slice}"
+        );
         assert!(html.contains(">First paragraph.<"));
         assert!(html.contains(">Second paragraph.<"));
     }
@@ -8653,11 +9362,7 @@ mod tests {
         }"#;
         let s: CmsSection = serde_json::from_str(json).expect("parse");
         match s {
-            CmsSection::PullQuote {
-                emphasis,
-                tone,
-                ..
-            } => {
+            CmsSection::PullQuote { emphasis, tone, .. } => {
                 assert!(matches!(emphasis, PullQuoteEmphasis::Inline));
                 assert!(matches!(tone, PullQuoteTone::Slate));
             }
@@ -9300,9 +10005,18 @@ mod tests {
 
     #[test]
     fn testimonial_decoration_modifier_class_matches_variant() {
-        assert_eq!(TestimonialDecoration::Decorated.modifier_class(), "deco-decorated");
-        assert_eq!(TestimonialDecoration::Editorial.modifier_class(), "deco-editorial");
-        assert_eq!(TestimonialDecoration::Minimal.modifier_class(), "deco-minimal");
+        assert_eq!(
+            TestimonialDecoration::Decorated.modifier_class(),
+            "deco-decorated"
+        );
+        assert_eq!(
+            TestimonialDecoration::Editorial.modifier_class(),
+            "deco-editorial"
+        );
+        assert_eq!(
+            TestimonialDecoration::Minimal.modifier_class(),
+            "deco-minimal"
+        );
     }
 
     #[test]
@@ -9355,9 +10069,18 @@ mod tests {
 
     #[test]
     fn feature_spotlight_decoration_modifier_class_matches_variant() {
-        assert_eq!(FeatureSpotlightDecoration::Decorated.modifier_class(), "deco-decorated");
-        assert_eq!(FeatureSpotlightDecoration::Editorial.modifier_class(), "deco-editorial");
-        assert_eq!(FeatureSpotlightDecoration::Minimal.modifier_class(), "deco-minimal");
+        assert_eq!(
+            FeatureSpotlightDecoration::Decorated.modifier_class(),
+            "deco-decorated"
+        );
+        assert_eq!(
+            FeatureSpotlightDecoration::Editorial.modifier_class(),
+            "deco-editorial"
+        );
+        assert_eq!(
+            FeatureSpotlightDecoration::Minimal.modifier_class(),
+            "deco-minimal"
+        );
     }
 
     #[test]
@@ -11751,9 +12474,7 @@ pub fn page_shell_themed(
                 _ => None,
             },
             CmsSection::SplitHero { visual, .. } => match visual {
-                SplitVisual::AssetSlug { slug, .. } => {
-                    Some(format!("/assets/{slug}.jpg"))
-                }
+                SplitVisual::AssetSlug { slug, .. } => Some(format!("/assets/{slug}.jpg")),
                 _ => None,
             },
             _ => None,
@@ -12155,9 +12876,7 @@ fn build_organization_jsonld(page: &CmsPage) -> String {
         }
     }
     let body = pairs.join(",");
-    format!(
-        "<script type=\"application/ld+json\">{{{body}}}</script>\n  "
-    )
+    format!("<script type=\"application/ld+json\">{{{body}}}</script>\n  ")
 }
 
 /// JSON-string-escape with the additional rule that any `</`
@@ -12228,8 +12947,7 @@ fn render_page_footer(footer: Option<&CmsFooter>) -> String {
         out.push_str("</h3>");
         if let Some(phone) = &c.phone {
             let bytes = phone.as_bytes();
-            let dialable = !bytes.is_empty()
-                && (bytes[0] == b'+' || bytes[0].is_ascii_digit());
+            let dialable = !bytes.is_empty() && (bytes[0] == b'+' || bytes[0].is_ascii_digit());
             if dialable {
                 let tel = phone.replace([' ', '-', '(', ')'], "");
                 out.push_str("<p><a href=\"tel:");
@@ -12735,7 +13453,10 @@ mod page_shell_tests {
         p.site_origin = Some("https://x.example".into());
         let h = page_shell_themed(&p, "/x.css", "<main></main>", None, None);
         // The escaped form appears in the JSON-LD payload.
-        assert!(h.contains("X<\\/script>HACK"), "expected escaped form in payload");
+        assert!(
+            h.contains("X<\\/script>HACK"),
+            "expected escaped form in payload"
+        );
         // Crucially: the FIRST `</script>` after the JSON-LD start
         // must be the legit closing tag of the JSON-LD block, not
         // an attacker-injected one inside the JSON value. We verify
@@ -12745,9 +13466,7 @@ mod page_shell_tests {
         // appears literally.
         let jsonld_start = h.find("application/ld+json").expect("jsonld present");
         let after_jsonld = &h[jsonld_start..];
-        let close_idx = after_jsonld
-            .find("</script>")
-            .expect("jsonld block closes");
+        let close_idx = after_jsonld.find("</script>").expect("jsonld block closes");
         let before_close = &after_jsonld[..close_idx];
         assert!(
             before_close.ends_with('}'),
@@ -12761,7 +13480,10 @@ mod page_shell_tests {
         assert_eq!(sanitize_anchor_id("support"), Some("support".into()));
         assert_eq!(sanitize_anchor_id("dark-sky"), Some("dark-sky".into()));
         assert_eq!(sanitize_anchor_id("a"), Some("a".into()));
-        assert_eq!(sanitize_anchor_id("section-2026"), Some("section-2026".into()));
+        assert_eq!(
+            sanitize_anchor_id("section-2026"),
+            Some("section-2026".into())
+        );
     }
 
     #[test]
@@ -12837,7 +13559,10 @@ mod page_shell_tests {
             polish: Vec::new(),
         }];
         let h = page_shell_themed(&p, "/x.css", &render_page(&p).into_string(), None, None);
-        assert!(h.contains("id=\"support\""), "expected id attr on h2; got: {h}");
+        assert!(
+            h.contains("id=\"support\""),
+            "expected id attr on h2; got: {h}"
+        );
     }
 
     #[test]
@@ -12873,7 +13598,9 @@ mod page_shell_tests {
         }];
         let body_only = render_page(&p).into_string();
         // The heading body has no id="..." between the class and the text.
-        assert!(body_only.contains("<h2 class=\"loom-heading\" data-loom-level=\"2\">No anchor.</h2>"));
+        assert!(
+            body_only.contains("<h2 class=\"loom-heading\" data-loom-level=\"2\">No anchor.</h2>")
+        );
     }
 
     // #122 (2026-05-20): EmailVerifyResult — typed verification
@@ -13427,7 +14154,11 @@ mod page_shell_tests {
         }"#;
         let section: CmsSection = serde_json::from_str(json).unwrap();
         match section {
-            CmsSection::ChangelogList { heading, entries, style } => {
+            CmsSection::ChangelogList {
+                heading,
+                entries,
+                style,
+            } => {
                 assert_eq!(heading, "Releases");
                 assert_eq!(entries.len(), 1);
                 assert_eq!(entries[0].version, "1.0.0");
@@ -13603,7 +14334,11 @@ mod page_shell_tests {
         }"#;
         let section: CmsSection = serde_json::from_str(json).unwrap();
         match section {
-            CmsSection::Disclaimer { disclosure_kind, body, source } => {
+            CmsSection::Disclaimer {
+                disclosure_kind,
+                body,
+                source,
+            } => {
                 assert_eq!(disclosure_kind, DisclaimerKind::Sponsored);
                 assert_eq!(body, "This article was sponsored by Acme.");
                 assert_eq!(source.as_deref(), Some("Acme Corp."));
@@ -13650,7 +14385,12 @@ mod page_shell_tests {
     #[test]
     fn source_list_numbered_emits_ol() {
         let p = source_list_page(
-            vec![source("Smith, J.", "On Editorial Density", None, SourceKind::Article)],
+            vec![source(
+                "Smith, J.",
+                "On Editorial Density",
+                None,
+                SourceKind::Article,
+            )],
             SourceListStyle::Numbered,
         );
         let html = render_page(&p).into_string();
@@ -13661,7 +14401,12 @@ mod page_shell_tests {
     #[test]
     fn source_list_bulleted_emits_ul() {
         let p = source_list_page(
-            vec![source("Lee, K.", "Substrate Doctrine", None, SourceKind::Book)],
+            vec![source(
+                "Lee, K.",
+                "Substrate Doctrine",
+                None,
+                SourceKind::Book,
+            )],
             SourceListStyle::Bulleted,
         );
         let html = render_page(&p).into_string();
@@ -13740,12 +14485,7 @@ mod page_shell_tests {
 
     #[test]
     fn source_list_date_published_renders_in_time_element() {
-        let mut item = source(
-            "Author",
-            "Work",
-            None,
-            SourceKind::Article,
-        );
+        let mut item = source("Author", "Work", None, SourceKind::Article);
         item.date_published = Some("2024-03-15".into());
         let p = source_list_page(vec![item], SourceListStyle::Numbered);
         let html = render_page(&p).into_string();
@@ -13809,7 +14549,11 @@ mod page_shell_tests {
         }"#;
         let section: CmsSection = serde_json::from_str(json).unwrap();
         match section {
-            CmsSection::SourceList { heading, items, style } => {
+            CmsSection::SourceList {
+                heading,
+                items,
+                style,
+            } => {
                 assert_eq!(heading, "Bibliography");
                 assert_eq!(items.len(), 1);
                 assert_eq!(items[0].kind, SourceKind::Article);
@@ -13822,7 +14566,14 @@ mod page_shell_tests {
     // #104 (2026-05-20) — Boxplot editorial-charts primitive.
     // Quantile-based statistical summary per category.
 
-    fn boxplot_entry(label: &str, min: f64, q1: f64, median: f64, q3: f64, max: f64) -> BoxplotEntry {
+    fn boxplot_entry(
+        label: &str,
+        min: f64,
+        q1: f64,
+        median: f64,
+        q3: f64,
+        max: f64,
+    ) -> BoxplotEntry {
         BoxplotEntry {
             label: label.into(),
             min,
@@ -13857,7 +14608,14 @@ mod page_shell_tests {
 
     #[test]
     fn boxplot_renders_box_whiskers_caps_median_per_entry() {
-        let p = boxplot_page(vec![boxplot_entry("/api/users", 10.0, 25.0, 40.0, 80.0, 200.0)]);
+        let p = boxplot_page(vec![boxplot_entry(
+            "/api/users",
+            10.0,
+            25.0,
+            40.0,
+            80.0,
+            200.0,
+        )]);
         let html = render_page(&p).into_string();
         assert!(html.contains("loom-boxplot"));
         assert!(html.contains("<svg"));
@@ -14015,11 +14773,7 @@ mod page_shell_tests {
 
     #[test]
     fn heatmap_renders_one_rect_per_cell() {
-        let p = heatmap_page(vec![
-            vec![1.0, 5.0],
-            vec![3.0, 8.0],
-            vec![2.0, 4.0],
-        ]);
+        let p = heatmap_page(vec![vec![1.0, 5.0], vec![3.0, 8.0], vec![2.0, 4.0]]);
         let html = render_page(&p).into_string();
         assert!(html.contains("loom-heatmap"));
         assert!(html.contains("<svg"));
@@ -14347,10 +15101,7 @@ mod page_shell_tests {
         // bar_w for 4 bins at viewBox 0..192 (after 4px padding
         // on each side = 192 usable) and checking the second
         // bar's x matches the first bar's x + bar_w exactly.
-        let p = histogram_page(vec![
-            bucket(0.0, 10.0, 5),
-            bucket(10.0, 20.0, 15),
-        ]);
+        let p = histogram_page(vec![bucket(0.0, 10.0, 5), bucket(10.0, 20.0, 15)]);
         let html = render_page(&p).into_string();
         // First bar starts at x=PAD=4.0; bar_w=(200-8)/2=96.0;
         // second bar should start at x=4.0+96.0=100.0
@@ -14567,10 +15318,7 @@ mod page_shell_tests {
 
     #[test]
     fn barchart_bar_labels_html_escaped() {
-        let p = barchart_page(
-            vec![bar("<script>", 5.0)],
-            BarChartOrientation::Vertical,
-        );
+        let p = barchart_page(vec![bar("<script>", 5.0)], BarChartOrientation::Vertical);
         let html = render_page(&p).into_string();
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
@@ -14604,7 +15352,9 @@ mod page_shell_tests {
         }"#;
         let section: CmsSection = serde_json::from_str(json).unwrap();
         match section {
-            CmsSection::BarChart { bars, orientation, .. } => {
+            CmsSection::BarChart {
+                bars, orientation, ..
+            } => {
                 assert_eq!(bars.len(), 2);
                 assert_eq!(orientation, BarChartOrientation::Vertical);
                 assert_eq!(bars[1].tone_override, Some(SparklineTone::Positive));
@@ -14744,7 +15494,12 @@ mod page_shell_tests {
         }"#;
         let section: CmsSection = serde_json::from_str(json).unwrap();
         match section {
-            CmsSection::Sparkline { label, data_points, tone, .. } => {
+            CmsSection::Sparkline {
+                label,
+                data_points,
+                tone,
+                ..
+            } => {
                 assert_eq!(label, "Daily users");
                 assert_eq!(data_points.len(), 4);
                 assert_eq!(tone, SparklineTone::Positive);
@@ -15015,7 +15770,9 @@ mod page_shell_tests {
         let html = render_page(&p).into_string();
         // Confirm phrase shown literally inside a <code> tag so the
         // user can verify the exact characters they must type.
-        assert!(html.contains("<code class=\"loom-account-delete__confirm-phrase\">delete my account</code>"));
+        assert!(html.contains(
+            "<code class=\"loom-account-delete__confirm-phrase\">delete my account</code>"
+        ));
         // Confirm input has the standard hardening attributes
         assert!(html.contains("autocomplete=\"off\""));
         assert!(html.contains("spellcheck=\"false\""));
@@ -15480,7 +16237,9 @@ mod page_shell_tests {
         }"#;
         let section: CmsSection = serde_json::from_str(json).unwrap();
         match section {
-            CmsSection::ConsentScreen { app_name, scopes, .. } => {
+            CmsSection::ConsentScreen {
+                app_name, scopes, ..
+            } => {
                 assert_eq!(app_name, "Acme");
                 assert_eq!(scopes.len(), 1);
                 assert_eq!(scopes[0].tier, ConsentScopeTier::Sensitive);

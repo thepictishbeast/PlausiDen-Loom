@@ -123,9 +123,7 @@ impl PolishToken {
     #[must_use]
     pub const fn category(self) -> PolishCategory {
         match self {
-            Self::DotGrid | Self::LinearMesh | Self::Topographic => {
-                PolishCategory::Background
-            }
+            Self::DotGrid | Self::LinearMesh | Self::Topographic => PolishCategory::Background,
             Self::EditorialRule | Self::InsetFrame | Self::BlueprintCorner => {
                 PolishCategory::Border
             }
@@ -193,12 +191,7 @@ impl PolishSet {
     /// Compose the joined CSS class string. Empty for an empty set.
     #[must_use]
     pub fn css_classes(&self) -> String {
-        let mut classes: Vec<String> = self
-            .0
-            .iter()
-            .copied()
-            .map(PolishToken::css_class)
-            .collect();
+        let mut classes: Vec<String> = self.0.iter().copied().map(PolishToken::css_class).collect();
         classes.sort();
         classes.dedup();
         classes.join(" ")
@@ -337,10 +330,7 @@ mod tests {
 
     #[test]
     fn polish_set_from_slice_preserves_tokens() {
-        let set = PolishSet::from_slice(&[
-            PolishToken::DotGrid,
-            PolishToken::EditorialRule,
-        ]);
+        let set = PolishSet::from_slice(&[PolishToken::DotGrid, PolishToken::EditorialRule]);
         assert_eq!(set.len(), 2);
         assert!(!set.is_empty());
     }
@@ -358,15 +348,9 @@ mod tests {
 
     #[test]
     fn polish_set_has_motion_true_when_motion_token_present() {
-        let with_motion = PolishSet::from_slice(&[
-            PolishToken::DotGrid,
-            PolishToken::SlowReveal,
-        ]);
+        let with_motion = PolishSet::from_slice(&[PolishToken::DotGrid, PolishToken::SlowReveal]);
         assert!(with_motion.has_motion());
-        let without = PolishSet::from_slice(&[
-            PolishToken::DotGrid,
-            PolishToken::EditorialRule,
-        ]);
+        let without = PolishSet::from_slice(&[PolishToken::DotGrid, PolishToken::EditorialRule]);
         assert!(!without.has_motion());
         assert!(!PolishSet::new().has_motion());
     }
@@ -399,10 +383,7 @@ mod tests {
     fn polish_set_serializes_as_flat_array() {
         // PolishSet uses #[serde(transparent)] so the JSON shape is
         // a flat array, not `{"0": [...]}`.
-        let set = PolishSet::from_slice(&[
-            PolishToken::DotGrid,
-            PolishToken::EditorialRule,
-        ]);
+        let set = PolishSet::from_slice(&[PolishToken::DotGrid, PolishToken::EditorialRule]);
         let json = serde_json::to_string(&set).expect("ser");
         assert_eq!(json, r#"["dot-grid","editorial-rule"]"#);
     }

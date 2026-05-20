@@ -80,8 +80,7 @@ mod tests {
         let path_str = tmp.to_string_lossy().into_owned();
         cmd_audit(&path_str, "https://example.com").expect("ok");
         let body = std::fs::read_to_string(&tmp).expect("readable");
-        let v: serde_json::Value =
-            serde_json::from_str(&body).expect("emitted JSON parses");
+        let v: serde_json::Value = serde_json::from_str(&body).expect("emitted JSON parses");
         assert_eq!(v["name"], "loom-audit");
         assert_eq!(v["baseUrl"], "https://example.com");
         assert!(v["steps"].as_array().unwrap().len() >= 3);

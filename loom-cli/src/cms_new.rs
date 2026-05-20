@@ -198,7 +198,8 @@ fn cms_template_explainer(title: &str, path: &str) -> loom_cms_render::CmsPage {
 
 fn cms_template_form(title: &str, path: &str) -> loom_cms_render::CmsPage {
     use loom_cms_render::{
-        CmsFormField, CmsFormStep, CmsFormStepState, CmsFormSubmit, CmsPage, CmsSection,
+        CmsFormField, CmsFormStep, CmsFormStepState, CmsFormStyle, CmsFormSubmit, CmsPage,
+        CmsSection,
     };
     CmsPage {
         brand: None,
@@ -224,6 +225,7 @@ fn cms_template_form(title: &str, path: &str) -> loom_cms_render::CmsPage {
             },
             CmsSection::Form {
                 legend: "Submit".to_owned(),
+                style: CmsFormStyle::default(),
                 submit: CmsFormSubmit {
                     label: "Submit".to_owned(),
                     secondary_label: Some("Cancel".to_owned()),

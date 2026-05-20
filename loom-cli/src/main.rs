@@ -1747,7 +1747,6 @@ use audit::cmd_audit;
 // === cmd_new + template_* extracted to new.rs (Loom issue #3 bloat reduction) ===
 use new::cmd_new;
 
-
 /// Emit a GTK 4 CSS theme built from loom-tokens. Maps each
 /// semantic role to GTK's named colors so a downstream Thundercrab
 /// GTK build (or any GTK app) inherits the same palette as the web
@@ -8012,7 +8011,12 @@ if(fld&&fld.contentEditable==='true'){commitField(fld);}\
 fn render_section_for_edit(sec: &loom_cms_render::CmsSection) -> String {
     use loom_cms_render::CmsSection;
     match sec {
-        CmsSection::Heading { level, text, id: _, polish: _ } => {
+        CmsSection::Heading {
+            level,
+            text,
+            id: _,
+            polish: _,
+        } => {
             // T36: HeadingLevel is typed; no clamp needed (the
             // enum constructor + Deserialize already enforce
             // 2..=6).
@@ -8023,7 +8027,10 @@ fn render_section_for_edit(sec: &loom_cms_render::CmsSection) -> String {
                 escape_html_text(text)
             )
         }
-        CmsSection::Paragraph { text, decoration: _ } => format!(
+        CmsSection::Paragraph {
+            text,
+            decoration: _,
+        } => format!(
             "<p class=\"loom-prose\" data-edit-field=\"text\">{}</p>",
             escape_html_text(text)
         ),
@@ -12138,7 +12145,8 @@ struct WebAuthnRegisteredCredential {
     /// Monotonic counter; must strictly increase per auth.
     sign_count: u32,
     /// Unix-secs when credential was first registered.
-    #[allow(dead_code)] // audit-trail metadata; persisted but not yet queried by any code path.
+    #[allow(dead_code)]
+    // audit-trail metadata; persisted but not yet queried by any code path.
     registered_at: u64,
 }
 
@@ -19506,10 +19514,10 @@ mod editor_schema_tests {
         let s = page_shell(
             &loom_cms_render::CmsPage {
                 brand: None,
-            theme: None,
-            chrome: None,
-            content_width: None,
-            nav_actions: vec![],
+                theme: None,
+                chrome: None,
+                content_width: None,
+                nav_actions: vec![],
                 schema: None,
                 title: "T".into(),
                 description: "D".into(),
@@ -19539,10 +19547,10 @@ mod editor_schema_tests {
         let s = page_shell(
             &loom_cms_render::CmsPage {
                 brand: None,
-            theme: None,
-            chrome: None,
-            content_width: None,
-            nav_actions: vec![],
+                theme: None,
+                chrome: None,
+                content_width: None,
+                nav_actions: vec![],
                 schema: None,
                 title: "T".into(),
                 description: "D".into(),

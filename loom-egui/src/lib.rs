@@ -73,7 +73,9 @@ pub fn show_section(ui: &mut Ui, section: &CmsSection) {
         CmsSection::DropCap { text } => {
             ui.label(text);
         }
-        CmsSection::PullQuote { body, attribution, .. } => {
+        CmsSection::PullQuote {
+            body, attribution, ..
+        } => {
             ui.label(RichText::new(body).italics().size(15.0));
             if let Some(a) = attribution {
                 ui.label(RichText::new(format!("— {a}")).weak());
@@ -251,7 +253,8 @@ mod tests {
     #[test]
     fn show_page_does_not_panic_on_mixed_sections() {
         let sections: Vec<CmsSection> = vec![
-            serde_json::from_value(serde_json::json!({"kind":"heading","text":"H","level":2})).unwrap(),
+            serde_json::from_value(serde_json::json!({"kind":"heading","text":"H","level":2}))
+                .unwrap(),
             serde_json::from_value(serde_json::json!({"kind":"paragraph","text":"P"})).unwrap(),
             serde_json::from_value(serde_json::json!({"kind":"divider","style":"line"})).unwrap(),
             serde_json::from_value(serde_json::json!({
@@ -259,22 +262,26 @@ mod tests {
                 "title":"T",
                 "lede":"L",
                 "cta":{"label":"Go","href":"/x","data_backend":"x"}
-            })).unwrap(),
+            }))
+            .unwrap(),
             serde_json::from_value(serde_json::json!({
                 "kind":"pull_quote",
                 "body":"B",
                 "attribution":"A"
-            })).unwrap(),
+            }))
+            .unwrap(),
             serde_json::from_value(serde_json::json!({
                 "kind":"code",
                 "lang":"rust",
                 "body":"fn main(){}",
                 "terminal":false
-            })).unwrap(),
+            }))
+            .unwrap(),
             serde_json::from_value(serde_json::json!({
                 "kind":"epigraph",
                 "body":"E"
-            })).unwrap(),
+            }))
+            .unwrap(),
         ];
         let page = page_with_sections(sections);
         __run_test_ui(|ui| {
