@@ -7987,6 +7987,7 @@ pub const BASE_THEME_CSS: &str = ":root{\
 --loom-radius-md:10px;--loom-radius-lg:18px;--loom-radius-xl:24px;--loom-radius-full:9999px;\
 --loom-size-icon-sm:20px;--loom-size-icon-md:24px;\
 --loom-size-avatar-sm:40px;--loom-size-avatar-md:48px;\
+--loom-blur-sm:6px;--loom-blur-md:14px;--loom-blur-lg:24px;\
 --loom-break-xl:80rem;\
 --loom-border-component:1px solid var(--loom-color-border,var(--loom-border));\
 --loom-transition-fast:120ms cubic-bezier(.22,1,.36,1)}\
@@ -8049,7 +8050,7 @@ background:var(--loom-bg);color:var(--loom-fg);border:2px solid var(--loom-focus
 border-radius:var(--loom-radius);z-index:1000;box-shadow:var(--loom-shadow-md)}\
 header.loom-page-header{padding:1rem 1.75rem;border-bottom:1px solid color-mix(in oklab,var(--loom-border) 60%,transparent);\
 background:color-mix(in oklab,var(--loom-bg) 88%,transparent);position:sticky;top:0;z-index:50;\
-backdrop-filter:saturate(160%) blur(14px);-webkit-backdrop-filter:saturate(160%) blur(14px)}\
+backdrop-filter:saturate(160%) blur(var(--loom-blur-md));-webkit-backdrop-filter:saturate(160%) blur(var(--loom-blur-md))}\
 footer.loom-page-footer{padding:2.5rem 1.75rem;border-top:1px solid var(--loom-border);\
 color:var(--loom-muted);margin-top:4rem;font-size:.92rem}\
 nav.loom-page-nav{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}\
