@@ -61,9 +61,9 @@ Variants where the default value matches a specific consumer's preference and op
 | `Card` shape | `rounded-xl` | SaaS content card | Editorial counterpart shipped: `CardShape::Square`. ✅ |
 | `Nav` style | animated logo + sliding underline | SaaS nav chrome | Editorial counterpart shipped: `NavStyle::Editorial`. ✅ |
 | `Footer` style | `rounded-lg` logo badge | SaaS footer logo | Editorial counterpart shipped: `FooterStyle::Editorial`. ✅ |
-| `Form` chrome (rendered via CmsForm) | `rounded-md` + `bg-slate-50` | SaaS pill input | Editorial counterpart shipped on the loom-components side: `FormStyle::Editorial`. Wire-through into `CmsFormField` pending — see TODO below. |
+| `Form` chrome (rendered via CmsForm) | `rounded-md` + `bg-slate-50` | SaaS pill input | Editorial counterpart shipped on loom-components: `FormStyle::Editorial`. Wire-through into `CmsSection::Form` shipped 2026-05-20 (commits 60c6a78 + d3560e7) — `CmsFormStyle` enum + `style` field on the variant + `data-loom-form-style` attr emitted on both `<section>` and `<form>`. ✅ |
 
-**Impact:** 11 of 12 known consumer-default leaks now have editorial counterparts behind explicit opt-in variant axes. Back-compat preserved via Default impls.
+**Impact:** 12 of 12 known consumer-default leaks now have editorial counterparts behind explicit opt-in variant axes. Back-compat preserved via Default impls (`Default = Rounded` / `Default = Decorated` / etc.).
 
 ### Category 4: Non-issues (auditable but acceptable)
 
@@ -82,16 +82,29 @@ Variants that look consumer-shaped on first read but actually serve a general pu
 
 ## Outstanding work (TODOs)
 
-* **Wire `FormStyle::Editorial` through `CmsFormField`.** The loom-components primitive has the axis; the cms-render layer's per-field types don't carry `style` yet. Add a `style: FormStyle` field at the `CmsSection::Form` level so operators can opt the whole form into editorial chrome.
-* **Extract Category-1 variants** (GameTile / GameGrid / ThreadRow / ThreadList / VideoCard / VideoGridSection / CommentThread / FeedPost / CrucibleWidget) **to per-tenant overlay crates.** Reduces CmsSection variant count by ~10 and makes Loom proper consumer-agnostic at the primitive level.
-* **Update Category-2 docstrings** to drop consumer-specific references. No code change; just documentation.
+* ~~**Wire `FormStyle::Editorial` through `CmsFormField`.**~~ ✅ **CLOSED 2026-05-20.** Shipped via commits 60c6a78 (CmsFormStyle enum + render_form param) + d3560e7 (variant field wire-through + 7-fixture migration). Operator now sets `"style": "editorial"` in their cms/*.json to opt the whole form into editorial chrome.
+* **Extract Category-1 variants** (GameTile / GameGrid / ThreadRow / ThreadList / VideoCard / VideoGridSection / CommentThread / FeedPost / CrucibleWidget) **to per-tenant overlay crates.** Reduces CmsSection variant count by ~10 and makes Loom proper consumer-agnostic at the primitive level. **Status:** pending refactor work; not addressed this session (substantial cross-crate move). Path forward documented; deferred to a session with dedicated bandwidth.
+* ~~**Update Category-2 docstrings** to drop consumer-specific references.~~ ✅ **CLOSED 2026-05-20** via commit 151be38. Composer + ChromeKind::PageShell + Hero + TextLink module/PrimaryMedium docs all generic-now.
 
 ---
 
 ## Closing notes
 
-The audit confirms substantial de-consumer-shaping work landed in this loop (Category 3 is mostly ✅). The remaining work (Category 1 extract + Category 2 doc cleanups + Category 4 doc clarifications) is straightforward and can land as separate iterations.
+The audit confirms full de-consumer-shaping work landed across **all** Category-3 entries (12/12 ✅) and Category-2 docstring cleanups (3/3 ✅). The remaining open work is Category-1 extract (per-tenant overlay crates), which is a multi-commit refactor deferred to a dedicated session.
 
-The editorial composition vocabulary now spans 11 axes on the primitive side (HeroEditorial / KvPairCard / PullQuote / CodeShell / FormStyle / BadgeShape / ButtonShape / ModalShape+Elevation / ToastShape+Elevation / CardShape / NavStyle / FooterStyle). Per [[consumer-shaped-substrate]] memory, that's the highest-leverage pattern: variant-axis additions instead of monolithic primitive rewrites.
+The editorial composition vocabulary now spans **12 axes** on the primitive side: HeroEditorial / KvPairCard / PullQuote / CodeShell / **CmsFormStyle (now wired)** / BadgeShape / ButtonShape / ModalShape+Elevation / ToastShape+Elevation / CardShape / NavStyle / FooterStyle. Per [[consumer-shaped-substrate]] memory, that's the highest-leverage pattern: variant-axis additions instead of monolithic primitive rewrites.
 
-Future audits should re-run this enumeration after each new editorial-axis addition to verify the substrate isn't drifting back toward consumer-specific defaults.
+In parallel, the substrate now ships a **per-tenant corpora mechanism** (PlausiDen-Forge/docs/PER_TENANT_CORPORA.md + commits 534f02c → 65c443c) — operators extend the substrate's curated lists (jargon, scaffold defaults, body-leak markers, vague-link phrases, reference sites, density-tier overrides) via `forge.toml [tenant_corpus]` ADDITIVELY without forking the substrate. Wired across 4 phases: placeholder_value_audit (additive), aesthetic_distinctiveness (additive + subtractive + typo-guard), hunted_tier (additive), density_audit (per-pattern replace).
+
+Future audits should re-run this enumeration after each new editorial-axis addition to verify the substrate isn't drifting back toward consumer-specific defaults. Tenants who need to express domain-specific shape signals should reach for the per-tenant corpora mechanism BEFORE proposing changes to the curated baseline.
+
+## Cross-cutting changes since v1 audit (2026-05-20 session)
+
+For traceability when reading the audit alongside the substrate state at HEAD:
+
+* **Sparkline / BarChart / Histogram / DivergingBar / Heatmap / Boxplot** — 6-primitive editorial-charts vocabulary (chart-vocab axis closed; commits c58e4dc / 1a544e7 / f29ace0 / e088a36 / b71ffe8 / 8aed5d5)
+* **EmailVerifyResult / BackupCodes / ConsentScreen / DeviceList / AccountDelete / PasswordChange** — 6-primitive account-flow vocabulary (commits 2f3f820 / c0b8106 / fd6b9d2 / 9409a32 / ae06476 / a81db82)
+* **Section editorial + amoled + dense variants** — completes Section-primitive tier ladder (commit abf145b)
+* **CSS-only theme toggle for noscript builds** (commit 7b82814) + **HUNTED_TIER_CHECKLIST.md** ops doc (commit de73010) + **TOR_OPERATIONS.md** server-side runbook (commit 9a684dd) + **NOSCRIPT_AUDIT.md** Loom side (commit 48b9467)
+
+PRIMITIVE_COUNT bumped 145 → 157 across these additions; substrate-doctrine memory captures the consolidated approach.
