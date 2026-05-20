@@ -48,7 +48,7 @@ pub use nav::{Nav, NavCta, NavLink};
 pub use picture::{Picture, PictureFit, PictureLoading, PicturePriority};
 pub use pull_quote::{PullQuote, PullQuoteEmphasis, PullQuoteTone};
 pub use section::{Section, SectionPadding, SectionTheme, SectionWidth};
-pub use toast::{Toast, ToastDuration, ToastTone};
+pub use toast::{Toast, ToastDuration, ToastElevation, ToastShape, ToastTone};
 pub use typography::{
     BodyText, Heading, HeadingLevel, HeadingTone, HeadingVariant, HelperSize, HelperText, Lede,
 };

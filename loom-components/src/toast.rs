@@ -42,6 +42,29 @@ pub enum ToastDuration {
     Sticky,
 }
 
+/// Corner / chrome shape. `Rounded` is the SaaS-canonical back-compat
+/// default; `Square` strips to `rounded-none` for the flat editorial
+/// composition (pairs with `ButtonShape::Square` + `ModalShape::Square`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ToastShape {
+    /// `rounded-lg` toast card. Back-compat default.
+    #[default]
+    Rounded,
+    /// `rounded-none` flat editorial notification strip.
+    Square,
+}
+
+/// Shadow elevation. `Soft` keeps the legacy `shadow-md`; `Flat`
+/// strips the shadow for an editorial inline notification look.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ToastElevation {
+    /// `shadow-md` — the legacy SaaS shape. Back-compat default.
+    #[default]
+    Soft,
+    /// No shadow — flat editorial notification.
+    Flat,
+}
+
 /// A typed toast notification.
 pub struct Toast<'a> {
     /// Visible title (one short line).
@@ -52,6 +75,10 @@ pub struct Toast<'a> {
     pub tone: ToastTone,
     /// Approximate auto-dismiss duration.
     pub duration: ToastDuration,
+    /// Corner / chrome shape. Defaults to [`ToastShape::Rounded`].
+    pub shape: ToastShape,
+    /// Shadow elevation tier. Defaults to [`ToastElevation::Soft`].
+    pub elevation: ToastElevation,
 }
 
 impl Toast<'_> {
@@ -77,8 +104,34 @@ impl Toast<'_> {
             ToastDuration::Default => "default",
             ToastDuration::Sticky => "sticky",
         };
+        let shape_class = match self.shape {
+            ToastShape::Rounded => "rounded-lg",
+            ToastShape::Square => "rounded-none",
+        };
+        let elevation_class = match self.elevation {
+            ToastElevation::Soft => "shadow-md",
+            ToastElevation::Flat => "",
+        };
+        let shape_attr = match self.shape {
+            ToastShape::Rounded => "rounded",
+            ToastShape::Square => "square",
+        };
+        let elevation_attr = match self.elevation {
+            ToastElevation::Soft => "soft",
+            ToastElevation::Flat => "flat",
+        };
+        let wrapper_class = format!(
+            "{shape_class} border {elevation_class} px-4 py-3 max-w-sm {tone_classes}"
+        );
         html! {
-            div role=(role) aria-live=(live) data-toast-duration=(duration) class=(format!("rounded-lg border shadow-md px-4 py-3 max-w-sm {tone_classes}")) {
+            div
+                role=(role)
+                aria-live=(live)
+                data-toast-duration=(duration)
+                data-loom-toast-shape=(shape_attr)
+                data-loom-toast-elevation=(elevation_attr)
+                class=(wrapper_class)
+            {
                 p class="font-semibold text-sm" { (self.title) }
                 @if let Some(body) = self.body {
                     p class="text-sm mt-1 opacity-80" { (body) }
@@ -92,16 +145,20 @@ impl Toast<'_> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn info_uses_polite_status_role() {
-        let s = Toast {
+    fn fixture<'a>() -> Toast<'a> {
+        Toast {
             title: "Saved",
             body: None,
             tone: ToastTone::Info,
             duration: ToastDuration::Default,
+            shape: ToastShape::default(),
+            elevation: ToastElevation::default(),
         }
-        .render()
-        .into_string();
+    }
+
+    #[test]
+    fn info_uses_polite_status_role() {
+        let s = fixture().render().into_string();
         assert!(s.contains(r#"role="status""#));
         assert!(s.contains(r#"aria-live="polite""#));
     }
@@ -113,6 +170,8 @@ mod tests {
             body: Some("Something broke"),
             tone: ToastTone::Danger,
             duration: ToastDuration::Sticky,
+            shape: ToastShape::default(),
+            elevation: ToastElevation::default(),
         }
         .render()
         .into_string();
@@ -129,6 +188,8 @@ mod tests {
             body: None,
             tone: ToastTone::Success,
             duration: ToastDuration::Short,
+            shape: ToastShape::default(),
+            elevation: ToastElevation::default(),
         }
         .render()
         .into_string();
@@ -144,6 +205,8 @@ mod tests {
             body: None,
             tone: ToastTone::Warning,
             duration: ToastDuration::Default,
+            shape: ToastShape::default(),
+            elevation: ToastElevation::default(),
         }
         .render()
         .into_string();
@@ -153,9 +216,64 @@ mod tests {
             body: None,
             tone: ToastTone::Danger,
             duration: ToastDuration::Sticky,
+            shape: ToastShape::default(),
+            elevation: ToastElevation::default(),
         }
         .render()
         .into_string();
         assert!(danger.contains("red"));
+    }
+
+    #[test]
+    fn default_shape_rounded_with_shadow_md() {
+        let s = fixture().render().into_string();
+        assert!(s.contains("rounded-lg"));
+        assert!(s.contains("shadow-md"));
+        assert!(s.contains(r#"data-loom-toast-shape="rounded""#));
+        assert!(s.contains(r#"data-loom-toast-elevation="soft""#));
+    }
+
+    #[test]
+    fn square_shape_strips_radius() {
+        let s = Toast {
+            shape: ToastShape::Square,
+            ..fixture()
+        }
+        .render()
+        .into_string();
+        assert!(s.contains("rounded-none"));
+        assert!(!s.contains("rounded-lg"));
+        assert!(s.contains(r#"data-loom-toast-shape="square""#));
+    }
+
+    #[test]
+    fn flat_elevation_strips_shadow() {
+        let s = Toast {
+            elevation: ToastElevation::Flat,
+            ..fixture()
+        }
+        .render()
+        .into_string();
+        assert!(!s.contains("shadow-md"));
+        assert!(s.contains(r#"data-loom-toast-elevation="flat""#));
+    }
+
+    #[test]
+    fn editorial_combo_square_and_flat() {
+        let s = Toast {
+            shape: ToastShape::Square,
+            elevation: ToastElevation::Flat,
+            ..fixture()
+        }
+        .render()
+        .into_string();
+        assert!(s.contains("rounded-none"));
+        assert!(!s.contains("shadow"));
+    }
+
+    #[test]
+    fn shape_and_elevation_defaults_back_compat() {
+        assert!(matches!(ToastShape::default(), ToastShape::Rounded));
+        assert!(matches!(ToastElevation::default(), ToastElevation::Soft));
     }
 }
