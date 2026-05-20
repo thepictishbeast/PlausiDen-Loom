@@ -8350,6 +8350,14 @@ pub fn page_shell_themed(
         }
         None => String::new(),
     };
+    // Auto-emit Organization JSON-LD when brand + site_origin are
+    // present. Closes the Forge seo phase's "no JSON-LD structured
+    // data" warning on every Forge-built page without forcing
+    // authors to hand-author a script block. Phone / email /
+    // jurisdiction are pulled from the typed footer.contact block
+    // when set. Skipped silently when no brand or site_origin —
+    // emitting an empty Organization is worse than emitting none.
+    let jsonld_block = build_organization_jsonld(page);
     // Brand label: explicit page.brand wins; otherwise derive from
     // the first segment of title before a separator. Never hardcode
     // another site's name.
@@ -8540,7 +8548,7 @@ pub fn page_shell_themed(
   {og_image_block}<meta name=\"twitter:card\" content=\"summary_large_image\">\n\
   <meta name=\"twitter:title\" content=\"{title}\">\n\
   <meta name=\"twitter:description\" content=\"{description}\">\n\
-  {DEFAULT_FAVICON_LINK}\n\
+  {jsonld_block}{DEFAULT_FAVICON_LINK}\n\
   {eruda_block}{style_block}{css_link}\n\
 </head>\n\
 {body_html}\n\
@@ -8622,6 +8630,94 @@ fn render_chrome_body(
 }
 
 /// Render the page footer. `None` → empty back-compat footer
+/// Build an `Organization` JSON-LD `<script>` block from page-
+/// level metadata. Returns an empty string when the necessary
+/// fields (brand + site_origin) aren't both present — skipping
+/// the block is better than emitting a `{"@type":"Organization"}`
+/// with no name. Hand-rolls the JSON because the payload is
+/// small and we want byte-control over the escape rules (JSON
+/// strings inside an HTML `<script>` need `</` escaping to
+/// prevent early-`</script>` injection).
+fn build_organization_jsonld(page: &CmsPage) -> String {
+    let Some(origin) = page.site_origin.as_deref() else {
+        return String::new();
+    };
+    let Some(brand) = page.brand.as_deref() else {
+        return String::new();
+    };
+    let trimmed_origin = origin.trim_end_matches('/');
+    let mut pairs = Vec::<String>::new();
+    pairs.push("\"@context\":\"https://schema.org\"".to_owned());
+    pairs.push("\"@type\":\"Organization\"".to_owned());
+    pairs.push(format!("\"name\":\"{}\"", jsonld_escape(brand)));
+    pairs.push(format!("\"url\":\"{}\"", jsonld_escape(trimmed_origin)));
+    if let Some(contact) = page.footer.as_ref().and_then(|f| f.contact.as_ref()) {
+        if let Some(email) = contact.email.as_deref() {
+            pairs.push(format!("\"email\":\"{}\"", jsonld_escape(email)));
+        }
+        if let Some(phone) = contact.phone.as_deref() {
+            // contactPoint structured object — gives schema.org enough
+            // to render rich contact actions in SERP-style consumers.
+            pairs.push(format!(
+                "\"contactPoint\":{{\"@type\":\"ContactPoint\",\"telephone\":\"{}\",\"contactType\":\"customer support\"}}",
+                jsonld_escape(phone)
+            ));
+        }
+        if let Some(juris) = contact.jurisdiction.as_deref() {
+            // Best-effort parse: "Massachusetts, USA" → region +
+            // country. Falls back to plain addressRegion when only
+            // one segment.
+            let (region, country) = match juris.split_once(',') {
+                Some((r, c)) => (r.trim().to_owned(), Some(c.trim().to_owned())),
+                None => (juris.trim().to_owned(), None),
+            };
+            let mut addr = format!(
+                "\"address\":{{\"@type\":\"PostalAddress\",\"addressRegion\":\"{}\"",
+                jsonld_escape(&region)
+            );
+            if let Some(c) = country {
+                addr.push_str(&format!(",\"addressCountry\":\"{}\"", jsonld_escape(&c)));
+            }
+            addr.push('}');
+            pairs.push(addr);
+        }
+    }
+    let body = pairs.join(",");
+    format!(
+        "<script type=\"application/ld+json\">{{{body}}}</script>\n  "
+    )
+}
+
+/// JSON-string-escape with the additional rule that any `</`
+/// substring is broken up — even inside a string literal that's a
+/// valid JSON value, browsers terminate a `<script>` block at the
+/// first `</script` tag-open. Splitting `<\/` survives JSON parse
+/// AND prevents the early-close attack.
+fn jsonld_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    let mut prev_was_lt = false;
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '/' if prev_was_lt => {
+                // Break up </script: replace the slash that would
+                // make the closing tag.
+                out.push_str("\\/");
+            }
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+        prev_was_lt = ch == '<';
+    }
+    out
+}
+
 /// (just the styled tag). `Some` → typed multi-column layout
 /// with columns / contact info / legal links / colophon.
 fn render_page_footer(footer: Option<&CmsFooter>) -> String {
@@ -8975,6 +9071,92 @@ mod page_shell_tests {
             "exactly one <main> open: composed = {composed}"
         );
         assert_eq!(main_close_count, 1, "exactly one </main> close");
+    }
+
+    #[test]
+    fn jsonld_emitted_when_brand_and_site_origin_set() {
+        let mut p = empty_page();
+        p.brand = Some("PlausiDen LLC".into());
+        p.site_origin = Some("https://dev.plausiden.com".into());
+        let h = page_shell_themed(&p, "/x.css", "<main></main>", None, None);
+        assert!(h.contains("application/ld+json"));
+        assert!(h.contains("\"@type\":\"Organization\""));
+        assert!(h.contains("\"name\":\"PlausiDen LLC\""));
+        assert!(h.contains("\"url\":\"https://dev.plausiden.com\""));
+    }
+
+    #[test]
+    fn jsonld_skipped_when_brand_missing() {
+        let mut p = empty_page();
+        p.site_origin = Some("https://x.example".into());
+        let h = page_shell_themed(&p, "/x.css", "<main></main>", None, None);
+        assert!(!h.contains("application/ld+json"));
+    }
+
+    #[test]
+    fn jsonld_skipped_when_origin_missing() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        let h = page_shell_themed(&p, "/x.css", "<main></main>", None, None);
+        assert!(!h.contains("application/ld+json"));
+    }
+
+    #[test]
+    fn jsonld_includes_contact_point_when_phone_set() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.footer = Some(CmsFooter {
+            columns: vec![],
+            contact: Some(CmsFooterContact {
+                heading: None,
+                phone: Some("978-351-6495".into()),
+                email: Some("team@x.example".into()),
+                address: None,
+                jurisdiction: Some("Massachusetts, USA".into()),
+            }),
+            legal_links: vec![],
+            colophon: None,
+        });
+        let h = page_shell_themed(&p, "/x.css", "<main></main>", None, None);
+        assert!(h.contains("\"telephone\":\"978-351-6495\""));
+        assert!(h.contains("\"email\":\"team@x.example\""));
+        assert!(h.contains("\"addressRegion\":\"Massachusetts\""));
+        assert!(h.contains("\"addressCountry\":\"USA\""));
+    }
+
+    #[test]
+    fn jsonld_escape_breaks_script_close_tag() {
+        // A brand string with `</script>` in it must not let an
+        // attacker close the script block early. The HTML parser
+        // terminates `<script>` on the first `</script>` it sees —
+        // we break it up as `<\/script>` which is valid JSON
+        // (JSON.parse decodes `\/` to `/`) but does NOT match the
+        // HTML script-close pattern.
+        let mut p = empty_page();
+        p.brand = Some("X</script>HACK".into());
+        p.site_origin = Some("https://x.example".into());
+        let h = page_shell_themed(&p, "/x.css", "<main></main>", None, None);
+        // The escaped form appears in the JSON-LD payload.
+        assert!(h.contains("X<\\/script>HACK"), "expected escaped form in payload");
+        // Crucially: the FIRST `</script>` after the JSON-LD start
+        // must be the legit closing tag of the JSON-LD block, not
+        // an attacker-injected one inside the JSON value. We verify
+        // by checking the character right before that `</script>`
+        // is the JSON object's closing brace `}` — which it would
+        // be if escape did its job and only the structural tag
+        // appears literally.
+        let jsonld_start = h.find("application/ld+json").expect("jsonld present");
+        let after_jsonld = &h[jsonld_start..];
+        let close_idx = after_jsonld
+            .find("</script>")
+            .expect("jsonld block closes");
+        let before_close = &after_jsonld[..close_idx];
+        assert!(
+            before_close.ends_with('}'),
+            "expected `</script>` immediately after the JSON object's `}}`; got tail: {:?}",
+            &before_close[before_close.len().saturating_sub(40)..]
+        );
     }
 }
 
