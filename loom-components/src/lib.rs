@@ -28,7 +28,8 @@ pub mod typography;
 pub use badge::{Badge, BadgeSize, BadgeTone};
 pub use button::{Button, ButtonSize, ButtonType, ButtonVariant, Decoration, IconPosition};
 pub use card::{
-    Card, CardElevation, CardHover, CardPadding, FeatureCard, FeatureCardStyle, LinkCard,
+    Card, CardElevation, CardHover, CardPadding, FeatureCard, FeatureCardStyle, KvPairCard,
+    KvPairDensity, KvPairTone, LinkCard,
 };
 pub use composer::{Composer, ComposerAvatar, ComposerSize, PromptAction, is_safe_url};
 pub use footer::{Footer, FooterColumn, FooterItem, FooterLegalLink};

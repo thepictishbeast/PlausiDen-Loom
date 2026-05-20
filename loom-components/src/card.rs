@@ -204,6 +204,130 @@ fn compose_class(elev: CardElevation, pad: CardPadding, hover: CardHover) -> Str
     s
 }
 
+// ----------------------------------------------------------------
+// `KvPairCard` — editorial dense info-panel sibling of `FeatureCard`.
+//
+// The loop preamble's Priority 2 calls out 3-column `FeatureCard`
+// grids (icon + title + description) as a canonical SaaS trope.
+// `FeatureCard` keeps its place for sites whose voice is properly
+// "feature-led product marketing." `KvPairCard` is the editorial
+// alternative: monospace label up top, dominant fact value in the
+// middle, optional source / footnote underneath. Repeating these
+// 3-across reads as a data dispatch rather than a feature spotlight.
+//
+// Shape guarantees enforced by tests:
+// * No icon tile (no `w-12 h-12 bg-primary/10 rounded-lg`).
+// * No `rounded-2xl` ornament — uses the standard card radius.
+// * No `group-hover` color-flip animation.
+// * Monospace label uppercase + tracked.
+// * Value carries the typographic mass; label and source are subordinate.
+// ----------------------------------------------------------------
+
+/// Layout density for [`KvPairCard`]. Affects vertical rhythm
+/// inside the card; horizontal sizing is the grid's job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KvPairDensity {
+    /// Tight rhythm — for grids of 4-6 cards with short values.
+    Compact,
+    /// Default — most KV grids.
+    Comfortable,
+    /// Generous — for grids of 2-3 cards with long values.
+    Spacious,
+}
+
+/// Visual tone for [`KvPairCard`]. Affects label / value / source
+/// color treatment per theme; the layout shape is identical
+/// across tones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KvPairTone {
+    /// Slate text on white / slate-50 surface (default).
+    Slate,
+    /// Slate-100 text on AMOLED true-black surface. Per
+    /// `[[dark-theme-amoled-true-black]]` memory.
+    Amoled,
+}
+
+/// Dense editorial info card. Label / value / optional source.
+///
+/// Repeats N-across in a grid to compose a data dispatch:
+///
+/// ```text
+/// │ STARTED        │ JURISDICTION   │ INSTRUMENTS  │
+/// │ 2019           │ Federal+47     │ ML-DSA 65,87 │
+/// │ — incorp. CT   │ — extraterr.   │ — postquant. │
+/// ```
+pub struct KvPairCard<'a> {
+    /// Small uppercase monospace label (e.g., "JURISDICTION").
+    pub label: &'a str,
+    /// The dominant fact. Renders as the card's typographic mass.
+    /// Long strings will wrap; the grid clamps width.
+    pub value: &'a str,
+    /// Optional footnote / source / annotation. Renders as a
+    /// subdued line beneath value, prefixed visually with an
+    /// em-dash to mark it as commentary.
+    pub source: Option<&'a str>,
+    /// Layout density.
+    pub density: KvPairDensity,
+    /// Color tone.
+    pub tone: KvPairTone,
+}
+
+impl KvPairCard<'_> {
+    /// Render as a `<div>` cell suitable for grid composition.
+    #[must_use]
+    pub fn render(&self) -> Markup {
+        let (gap, padding) = match self.density {
+            KvPairDensity::Compact => ("gap-1", "p-4"),
+            KvPairDensity::Comfortable => ("gap-2", "p-5"),
+            KvPairDensity::Spacious => ("gap-3", "p-6 md:p-8"),
+        };
+        let (surface, border, label_tone, value_tone, source_tone) = match self.tone {
+            KvPairTone::Slate => (
+                "bg-white",
+                "border-slate-200",
+                "text-slate-500",
+                "text-slate-900",
+                "text-slate-600",
+            ),
+            KvPairTone::Amoled => (
+                "bg-black",
+                "border-slate-800",
+                "text-slate-400",
+                "text-slate-100",
+                "text-slate-400",
+            ),
+        };
+        let outer = format!(
+            "flex flex-col {gap} border {border} {surface} {padding}"
+        );
+        let label_class = format!(
+            "text-xs font-mono uppercase tracking-widest {label_tone}"
+        );
+        let value_class = format!(
+            "font-display text-2xl md:text-3xl font-semibold leading-tight {value_tone}"
+        );
+        let source_class = format!("text-sm leading-snug {source_tone}");
+        html! {
+            div class=(outer) {
+                p class=(label_class) {
+                    (self.label)
+                }
+                p class=(value_class) {
+                    (self.value)
+                }
+                @if let Some(source) = self.source {
+                    p class=(source_class) {
+                        "— "
+                        (source)
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,5 +457,160 @@ mod tests {
         .render()
         .into_string();
         assert!(s.contains("shadow-xl"));
+    }
+
+    // ----- KvPairCard -----
+
+    #[test]
+    fn kvpair_renders_label_value_no_source() {
+        let s = KvPairCard {
+            label: "JURISDICTION",
+            value: "Federal+47",
+            source: None,
+            density: KvPairDensity::Comfortable,
+            tone: KvPairTone::Slate,
+        }
+        .render()
+        .into_string();
+        assert!(s.contains(">JURISDICTION<"));
+        assert!(s.contains(">Federal+47<"));
+        // Label is monospace-uppercase-tracked, never a pill / border-pill.
+        assert!(s.contains("font-mono"));
+        assert!(s.contains("uppercase"));
+        assert!(s.contains("tracking-widest"));
+    }
+
+    #[test]
+    fn kvpair_renders_source_when_present() {
+        let s = KvPairCard {
+            label: "STARTED",
+            value: "2019",
+            source: Some("incorp. CT"),
+            density: KvPairDensity::Comfortable,
+            tone: KvPairTone::Slate,
+        }
+        .render()
+        .into_string();
+        assert!(s.contains(">— incorp. CT<"));
+    }
+
+    #[test]
+    fn kvpair_omits_source_when_none() {
+        let s = KvPairCard {
+            label: "L",
+            value: "V",
+            source: None,
+            density: KvPairDensity::Comfortable,
+            tone: KvPairTone::Slate,
+        }
+        .render()
+        .into_string();
+        // The em-dash prefix only appears when source is rendered.
+        assert!(!s.contains("— "));
+    }
+
+    #[test]
+    fn kvpair_no_saas_trope_ornaments() {
+        // Shape guarantee: no icon tile, no rounded-2xl flourish,
+        // no group-hover color flip. Repeating this primitive across
+        // a grid must NOT look like FeatureCard.
+        let s = KvPairCard {
+            label: "L",
+            value: "V",
+            source: Some("s"),
+            density: KvPairDensity::Comfortable,
+            tone: KvPairTone::Slate,
+        }
+        .render()
+        .into_string();
+        assert!(!s.contains("rounded-2xl"));
+        assert!(!s.contains("rounded-lg"));
+        assert!(!s.contains("bg-primary/10"));
+        assert!(!s.contains("bg-primary/5"));
+        assert!(!s.contains("group-hover"));
+        assert!(!s.contains("w-12 h-12"));
+        assert!(!s.contains("w-14 h-14"));
+        assert!(!s.contains("shadow-"));
+    }
+
+    #[test]
+    fn kvpair_compact_density_smaller_gap() {
+        let s = KvPairCard {
+            label: "L",
+            value: "V",
+            source: None,
+            density: KvPairDensity::Compact,
+            tone: KvPairTone::Slate,
+        }
+        .render()
+        .into_string();
+        assert!(s.contains("gap-1"));
+        assert!(s.contains("p-4"));
+    }
+
+    #[test]
+    fn kvpair_spacious_density_larger_padding() {
+        let s = KvPairCard {
+            label: "L",
+            value: "V",
+            source: None,
+            density: KvPairDensity::Spacious,
+            tone: KvPairTone::Slate,
+        }
+        .render()
+        .into_string();
+        assert!(s.contains("gap-3"));
+        assert!(s.contains("p-6 md:p-8"));
+    }
+
+    #[test]
+    fn kvpair_amoled_uses_true_black_surface() {
+        let s = KvPairCard {
+            label: "L",
+            value: "V",
+            source: None,
+            density: KvPairDensity::Comfortable,
+            tone: KvPairTone::Amoled,
+        }
+        .render()
+        .into_string();
+        assert!(s.contains("bg-black"));
+        // Slate-100 for value text on dark background per
+        // [[dark-theme-amoled-true-black]] palette.
+        assert!(s.contains("text-slate-100"));
+        // Slate-100 should NOT appear in light tone.
+        let light = KvPairCard {
+            label: "L",
+            value: "V",
+            source: None,
+            density: KvPairDensity::Comfortable,
+            tone: KvPairTone::Slate,
+        }
+        .render()
+        .into_string();
+        assert!(!light.contains("bg-black"));
+        assert!(light.contains("bg-white"));
+    }
+
+    #[test]
+    fn kvpair_value_dominates_typographically() {
+        // The value carries the typographic mass; label + source are
+        // subordinate text sizes. Verify the sizes match the design.
+        let s = KvPairCard {
+            label: "JURISDICTION",
+            value: "Federal+47",
+            source: Some("extraterr."),
+            density: KvPairDensity::Comfortable,
+            tone: KvPairTone::Slate,
+        }
+        .render()
+        .into_string();
+        // Value: text-2xl on mobile, text-3xl on md+.
+        assert!(s.contains("text-2xl"));
+        assert!(s.contains("md:text-3xl"));
+        // Label: small (text-xs).
+        assert!(s.contains("text-xs"));
+        // Source: medium (text-sm).
+        assert!(s.contains("text-sm"));
     }
 }
