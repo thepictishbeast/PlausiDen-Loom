@@ -3209,6 +3209,27 @@
     --loom-color-gradient-a:    hsl(20 80% 38%);
     --loom-color-gradient-b:    hsl(35 80% 50%);
   }
+  /* Warm-theme heading + accent overrides — surfaces the burnt-orange
+   * primary on section headings and the ochre accent on uppercase
+   * kv-pair keys, matching editorial press / Deborah-Armstrong-style
+   * sites where heading color carries the brand instead of body ink.
+   *
+   * Surfaced 2026-05-20 during prosperityclub.com pixel reproduction
+   * (PlausiDen-Forge #218 / Loom #305). Without these, warm theme
+   * correctly switches the palette tokens but headings + kv keys
+   * fall through to the default dark-ink color cascade, costing the
+   * pixel match on every editorial-press site. */
+  :root[data-theme="warm"] .loom-heading,
+  :root[data-theme="warm"] .loom-section-heading,
+  :root[data-theme="warm"] .loom-kv-heading {
+    color: var(--loom-color-primary);
+  }
+  :root[data-theme="warm"] .loom-kv-key {
+    color: var(--loom-color-accent);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+  }
   :root[data-theme="ocean"] {
     --loom-color-bg-canvas:     hsl(210 40% 98%);
     --loom-color-surface:       hsl(0 0% 100%);
