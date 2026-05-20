@@ -1536,6 +1536,28 @@ pub enum CmsSection {
         /// rendered aside chrome for explicit attribution.
         source: Option<String>,
     },
+    /// Typed corrections / updates / retractions block — editorial
+    /// honesty primitive for content that has changed after
+    /// publication. Distinct from [`CmsSection::Disclaimer`]
+    /// (declarations of paid relationships) and from
+    /// [`CmsSection::ChangelogList`] (release notes for software):
+    /// Errata documents post-publication changes to written
+    /// content with typed kinds the substrate can audit.
+    ///
+    /// Editorial intent: news / journalism / financial-education
+    /// / long-form essay surfaces where corrections are dated +
+    /// public, not silent diffs. Pairs with
+    /// `feedback_keep_docs_tests_logs_current` — visible audit
+    /// trail in the content itself.
+    Errata {
+        /// Section heading. Operator-supplied so brand voice can
+        /// vary ("Corrections", "Errata", "Updates", "Notes").
+        heading: String,
+        /// Entries in display order. Renderer doesn't sort —
+        /// operator chooses chronological / reverse-chronological
+        /// / topical.
+        entries: Vec<ErratumEntry>,
+    },
     /// Typed source/citation list for editorial appendices,
     /// research write-up footers, "further reading" sections.
     /// Distinct from [`CmsSection::Citation`] (inline single
@@ -2113,6 +2135,79 @@ impl DisclaimerKind {
             Self::EditorialNote => "Editorial note",
             Self::LegalNotice => "Legal notice",
             Self::AiAssisted => "AI-assisted content disclosure",
+        }
+    }
+}
+
+/// One entry in a [`CmsSection::Errata`] list.
+///
+/// Typed shape so the renderer can format consistently and audit
+/// phases can introspect (e.g. flag undated entries, retractions
+/// without a body, kind drift). All fields are required: an
+/// erratum without a date defeats the purpose of an audit trail.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct ErratumEntry {
+    /// Date the correction / update was published. RFC 3339
+    /// preferred (e.g. `"2026-05-20"`) so machine readers can
+    /// sort + filter; renderer escapes verbatim.
+    pub date: String,
+    /// Body of the entry — what was wrong, what's now correct,
+    /// or what changed. Multi-paragraph bodies split on `\n\n`
+    /// into separate `<p>` tags.
+    pub body: String,
+    /// Erratum kind — drives the modifier class + screen-reader
+    /// label.
+    #[serde(default)]
+    pub kind: ErratumKind,
+}
+
+/// Kind of erratum. Drives the modifier class on the rendered
+/// `<li>` + the accessible-name template. Future
+/// `errata_audit` phase will be able to enforce that retractions
+/// carry a body explaining what was withdrawn.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ErratumKind {
+    /// Factual correction — earlier text was wrong, this is the
+    /// fix. Most common kind.
+    #[default]
+    Correction,
+    /// Post-publication update — new information added without
+    /// the original being wrong.
+    Update,
+    /// Wholesale retraction — earlier publication is withdrawn.
+    /// Editorially the strongest signal; pairs with a
+    /// `Disclaimer { disclosure_kind: EditorialNote }` higher
+    /// in the page when used.
+    Retraction,
+    /// Clarification — earlier text was technically accurate
+    /// but read as ambiguous; this restates it more clearly.
+    Clarification,
+}
+
+impl ErratumKind {
+    /// Stable kebab-case modifier slug. The
+    /// `.loom-errata__entry--<modifier>` cascade targets these.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::Correction => "correction",
+            Self::Update => "update",
+            Self::Retraction => "retraction",
+            Self::Clarification => "clarification",
+        }
+    }
+
+    /// Default human-readable label (also used as the eyebrow
+    /// inside each rendered entry).
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Correction => "Correction",
+            Self::Update => "Update",
+            Self::Retraction => "Retraction",
+            Self::Clarification => "Clarification",
         }
     }
 }
@@ -2956,7 +3051,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -7116,6 +7211,30 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         }
+        CmsSection::Errata { heading, entries } => html! {
+            section class="loom-errata" data-loom-reveal aria-label="Corrections and updates" {
+                h2 class="loom-errata__heading" { (heading) }
+                @if entries.is_empty() {
+                    p class="loom-errata__empty" { "No corrections to date." }
+                } @else {
+                    ol class="loom-errata__entries" {
+                        @for e in entries {
+                            li class={ "loom-errata__entry loom-errata__entry--" (e.kind.modifier()) }
+                                data-kind=(e.kind.modifier())
+                            {
+                                span class="loom-errata__kind" { (e.kind.label()) }
+                                time class="loom-errata__date" datetime=(e.date) { (e.date) }
+                                div class="loom-errata__body" {
+                                    @for para in e.body.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
+                                        p { (para) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         CmsSection::SourceList {
             heading,
             items,
@@ -14344,6 +14463,142 @@ mod page_shell_tests {
                 assert_eq!(source.as_deref(), Some("Acme Corp."));
             }
             _ => panic!("expected Disclaimer variant"),
+        }
+    }
+
+    // #104 (2026-05-20) — Errata typed corrections/updates primitive.
+
+    fn erratum(date: &str, body: &str, kind: ErratumKind) -> ErratumEntry {
+        ErratumEntry {
+            date: date.into(),
+            body: body.into(),
+            kind,
+        }
+    }
+
+    fn errata_page(heading: &str, entries: Vec<ErratumEntry>) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::Errata {
+            heading: heading.into(),
+            entries,
+        }];
+        p
+    }
+
+    #[test]
+    fn errata_renders_section_with_heading_and_ordered_list() {
+        let p = errata_page(
+            "Corrections",
+            vec![erratum(
+                "2026-05-20",
+                "Earlier text stated 4%; the correct figure is 4.5%.",
+                ErratumKind::Correction,
+            )],
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains(r#"<section class="loom-errata""#));
+        assert!(html.contains(r#"aria-label="Corrections and updates""#));
+        assert!(html.contains(">Corrections<"));
+        assert!(html.contains(r#"<ol class="loom-errata__entries""#));
+        assert!(html.contains(r#"loom-errata__entry--correction"#));
+        assert!(html.contains(r#"data-kind="correction""#));
+        assert!(html.contains(r#"<time class="loom-errata__date" datetime="2026-05-20""#));
+        assert!(html.contains(">Correction<"));
+    }
+
+    #[test]
+    fn errata_empty_entries_renders_no_corrections_note() {
+        let p = errata_page("Errata", vec![]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-errata__empty"));
+        assert!(html.contains(">No corrections to date.<"));
+        assert!(!html.contains("loom-errata__entries"));
+    }
+
+    #[test]
+    fn errata_kind_modifier_and_label_stable_per_kind() {
+        for (kind, modifier, label) in [
+            (ErratumKind::Correction, "correction", "Correction"),
+            (ErratumKind::Update, "update", "Update"),
+            (ErratumKind::Retraction, "retraction", "Retraction"),
+            (ErratumKind::Clarification, "clarification", "Clarification"),
+        ] {
+            let p = errata_page("Updates", vec![erratum("2026-05-20", "body", kind)]);
+            let html = render_page(&p).into_string();
+            assert_eq!(kind.modifier(), modifier);
+            assert_eq!(kind.label(), label);
+            let modifier_class = format!("loom-errata__entry--{modifier}");
+            assert!(
+                html.contains(&modifier_class),
+                "kind {kind:?} missing modifier class {modifier_class}"
+            );
+            assert!(
+                html.contains(&format!(">{label}<")),
+                "kind {kind:?} missing visible label {label}"
+            );
+        }
+    }
+
+    #[test]
+    fn errata_body_splits_on_blank_lines_into_paragraphs() {
+        let p = errata_page(
+            "Corrections",
+            vec![erratum(
+                "2026-05-20",
+                "First paragraph.\n\nSecond paragraph.",
+                ErratumKind::Update,
+            )],
+        );
+        let html = render_page(&p).into_string();
+        let body_open = html.find("loom-errata__body").expect("body class");
+        let body_close = html[body_open..].find("</div>").expect("/div") + body_open;
+        let body_slice = &html[body_open..body_close];
+        let p_count = body_slice.matches("<p>").count();
+        assert_eq!(
+            p_count, 2,
+            "expected 2 <p> tags in body, got {p_count}: {body_slice}"
+        );
+    }
+
+    #[test]
+    fn errata_body_html_escaped() {
+        let p = errata_page(
+            "Corrections",
+            vec![erratum(
+                "2026-05-20",
+                "<script>alert(1)</script>",
+                ErratumKind::Retraction,
+            )],
+        );
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn errata_section_parses_from_snake_case_with_defaults() {
+        // Minimal JSON: entries can omit `kind` and default to
+        // correction.
+        let json = r#"{
+            "kind": "errata",
+            "heading": "Corrections",
+            "entries": [
+                {"date": "2026-05-20", "body": "Earlier we said X; correct is Y."},
+                {"date": "2026-05-19", "body": "Withdrawn.", "kind": "retraction"}
+            ]
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::Errata { heading, entries } => {
+                assert_eq!(heading, "Corrections");
+                assert_eq!(entries.len(), 2);
+                assert_eq!(entries[0].kind, ErratumKind::Correction);
+                assert_eq!(entries[1].kind, ErratumKind::Retraction);
+                assert_eq!(entries[1].date, "2026-05-19");
+            }
+            _ => panic!("expected Errata variant"),
         }
     }
 
