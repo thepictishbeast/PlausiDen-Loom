@@ -8054,8 +8054,8 @@ footer.loom-page-footer{padding:2.5rem 1.75rem;border-top:1px solid var(--loom-b
 color:var(--loom-muted);margin-top:4rem;font-size:.92rem}\
 nav.loom-page-nav{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}\
 nav.loom-page-nav a{text-decoration:none;color:var(--loom-muted);\
-display:inline-flex;align-items:center;min-height:44px;padding:.5rem .9rem;\
-border-radius:999px;font-weight:500;font-size:.96rem;\
+display:inline-flex;align-items:center;min-height:var(--loom-tap-min);padding:.5rem .9rem;\
+border-radius:var(--loom-radius-full);font-weight:500;font-size:.96rem;\
 transition:background var(--loom-motion-fast) var(--loom-ease-out),color var(--loom-motion-fast) var(--loom-ease-out)}\
 nav.loom-page-nav a:hover{color:var(--loom-fg);background:color-mix(in oklab,var(--loom-fg) 5%,transparent)}\
 nav.loom-page-nav a[aria-current=\"page\"]{color:var(--loom-accent);font-weight:600;background:color-mix(in oklab,var(--loom-accent) 10%,transparent)}\
@@ -8116,7 +8116,7 @@ pub const ERUDA_LOADER_JS: &str = "(function(){try{if(localStorage.getItem('loom
 
 /// CSS for the theme-toggle button. Inlined into BASE_THEME_CSS
 /// so first paint paints the button correctly without FOUC.
-pub const THEME_TOGGLE_CSS: &str = ".loom-theme-toggle{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:9999px;border:1px solid var(--loom-color-border,var(--loom-border));background:var(--loom-color-surface,var(--loom-bg));color:var(--loom-color-ink,var(--loom-fg));font-size:1.15rem;cursor:pointer;line-height:1;padding:0;transition:background var(--loom-motion-fast,120ms) var(--loom-ease-out,ease),border-color var(--loom-motion-fast,120ms) var(--loom-ease-out,ease)}.loom-theme-toggle:hover{background:var(--loom-color-surface-muted,var(--loom-grad-soft));border-color:var(--loom-color-primary,var(--loom-accent))}.loom-theme-toggle:focus-visible{outline:2px solid var(--loom-color-primary,var(--loom-accent));outline-offset:3px}";
+pub const THEME_TOGGLE_CSS: &str = ".loom-theme-toggle{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:var(--loom-tap-min);height:var(--loom-tap-min);border-radius:var(--loom-radius-full);border:1px solid var(--loom-color-border,var(--loom-border));background:var(--loom-color-surface,var(--loom-bg));color:var(--loom-color-ink,var(--loom-fg));font-size:1.15rem;cursor:pointer;line-height:1;padding:0;transition:background var(--loom-motion-fast,120ms) var(--loom-ease-out,ease),border-color var(--loom-motion-fast,120ms) var(--loom-ease-out,ease)}.loom-theme-toggle:hover{background:var(--loom-color-surface-muted,var(--loom-grad-soft));border-color:var(--loom-color-primary,var(--loom-accent))}.loom-theme-toggle:focus-visible{outline:2px solid var(--loom-color-primary,var(--loom-accent));outline-offset:3px}";
 
 /// T76 (Crawler dogfood 2026-05-14): every page emits a default
 /// inline-SVG favicon so browser tabs / bookmarks / history don't
