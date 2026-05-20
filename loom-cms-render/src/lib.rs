@@ -1232,6 +1232,33 @@ pub enum CmsSection {
         /// Submit-button label.
         submit_label: String,
     },
+    /// Diverging bar chart — bars extend left (negative) or right
+    /// (positive) of a center axis at viewBox midline. Editorial
+    /// shape for "delta from baseline" or "approval margin"
+    /// visualization. Distinct from [`CmsSection::BarChart`]
+    /// which clamps negatives to zero; this primitive lets
+    /// negative values render as left-growing bars.
+    ///
+    /// Use cases: "Net Promoter Score by segment", "Approval
+    /// margin per ballot question", "P&L by line item", "Drift
+    /// vs target by metric" — anywhere the editorial point is
+    /// SIGNED delta from a baseline, not just magnitude.
+    DivergingBar {
+        /// Visible label / heading.
+        label: String,
+        /// Items in display order. Each carries label + signed value.
+        items: Vec<DivergingBarItem>,
+        /// Tone (drives bar color via cascade — positive vs negative
+        /// bars get distinct fills derived from the tone semantic
+        /// pairing in loom-skin).
+        tone: SparklineTone,
+        /// Optional label for the midline / baseline axis
+        /// (e.g., "target", "0%", "neutral"). Renders as text at
+        /// the midline anchor.
+        midline_label: Option<String>,
+        /// Optional caption shown below the chart.
+        caption: Option<String>,
+    },
     /// Frequency-distribution histogram. Pre-bucketed data input
     /// (operator computes bins; renderer draws). Editorial axis
     /// for showing distribution shape — "request latency", "post
@@ -1522,6 +1549,18 @@ pub enum CmsSection {
         /// a primary "Continue to dashboard").
         secondary_cta: Option<HeroCta>,
     },
+}
+
+/// One signed-value item shown on a [`CmsSection::DivergingBar`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct DivergingBarItem {
+    /// Category label (row name in the chart legend).
+    pub label: String,
+    /// Signed value. Positive renders right of midline, negative
+    /// left. Zero renders no bar (just the label). Bar widths
+    /// normalize to max(abs(value)) across all items.
+    pub value: f64,
 }
 
 /// One frequency bucket shown on a [`CmsSection::Histogram`].
@@ -2176,7 +2215,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 154;
+    pub const PRIMITIVE_COUNT: u32 = 155;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5801,6 +5840,98 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::DivergingBar {
+            label,
+            items,
+            tone,
+            midline_label,
+            caption,
+        } => {
+            let tone_mod = tone.modifier();
+            let outer_class = format!("loom-divbar loom-divbar--{tone_mod}");
+            if items.is_empty() {
+                return html! {
+                    figure class=(format!("{outer_class} loom-divbar--empty")) data-loom-reveal {
+                        figcaption class="loom-divbar__label" { (label) }
+                        p class="loom-divbar__no-data" { "No data" }
+                        @if let Some(c) = caption {
+                            figcaption class="loom-divbar__caption" { (c) }
+                        }
+                    }
+                };
+            }
+            let n = items.len();
+            let max_abs = items
+                .iter()
+                .map(|i| i.value.abs())
+                .fold(0.0_f64, f64::max)
+                .max(1.0_f64);
+            const VBW: f64 = 200.0;
+            const VBH: f64 = 80.0;
+            const PAD: f64 = 4.0;
+            const MIDLINE_X: f64 = VBW / 2.0;
+            // Each side has half the viewBox minus padding for bars.
+            let half_usable = MIDLINE_X - PAD;
+            let aria_label = format!(
+                "{label} diverging bar: {n} rows, max absolute value {max_abs:.2}"
+            );
+            html! {
+                figure class=(outer_class) data-loom-reveal {
+                    figcaption class="loom-divbar__label" { (label) }
+                    svg class="loom-divbar__svg"
+                        viewBox=(format!("0 0 {VBW:.0} {VBH:.0}"))
+                        preserveAspectRatio="none"
+                        role="img"
+                        aria-label=(aria_label) {
+                        // Midline rule
+                        line class="loom-divbar__midline"
+                             x1=(format!("{MIDLINE_X:.1}"))
+                             y1=(format!("{PAD:.1}"))
+                             x2=(format!("{MIDLINE_X:.1}"))
+                             y2=(format!("{:.1}", VBH - PAD))
+                             stroke="currentColor"
+                             stroke-width="0.5"
+                             stroke-dasharray="2 2" {}
+                        @let bar_h = (VBH - 2.0 * PAD) / (n as f64);
+                        @let bar_inner_h = bar_h * 0.7;
+                        @let bar_gap = bar_h * 0.3;
+                        @for (i, item) in items.iter().enumerate() {
+                            @let v = item.value;
+                            @let bar_w = (v.abs() / max_abs) * half_usable;
+                            @let y = PAD + (i as f64) * bar_h + bar_gap / 2.0;
+                            @let x = if v >= 0.0 {
+                                MIDLINE_X
+                            } else {
+                                MIDLINE_X - bar_w
+                            };
+                            @let sign_mod = if v >= 0.0 { "positive" } else { "negative" };
+                            rect class={ "loom-divbar__bar loom-divbar__bar--" (sign_mod) }
+                                 x=(format!("{x:.1}"))
+                                 y=(format!("{y:.1}"))
+                                 width=(format!("{bar_w:.1}"))
+                                 height=(format!("{bar_inner_h:.1}"))
+                                 fill="currentColor" {}
+                        }
+                    }
+                    @if let Some(ml) = midline_label {
+                        p class="loom-divbar__midline-label" aria-hidden="true" { (ml) }
+                    }
+                    ol class="loom-divbar__legend" {
+                        @for item in items {
+                            li class="loom-divbar__legend-item" {
+                                span class="loom-divbar__legend-label" { (item.label) }
+                                span class={ "loom-divbar__legend-value loom-divbar__legend-value--" (if item.value >= 0.0 { "positive" } else { "negative" }) } {
+                                    (format!("{:+.2}", item.value))
+                                }
+                            }
+                        }
+                    }
+                    @if let Some(c) = caption {
+                        figcaption class="loom-divbar__caption" { (c) }
+                    }
+                }
+            }
+        }
         CmsSection::Histogram {
             label,
             buckets,
@@ -12030,6 +12161,167 @@ mod page_shell_tests {
             assert_eq!(s, json, "expected {variant:?} to serialize as {json}");
             let back: EmailVerifyStatus = serde_json::from_str(&s).unwrap();
             assert_eq!(back, variant);
+        }
+    }
+
+    // #104 (2026-05-20) — DivergingBar editorial-charts primitive.
+    // Bars extend left (negative) or right (positive) of midline.
+
+    fn divbar_item(label: &str, value: f64) -> DivergingBarItem {
+        DivergingBarItem {
+            label: label.into(),
+            value,
+        }
+    }
+
+    fn divbar_page(items: Vec<DivergingBarItem>) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::DivergingBar {
+            label: "Approval margin".into(),
+            items,
+            tone: SparklineTone::Neutral,
+            midline_label: Some("0%".into()),
+            caption: None,
+        }];
+        p
+    }
+
+    #[test]
+    fn divbar_empty_renders_no_data_placeholder() {
+        let p = divbar_page(vec![]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-divbar--empty"));
+        assert!(html.contains(">No data<"));
+        assert!(!html.contains("<svg"));
+    }
+
+    #[test]
+    fn divbar_renders_one_rect_per_item_plus_midline() {
+        let p = divbar_page(vec![
+            divbar_item("Q1", 10.0),
+            divbar_item("Q2", -5.0),
+            divbar_item("Q3", 15.0),
+        ]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-divbar"));
+        assert!(html.contains("<svg"));
+        assert_eq!(
+            html.matches("<rect").count(),
+            3,
+            "expected 3 rects for 3 items"
+        );
+        // Midline as a <line> element
+        assert!(html.contains("<line class=\"loom-divbar__midline\""));
+    }
+
+    #[test]
+    fn divbar_positive_bars_start_at_midline() {
+        // Positive value bar: x should equal MIDLINE_X = 100.0.
+        let p = divbar_page(vec![divbar_item("only", 50.0)]);
+        let html = render_page(&p).into_string();
+        // Positive: x=100.0 (right at midline)
+        assert!(html.contains("x=\"100.0\""));
+        assert!(html.contains("loom-divbar__bar--positive"));
+    }
+
+    #[test]
+    fn divbar_negative_bars_end_at_midline() {
+        // Negative value bar: x + width should equal MIDLINE_X.
+        // For -50.0 with max_abs=50.0: bar_w = (50/50)*96 = 96, so
+        // x = 100 - 96 = 4.0 (touches left padding).
+        let p = divbar_page(vec![divbar_item("only", -50.0)]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("x=\"4.0\""));
+        assert!(html.contains("loom-divbar__bar--negative"));
+    }
+
+    #[test]
+    fn divbar_aria_label_includes_count_and_max_abs() {
+        let p = divbar_page(vec![divbar_item("a", -3.0), divbar_item("b", 7.5)]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("aria-label=\""));
+        assert!(html.contains("2 rows"));
+        assert!(html.contains("max absolute value 7.50"));
+    }
+
+    #[test]
+    fn divbar_legend_formats_signed_values() {
+        let p = divbar_page(vec![divbar_item("up", 3.5), divbar_item("down", -2.25)]);
+        let html = render_page(&p).into_string();
+        // Signed format: +3.50 / -2.25 (always shows sign for positive)
+        assert!(html.contains(">+3.50<"));
+        assert!(html.contains(">-2.25<"));
+        assert!(html.contains("loom-divbar__legend-value--positive"));
+        assert!(html.contains("loom-divbar__legend-value--negative"));
+    }
+
+    #[test]
+    fn divbar_midline_label_renders_when_present() {
+        let p = divbar_page(vec![divbar_item("only", 1.0)]);
+        let html = render_page(&p).into_string();
+        // helper sets midline_label = "0%"
+        assert!(html.contains("loom-divbar__midline-label"));
+        assert!(html.contains(">0%<"));
+        // aria-hidden — visual-only chrome; aria-label on SVG carries the semantic
+        assert!(html.contains("aria-hidden=\"true\""));
+    }
+
+    #[test]
+    fn divbar_all_zero_values_does_not_div_by_zero() {
+        // All zero — max_abs floored to 1.0; bars all have w=0.
+        let p = divbar_page(vec![divbar_item("a", 0.0), divbar_item("b", 0.0)]);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("<rect"));
+        assert!(!html.contains("NaN"));
+        assert!(!html.contains("Inf"));
+        // All zero values render as positive (>=0)
+        assert!(html.contains("loom-divbar__bar--positive"));
+    }
+
+    #[test]
+    fn divbar_labels_html_escaped() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::DivergingBar {
+            label: "<script>".into(),
+            items: vec![DivergingBarItem {
+                label: "<img onerror=x>".into(),
+                value: 1.0,
+            }],
+            tone: SparklineTone::Neutral,
+            midline_label: Some("<svg/>".into()),
+            caption: None,
+        }];
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<img onerror=x>"));
+        assert!(!html.contains("<svg/>"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn divbar_section_parses_from_snake_case_kind() {
+        let json = r#"{
+            "kind": "diverging_bar",
+            "label": "Vote margin",
+            "items": [
+                { "label": "Q1", "value": 12.5 },
+                { "label": "Q2", "value": -3.0 }
+            ],
+            "tone": "neutral",
+            "midline_label": null,
+            "caption": null
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::DivergingBar { items, .. } => {
+                assert_eq!(items.len(), 2);
+                assert_eq!(items[1].value, -3.0);
+            }
+            _ => panic!("expected DivergingBar variant"),
         }
     }
 
