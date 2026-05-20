@@ -752,6 +752,56 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Academic-style structured summary block — opens
+    /// research / long-form / whitepaper surfaces with a
+    /// labeled abstract. Distinct from [`CmsSection::Lede`]
+    /// (one-line dek under the heading), from
+    /// [`CmsSection::Epigraph`] (literary opening quote), and
+    /// from [`CmsSection::KeyTakeaway`] (end-of-article summary
+    /// box): AbstractBlock sits at the START of long-form work
+    /// and may carry structured IMRAD-style fields the
+    /// substrate can audit.
+    ///
+    /// Editorial intent: research write-ups / whitepapers /
+    /// long-form policy analysis where readers benefit from a
+    /// structured summary before committing to the full body.
+    /// Plain `body`-only usage matches a magazine-style
+    /// editorial abstract; structured fields match academic
+    /// IMRAD; keywords surface taxonomy without a separate
+    /// metadata block.
+    AbstractBlock {
+        /// Optional eyebrow override. `None` renders the
+        /// default `"Abstract"` label; operator-supplied values
+        /// (e.g. `"Summary"`, `"TL;DR"`, `"Executive summary"`)
+        /// keep brand voice flexible.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow: Option<String>,
+        /// Plain-language body. Multi-paragraph bodies split on
+        /// `\n\n` into separate `<p>` tags. Optional only when
+        /// at least one structured field is supplied; an empty
+        /// body alongside empty structured fields renders an
+        /// empty-marker paragraph so the audit phase can flag
+        /// the gap.
+        #[serde(default)]
+        body: String,
+        /// IMRAD: research question / objective. Optional —
+        /// magazine-style abstracts omit this.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        objective: Option<String>,
+        /// IMRAD: methodology / approach.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        method: Option<String>,
+        /// IMRAD: principal findings.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        findings: Option<String>,
+        /// IMRAD: conclusion / implications.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        conclusion: Option<String>,
+        /// Subject-matter keywords (rendered as chips below the
+        /// body). Empty vec elides the chip row.
+        #[serde(default)]
+        keywords: Vec<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2956,7 +3006,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5581,6 +5631,65 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::AbstractBlock {
+            eyebrow,
+            body,
+            objective,
+            method,
+            findings,
+            conclusion,
+            keywords,
+        } => {
+            let label: &str = eyebrow.as_deref().unwrap_or("Abstract");
+            let body_paras: Vec<&str> = body
+                .split("\n\n")
+                .map(str::trim)
+                .filter(|p| !p.is_empty())
+                .collect();
+            let has_structured = objective.is_some()
+                || method.is_some()
+                || findings.is_some()
+                || conclusion.is_some();
+            html! {
+                section class="loom-abstract" data-loom-reveal aria-label="Article abstract" {
+                    p class="loom-abstract__eyebrow" { (label) }
+                    @if !body_paras.is_empty() {
+                        div class="loom-abstract__body" {
+                            @for p in &body_paras { p { (*p) } }
+                        }
+                    } @else if !has_structured {
+                        p class="loom-abstract__empty" { "Abstract pending." }
+                    }
+                    @if has_structured {
+                        dl class="loom-abstract__structured" {
+                            @if let Some(v) = objective {
+                                dt class="loom-abstract__term loom-abstract__term--objective" { "Objective" }
+                                dd class="loom-abstract__value" { (v) }
+                            }
+                            @if let Some(v) = method {
+                                dt class="loom-abstract__term loom-abstract__term--method" { "Method" }
+                                dd class="loom-abstract__value" { (v) }
+                            }
+                            @if let Some(v) = findings {
+                                dt class="loom-abstract__term loom-abstract__term--findings" { "Findings" }
+                                dd class="loom-abstract__value" { (v) }
+                            }
+                            @if let Some(v) = conclusion {
+                                dt class="loom-abstract__term loom-abstract__term--conclusion" { "Conclusion" }
+                                dd class="loom-abstract__value" { (v) }
+                            }
+                        }
+                    }
+                    @if !keywords.is_empty() {
+                        ul class="loom-abstract__keywords" aria-label="Keywords" {
+                            @for k in keywords {
+                                li class="loom-abstract__keyword" { (k) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9946,6 +10055,188 @@ mod tests {
         let page: CmsPage = serde_json::from_str(json).expect("page parses");
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    // #104 (2026-05-20) — AbstractBlock academic-style summary
+    // primitive for research / long-form / whitepaper openings.
+
+    #[test]
+    fn abstract_block_default_eyebrow_renders_as_abstract() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "abstract_block",
+                "body": "This paper examines insurance subsidies in working-class households."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<section class="loom-abstract""#));
+        assert!(html.contains(r#"aria-label="Article abstract""#));
+        assert!(html.contains(r#"class="loom-abstract__eyebrow""#));
+        assert!(html.contains(">Abstract<"));
+        assert!(html.contains(">This paper examines insurance subsidies in working-class households.<"));
+        // Structured + keyword chrome absent.
+        assert!(!html.contains("loom-abstract__structured"));
+        assert!(!html.contains("loom-abstract__keywords"));
+        assert!(!html.contains("loom-abstract__empty"));
+    }
+
+    #[test]
+    fn abstract_block_custom_eyebrow_used_instead_of_default() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "abstract_block",
+                "eyebrow": "Executive summary",
+                "body": "Key points."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(">Executive summary<"));
+        assert!(!html.contains(">Abstract<"));
+    }
+
+    #[test]
+    fn abstract_block_renders_structured_fields_as_dl() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "abstract_block",
+                "objective": "Quantify subsidy uptake.",
+                "method": "Cross-state survey, N=2400.",
+                "findings": "Uptake correlates with payroll-deduct availability.",
+                "conclusion": "Policy implication: default-on payroll deduct."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<dl class="loom-abstract__structured""#));
+        assert!(html.contains("loom-abstract__term--objective"));
+        assert!(html.contains("loom-abstract__term--method"));
+        assert!(html.contains("loom-abstract__term--findings"));
+        assert!(html.contains("loom-abstract__term--conclusion"));
+        assert!(html.contains(">Objective<"));
+        assert!(html.contains(">Method<"));
+        assert!(html.contains(">Findings<"));
+        assert!(html.contains(">Conclusion<"));
+        assert!(html.contains(">Cross-state survey, N=2400.<"));
+        // No body → no body div; structured-only is permitted.
+        assert!(!html.contains("loom-abstract__body"));
+        assert!(!html.contains("loom-abstract__empty"));
+    }
+
+    #[test]
+    fn abstract_block_omits_unset_structured_fields() {
+        // Only `objective` supplied — the others must NOT render.
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "abstract_block",
+                "body": "x",
+                "objective": "Quantify subsidy uptake."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-abstract__term--objective"));
+        assert!(!html.contains("loom-abstract__term--method"));
+        assert!(!html.contains("loom-abstract__term--findings"));
+        assert!(!html.contains("loom-abstract__term--conclusion"));
+    }
+
+    #[test]
+    fn abstract_block_renders_keywords_as_chip_list() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "abstract_block",
+                "body": "B",
+                "keywords": ["insurance", "policy", "subsidy"]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<ul class="loom-abstract__keywords""#));
+        assert!(html.contains(r#"aria-label="Keywords""#));
+        assert!(html.contains(">insurance<"));
+        assert!(html.contains(">policy<"));
+        assert!(html.contains(">subsidy<"));
+    }
+
+    #[test]
+    fn abstract_block_body_paragraphs_split_on_blank_lines() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "abstract_block",
+                "body": "Paragraph one.\n\nParagraph two."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        let open = html.find("loom-abstract__body").expect("body class");
+        let close = html[open..].find("</div>").expect("/div") + open;
+        let slice = &html[open..close];
+        assert_eq!(slice.matches("<p>").count(), 2);
+        assert!(html.contains(">Paragraph one.<"));
+        assert!(html.contains(">Paragraph two.<"));
+    }
+
+    #[test]
+    fn abstract_block_empty_body_and_no_structured_renders_pending_marker() {
+        // Nothing supplied — the audit-flag-friendly empty marker
+        // appears so future content_audit phase can catch the gap.
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{"kind": "abstract_block"}]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-abstract__empty"));
+        assert!(html.contains(">Abstract pending.<"));
+    }
+
+    #[test]
+    fn abstract_block_html_escaped_across_all_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "abstract_block",
+                "eyebrow": "<script>e</script>",
+                "body": "<script>b</script>",
+                "objective": "<script>o</script>",
+                "keywords": ["<script>k</script>"]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>e</script>",
+            "<script>b</script>",
+            "<script>o</script>",
+            "<script>k</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
         assert!(html.contains("&lt;script&gt;"));
     }
 
