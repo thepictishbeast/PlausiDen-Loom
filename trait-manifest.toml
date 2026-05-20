@@ -1,0 +1,383 @@
+# trait-manifest.toml — typed trait declarations for Loom primitives.
+#
+# Per AVP-Doctrine TRAIT_DAG.md + the Forge `trait_consistency` +
+# `trait_implications` phases (PlausiDen-Forge tasks #171 + #169):
+# every substrate-managed entity (Loom primitive, CMS section,
+# Forge phase, Crawler detector, *-core type) declares which
+# traits it satisfies via this manifest.
+#
+# Forge reads this file on `forge build` and emits strict findings
+# for any entity that omits a default-required trait per its
+# entity_class.
+#
+# Schema:
+#   [meta] schema_version = "1.0.0"
+#   [[projections]]
+#     entity_id     = "Loom.Primitive.<Variant>"      (matches CmsSection variant identity)
+#     entity_class  = "loom_visible_primitive"        (or _interactive_primitive / cms_section / ...)
+#     traits        = ["...", ...]                    (kebab-case slugs per loom_traits::Trait)
+#
+# Closes #168 [trait-v3]. The 8 default-required traits per
+# rule prim-001 + TRAIT_DAG.md § Default-required for
+# Loom.Primitive.Visible:
+#   mobile-friendly / rtl-aware / reduced-motion-aware /
+#   theme-aware / no-site-specific / manifested / versioned /
+#   doctrine-cited
+#
+# Interactive lineage adds: focusable / keyboard-operable /
+# screen-reader-accessible.
+
+schema_version = "1.0.0"
+
+# ──────────────────────────────────────────────────────────────
+# Editorial body primitives — Visible lineage.
+# ──────────────────────────────────────────────────────────────
+
+[[projections]]
+entity_id     = "Loom.Primitive.Paragraph"
+entity_class  = "loom_visible_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+]
+
+[[projections]]
+entity_id     = "Loom.Primitive.Heading"
+entity_class  = "loom_visible_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+  "screen-reader-accessible",
+]
+
+[[projections]]
+entity_id     = "Loom.Primitive.PullQuote"
+entity_class  = "loom_visible_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+]
+
+[[projections]]
+entity_id     = "Loom.Primitive.Epigraph"
+entity_class  = "loom_visible_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+]
+
+[[projections]]
+entity_id     = "Loom.Primitive.KvPair"
+entity_class  = "loom_visible_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+]
+
+[[projections]]
+entity_id     = "Loom.Primitive.Code"
+entity_class  = "loom_visible_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+]
+
+# ──────────────────────────────────────────────────────────────
+# Hero primitives — Visible lineage with theme + composition slots.
+# ──────────────────────────────────────────────────────────────
+
+[[projections]]
+entity_id     = "Loom.Primitive.Hero"
+entity_class  = "loom_visible_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+]
+
+[[projections]]
+entity_id     = "Loom.Primitive.ImageHero"
+entity_class  = "loom_visible_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+  "lazy-loadable",
+  "bundle-size-bounded",
+]
+
+[[projections]]
+entity_id     = "Loom.Primitive.SplitHero"
+entity_class  = "loom_visible_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+]
+
+# ──────────────────────────────────────────────────────────────
+# Composition primitives — Visible lineage.
+# ──────────────────────────────────────────────────────────────
+
+[[projections]]
+entity_id     = "Loom.Primitive.FeatureSpotlight"
+entity_class  = "loom_visible_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+]
+
+[[projections]]
+entity_id     = "Loom.Primitive.StatBand"
+entity_class  = "loom_visible_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+]
+
+[[projections]]
+entity_id     = "Loom.Primitive.Steps"
+entity_class  = "loom_visible_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+]
+
+[[projections]]
+entity_id     = "Loom.Primitive.Faq"
+entity_class  = "loom_visible_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+]
+
+[[projections]]
+entity_id     = "Loom.Primitive.LogoWall"
+entity_class  = "loom_visible_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+  "lazy-loadable",
+]
+
+[[projections]]
+entity_id     = "Loom.Primitive.CallToAction"
+entity_class  = "loom_interactive_primitive"
+traits        = [
+  # Visible defaults
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+  # Interactive cascade per TRAIT_DAG § Interaction
+  "focusable",
+  "keyboard-operable",
+  "screen-reader-accessible",
+]
+
+[[projections]]
+entity_id     = "Loom.Primitive.Pricing"
+entity_class  = "loom_visible_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+]
+
+# ──────────────────────────────────────────────────────────────
+# Interactive primitives — Visible + Interactive cascade.
+# ──────────────────────────────────────────────────────────────
+
+[[projections]]
+entity_id     = "Loom.Primitive.Form"
+entity_class  = "loom_interactive_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+  "focusable",
+  "keyboard-operable",
+  "screen-reader-accessible",
+]
+
+[[projections]]
+entity_id     = "Loom.Primitive.AccordionGroup"
+entity_class  = "loom_interactive_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+  "focusable",
+  "keyboard-operable",
+  "screen-reader-accessible",
+]
+
+[[projections]]
+entity_id     = "Loom.Primitive.Tabs"
+entity_class  = "loom_interactive_primitive"
+traits        = [
+  "mobile-friendly",
+  "rtl-aware",
+  "reduced-motion-aware",
+  "theme-aware",
+  "no-site-specific",
+  "substrate-native",
+  "manifested",
+  "versioned",
+  "doctrine-cited",
+  "focusable",
+  "keyboard-operable",
+  "screen-reader-accessible",
+]
+
+# ──────────────────────────────────────────────────────────────
+# Notes on coverage
+# ──────────────────────────────────────────────────────────────
+#
+# This manifest covers the highest-leverage primitives — the
+# editorial body set (Paragraph / Heading / PullQuote / Epigraph /
+# KvPair / Code), the three hero shapes (Hero / ImageHero /
+# SplitHero), the major composition primitives (FeatureSpotlight /
+# StatBand / Steps / Faq / LogoWall / CallToAction / Pricing), and
+# the canonical Interactive primitives (Form / AccordionGroup /
+# Tabs).
+#
+# `loom-cms-render` carries ~40+ additional variants
+# (AccountSummary / Banner / CardFeed / Composer / Container /
+# Divider / GridLayout / Group / LegalDoc / Marginalia / Marquee /
+# Picture / ProfileEdit / Reveal / SettingsPanel / Sidebar /
+# Spacer / Stack / Cluster / Columns / etc).
+#
+# Per [[backward-compat-version-discipline]] Cat-2 additive: new
+# primitive declarations land additively as each variant is
+# audited + classified. Until then, those variants don't appear in
+# the manifest — Forge's trait_consistency phase only audits
+# declared entities.
+
+# ──────────────────────────────────────────────────────────────
+# See also
+# ──────────────────────────────────────────────────────────────
+#
+# - PlausiDen-AVP-Doctrine/TRAIT_DAG.md — 54-trait design
+# - PlausiDen-Forge/crates/loom-traits/src/lib.rs — typed enum
+# - PlausiDen-Forge/crates/forge-phases/src/trait_consistency.rs — audit
+# - PlausiDen-Forge/crates/forge-phases/src/trait_implications.rs — implication audit
+# - PlausiDen-Forge/docs/traits-catalog.md — rendered catalog
