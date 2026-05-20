@@ -1232,6 +1232,51 @@ pub enum CmsSection {
         /// Submit-button label.
         submit_label: String,
     },
+    /// OAuth consent screen. Rendered when a third-party app
+    /// requests access to the visitor's account; the visitor
+    /// reviews the requested scopes + grants or denies.
+    ///
+    /// Distinct from `AuthCard` (which is sign-in / sign-up
+    /// for THIS site). `ConsentScreen` is the screen this site
+    /// renders when an EXTERNAL app, authenticated via OAuth /
+    /// OIDC, requests scoped access to the user's account.
+    ///
+    /// The renderer emits a `<form method="post" action="<grant
+    /// CTA href>">` shell so denial vs grant routes through
+    /// distinct backend handlers. Both buttons submit the same
+    /// form via formaction overrides.
+    ConsentScreen {
+        /// Display title (e.g., "Authorize <App>").
+        title: String,
+        /// External app name as the user sees it. Operator must
+        /// verify against the registered OAuth client; the
+        /// renderer cannot validate this — the audit phase logs
+        /// it as a data-backend attribute for traceability.
+        app_name: String,
+        /// Optional short description of the app, sourced from
+        /// the OAuth client registration. Shown under the title.
+        app_description: Option<String>,
+        /// Optional URL to the app's homepage / publisher info.
+        /// Validated through `is_safe_url` like other CTAs.
+        app_homepage: Option<String>,
+        /// Requested OAuth scopes. Each is a typed
+        /// [`ConsentScope`] so the renderer can group / sort /
+        /// flag dangerous ones without parsing strings.
+        scopes: Vec<ConsentScope>,
+        /// "Grant access" / "Authorize" CTA. POSTs to the
+        /// authorize-with-grant endpoint.
+        grant_cta: HeroCta,
+        /// "Deny" / "Cancel" CTA. POSTs to the
+        /// authorize-with-deny endpoint OR redirects back to
+        /// the calling app with `error=access_denied` per RFC
+        /// 6749 §4.1.2.1.
+        deny_cta: HeroCta,
+        /// Optional support / publisher-contact line shown in
+        /// the footer (e.g., "Published by Acme, Inc. —
+        /// <support@acme.com>"). Operator-supplied; renderer
+        /// emits as plain text (HTML-escaped).
+        footer_note: Option<String>,
+    },
     /// Backup-code display + acknowledge page. Rendered ONCE
     /// immediately after the operator's MFA enrollment flow
     /// generates a fresh set of single-use recovery codes. The
@@ -1299,6 +1344,60 @@ pub enum CmsSection {
         /// a primary "Continue to dashboard").
         secondary_cta: Option<HeroCta>,
     },
+}
+
+/// One OAuth scope shown on a [`CmsSection::ConsentScreen`].
+///
+/// Scopes are typed because the substrate refuses to let an
+/// operator hand-roll a scope as an opaque string — that's
+/// where consent-screen accuracy bugs live (the app requests
+/// "read:repos" but the screen renders the harmless "user:read"
+/// because the operator concatenated wrong). Each scope's
+/// `tier` flags how dangerous it is for the renderer to
+/// surface — `Sensitive` scopes render with a warning badge.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct ConsentScope {
+    /// Machine slug, identical to the OAuth scope string sent
+    /// in the authorize request (e.g., "read:repos",
+    /// "write:posts", "billing:read"). Operator-supplied,
+    /// renderer-rendered verbatim in a `<code>` element so the
+    /// user can verify against the calling app's docs.
+    pub slug: String,
+    /// Human-readable label (e.g., "Read your repositories").
+    pub label: String,
+    /// Optional one-sentence explanation of what the scope
+    /// permits beyond what's obvious from the label.
+    pub description: Option<String>,
+    /// Risk tier — surfaces visual treatment + audit weight.
+    pub tier: ConsentScopeTier,
+}
+
+/// Risk classification for an OAuth scope on a consent screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsentScopeTier {
+    /// Routine read access; renderer treats as standard row.
+    Routine,
+    /// Write access or moderately-sensitive read. Renderer
+    /// surfaces with a "write" badge.
+    Write,
+    /// High-impact (billing, identity, full-access). Renderer
+    /// surfaces with a "sensitive" badge + warning tone.
+    Sensitive,
+}
+
+impl ConsentScopeTier {
+    /// Stable kebab-case modifier name. The `.loom-consent-scope--<modifier>`
+    /// CSS cascade targets these.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::Routine => "routine",
+            Self::Write => "write",
+            Self::Sensitive => "sensitive",
+        }
+    }
 }
 
 /// Render state for [`CmsSection::BackupCodes`].
@@ -1758,7 +1857,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 147;
+    pub const PRIMITIVE_COUNT: u32 = 148;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5383,6 +5482,70 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::ConsentScreen {
+            title,
+            app_name,
+            app_description,
+            app_homepage,
+            scopes,
+            grant_cta,
+            deny_cta,
+            footer_note,
+        } => {
+            let homepage_safe = app_homepage.as_deref().is_some_and(is_safe_url);
+            let grant_safe = is_safe_url(&grant_cta.href);
+            let deny_safe = is_safe_url(&deny_cta.href);
+            html! {
+                section class="loom-consent-screen" data-loom-reveal {
+                    div class="loom-consent-screen__inner" {
+                        h2 class="loom-consent-screen__title" { (title) }
+                        div class="loom-consent-screen__app" {
+                            span class="loom-consent-screen__app-name" { (app_name) }
+                            @if let Some(d) = app_description {
+                                p class="loom-consent-screen__app-description" { (d) }
+                            }
+                            @if let Some(h) = app_homepage {
+                                @if homepage_safe {
+                                    a class="loom-consent-screen__app-homepage"
+                                      href=(h.as_str())
+                                      rel="noopener" target="_blank" { (h) }
+                                } @else {
+                                    // Unsafe URL: render the literal as plain text
+                                    // with no clickable surface AND no href echo.
+                                    // The audit phase still flags it via the cms
+                                    // walk; the visitor never sees the bad scheme.
+                                    span class="loom-consent-screen__app-homepage loom-consent-screen__app-homepage--invalid"
+                                         data-invalid="true" { "(invalid homepage URL)" }
+                                }
+                            }
+                        }
+                        h3 class="loom-consent-screen__scopes-heading" { "Requested permissions" }
+                        ul class="loom-consent-screen__scopes" aria-label="Requested permissions" {
+                            @for scope in scopes {
+                                li class={ "loom-consent-scope loom-consent-scope--" (scope.tier.modifier()) } {
+                                    code class="loom-consent-scope__slug" { (scope.slug) }
+                                    span class="loom-consent-scope__label" { (scope.label) }
+                                    @if let Some(d) = &scope.description {
+                                        p class="loom-consent-scope__description" { (d) }
+                                    }
+                                }
+                            }
+                        }
+                        div class="loom-consent-screen__actions" {
+                            a class="loom-btn loom-btn--ghost loom-consent-screen__deny"
+                              href=(if deny_safe { deny_cta.href.as_str() } else { "#invalid-cta" })
+                              data-backend=(deny_cta.data_backend) { (deny_cta.label) }
+                            a class="loom-btn loom-btn--primary loom-consent-screen__grant"
+                              href=(if grant_safe { grant_cta.href.as_str() } else { "#invalid-cta" })
+                              data-backend=(grant_cta.data_backend) { (grant_cta.label) }
+                        }
+                        @if let Some(n) = footer_note {
+                            p class="loom-consent-screen__footer-note" { (n) }
+                        }
+                    }
+                }
+            }
+        }
         CmsSection::BackupCodes {
             title,
             description,
@@ -11106,6 +11269,224 @@ mod page_shell_tests {
             let back: EmailVerifyStatus = serde_json::from_str(&s).unwrap();
             assert_eq!(back, variant);
         }
+    }
+
+    // #104 (2026-05-20) — ConsentScreen primitive. OAuth consent
+    // gap. Renders the typed scopes list with risk-tiered modifier
+    // classes + grant/deny CTAs through is_safe_url.
+
+    fn cta(label: &str, href: &str) -> HeroCta {
+        HeroCta {
+            label: label.into(),
+            href: href.into(),
+            data_backend: "test".into(),
+        }
+    }
+
+    fn consent_page(scopes: Vec<ConsentScope>) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::ConsentScreen {
+            title: "Authorize MyApp".into(),
+            app_name: "MyApp".into(),
+            app_description: Some("A tool that does things.".into()),
+            app_homepage: Some("https://myapp.example".into()),
+            scopes,
+            grant_cta: cta("Authorize", "/oauth/grant"),
+            deny_cta: cta("Cancel", "/oauth/deny"),
+            footer_note: None,
+        }];
+        p
+    }
+
+    #[test]
+    fn consent_screen_renders_app_name_and_scope_list() {
+        let scopes = vec![ConsentScope {
+            slug: "read:repos".into(),
+            label: "Read your repositories".into(),
+            description: None,
+            tier: ConsentScopeTier::Routine,
+        }];
+        let p = consent_page(scopes);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-consent-screen"));
+        assert!(html.contains(">MyApp<"));
+        assert!(html.contains("<code class=\"loom-consent-scope__slug\">read:repos</code>"));
+        assert!(html.contains(">Read your repositories<"));
+        assert!(html.contains("aria-label=\"Requested permissions\""));
+    }
+
+    #[test]
+    fn consent_screen_emits_modifier_class_per_scope_tier() {
+        let scopes = vec![
+            ConsentScope {
+                slug: "user:read".into(),
+                label: "Read".into(),
+                description: None,
+                tier: ConsentScopeTier::Routine,
+            },
+            ConsentScope {
+                slug: "user:write".into(),
+                label: "Write".into(),
+                description: None,
+                tier: ConsentScopeTier::Write,
+            },
+            ConsentScope {
+                slug: "billing:full".into(),
+                label: "Billing".into(),
+                description: None,
+                tier: ConsentScopeTier::Sensitive,
+            },
+        ];
+        let p = consent_page(scopes);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-consent-scope--routine"));
+        assert!(html.contains("loom-consent-scope--write"));
+        assert!(html.contains("loom-consent-scope--sensitive"));
+    }
+
+    #[test]
+    fn consent_screen_grant_and_deny_ctas_route_through_is_safe_url() {
+        let mut p = consent_page(vec![]);
+        p.sections[0] = CmsSection::ConsentScreen {
+            title: "T".into(),
+            app_name: "X".into(),
+            app_description: None,
+            app_homepage: None,
+            scopes: vec![],
+            grant_cta: cta("Grant", "javascript:alert(1)"),
+            deny_cta: cta("Deny", "/oauth/deny"),
+            footer_note: None,
+        };
+        let html = render_page(&p).into_string();
+        // Hostile grant routes to invalid-cta sentinel
+        assert!(!html.contains("javascript:alert"));
+        assert!(html.contains("href=\"#invalid-cta\""));
+        // Safe deny preserves real URL
+        assert!(html.contains("href=\"/oauth/deny\""));
+    }
+
+    #[test]
+    fn consent_screen_escapes_app_name_and_description() {
+        let mut p = consent_page(vec![]);
+        p.sections[0] = CmsSection::ConsentScreen {
+            title: "T".into(),
+            app_name: "<script>".into(),
+            app_description: Some("<img onerror=alert(1)>".into()),
+            app_homepage: None,
+            scopes: vec![],
+            grant_cta: cta("g", "/g"),
+            deny_cta: cta("d", "/d"),
+            footer_note: None,
+        };
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(!html.contains("<img onerror=alert(1)>"));
+    }
+
+    #[test]
+    fn consent_screen_app_homepage_link_carries_rel_noopener() {
+        let p = consent_page(vec![]);
+        let html = render_page(&p).into_string();
+        // Existing app_homepage in helper is safe; should render with rel/target
+        assert!(html.contains("rel=\"noopener\""));
+        assert!(html.contains("target=\"_blank\""));
+        assert!(html.contains("https://myapp.example"));
+    }
+
+    #[test]
+    fn consent_screen_rejects_javascript_homepage() {
+        let mut p = consent_page(vec![]);
+        p.sections[0] = CmsSection::ConsentScreen {
+            title: "T".into(),
+            app_name: "X".into(),
+            app_description: None,
+            app_homepage: Some("javascript:alert(1)".into()),
+            scopes: vec![],
+            grant_cta: cta("g", "/g"),
+            deny_cta: cta("d", "/d"),
+            footer_note: None,
+        };
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("javascript:alert"));
+    }
+
+    #[test]
+    fn consent_scope_tier_modifier_is_stable_kebab_case() {
+        assert_eq!(ConsentScopeTier::Routine.modifier(), "routine");
+        assert_eq!(ConsentScopeTier::Write.modifier(), "write");
+        assert_eq!(ConsentScopeTier::Sensitive.modifier(), "sensitive");
+    }
+
+    #[test]
+    fn consent_scope_tier_serde_round_trip() {
+        for (tier, json) in [
+            (ConsentScopeTier::Routine, "\"routine\""),
+            (ConsentScopeTier::Write, "\"write\""),
+            (ConsentScopeTier::Sensitive, "\"sensitive\""),
+        ] {
+            let s = serde_json::to_string(&tier).unwrap();
+            assert_eq!(s, json);
+            let back: ConsentScopeTier = serde_json::from_str(&s).unwrap();
+            assert_eq!(back, tier);
+        }
+    }
+
+    #[test]
+    fn consent_screen_section_parses_from_snake_case_kind() {
+        let json = r#"{
+            "kind": "consent_screen",
+            "title": "Authorize Acme",
+            "app_name": "Acme",
+            "app_description": null,
+            "app_homepage": null,
+            "scopes": [{
+                "slug": "read:everything",
+                "label": "Read everything",
+                "description": null,
+                "tier": "sensitive"
+            }],
+            "grant_cta": {
+                "label": "Authorize",
+                "href": "/oauth/grant",
+                "data_backend": "oauth-grant"
+            },
+            "deny_cta": {
+                "label": "Cancel",
+                "href": "/oauth/deny",
+                "data_backend": "oauth-deny"
+            },
+            "footer_note": null
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::ConsentScreen { app_name, scopes, .. } => {
+                assert_eq!(app_name, "Acme");
+                assert_eq!(scopes.len(), 1);
+                assert_eq!(scopes[0].tier, ConsentScopeTier::Sensitive);
+            }
+            _ => panic!("expected ConsentScreen variant"),
+        }
+    }
+
+    #[test]
+    fn consent_screen_footer_note_rendered_when_present() {
+        let mut p = consent_page(vec![]);
+        p.sections[0] = CmsSection::ConsentScreen {
+            title: "T".into(),
+            app_name: "X".into(),
+            app_description: None,
+            app_homepage: None,
+            scopes: vec![],
+            grant_cta: cta("g", "/g"),
+            deny_cta: cta("d", "/d"),
+            footer_note: Some("Published by Acme Inc.".into()),
+        };
+        let html = render_page(&p).into_string();
+        assert!(html.contains(">Published by Acme Inc.<"));
+        assert!(html.contains("loom-consent-screen__footer-note"));
     }
 
     // #122 (2026-05-20) — BackupCodes follow-up to EmailVerifyResult.
