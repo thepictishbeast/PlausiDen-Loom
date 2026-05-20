@@ -1232,6 +1232,98 @@ pub enum CmsSection {
         /// Submit-button label.
         submit_label: String,
     },
+    /// Email-verification result landing page. Rendered after a
+    /// visitor clicks a one-click verification link emailed during
+    /// sign-up. Carries a typed [`EmailVerifyStatus`] so the
+    /// renderer can emit the correct success / expired / invalid /
+    /// already-verified shell without the operator hand-writing 4
+    /// separate landing pages.
+    ///
+    /// Operators pair this with an `EmailVerifyRequest` page
+    /// (typically a regular [`CmsSection::CallToAction`] with
+    /// "Check your inbox" copy) shown immediately after sign-up.
+    EmailVerifyResult {
+        /// Verification outcome.
+        status: EmailVerifyStatus,
+        /// Visible heading. Operator may override the default by
+        /// status; if `None` the renderer picks a status-appropriate
+        /// default ("Email verified", "Link expired", etc.).
+        title: Option<String>,
+        /// Body copy under the heading. Operator-supplied; the
+        /// renderer doesn't emit a default because messaging is
+        /// brand-voice-sensitive.
+        body: String,
+        /// Optional primary next-action CTA. For `Success` /
+        /// `AlreadyVerified` this typically points to the
+        /// signed-in dashboard; for `Expired` it should point at
+        /// the resend-verification endpoint; for `Invalid` it
+        /// should point at the support / contact route.
+        cta: Option<HeroCta>,
+        /// Optional secondary CTA (e.g., "Contact support" beside
+        /// a primary "Continue to dashboard").
+        secondary_cta: Option<HeroCta>,
+    },
+}
+
+/// Outcome of an email-verification attempt. Routed to a typed
+/// landing shell by [`CmsSection::EmailVerifyResult`].
+///
+/// Backend contract: the verification handler decodes the URL
+/// token, looks up the verification row, and sets one of these
+/// four states before rendering the page:
+///
+/// * `Success` — token valid, row marked verified, freshly so.
+/// * `AlreadyVerified` — token valid but row was already
+///   verified by a prior click (e.g., user clicked the link
+///   twice). Distinct from `Success` so copy can say "you're
+///   already verified" instead of "thanks for verifying."
+/// * `Expired` — token decoded but the verification row's
+///   `expires_at` is past. User must request a fresh link.
+/// * `Invalid` — token didn't decode, didn't match any row, or
+///   was tampered with. Render a generic error to avoid leaking
+///   enumeration signals — DO NOT distinguish "token format bad"
+///   from "no such row" in the rendered output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EmailVerifyStatus {
+    /// Token valid, row freshly marked verified.
+    Success,
+    /// Token valid but already-verified.
+    AlreadyVerified,
+    /// Token decoded but expired.
+    Expired,
+    /// Token didn't decode / didn't match / tampered (collapsed
+    /// to one variant to avoid enumeration-signal leak).
+    Invalid,
+}
+
+impl EmailVerifyStatus {
+    /// Default-emitted title when the operator passes `None` for
+    /// the [`CmsSection::EmailVerifyResult::title`] field. Keep
+    /// copy generic — brand-voice tuning is the operator's job.
+    #[must_use]
+    pub const fn default_title(self) -> &'static str {
+        match self {
+            Self::Success => "Email verified",
+            Self::AlreadyVerified => "Already verified",
+            Self::Expired => "Verification link expired",
+            Self::Invalid => "Verification link invalid",
+        }
+    }
+
+    /// Per-status modifier class. Renderers can use this to switch
+    /// surface tone (success-green, expired-amber, invalid-red).
+    /// Stable contract — string is part of the wire shape because
+    /// the loom-skin CSS targets these via `.loom-email-verify--<status>`.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::AlreadyVerified => "already-verified",
+            Self::Expired => "expired",
+            Self::Invalid => "invalid",
+        }
+    }
 }
 
 /// One option inside an [`CmsSection::AuthCard`].
@@ -1607,7 +1699,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 145;
+    pub const PRIMITIVE_COUNT: u32 = 146;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5232,6 +5324,34 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::EmailVerifyResult { status, title, body, cta, secondary_cta } => {
+            let resolved_title = title.as_deref().unwrap_or_else(|| status.default_title());
+            let modifier = status.modifier();
+            let primary_safe = cta.as_ref().is_some_and(|c| is_safe_url(&c.href));
+            let secondary_safe = secondary_cta.as_ref().is_some_and(|c| is_safe_url(&c.href));
+            html! {
+                section class={ "loom-email-verify loom-email-verify--" (modifier) } data-loom-reveal {
+                    div class="loom-email-verify__inner" {
+                        h2 class="loom-email-verify__title" { (resolved_title) }
+                        p class="loom-email-verify__body" { (body) }
+                        @if cta.is_some() || secondary_cta.is_some() {
+                            div class="loom-email-verify__actions" {
+                                @if let Some(c) = cta {
+                                    a class="loom-btn loom-btn--primary loom-email-verify__cta"
+                                      href=(if primary_safe { c.href.as_str() } else { "#invalid-cta" })
+                                      data-backend=(c.data_backend) { (c.label) }
+                                }
+                                @if let Some(c) = secondary_cta {
+                                    a class="loom-btn loom-btn--ghost loom-email-verify__cta-secondary"
+                                      href=(if secondary_safe { c.href.as_str() } else { "#invalid-cta" })
+                                      data-backend=(c.data_backend) { (c.label) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -10708,6 +10828,201 @@ mod page_shell_tests {
         let body_only = render_page(&p).into_string();
         // The heading body has no id="..." between the class and the text.
         assert!(body_only.contains("<h2 class=\"loom-heading\" data-loom-level=\"2\">No anchor.</h2>"));
+    }
+
+    // #122 (2026-05-20): EmailVerifyResult — typed verification
+    // landing page. Tests cover all 4 status modifiers, default
+    // title fallback, body escaping, dual-CTA composition, and
+    // serde round-trip.
+
+    fn email_verify_page(status: EmailVerifyStatus, body: &str) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::EmailVerifyResult {
+            status,
+            title: None,
+            body: body.into(),
+            cta: None,
+            secondary_cta: None,
+        }];
+        p
+    }
+
+    #[test]
+    fn email_verify_status_default_titles_per_variant() {
+        // Stable copy contract — operators that pass `None` get
+        // these strings. Renaming requires an additive variant
+        // (don't repurpose existing strings).
+        assert_eq!(EmailVerifyStatus::Success.default_title(), "Email verified");
+        assert_eq!(
+            EmailVerifyStatus::AlreadyVerified.default_title(),
+            "Already verified"
+        );
+        assert_eq!(
+            EmailVerifyStatus::Expired.default_title(),
+            "Verification link expired"
+        );
+        assert_eq!(
+            EmailVerifyStatus::Invalid.default_title(),
+            "Verification link invalid"
+        );
+    }
+
+    #[test]
+    fn email_verify_status_modifier_classes_are_stable() {
+        // The loom-skin CSS targets `.loom-email-verify--<modifier>`
+        // — modifier strings are part of the wire shape.
+        assert_eq!(EmailVerifyStatus::Success.modifier(), "success");
+        assert_eq!(
+            EmailVerifyStatus::AlreadyVerified.modifier(),
+            "already-verified"
+        );
+        assert_eq!(EmailVerifyStatus::Expired.modifier(), "expired");
+        assert_eq!(EmailVerifyStatus::Invalid.modifier(), "invalid");
+    }
+
+    #[test]
+    fn email_verify_renders_section_with_status_modifier_class() {
+        for status in [
+            EmailVerifyStatus::Success,
+            EmailVerifyStatus::AlreadyVerified,
+            EmailVerifyStatus::Expired,
+            EmailVerifyStatus::Invalid,
+        ] {
+            let p = email_verify_page(status, "Body copy.");
+            let html = render_page(&p).into_string();
+            let modifier_class = format!("loom-email-verify--{}", status.modifier());
+            assert!(
+                html.contains(&modifier_class),
+                "expected modifier class {modifier_class} in render for {status:?}"
+            );
+            assert!(html.contains(status.default_title()));
+        }
+    }
+
+    #[test]
+    fn email_verify_uses_operator_title_when_provided() {
+        let mut p = email_verify_page(EmailVerifyStatus::Success, "Body");
+        p.sections[0] = CmsSection::EmailVerifyResult {
+            status: EmailVerifyStatus::Success,
+            title: Some("Custom title".into()),
+            body: "Body".into(),
+            cta: None,
+            secondary_cta: None,
+        };
+        let html = render_page(&p).into_string();
+        assert!(
+            html.contains(">Custom title<"),
+            "operator-supplied title must replace the default"
+        );
+        assert!(
+            !html.contains(">Email verified<"),
+            "default title must not appear when operator supplied one"
+        );
+    }
+
+    #[test]
+    fn email_verify_escapes_body_text() {
+        let p = email_verify_page(EmailVerifyStatus::Invalid, "<script>alert(1)</script>");
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    }
+
+    #[test]
+    fn email_verify_renders_dual_ctas_with_safe_hrefs() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::EmailVerifyResult {
+            status: EmailVerifyStatus::Success,
+            title: None,
+            body: "Welcome.".into(),
+            cta: Some(HeroCta {
+                label: "Continue".into(),
+                href: "/dashboard".into(),
+                data_backend: "dashboard".into(),
+            }),
+            secondary_cta: Some(HeroCta {
+                label: "Help".into(),
+                href: "/help".into(),
+                data_backend: "help".into(),
+            }),
+        }];
+        let html = render_page(&p).into_string();
+        assert!(html.contains("href=\"/dashboard\""));
+        assert!(html.contains(">Continue<"));
+        assert!(html.contains("href=\"/help\""));
+        assert!(html.contains(">Help<"));
+        assert!(html.contains("loom-email-verify__cta"));
+        assert!(html.contains("loom-email-verify__cta-secondary"));
+    }
+
+    #[test]
+    fn email_verify_rejects_javascript_url_in_cta() {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::EmailVerifyResult {
+            status: EmailVerifyStatus::Success,
+            title: None,
+            body: "Welcome.".into(),
+            cta: Some(HeroCta {
+                label: "X".into(),
+                href: "javascript:alert(1)".into(),
+                data_backend: "d".into(),
+            }),
+            secondary_cta: None,
+        }];
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("javascript:alert"));
+        assert!(html.contains("href=\"#invalid-cta\""));
+    }
+
+    #[test]
+    fn email_verify_with_no_ctas_omits_actions_block() {
+        let p = email_verify_page(EmailVerifyStatus::Expired, "Link expired.");
+        let html = render_page(&p).into_string();
+        assert!(
+            !html.contains("loom-email-verify__actions"),
+            "actions block must not render when both CTAs are None"
+        );
+    }
+
+    #[test]
+    fn email_verify_status_serde_round_trip() {
+        for (variant, json) in [
+            (EmailVerifyStatus::Success, "\"success\""),
+            (EmailVerifyStatus::AlreadyVerified, "\"already_verified\""),
+            (EmailVerifyStatus::Expired, "\"expired\""),
+            (EmailVerifyStatus::Invalid, "\"invalid\""),
+        ] {
+            let s = serde_json::to_string(&variant).unwrap();
+            assert_eq!(s, json, "expected {variant:?} to serialize as {json}");
+            let back: EmailVerifyStatus = serde_json::from_str(&s).unwrap();
+            assert_eq!(back, variant);
+        }
+    }
+
+    #[test]
+    fn email_verify_section_parses_from_snake_case_kind() {
+        let json = r#"{
+            "kind": "email_verify_result",
+            "status": "expired",
+            "title": null,
+            "body": "Your link has expired.",
+            "cta": null,
+            "secondary_cta": null
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::EmailVerifyResult { status, body, .. } => {
+                assert_eq!(status, EmailVerifyStatus::Expired);
+                assert_eq!(body, "Your link has expired.");
+            }
+            _ => panic!("expected EmailVerifyResult variant"),
+        }
     }
 }
 
