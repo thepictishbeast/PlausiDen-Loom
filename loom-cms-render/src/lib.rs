@@ -1245,6 +1245,31 @@ pub enum CmsSection {
         /// Submit-button label.
         submit_label: String,
     },
+    /// Typed changelog block — versioned release-notes entries
+    /// following the Keep-a-Changelog convention (keepachangelog.com).
+    /// Each entry has a version + date + optional summary + a
+    /// typed list of changes categorized by kind (Added / Changed /
+    /// Deprecated / Removed / Fixed / Security).
+    ///
+    /// Use cases:
+    /// - Product CHANGELOG.md rendered into the public docs site
+    /// - Release-notes section on a marketing/dev-tool homepage
+    /// - Annotator audit-log surface for compliance reporting
+    ///
+    /// Distinct from `Timeline` (general chronological events) +
+    /// `Roadmap` (now/next/later) — Changelog is specifically for
+    /// VERSIONED release notes with semantic change-kind tags.
+    ChangelogList {
+        /// Section heading (e.g., "Changelog", "Release notes").
+        heading: String,
+        /// Entries in display order (typically newest-first).
+        /// Renderer doesn't sort.
+        entries: Vec<ChangelogEntry>,
+        /// Visual style. `Detailed` shows per-change kind tags +
+        /// full body; `Compact` shows just version + date + change
+        /// count for an index view.
+        style: ChangelogListStyle,
+    },
     /// Typed disclosure block — sponsored-content notices,
     /// affiliate-link disclaimers, conflict-of-interest
     /// declarations, editorial-policy notes. Distinct from the
@@ -1681,6 +1706,116 @@ pub enum CmsSection {
         /// a primary "Continue to dashboard").
         secondary_cta: Option<HeroCta>,
     },
+}
+
+/// One entry in a [`CmsSection::ChangelogList`] — one version's
+/// release notes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct ChangelogEntry {
+    /// Version string (operator-supplied; typically semver like
+    /// "1.2.3" but can be calver like "2024.03" or anything the
+    /// operator's release process emits). Renderer escapes verbatim.
+    pub version: String,
+    /// Release date string (operator pre-formatted; typically
+    /// ISO 8601 yyyy-mm-dd). Renderer doesn't format dates per
+    /// memory [[iso-standards]].
+    pub date: String,
+    /// Optional summary line ("Performance + accessibility
+    /// improvements"). Renders above the changes list.
+    pub summary: Option<String>,
+    /// Typed changes in this release. Empty Vec renders as
+    /// summary-only when summary is set, OR a "no changes
+    /// recorded" placeholder when both empty.
+    pub changes: Vec<ChangelogChange>,
+}
+
+/// One typed change inside a [`ChangelogEntry`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct ChangelogChange {
+    /// Kind of change (Added / Changed / Deprecated / Removed /
+    /// Fixed / Security) per Keep-a-Changelog convention.
+    pub kind: ChangelogChangeKind,
+    /// Change description text. Operator-supplied; renderer
+    /// HTML-escapes.
+    pub text: String,
+}
+
+/// Kind of change in a [`ChangelogEntry`]. Follows the
+/// keepachangelog.com convention so machine + human readers
+/// share the same vocabulary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangelogChangeKind {
+    /// New features added.
+    Added,
+    /// Existing behavior changed.
+    Changed,
+    /// Features marked for future removal.
+    Deprecated,
+    /// Features removed.
+    Removed,
+    /// Bug fixes.
+    Fixed,
+    /// Security patches.
+    Security,
+}
+
+impl ChangelogChangeKind {
+    /// Stable kebab-case modifier slug. Loom-skin cascade rules
+    /// target `.loom-changelog-change--<modifier>`.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::Added => "added",
+            Self::Changed => "changed",
+            Self::Deprecated => "deprecated",
+            Self::Removed => "removed",
+            Self::Fixed => "fixed",
+            Self::Security => "security",
+        }
+    }
+
+    /// Human label for the kind tag visible in `Detailed` style.
+    /// Stable string contract (loom-skin doesn't depend on it but
+    /// reports + downstream consumers may).
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Added => "Added",
+            Self::Changed => "Changed",
+            Self::Deprecated => "Deprecated",
+            Self::Removed => "Removed",
+            Self::Fixed => "Fixed",
+            Self::Security => "Security",
+        }
+    }
+}
+
+/// Visual style for [`CmsSection::ChangelogList`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangelogListStyle {
+    /// Full per-change rows with kind-tag badges + change text.
+    /// Substrate default. Use for the canonical changelog view.
+    #[default]
+    Detailed,
+    /// Compact index: version + date + change-count summary only.
+    /// Use for sidebar/topbar overviews where each version links
+    /// to its own page.
+    Compact,
+}
+
+impl ChangelogListStyle {
+    /// Stable kebab-case modifier slug.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::Detailed => "detailed",
+            Self::Compact => "compact",
+        }
+    }
 }
 
 /// Kind of disclosure on [`CmsSection::Disclaimer`].
@@ -2534,7 +2669,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 159;
+    pub const PRIMITIVE_COUNT: u32 = 160;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -6197,6 +6332,60 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::ChangelogList { heading, entries, style } => {
+            let style_mod = style.modifier();
+            html! {
+                section class={ "loom-changelog loom-changelog--" (style_mod) } data-loom-reveal {
+                    h2 class="loom-changelog__heading" { (heading) }
+                    @if entries.is_empty() {
+                        p class="loom-changelog__empty" { "No releases yet." }
+                    } @else {
+                        ol class="loom-changelog__entries" {
+                            @for entry in entries {
+                                li class="loom-changelog__entry" {
+                                    header class="loom-changelog__entry-header" {
+                                        h3 class="loom-changelog__version" { (entry.version) }
+                                        " "
+                                        time class="loom-changelog__date" datetime=(entry.date.as_str()) { (entry.date) }
+                                    }
+                                    @if let Some(s) = &entry.summary {
+                                        p class="loom-changelog__summary" { (s) }
+                                    }
+                                    @match style {
+                                        ChangelogListStyle::Detailed => {
+                                            @if entry.changes.is_empty() && entry.summary.is_none() {
+                                                p class="loom-changelog__no-changes" { "No changes recorded." }
+                                            } @else if !entry.changes.is_empty() {
+                                                ul class="loom-changelog__changes" {
+                                                    @for change in &entry.changes {
+                                                        @let mod_class = change.kind.modifier();
+                                                        li class={ "loom-changelog-change loom-changelog-change--" (mod_class) } {
+                                                            span class="loom-changelog-change__tag"
+                                                                 aria-label=(change.kind.label()) {
+                                                                (change.kind.label())
+                                                            }
+                                                            " "
+                                                            span class="loom-changelog-change__text" { (change.text) }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        ChangelogListStyle::Compact => {
+                                            p class="loom-changelog__compact-summary" {
+                                                (entry.changes.len().to_string())
+                                                " change"
+                                                @if entry.changes.len() != 1 { "s" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         CmsSection::Disclaimer { disclosure_kind, body, source } => {
             let modifier = disclosure_kind.modifier();
             let mut aria_label = disclosure_kind.accessible_label().to_owned();
@@ -13002,6 +13191,251 @@ mod page_shell_tests {
                 html.contains(&expected),
                 "render_form must emit {expected} attr; got: {html}"
             );
+        }
+    }
+
+    // #104 (2026-05-20) — ChangelogList typed release-notes
+    // primitive. Keep-a-Changelog convention.
+
+    fn change(kind: ChangelogChangeKind, text: &str) -> ChangelogChange {
+        ChangelogChange {
+            kind,
+            text: text.into(),
+        }
+    }
+
+    fn entry(
+        version: &str,
+        date: &str,
+        summary: Option<&str>,
+        changes: Vec<ChangelogChange>,
+    ) -> ChangelogEntry {
+        ChangelogEntry {
+            version: version.into(),
+            date: date.into(),
+            summary: summary.map(str::to_owned),
+            changes,
+        }
+    }
+
+    fn changelog_page(entries: Vec<ChangelogEntry>, style: ChangelogListStyle) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::ChangelogList {
+            heading: "Release notes".into(),
+            entries,
+            style,
+        }];
+        p
+    }
+
+    #[test]
+    fn changelog_empty_renders_placeholder() {
+        let p = changelog_page(vec![], ChangelogListStyle::Detailed);
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-changelog--detailed"));
+        assert!(html.contains(">No releases yet.<"));
+        assert!(!html.contains("<ol"));
+    }
+
+    #[test]
+    fn changelog_detailed_renders_per_change_with_kind_tag() {
+        let p = changelog_page(
+            vec![entry(
+                "1.2.0",
+                "2024-03-15",
+                Some("Performance + accessibility improvements"),
+                vec![
+                    change(ChangelogChangeKind::Added, "New dashboard widget"),
+                    change(ChangelogChangeKind::Fixed, "Race condition in upload"),
+                    change(ChangelogChangeKind::Security, "CSP nonce rotation"),
+                ],
+            )],
+            ChangelogListStyle::Detailed,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains("<h3 class=\"loom-changelog__version\">1.2.0</h3>"));
+        assert!(html.contains("<time class=\"loom-changelog__date\" datetime=\"2024-03-15\">"));
+        assert!(html.contains(">Performance + accessibility improvements<"));
+        assert!(html.contains("loom-changelog-change--added"));
+        assert!(html.contains("loom-changelog-change--fixed"));
+        assert!(html.contains("loom-changelog-change--security"));
+        assert!(html.contains(">Added</span>"));
+        assert!(html.contains(">Fixed</span>"));
+        assert!(html.contains(">Security</span>"));
+    }
+
+    #[test]
+    fn changelog_compact_renders_change_count_only() {
+        let p = changelog_page(
+            vec![entry(
+                "1.2.0",
+                "2024-03-15",
+                None,
+                vec![
+                    change(ChangelogChangeKind::Added, "a"),
+                    change(ChangelogChangeKind::Fixed, "b"),
+                ],
+            )],
+            ChangelogListStyle::Compact,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-changelog--compact"));
+        // Compact summary: "2 changes"
+        assert!(html.contains(">2 changes</p>") || html.contains(">2 changes "));
+        // Compact does NOT show per-change rows
+        assert!(!html.contains("loom-changelog-change--added"));
+        assert!(!html.contains("loom-changelog-change--fixed"));
+    }
+
+    #[test]
+    fn changelog_compact_singular_label_for_one_change() {
+        let p = changelog_page(
+            vec![entry(
+                "1.0.1",
+                "2024-01-01",
+                None,
+                vec![change(ChangelogChangeKind::Fixed, "one fix")],
+            )],
+            ChangelogListStyle::Compact,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains(">1 change</p>") || html.contains(">1 change "));
+    }
+
+    #[test]
+    fn changelog_compact_zero_changes_uses_plural_for_consistency() {
+        let p = changelog_page(
+            vec![entry("0.1.0", "2024-01-01", None, vec![])],
+            ChangelogListStyle::Compact,
+        );
+        let html = render_page(&p).into_string();
+        // 0 changes — plural form
+        assert!(html.contains(">0 changes</p>") || html.contains(">0 changes "));
+    }
+
+    #[test]
+    fn changelog_all_6_change_kinds_emit_modifier_class() {
+        for kind in [
+            ChangelogChangeKind::Added,
+            ChangelogChangeKind::Changed,
+            ChangelogChangeKind::Deprecated,
+            ChangelogChangeKind::Removed,
+            ChangelogChangeKind::Fixed,
+            ChangelogChangeKind::Security,
+        ] {
+            let p = changelog_page(
+                vec![entry("1.0.0", "2024", None, vec![change(kind, "x")])],
+                ChangelogListStyle::Detailed,
+            );
+            let html = render_page(&p).into_string();
+            let expected = format!("loom-changelog-change--{}", kind.modifier());
+            assert!(
+                html.contains(&expected),
+                "kind {kind:?} missing modifier {expected}"
+            );
+            assert!(
+                html.contains(kind.label()),
+                "kind {kind:?} missing visible label {}",
+                kind.label()
+            );
+        }
+    }
+
+    #[test]
+    fn changelog_detailed_no_changes_no_summary_renders_no_changes_placeholder() {
+        let p = changelog_page(
+            vec![entry("0.0.1", "2024-01-01", None, vec![])],
+            ChangelogListStyle::Detailed,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains(">No changes recorded.<"));
+    }
+
+    #[test]
+    fn changelog_detailed_summary_only_renders_summary_without_no_changes_message() {
+        // If operator supplied a summary line, that IS the entry's
+        // content; don't show the "No changes recorded" placeholder.
+        let p = changelog_page(
+            vec![entry(
+                "0.0.1",
+                "2024-01-01",
+                Some("Initial release."),
+                vec![],
+            )],
+            ChangelogListStyle::Detailed,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains(">Initial release.<"));
+        assert!(!html.contains("No changes recorded."));
+    }
+
+    #[test]
+    fn changelog_version_date_summary_change_text_all_escaped() {
+        let p = changelog_page(
+            vec![entry(
+                "<script>",
+                "<svg/>",
+                Some("<img onerror=x>"),
+                vec![change(ChangelogChangeKind::Added, "<style>")],
+            )],
+            ChangelogListStyle::Detailed,
+        );
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<svg/>"));
+        assert!(!html.contains("<img onerror=x>"));
+        // The inner <style> would render in browser; verify escaped
+        assert!(html.contains("&lt;style&gt;"));
+    }
+
+    #[test]
+    fn changelog_kind_modifier_strings_stable() {
+        for (kind, slug) in [
+            (ChangelogChangeKind::Added, "added"),
+            (ChangelogChangeKind::Changed, "changed"),
+            (ChangelogChangeKind::Deprecated, "deprecated"),
+            (ChangelogChangeKind::Removed, "removed"),
+            (ChangelogChangeKind::Fixed, "fixed"),
+            (ChangelogChangeKind::Security, "security"),
+        ] {
+            assert_eq!(kind.modifier(), slug);
+        }
+    }
+
+    #[test]
+    fn changelog_list_style_default_is_detailed() {
+        assert_eq!(ChangelogListStyle::default(), ChangelogListStyle::Detailed);
+    }
+
+    #[test]
+    fn changelog_section_parses_from_snake_case_kind() {
+        let json = r#"{
+            "kind": "changelog_list",
+            "heading": "Releases",
+            "style": "detailed",
+            "entries": [{
+                "version": "1.0.0",
+                "date": "2024-03-15",
+                "summary": null,
+                "changes": [
+                    { "kind": "added", "text": "Feature X" },
+                    { "kind": "security", "text": "Patch Y" }
+                ]
+            }]
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::ChangelogList { heading, entries, style } => {
+                assert_eq!(heading, "Releases");
+                assert_eq!(entries.len(), 1);
+                assert_eq!(entries[0].version, "1.0.0");
+                assert_eq!(entries[0].changes.len(), 2);
+                assert_eq!(entries[0].changes[1].kind, ChangelogChangeKind::Security);
+                assert_eq!(style, ChangelogListStyle::Detailed);
+            }
+            _ => panic!("expected ChangelogList variant"),
         }
     }
 
