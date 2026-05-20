@@ -83,8 +83,8 @@ pub struct CmsPage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
     /// Page-shell chrome style. Picks the header / body-backdrop
-    /// shape. Default = `PageShell` (legacy SkillShots-style
-    /// sticky bar). Other variants:
+    /// shape. Default = `PageShell` (sticky top-bar header — the
+    /// substrate's baseline chrome). Other variants:
     /// - `FloatingPill` — modern floating capsule centered on
     ///   top of the viewport with glass-morphism backdrop.
     ///   Drops the cream three-radial-gradient body backdrop.
@@ -247,7 +247,7 @@ pub enum CmsSection {
     /// Top-of-page hero. Optional eyebrow pill, required title,
     /// optional lede, optional primary CTA. Loom-namespaced
     /// (no Tailwind dependency) so it composes cleanly with the
-    /// SkillShots PoC skin.
+    /// loom-skin baseline.
     Hero {
         /// Optional small pill above the title.
         eyebrow: Option<String>,

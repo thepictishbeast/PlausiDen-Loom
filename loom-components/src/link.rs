@@ -1,11 +1,12 @@
 //! Typed `TextLink` primitive — inline anchor element with a
 //! constrained palette of visual variants.
 //!
-//! Sixteen sites in plausiden.com (across views, the inquiry
-//! handler, admin chrome, and 5 solutions pages) shipped raw
-//! `<a class="text-primary font-semibold">` strings before this
-//! primitive landed. Promote them to a typed call so the styling
-//! lives behind one struct.
+//! Covers the core inline-link variants the substrate emits:
+//! primary / primary-medium / primary-bold / primary-underline /
+//! quiet (low-emphasis) / external (with new-window indicator).
+//! Promote any `<a class="text-primary ...">` site to a typed
+//! call so the styling lives behind one struct rather than
+//! drift across consumers.
 
 use maud::{Markup, html};
 use serde::{Deserialize, Serialize};
@@ -20,8 +21,7 @@ use serde::{Deserialize, Serialize};
 pub enum TextLinkVariant {
     /// `text-primary` — most inline links inside a paragraph.
     Primary,
-    /// `text-primary font-medium` — mailto / quiet-emphasis links
-    /// (5 sites in plausiden.com use this exact shape).
+    /// `text-primary font-medium` — mailto / quiet-emphasis links.
     PrimaryMedium,
     /// `text-primary font-semibold` — CTAs ("Read more →",
     /// "Back home").

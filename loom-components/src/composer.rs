@@ -87,7 +87,8 @@ pub enum ComposerAvatar<'a> {
 }
 
 /// One prompt-bar action button. Closed enum: each variant is a
-/// well-known SkillShots action.
+/// well-known social-composer action (attach image, attach link,
+/// emoji, mention, location, etc.).
 ///
 /// REGRESSION-GUARD: do NOT add a `Custom(&str)` variant. If a new
 /// action is needed, add a typed variant + tested icon mapping.
