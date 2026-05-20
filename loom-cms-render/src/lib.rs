@@ -1536,6 +1536,45 @@ pub enum CmsSection {
         /// rendered aside chrome for explicit attribution.
         source: Option<String>,
     },
+    /// Typed reader-advisory block — content warnings for
+    /// distressing / sensitive / spoiler material that precedes
+    /// the affected content. Distinct from
+    /// [`CmsSection::Disclaimer`] (declarations about the
+    /// publisher's relationships) and from
+    /// [`CmsSection::AsideNote`] (generic in-flow callout):
+    /// ContentWarning is reader-facing safety scaffolding with
+    /// typed kinds the substrate can audit.
+    ///
+    /// Editorial intent: journalism / fiction / long-form essay /
+    /// trauma-informed writing surfaces where readers deserve
+    /// advance notice of difficult material. Pairs with WCAG
+    /// 2.1 understanding-input-purpose guidance — screen readers
+    /// announce as "Content warning" via aria-label.
+    ContentWarning {
+        /// Severity tier — drives chrome intensity (border
+        /// weight / surface color in cascade). `Standard` for
+        /// routine advisories; `Strong` for graphic material
+        /// that warrants stronger visual signal.
+        #[serde(default)]
+        severity: ContentWarningSeverity,
+        /// Topical kinds covered by this warning. Multiple kinds
+        /// are common ("violence + death + self-harm"). Empty
+        /// vec is permitted (general warning without topical
+        /// breakdown) but typed kinds enable audit + better
+        /// reader filtering.
+        #[serde(default)]
+        kinds: Vec<ContentWarningKind>,
+        /// Operator-supplied body explaining the warning in
+        /// brand voice. Multi-paragraph bodies split on `\n\n`.
+        body: String,
+        /// Whether the warning is dismissible — renderer emits
+        /// a `<button class="loom-content-warning__dismiss">`
+        /// when true; actual hide behaviour is the consumer's
+        /// responsibility (no JS shipped from the substrate
+        /// per LOOM_NOSCRIPT_MODE doctrine).
+        #[serde(default)]
+        dismissible: bool,
+    },
     /// Typed source/citation list for editorial appendices,
     /// research write-up footers, "further reading" sections.
     /// Distinct from [`CmsSection::Citation`] (inline single
@@ -2113,6 +2152,112 @@ impl DisclaimerKind {
             Self::EditorialNote => "Editorial note",
             Self::LegalNotice => "Legal notice",
             Self::AiAssisted => "AI-assisted content disclosure",
+        }
+    }
+}
+
+/// Severity tier for [`CmsSection::ContentWarning`]. Drives
+/// chrome intensity in the rendered aside (border / surface
+/// color in the skin cascade); does NOT affect ARIA semantics
+/// — both severities announce as "Content warning" for
+/// screen-reader users.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentWarningSeverity {
+    /// Routine advisory — measured chrome.
+    #[default]
+    Standard,
+    /// Graphic material — heavier chrome signaling stronger
+    /// caution.
+    Strong,
+}
+
+impl ContentWarningSeverity {
+    /// Stable kebab-case modifier slug. The
+    /// `.loom-content-warning--<modifier>` cascade targets these.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::Strong => "strong",
+        }
+    }
+}
+
+/// Topical kind for [`CmsSection::ContentWarning`]. Drives the
+/// chip class + accessible-name template inside the warning;
+/// future `content_warning_audit` phase will be able to enforce
+/// that pages tagged with certain kinds carry corresponding
+/// warnings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentWarningKind {
+    /// Graphic violence / weapons / war / combat description.
+    Violence,
+    /// Sexual or otherwise adult material.
+    Adult,
+    /// Distressing material that doesn't fit a more specific
+    /// kind — abuse description, trauma narrative, etc.
+    Distressing,
+    /// Plot spoiler for fiction / film / game.
+    Spoiler,
+    /// Death / mortality / grief content.
+    Death,
+    /// Drug / alcohol / substance use depiction.
+    SubstanceUse,
+    /// Suicide / self-harm content.
+    SelfHarm,
+    /// Discrimination / hate speech / slurs (in quoted /
+    /// historical / journalistic context).
+    Discrimination,
+    /// Medical procedures / illness / bodily detail.
+    Medical,
+    /// Financial-loss content (foreclosure, bankruptcy, fraud
+    /// victim narratives) — flagged so readers in active
+    /// crises can opt out.
+    Financial,
+    /// Operator-defined kind that doesn't fit the above. Use
+    /// sparingly — typed kinds enable audit, freeform `Other`
+    /// loses that signal.
+    Other,
+}
+
+impl ContentWarningKind {
+    /// Stable kebab-case modifier slug. The
+    /// `.loom-content-warning__kind--<modifier>` cascade targets
+    /// these.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::Violence => "violence",
+            Self::Adult => "adult",
+            Self::Distressing => "distressing",
+            Self::Spoiler => "spoiler",
+            Self::Death => "death",
+            Self::SubstanceUse => "substance-use",
+            Self::SelfHarm => "self-harm",
+            Self::Discrimination => "discrimination",
+            Self::Medical => "medical",
+            Self::Financial => "financial",
+            Self::Other => "other",
+        }
+    }
+
+    /// Human-readable label rendered as the chip text.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Violence => "Violence",
+            Self::Adult => "Adult content",
+            Self::Distressing => "Distressing material",
+            Self::Spoiler => "Spoilers",
+            Self::Death => "Death",
+            Self::SubstanceUse => "Substance use",
+            Self::SelfHarm => "Self-harm",
+            Self::Discrimination => "Discrimination",
+            Self::Medical => "Medical detail",
+            Self::Financial => "Financial loss",
+            Self::Other => "Other",
         }
     }
 }
@@ -2956,7 +3101,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -7111,6 +7256,44 @@ pub fn render_section(section: &CmsSection) -> Markup {
                             p class="loom-disclaimer__source" {
                                 "Source: " (src)
                             }
+                        }
+                    }
+                }
+            }
+        }
+        CmsSection::ContentWarning {
+            severity,
+            kinds,
+            body,
+            dismissible,
+        } => {
+            let severity_mod = severity.modifier();
+            html! {
+                aside class={ "loom-content-warning loom-content-warning--" (severity_mod) }
+                      role="note"
+                      aria-label="Content warning"
+                      data-severity=(severity_mod)
+                      data-dismissible=(if *dismissible { "true" } else { "false" })
+                      data-loom-reveal
+                {
+                    p class="loom-content-warning__eyebrow" { "Content warning" }
+                    @if !kinds.is_empty() {
+                        ul class="loom-content-warning__kinds" {
+                            @for k in kinds {
+                                li class={ "loom-content-warning__kind loom-content-warning__kind--" (k.modifier()) }
+                                    data-kind=(k.modifier())
+                                { (k.label()) }
+                            }
+                        }
+                    }
+                    div class="loom-content-warning__body" {
+                        @for para in body.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
+                            p { (para) }
+                        }
+                    }
+                    @if *dismissible {
+                        button type="button" class="loom-content-warning__dismiss" {
+                            "Dismiss"
                         }
                     }
                 }
@@ -14344,6 +14527,175 @@ mod page_shell_tests {
                 assert_eq!(source.as_deref(), Some("Acme Corp."));
             }
             _ => panic!("expected Disclaimer variant"),
+        }
+    }
+
+    // #104 (2026-05-20) — ContentWarning typed reader-advisory primitive.
+
+    fn content_warning_page(
+        severity: ContentWarningSeverity,
+        kinds: Vec<ContentWarningKind>,
+        body: &str,
+        dismissible: bool,
+    ) -> CmsPage {
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::ContentWarning {
+            severity,
+            kinds,
+            body: body.into(),
+            dismissible,
+        }];
+        p
+    }
+
+    #[test]
+    fn content_warning_renders_aside_with_role_note_and_aria_label() {
+        let p = content_warning_page(
+            ContentWarningSeverity::Standard,
+            vec![ContentWarningKind::Death, ContentWarningKind::Distressing],
+            "This article discusses bereavement.",
+            false,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains(r#"<aside class="loom-content-warning loom-content-warning--standard""#));
+        assert!(html.contains(r#"role="note""#));
+        assert!(html.contains(r#"aria-label="Content warning""#));
+        assert!(html.contains(r#"data-severity="standard""#));
+        assert!(html.contains(r#"data-dismissible="false""#));
+        assert!(html.contains(">Content warning<"));
+        assert!(html.contains(r#"<ul class="loom-content-warning__kinds""#));
+        assert!(html.contains(r#"data-kind="death""#));
+        assert!(html.contains(r#"data-kind="distressing""#));
+        assert!(html.contains(">Death<"));
+        assert!(html.contains(">Distressing material<"));
+    }
+
+    #[test]
+    fn content_warning_strong_severity_emits_modifier_class() {
+        let p = content_warning_page(
+            ContentWarningSeverity::Strong,
+            vec![ContentWarningKind::SelfHarm],
+            "Graphic depiction.",
+            false,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains("loom-content-warning--strong"));
+        assert!(html.contains(r#"data-severity="strong""#));
+        assert!(html.contains(r#"data-kind="self-harm""#));
+    }
+
+    #[test]
+    fn content_warning_empty_kinds_omits_kinds_list() {
+        let p = content_warning_page(
+            ContentWarningSeverity::Standard,
+            vec![],
+            "General content warning.",
+            false,
+        );
+        let html = render_page(&p).into_string();
+        assert!(!html.contains("loom-content-warning__kinds"));
+        assert!(html.contains("loom-content-warning__body"));
+    }
+
+    #[test]
+    fn content_warning_dismissible_emits_button() {
+        let p = content_warning_page(
+            ContentWarningSeverity::Standard,
+            vec![ContentWarningKind::Spoiler],
+            "Spoilers ahead.",
+            true,
+        );
+        let html = render_page(&p).into_string();
+        assert!(html.contains(r#"data-dismissible="true""#));
+        assert!(html.contains(r#"<button type="button" class="loom-content-warning__dismiss""#));
+        assert!(html.contains(">Dismiss<"));
+    }
+
+    #[test]
+    fn content_warning_kind_modifiers_stable_per_kind() {
+        for (kind, modifier, label) in [
+            (ContentWarningKind::Violence, "violence", "Violence"),
+            (ContentWarningKind::Adult, "adult", "Adult content"),
+            (ContentWarningKind::Distressing, "distressing", "Distressing material"),
+            (ContentWarningKind::Spoiler, "spoiler", "Spoilers"),
+            (ContentWarningKind::Death, "death", "Death"),
+            (ContentWarningKind::SubstanceUse, "substance-use", "Substance use"),
+            (ContentWarningKind::SelfHarm, "self-harm", "Self-harm"),
+            (ContentWarningKind::Discrimination, "discrimination", "Discrimination"),
+            (ContentWarningKind::Medical, "medical", "Medical detail"),
+            (ContentWarningKind::Financial, "financial", "Financial loss"),
+            (ContentWarningKind::Other, "other", "Other"),
+        ] {
+            assert_eq!(kind.modifier(), modifier);
+            assert_eq!(kind.label(), label);
+        }
+    }
+
+    #[test]
+    fn content_warning_body_splits_on_blank_lines_and_escapes_html() {
+        let p = content_warning_page(
+            ContentWarningSeverity::Standard,
+            vec![],
+            "First paragraph.\n\n<script>alert(1)</script>",
+            false,
+        );
+        let html = render_page(&p).into_string();
+        let body_open = html.find("loom-content-warning__body").expect("body class");
+        let body_close = html[body_open..].find("</div>").expect("/div") + body_open;
+        let body_slice = &html[body_open..body_close];
+        let p_count = body_slice.matches("<p>").count();
+        assert_eq!(p_count, 2, "expected 2 body <p> tags, got {p_count}");
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn content_warning_parses_from_json_with_defaults() {
+        let json = r#"{
+            "kind": "content_warning",
+            "body": "Discusses bereavement in depth."
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::ContentWarning {
+                severity,
+                kinds,
+                body,
+                dismissible,
+            } => {
+                assert_eq!(severity, ContentWarningSeverity::Standard);
+                assert!(kinds.is_empty());
+                assert_eq!(body, "Discusses bereavement in depth.");
+                assert!(!dismissible);
+            }
+            _ => panic!("expected ContentWarning variant"),
+        }
+        // Explicit fields parse correctly.
+        let json = r#"{
+            "kind": "content_warning",
+            "severity": "strong",
+            "kinds": ["violence", "death"],
+            "body": "Graphic.",
+            "dismissible": true
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::ContentWarning {
+                severity,
+                kinds,
+                dismissible,
+                ..
+            } => {
+                assert_eq!(severity, ContentWarningSeverity::Strong);
+                assert_eq!(
+                    kinds,
+                    vec![ContentWarningKind::Violence, ContentWarningKind::Death]
+                );
+                assert!(dismissible);
+            }
+            _ => panic!("expected ContentWarning variant"),
         }
     }
 
