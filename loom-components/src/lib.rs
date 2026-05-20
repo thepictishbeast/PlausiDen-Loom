@@ -27,7 +27,7 @@ pub mod section;
 pub mod toast;
 pub mod typography;
 
-pub use badge::{Badge, BadgeSize, BadgeTone};
+pub use badge::{Badge, BadgeShape, BadgeSize, BadgeTone};
 pub use button::{Button, ButtonSize, ButtonType, ButtonVariant, Decoration, IconPosition};
 pub use card::{
     Card, CardElevation, CardHover, CardPadding, FeatureCard, FeatureCardStyle, KvPairCard,
