@@ -346,14 +346,6 @@ pub enum CmsSection {
     /// Multi-step form. Renders as `<form>` with a step indicator
     /// at top + each step's fields below + a submit row at bottom.
     /// Used for post-skill.html upload flow.
-    ///
-    /// FUTURE: a `style: CmsFormStyle` field will wire through to
-    /// the `data-loom-form-style` attribute the loom-skin cascade
-    /// uses to swap rounded/editorial/minimal input chrome. The
-    /// [`CmsFormStyle`] enum is defined below for that wire-
-    /// through but isn't a field of this variant yet — adding it
-    /// requires migrating ~7 existing struct-literal call sites in
-    /// tests, deferred to a separate commit.
     Form {
         /// Form heading (rendered as h2 inside the section).
         legend: String,
@@ -362,6 +354,19 @@ pub enum CmsSection {
         /// Ordered steps (multi-page UX rendered single-page in
         /// the SSG output; client JS can swap visibility later).
         steps: Vec<CmsFormStep>,
+        /// Visual style for the form chrome. Drives the
+        /// `data-loom-form-style` attribute on both the
+        /// `<section>` AND `<form>` elements — loom-skin's cascade
+        /// uses these to swap rounded/editorial/minimal input
+        /// chrome.
+        ///
+        /// Defaults to `Rounded` for back-compat: existing CMS
+        /// JSON without an explicit `style` field deserializes
+        /// to the historical SaaS shape. Operators opt into
+        /// editorial-density forms (per the consumer-shaping
+        /// audit #103 Cat-3 work) via `"style": "editorial"`.
+        #[serde(default)]
+        style: CmsFormStyle,
     },
     /// Feed-top compose box. Maps to [`Composer`].
     Composer {
@@ -3715,7 +3720,8 @@ pub fn render_section(section: &CmsSection) -> Markup {
             legend,
             submit,
             steps,
-        } => render_form(legend, submit, steps, CmsFormStyle::default()),
+            style,
+        } => render_form(legend, submit, steps, *style),
         CmsSection::Banner {
             tone,
             text,
@@ -9281,6 +9287,7 @@ mod tests {
                 action: "/post-skill".to_owned(),
                 data_backend: "post-skill".to_owned(),
             },
+            style: CmsFormStyle::default(),
             steps: vec![CmsFormStep {
                 label: "Rules & category".to_owned(),
                 state: CmsFormStepState::Current,
@@ -9390,6 +9397,7 @@ mod tests {
                     action: "/x".to_owned(),
                     data_backend: "x".to_owned(),
                 },
+                style: CmsFormStyle::default(),
                 steps: vec![CmsFormStep {
                     label: "Pick".to_owned(),
                     state: CmsFormStepState::Current,
@@ -9484,6 +9492,7 @@ mod tests {
                     action: "/x".to_owned(),
                     data_backend: "x".to_owned(),
                 },
+                style: CmsFormStyle::default(),
                 steps: vec![CmsFormStep {
                     label: "Pick".to_owned(),
                     state: CmsFormStepState::Current,
@@ -9534,6 +9543,7 @@ mod tests {
                     action: "/x".to_owned(),
                     data_backend: "x".to_owned(),
                 },
+                style: CmsFormStyle::default(),
                 steps: vec![CmsFormStep {
                     label: "Bio".to_owned(),
                     state: CmsFormStepState::Current,
@@ -9581,6 +9591,7 @@ mod tests {
                     action: "/x".to_owned(),
                     data_backend: "x".to_owned(),
                 },
+                style: CmsFormStyle::default(),
                 steps: vec![CmsFormStep {
                     label: "Format".to_owned(),
                     state: CmsFormStepState::Done,
@@ -9623,6 +9634,7 @@ mod tests {
                     action: "javascript:alert(1)".to_owned(),
                     data_backend: "x".to_owned(),
                 },
+                style: CmsFormStyle::default(),
                 steps: vec![],
             }],
         };
@@ -9657,6 +9669,7 @@ mod tests {
                     action: "/x".to_owned(),
                     data_backend: "x".to_owned(),
                 },
+                style: CmsFormStyle::default(),
                 steps: vec![CmsFormStep {
                     label: "<step>".to_owned(),
                     state: CmsFormStepState::Current,
@@ -12245,6 +12258,89 @@ mod page_shell_tests {
             assert_eq!(s, json);
             let back: CmsFormStyle = serde_json::from_str(&s).unwrap();
             assert_eq!(back, variant);
+        }
+    }
+
+    #[test]
+    fn form_variant_style_field_flows_to_rendered_data_attr() {
+        // Construct CmsSection::Form with style=Editorial and
+        // verify the rendered HTML carries
+        // data-loom-form-style="editorial" on both the section
+        // and form elements. Proves the variant-level field is
+        // plumbed through render_form, not just settable.
+        let mut p = empty_page();
+        p.brand = Some("X".into());
+        p.site_origin = Some("https://x.example".into());
+        p.sections = vec![CmsSection::Form {
+            legend: "Editorial form".to_owned(),
+            submit: CmsFormSubmit {
+                label: "Submit".to_owned(),
+                secondary_label: None,
+                action: "/submit".to_owned(),
+                data_backend: "submit".to_owned(),
+            },
+            style: CmsFormStyle::Editorial,
+            steps: vec![],
+        }];
+        let html = render_page(&p).into_string();
+        assert!(
+            html.contains("data-loom-form-style=\"editorial\""),
+            "Form variant's style field must reach the rendered data attr: {html}"
+        );
+        // Should appear at LEAST twice — once on <section>, once
+        // on <form>.
+        let count = html.matches("data-loom-form-style=\"editorial\"").count();
+        assert!(
+            count >= 2,
+            "expected style attr on both <section> and <form>, got {count}: {html}"
+        );
+    }
+
+    #[test]
+    fn form_variant_style_field_defaults_to_rounded_when_omitted_in_json() {
+        // Operator JSON without a `style` field should
+        // deserialize to CmsFormStyle::default() = Rounded —
+        // back-compat invariant.
+        let json = r#"{
+            "kind": "form",
+            "legend": "No style field",
+            "submit": {
+                "label": "Go",
+                "secondary_label": null,
+                "action": "/go",
+                "data_backend": "go"
+            },
+            "steps": []
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::Form { style, .. } => {
+                assert_eq!(style, CmsFormStyle::Rounded);
+            }
+            _ => panic!("expected Form variant"),
+        }
+    }
+
+    #[test]
+    fn form_variant_style_field_parses_editorial_from_json() {
+        let json = r#"{
+            "kind": "form",
+            "legend": "Editorial form",
+            "submit": {
+                "label": "Go",
+                "secondary_label": null,
+                "action": "/go",
+                "data_backend": "go"
+            },
+            "style": "editorial",
+            "steps": []
+        }"#;
+        let section: CmsSection = serde_json::from_str(json).unwrap();
+        match section {
+            CmsSection::Form { style, .. } => {
+                assert_eq!(style, CmsFormStyle::Editorial);
+            }
+            _ => panic!("expected Form variant"),
         }
     }
 
