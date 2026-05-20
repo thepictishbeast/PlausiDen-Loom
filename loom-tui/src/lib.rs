@@ -94,7 +94,7 @@ pub fn render_section_lines(section: &CmsSection) -> Vec<Line<'static>> {
             ))]
         }
         CmsSection::DropCap { text } => wrap_to_lines(text, Style::default()),
-        CmsSection::PullQuote { body, attribution } => {
+        CmsSection::PullQuote { body, attribution, .. } => {
             let mut out: Vec<Line<'static>> = wrap_to_lines(body, Style::default().add_modifier(Modifier::ITALIC));
             if let Some(a) = attribution {
                 out.push(Line::from(Span::styled(

@@ -73,7 +73,7 @@ pub fn show_section(ui: &mut Ui, section: &CmsSection) {
         CmsSection::DropCap { text } => {
             ui.label(text);
         }
-        CmsSection::PullQuote { body, attribution } => {
+        CmsSection::PullQuote { body, attribution, .. } => {
             ui.label(RichText::new(body).italics().size(15.0));
             if let Some(a) = attribution {
                 ui.label(RichText::new(format!("— {a}")).weak());

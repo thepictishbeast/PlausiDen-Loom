@@ -665,14 +665,33 @@ pub enum CmsSection {
         #[serde(default)]
         align: HeroAlign,
     },
-    /// Editorial pull-quote. Large display-italic body, optional
-    /// attribution underneath. Distinct from `Quote` which is a
-    /// testimonial-card shape.
+    /// Editorial pull-quote. Editorial-mark composition — left-border
+    /// rule, no card chrome, no decorative quote-mark glyphs. Distinct
+    /// from `Quote` which is the testimonial-card shape.
+    ///
+    /// Wire-extended in this commit to mirror
+    /// [`loom_components::PullQuote`]: `cite_url`, `emphasis`, and
+    /// `tone` ship as additive fields with serde defaults so the
+    /// existing two-field shape (`body` + `attribution`) keeps
+    /// parsing.
     PullQuote {
-        /// Body of the quote.
+        /// Body of the quote. Multi-paragraph bodies split on `\n\n`
+        /// into separate `<p>` tags inside the `<blockquote>`.
         body: String,
         /// Optional attribution (e.g. "Jane Doe, CTO @ Acme").
         attribution: Option<String>,
+        /// Optional source URL — rendered into the `cite=` attribute
+        /// on `<blockquote>` per the HTML spec for machine-readable
+        /// provenance.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cite_url: Option<String>,
+        /// Emphasis tier: `inline` (text-xl/2xl) or `display`
+        /// (text-2xl/3xl/4xl). Defaults to `inline`.
+        #[serde(default)]
+        emphasis: PullQuoteEmphasis,
+        /// Color tone: `slate` (default) or `amoled` (true-black).
+        #[serde(default)]
+        tone: PullQuoteTone,
     },
     /// Editorial epigraph — an opening quote, poem fragment, or
     /// motto placed BEFORE the article's first paragraph. Distinct
@@ -1329,6 +1348,30 @@ pub enum DividerStyle { #[default] Line, Dots, ZigZag, Sparkle }
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub enum SpaceSize { Tight, #[default] Comfortable, Loose, Generous }
 
+/// Emphasis tier for [`CmsSection::PullQuote`]. Mirrors
+/// `loom_components::pull_quote::PullQuoteEmphasis`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PullQuoteEmphasis {
+    /// Inline-with-body voice. `text-xl md:text-2xl`.
+    #[default]
+    Inline,
+    /// Hero-side / decoration-slot voice. `text-2xl md:text-3xl lg:text-4xl`.
+    Display,
+}
+
+/// Color tone for [`CmsSection::PullQuote`]. Mirrors
+/// `loom_components::pull_quote::PullQuoteTone`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PullQuoteTone {
+    /// Slate text on light surface.
+    #[default]
+    Slate,
+    /// Slate-100 ink on AMOLED true-black surface.
+    Amoled,
+}
+
 /// Background tone for [`CmsSection::HeroEditorial`].
 ///
 /// Mirrors `loom_components::hero::HeroEditorialBackground`. `Slate`
@@ -1453,7 +1496,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 143;
+    pub const PRIMITIVE_COUNT: u32 = 144;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3718,14 +3761,44 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         }
-        CmsSection::PullQuote { body, attribution } => html! {
-            figure class="loom-pull-quote" data-loom-reveal {
-                blockquote class="loom-pull-quote__body" { (body) }
-                @if let Some(a) = attribution {
-                    figcaption class="loom-pull-quote__attribution" { "— " (a) }
+        CmsSection::PullQuote {
+            body,
+            attribution,
+            cite_url,
+            emphasis,
+            tone,
+        } => {
+            let emphasis_attr = match emphasis {
+                PullQuoteEmphasis::Inline => "inline",
+                PullQuoteEmphasis::Display => "display",
+            };
+            let tone_attr = match tone {
+                PullQuoteTone::Slate => "slate",
+                PullQuoteTone::Amoled => "amoled",
+            };
+            let paragraphs: Vec<&str> = body
+                .split("\n\n")
+                .map(str::trim)
+                .filter(|p| !p.is_empty())
+                .collect();
+            html! {
+                figure
+                    class="loom-pull-quote"
+                    data-loom-reveal
+                    data-emphasis=(emphasis_attr)
+                    data-tone=(tone_attr)
+                {
+                    blockquote class="loom-pull-quote__body" cite=[cite_url.as_deref()] {
+                        @for para in &paragraphs {
+                            p { (*para) }
+                        }
+                    }
+                    @if let Some(a) = attribution {
+                        figcaption class="loom-pull-quote__attribution" { "— " (a) }
+                    }
                 }
             }
-        },
+        }
         CmsSection::Epigraph { body, attribution } => html! {
             figure class="loom-epigraph" data-loom-reveal {
                 blockquote class="loom-epigraph__body" { (body) }
@@ -6073,6 +6146,197 @@ mod tests {
         assert!(html.contains(r##"href="#invalid-cta""##));
         assert!(html.contains(r#"data-invalid="true""#));
         assert!(!html.contains("javascript:"));
+    }
+
+    #[test]
+    fn pull_quote_renders_body_only() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::PullQuote {
+                body: "The substrate carries the page.".to_owned(),
+                attribution: None,
+                cite_url: None,
+                emphasis: PullQuoteEmphasis::Inline,
+                tone: PullQuoteTone::Slate,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains("<blockquote"));
+        assert!(html.contains(r#"class="loom-pull-quote""#));
+        assert!(html.contains(r#"data-emphasis="inline""#));
+        assert!(html.contains(r#"data-tone="slate""#));
+        assert!(html.contains(">The substrate carries the page.<"));
+        // No attribution / cite emitted.
+        assert!(!html.contains("loom-pull-quote__attribution"));
+        assert!(!html.contains("cite="));
+    }
+
+    #[test]
+    fn pull_quote_renders_attribution_and_cite() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::PullQuote {
+                body: "Quoted body".to_owned(),
+                attribution: Some("paul, 2026-05-20".to_owned()),
+                cite_url: Some("https://example.org/dispatch".to_owned()),
+                emphasis: PullQuoteEmphasis::Display,
+                tone: PullQuoteTone::Amoled,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#"cite="https://example.org/dispatch""#));
+        assert!(html.contains(r#"data-emphasis="display""#));
+        assert!(html.contains(r#"data-tone="amoled""#));
+        assert!(html.contains("loom-pull-quote__attribution"));
+        assert!(html.contains(">— paul, 2026-05-20<"));
+    }
+
+    #[test]
+    fn pull_quote_splits_paragraphs_on_blank_lines() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::PullQuote {
+                body: "First paragraph.\n\nSecond paragraph.".to_owned(),
+                attribution: None,
+                cite_url: None,
+                emphasis: PullQuoteEmphasis::Inline,
+                tone: PullQuoteTone::Slate,
+            }],
+        };
+        let html = render_to_string(&p);
+        // Body is a single <blockquote class="loom-pull-quote__body">
+        // that contains two <p> children when paragraphs split. Count
+        // the <p> opens inside the blockquote.
+        let bq_open = html.find("loom-pull-quote__body").expect("body class");
+        let bq_close = html[bq_open..].find("</blockquote>").expect("/blockquote") + bq_open;
+        let body_slice = &html[bq_open..bq_close];
+        let p_open_count = body_slice.matches("<p>").count();
+        assert_eq!(p_open_count, 2, "expected 2 body <p> tags, got {p_open_count}: {body_slice}");
+        assert!(html.contains(">First paragraph.<"));
+        assert!(html.contains(">Second paragraph.<"));
+    }
+
+    #[test]
+    fn pull_quote_parses_from_json_with_snake_case_kind() {
+        let json = r#"{
+            "kind": "pull_quote",
+            "body": "From JSON",
+            "attribution": "wire test",
+            "emphasis": "display",
+            "tone": "amoled"
+        }"#;
+        let s: CmsSection = serde_json::from_str(json).expect("parse");
+        match s {
+            CmsSection::PullQuote {
+                body,
+                attribution,
+                cite_url,
+                emphasis,
+                tone,
+            } => {
+                assert_eq!(body, "From JSON");
+                assert_eq!(attribution.as_deref(), Some("wire test"));
+                assert!(cite_url.is_none());
+                assert!(matches!(emphasis, PullQuoteEmphasis::Display));
+                assert!(matches!(tone, PullQuoteTone::Amoled));
+            }
+            other => unreachable!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pull_quote_emphasis_and_tone_default_when_omitted() {
+        let json = r#"{
+            "kind": "pull_quote",
+            "body": "X"
+        }"#;
+        let s: CmsSection = serde_json::from_str(json).expect("parse");
+        match s {
+            CmsSection::PullQuote {
+                emphasis,
+                tone,
+                ..
+            } => {
+                assert!(matches!(emphasis, PullQuoteEmphasis::Inline));
+                assert!(matches!(tone, PullQuoteTone::Slate));
+            }
+            other => unreachable!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pull_quote_distinct_from_legacy_quote_testimonial_card() {
+        // Anti-shape guarantee: PullQuote must NOT emit
+        // loom-quote-cite / loom-quote-attribution / loom-quote-role
+        // — those belong to the legacy testimonial card. PullQuote
+        // is the editorial sibling.
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::PullQuote {
+                body: "x".to_owned(),
+                attribution: Some("y".to_owned()),
+                cite_url: None,
+                emphasis: PullQuoteEmphasis::Inline,
+                tone: PullQuoteTone::Slate,
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(!html.contains("loom-quote-cite"));
+        assert!(!html.contains("loom-quote-attribution"));
+        assert!(!html.contains("loom-quote-role"));
+        assert!(!html.contains("loom-quote-footer"));
     }
 
     #[test]
