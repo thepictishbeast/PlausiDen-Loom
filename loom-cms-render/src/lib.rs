@@ -752,7 +752,53 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed search-result entry — one row in a search-results
+    /// list. Distinct from [`CmsSection::CardFeed`] (generic
+    /// content card feed), from [`CmsSection::FeedPost`] (single
+    /// social-style post), and from [`CmsSection::RelatedReads`]
+    /// (curated cross-links at article footer).
+    ///
+    /// SearchResult is the typed primitive for the SERP-style
+    /// row publishers ship on /search pages, in-app search UIs,
+    /// and documentation-site search overlays. Each row carries
+    /// a title-link + URL display + snippet + optional
+    /// breadcrumb + optional kind tag.
+    ///
+    /// The `kind` slot is a free-form short tag ("Article",
+    /// "Documentation", "Person", "Product") so the substrate
+    /// can audit + filter without operators inventing parallel
+    /// markup conventions per site.
+    SearchResult {
+        /// Result title (links to the target URL).
+        title: String,
+        /// Target URL of the result. Validated via `is_safe_url`;
+        /// hostile schemes fall back to a non-interactive
+        /// `<span>`. Title rendered as text in either case.
+        url: String,
+        /// Snippet / excerpt. Multi-paragraph splits on `\n\n`.
+        snippet: String,
+        /// Optional URL-display string — the human-readable
+        /// breadcrumb above the title ("plausiden.com › docs ›
+        /// forge"). Free-form; renderer doesn't parse.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url_display: Option<String>,
+        /// Optional kind tag ("Article", "Documentation",
+        /// "Person", "Product"). Surfaced as
+        /// `data-loom-search-result-kind` for crawler / SERP-
+        /// renderer consumption. Field is `result_kind` rather
+        /// than `kind` because the outer enum already uses
+        /// `kind` as its serde tag — colliding inner field
+        /// would shadow the variant discriminator.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        result_kind: Option<String>,
+        /// Optional date label (free-form editorial date).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        date_label: Option<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +3002,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5581,6 +5627,55 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::SearchResult {
+            title,
+            url,
+            snippet,
+            url_display,
+            result_kind,
+            date_label,
+        } => {
+            let url_safe = loom_components::composer::is_safe_url(url);
+            let snippet_paras: Vec<&str> = snippet.split("\n\n").collect();
+            html! {
+                article class="loom-search-result"
+                    data-loom-search-result-kind=[result_kind.as_deref()]
+                    data-loom-reveal {
+                    @if url_display.is_some() || result_kind.is_some() {
+                        @let both_present = url_display.is_some() && result_kind.is_some();
+                        div class="loom-search-result__meta" {
+                            @if let Some(disp) = url_display {
+                                span class="loom-search-result__url-display" { (disp) }
+                            }
+                            @if both_present {
+                                span class="loom-search-result__separator"
+                                    aria-hidden="true" { " · " }
+                            }
+                            @if let Some(k) = result_kind {
+                                span class="loom-search-result__kind" { (k) }
+                            }
+                        }
+                    }
+                    h3 class="loom-search-result__title" {
+                        @if url_safe {
+                            a class="loom-search-result__title-link"
+                                href=(url) { (title) }
+                        } @else {
+                            span class="loom-search-result__title-link"
+                                data-blocked-href="true" { (title) }
+                        }
+                    }
+                    div class="loom-search-result__snippet" {
+                        @for p in &snippet_paras {
+                            p class="loom-search-result__para" { (p) }
+                        }
+                    }
+                    @if let Some(d) = date_label {
+                        p class="loom-search-result__date" { (d) }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10042,145 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn search_result_renders_title_link_and_snippet() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "search_result",
+                "title": "Forge build guide",
+                "url": "/docs/forge/build",
+                "snippet": "How to compose a site from CMS sections."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-search-result"));
+        // Title rendered as anchor.
+        assert!(html.contains("loom-search-result__title"));
+        assert!(html.contains("href=\"/docs/forge/build\""));
+        assert!(html.contains("Forge build guide"));
+        // Snippet rendered.
+        assert!(html.contains("loom-search-result__snippet"));
+        assert!(html.contains("compose a site"));
+        // Optional chrome absent.
+        assert!(!html.contains("loom-search-result__meta"));
+        assert!(!html.contains("loom-search-result__url-display"));
+        assert!(!html.contains("loom-search-result__kind"));
+        assert!(!html.contains("loom-search-result__date"));
+        assert!(!html.contains("data-loom-search-result-kind"));
+    }
+
+    #[test]
+    fn search_result_with_url_display_kind_and_date() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "search_result",
+                "title": "How loom-tokens work",
+                "url": "/docs/tokens",
+                "snippet": "Para one.\n\nPara two.",
+                "url_display": "plausiden.com › docs › tokens",
+                "result_kind": "Documentation",
+                "date_label": "Updated 2026-05-19"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("data-loom-search-result-kind=\"Documentation\""));
+        assert!(html.contains("loom-search-result__meta"));
+        assert!(html.contains("loom-search-result__url-display"));
+        assert!(html.contains("plausiden.com › docs › tokens"));
+        // Separator rendered between url_display and kind.
+        let sep_count = html.matches("loom-search-result__separator").count();
+        assert_eq!(sep_count, 1, "expected 1 separator, got {sep_count}");
+        assert!(html.contains("loom-search-result__kind"));
+        assert!(html.contains(">Documentation<"));
+        // Multi-paragraph snippet.
+        let para_count = html.matches("loom-search-result__para\"").count();
+        assert_eq!(para_count, 2, "expected 2 paras, got {para_count}");
+        // Date.
+        assert!(html.contains("loom-search-result__date"));
+        assert!(html.contains("Updated 2026-05-19"));
+    }
+
+    #[test]
+    fn search_result_only_kind_no_url_display_omits_separator() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "search_result",
+                "title": "T",
+                "url": "/x",
+                "snippet": "S",
+                "result_kind": "Article"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-search-result__meta"));
+        assert!(html.contains("loom-search-result__kind"));
+        assert!(!html.contains("loom-search-result__separator"));
+        assert!(!html.contains("loom-search-result__url-display"));
+    }
+
+    #[test]
+    fn search_result_unsafe_url_falls_back_to_span() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "search_result",
+                "title": "Hostile",
+                "url": "javascript:alert(1)",
+                "snippet": "X"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("href=\"javascript:"));
+        assert!(html.contains("data-blocked-href=\"true\""));
+        // Title text still rendered.
+        assert!(html.contains("Hostile"));
+    }
+
+    #[test]
+    fn search_result_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "search_result",
+                "title": "<script>alert('t')</script>",
+                "url": "/safe",
+                "snippet": "<script>alert('s')</script>",
+                "url_display": "<script>alert('u')</script>",
+                "result_kind": "<script>alert('k')</script>",
+                "date_label": "<script>alert('d')</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        // title + snippet + url_display + kind + date_label = 5
+        // (kind appears once in data attr context but the data
+        // attr value is HTML-attr escaped, which still includes
+        // the &lt; entities).
+        assert!(
+            entity_hits >= 5,
+            "expected >= 5 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
