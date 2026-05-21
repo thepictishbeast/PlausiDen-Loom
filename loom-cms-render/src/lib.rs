@@ -752,7 +752,39 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed organizational chart — single-rooted tree of
+    /// people / teams / departments rendered as nested
+    /// `<ul>` landmarks. Distinct from
+    /// [`CmsSection::Timeline`] (historical milestones),
+    /// [`CmsSection::Roadmap`] (now/next/later product
+    /// stages), and [`CmsSection::TocBlock`] (table of
+    /// contents): OrgChart is the typed primitive for
+    /// company / department / governance hierarchies.
+    ///
+    /// Each node carries a name + role (the slot pair every
+    /// reader expects on an org chart). The tree shape is
+    /// modelled with explicit `children` to keep the
+    /// substrate auditable — operators can't accidentally
+    /// produce a forest or a graph with cycles since serde
+    /// `Vec<OrgChartNode>` is a finite tree at the type
+    /// level.
+    OrgChart {
+        /// Optional eyebrow ("Leadership", "Editorial",
+        /// "Governance").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow: Option<String>,
+        /// Section title.
+        title: String,
+        /// Root node of the tree. Single root (not Vec) to
+        /// keep the primitive semantically clear — most org
+        /// charts are single-rooted. Multi-rooted layouts
+        /// compose two `OrgChart` primitives.
+        root: OrgChartNode,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +2988,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3109,26 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// One node in [`CmsSection::OrgChart`]'s tree. `children` is a
+/// finite recursive Vec — serde's recursion is bounded by JSON
+/// nesting depth at parse time, and the deny_unknown_fields
+/// keeps the shape closed.
+///
+/// Type-level recursion is `Vec<OrgChartNode>` (not
+/// `Vec<Box<OrgChartNode>>`) because schemars + serde handle
+/// the indirection automatically through the Vec heap
+/// allocation — Rust's "type contains itself" rule only fires
+/// on direct ownership, not behind a Vec.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
+pub struct OrgChartNode {
+    pub name: String,
+    pub role: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<OrgChartNode>,
 }
 
 /// One comparison row.
@@ -5578,6 +5630,25 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 blockquote class="loom-epigraph__body" { (body) }
                 @if let Some(a) = attribution {
                     figcaption class="loom-epigraph__attribution" { "— " (a) }
+                }
+            }
+        },
+        CmsSection::OrgChart {
+            eyebrow,
+            title,
+            root,
+        } => html! {
+            section class="loom-org-chart" aria-labelledby="loom-org-chart__title"
+                data-loom-reveal {
+                header class="loom-org-chart__header" {
+                    @if let Some(e) = eyebrow {
+                        span class="loom-org-chart__eyebrow" { (e) }
+                    }
+                    h2 id="loom-org-chart__title"
+                        class="loom-org-chart__title" { (title) }
+                }
+                ul class="loom-org-chart__tree" role="tree" {
+                    (render_org_chart_node(root, 0))
                 }
             }
         },
@@ -8160,6 +8231,27 @@ fn slugify(s: &str) -> String {
         .collect()
 }
 
+fn render_org_chart_node(node: &OrgChartNode, depth: u32) -> Markup {
+    let depth_str = depth.to_string();
+    html! {
+        li class="loom-org-chart__node"
+            role="treeitem"
+            aria-level=(depth_str) {
+            div class="loom-org-chart__person" {
+                span class="loom-org-chart__name" { (node.name) }
+                span class="loom-org-chart__role" { (node.role) }
+            }
+            @if !node.children.is_empty() {
+                ul class="loom-org-chart__children" role="group" {
+                    @for child in &node.children {
+                        (render_org_chart_node(child, depth + 1))
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn render_source_list_item(item: &SourceListItem) -> Markup {
     let kind_mod = item.kind.modifier();
     let url_safe = item.url.as_deref().is_some_and(is_safe_url);
@@ -9947,6 +10039,126 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn org_chart_single_node_renders_role_tree() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "org_chart",
+                "title": "Leadership",
+                "root": {"name": "Jane Smith", "role": "Executive Director"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-org-chart"));
+        assert!(html.contains("aria-labelledby=\"loom-org-chart__title\""));
+        assert!(html.contains("Leadership"));
+        // Tree landmarks present.
+        assert!(html.contains("role=\"tree\""));
+        assert!(html.contains("role=\"treeitem\""));
+        assert!(html.contains("aria-level=\"0\""));
+        // Name + role rendered.
+        assert!(html.contains("Jane Smith"));
+        assert!(html.contains("Executive Director"));
+        // No nested group when no children.
+        assert!(!html.contains("loom-org-chart__children"));
+    }
+
+    #[test]
+    fn org_chart_nested_tree_increments_aria_level() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "org_chart",
+                "title": "Engineering",
+                "root": {
+                    "name": "VP Eng",
+                    "role": "VP",
+                    "children": [
+                        {"name": "Platform Lead", "role": "Director",
+                         "children": [
+                            {"name": "IC One", "role": "Senior engineer"}
+                         ]},
+                        {"name": "Product Lead", "role": "Director"}
+                    ]
+                }
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // Depth levels: VP=0, leads=1, IC=2.
+        assert!(html.contains("aria-level=\"0\""));
+        assert!(html.contains("aria-level=\"1\""));
+        assert!(html.contains("aria-level=\"2\""));
+        // Children <ul role="group"> rendered twice (VP's
+        // children + Platform Lead's children).
+        let group_count = html.matches("role=\"group\"").count();
+        assert_eq!(group_count, 2, "expected 2 nested groups, got {group_count}");
+        // All names + roles present.
+        for s in [
+            "VP Eng", "Platform Lead", "Product Lead", "IC One",
+            "Senior engineer", "Director",
+        ] {
+            assert!(html.contains(s), "missing '{s}' in:\n{html}");
+        }
+    }
+
+    #[test]
+    fn org_chart_with_eyebrow() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "org_chart",
+                "eyebrow": "Editorial",
+                "title": "Newsroom",
+                "root": {"name": "Editor", "role": "Editor-in-Chief"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-org-chart__eyebrow"));
+        assert!(html.contains(">Editorial<"));
+    }
+
+    #[test]
+    fn org_chart_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "org_chart",
+                "eyebrow": "<i>e</i>",
+                "title": "<script>alert('t')</script>",
+                "root": {
+                    "name": "<script>alert('n')</script>",
+                    "role": "<script>alert('r')</script>",
+                    "children": [
+                        {"name": "<script>alert('cn')</script>",
+                         "role": "<script>alert('cr')</script>"}
+                    ]
+                }
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        // title + root.name + root.role + child.name + child.role
+        assert!(
+            entity_hits >= 5,
+            "expected >= 5 escaped script tokens, got {entity_hits}"
+        );
+        assert!(html.contains("&lt;i&gt;e&lt;/i&gt;"));
     }
 
     #[test]
