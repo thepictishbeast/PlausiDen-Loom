@@ -740,6 +740,27 @@ pub enum CmsBlock {
         #[serde(default)]
         direction: MarqueeDirection,
     },
+    /// Slide gallery — image / content carousel using CSS
+    /// `scroll-snap` for native swipe + keyboard navigation
+    /// without a JS layer.
+    ///
+    /// Substrate emits `<section role="region"
+    /// aria-roledescription="carousel">` with each slide as an
+    /// `<li role="group" aria-roledescription="slide"
+    /// aria-label="N of total">` per WAI-ARIA Authoring
+    /// Practices for the no-JS carousel pattern. Pointer events,
+    /// keyboard arrow scrolling, and screen-reader navigation
+    /// all work out of the box.
+    ///
+    /// No autoplay (substrate doesn't dictate engagement
+    /// patterns, same rationale as `Video`).
+    Carousel {
+        /// Accessible label for the carousel region (announced
+        /// by screen readers as "<label> carousel").
+        label: String,
+        /// Slide contents. Each block becomes one slide.
+        slides: Vec<CmsBlock>,
+    },
     /// Sandboxed `<iframe>` embed. Used for third-party widgets
     /// (YouTube / Vimeo / Maps / payment forms) without granting
     /// them ambient access to the parent document. Substrate
@@ -6738,6 +6759,30 @@ pub fn render_block(block: &CmsBlock) -> Markup {
         CmsBlock::Badge { text, tone } => html! {
             span class="loom-block-badge" data-tone=(tone.slug()) { (text) }
         },
+        CmsBlock::Carousel { label, slides } => {
+            let total = slides.len();
+            html! {
+                section
+                    class="loom-block-carousel"
+                    role="region"
+                    aria-roledescription="carousel"
+                    aria-label=(label)
+                {
+                    ol class="loom-block-carousel__track" {
+                        @for (i, slide) in slides.iter().enumerate() {
+                            li
+                                class="loom-block-carousel__slide"
+                                role="group"
+                                aria-roledescription="slide"
+                                aria-label=({ format!("{} of {}", i + 1, total) })
+                            {
+                                (render_block(slide))
+                            }
+                        }
+                    }
+                }
+            }
+        }
         CmsBlock::Marquee {
             items,
             speed,
@@ -14212,6 +14257,52 @@ mod tests {
         let html = render_block(&s).into_string();
         assert!(html.contains(">Substrate A<"));
         assert!(html.contains(">Substrate B<"));
+    }
+
+    #[test]
+    fn cms_block_carousel_emits_region_with_per_slide_aria_label() {
+        let c = CmsBlock::Carousel {
+            label: "Customer testimonials".into(),
+            slides: vec![
+                CmsBlock::Text { text: "First".into() },
+                CmsBlock::Text { text: "Second".into() },
+                CmsBlock::Text { text: "Third".into() },
+            ],
+        };
+        let html = render_block(&c).into_string();
+        assert!(html.contains("<section"));
+        assert!(html.contains("loom-block-carousel"));
+        assert!(html.contains(r#"role="region""#));
+        assert!(html.contains(r#"aria-roledescription="carousel""#));
+        assert!(html.contains(r#"aria-label="Customer testimonials""#));
+        assert!(html.contains(r#"aria-roledescription="slide""#));
+        assert!(html.contains(r#"aria-label="1 of 3""#));
+        assert!(html.contains(r#"aria-label="2 of 3""#));
+        assert!(html.contains(r#"aria-label="3 of 3""#));
+        assert!(html.contains(">First</p>"));
+        assert!(html.contains(">Third</p>"));
+    }
+
+    #[test]
+    fn cms_block_carousel_empty_slides_still_renders_shell() {
+        let c = CmsBlock::Carousel {
+            label: "Empty".into(),
+            slides: vec![],
+        };
+        let html = render_block(&c).into_string();
+        assert!(html.contains("loom-block-carousel__track"));
+        assert!(!html.contains("aria-roledescription=\"slide\""));
+    }
+
+    #[test]
+    fn cms_block_carousel_escapes_label() {
+        let c = CmsBlock::Carousel {
+            label: "<script>alert(1)</script>".into(),
+            slides: vec![CmsBlock::Text { text: "x".into() }],
+        };
+        let html = render_block(&c).into_string();
+        assert!(!html.contains(r#"aria-label="<script>"#));
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
