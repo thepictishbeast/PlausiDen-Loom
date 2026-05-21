@@ -1217,6 +1217,7 @@ dependencies = [
  "base64",
  "loom-components",
  "loom-icons",
+ "loom-variables",
  "maud",
  "schemars",
  "serde",
