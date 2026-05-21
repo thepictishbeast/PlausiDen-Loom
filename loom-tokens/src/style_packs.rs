@@ -95,6 +95,23 @@ pub enum StylePack {
     /// surfaces, muted color, humanist type, technical
     /// formality, airy density.
     DieterRams,
+    /// Newspaper editorial — broadsheet / The New Yorker
+    /// register. Display-serif type, columnar dense layout,
+    /// monochromatic palette, regular grid, still motion.
+    NewspaperEditorial,
+    /// Cyberpunk neon — dark base + neon accents + glitch
+    /// register. Mono type, polychrome, kinetic motion,
+    /// glassmorphic texture, asymmetric grid.
+    CyberpunkNeon,
+    /// Pastel soft — Notion / Linear register. Rounded
+    /// surfaces, pastel triadic palette, humanist type,
+    /// subtle motion, airy density.
+    PastelSoft,
+    /// Technical documentation — operations / engineering
+    /// register. Mono headings, technical formality, tight
+    /// regular grids, monochromatic muted palette, still
+    /// motion.
+    TechnicalDocumentation,
 }
 
 impl StylePack {
@@ -110,6 +127,10 @@ impl StylePack {
         Self::MemphisRevival,
         Self::JapaneseMinimal,
         Self::DieterRams,
+        Self::NewspaperEditorial,
+        Self::CyberpunkNeon,
+        Self::PastelSoft,
+        Self::TechnicalDocumentation,
     ];
 
     /// Kebab-case identifier (the serde representation).
@@ -123,6 +144,10 @@ impl StylePack {
             Self::MemphisRevival => "memphis-revival",
             Self::JapaneseMinimal => "japanese-minimal",
             Self::DieterRams => "dieter-rams",
+            Self::NewspaperEditorial => "newspaper-editorial",
+            Self::CyberpunkNeon => "cyberpunk-neon",
+            Self::PastelSoft => "pastel-soft",
+            Self::TechnicalDocumentation => "technical-documentation",
         }
     }
 
@@ -209,6 +234,46 @@ impl StylePack {
                 color_mood: ColorMood::Monochromatic,
                 color_energy: ColorEnergy::Muted,
             },
+            Self::NewspaperEditorial => AestheticTuple {
+                density: Density::Tight,
+                formality: Formality::Editorial,
+                motion_intensity: MotionIntensity::Still,
+                texture: Texture::Flat,
+                type_personality: TypePersonality::DisplaySerif,
+                grid_character: GridCharacter::Regular,
+                color_mood: ColorMood::Monochromatic,
+                color_energy: ColorEnergy::Muted,
+            },
+            Self::CyberpunkNeon => AestheticTuple {
+                density: Density::Tight,
+                formality: Formality::Technical,
+                motion_intensity: MotionIntensity::Kinetic,
+                texture: Texture::Glassmorphic,
+                type_personality: TypePersonality::Mono,
+                grid_character: GridCharacter::Asymmetric,
+                color_mood: ColorMood::Polychrome,
+                color_energy: ColorEnergy::Neon,
+            },
+            Self::PastelSoft => AestheticTuple {
+                density: Density::Airy,
+                formality: Formality::Playful,
+                motion_intensity: MotionIntensity::Subtle,
+                texture: Texture::Layered,
+                type_personality: TypePersonality::Humanist,
+                grid_character: GridCharacter::Regular,
+                color_mood: ColorMood::Triadic,
+                color_energy: ColorEnergy::Pastel,
+            },
+            Self::TechnicalDocumentation => AestheticTuple {
+                density: Density::Tight,
+                formality: Formality::Technical,
+                motion_intensity: MotionIntensity::Still,
+                texture: Texture::Flat,
+                type_personality: TypePersonality::Mono,
+                grid_character: GridCharacter::Regular,
+                color_mood: ColorMood::Monochromatic,
+                color_energy: ColorEnergy::Muted,
+            },
         }
     }
 
@@ -224,6 +289,10 @@ impl StylePack {
             Self::MemphisRevival => "Memphis revival",
             Self::JapaneseMinimal => "Japanese minimal",
             Self::DieterRams => "Dieter Rams",
+            Self::NewspaperEditorial => "Newspaper editorial",
+            Self::CyberpunkNeon => "Cyberpunk neon",
+            Self::PastelSoft => "Pastel soft",
+            Self::TechnicalDocumentation => "Technical documentation",
         }
     }
 }
@@ -299,10 +368,10 @@ mod tests {
     }
 
     #[test]
-    fn all_iterates_eight_packs() {
-        // If we ship a 9th pack, this test forces the doctrine
+    fn all_iterates_twelve_packs() {
+        // If we ship a 13th pack, this test forces the doctrine
         // doc + tests to stay in sync.
-        assert_eq!(StylePack::ALL.len(), 8);
+        assert_eq!(StylePack::ALL.len(), 12);
     }
 
     #[test]
