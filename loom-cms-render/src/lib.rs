@@ -3351,17 +3351,28 @@ pub enum HeroBackground {
 
 /// Overlay tint applied on top of [`HeroBackground::Photo`] so the
 /// title remains legible.
+///
+/// The default was changed from `Dark` to `None` on 2026-05-21:
+/// pixel-reproduction comparisons against real sites (prosperity
+/// club .com, sacred .vote) found the previous `Dark` default
+/// washed every editorial / photo-forward hero out to ~35% strength
+/// regardless of whether the operator's text needed contrast
+/// protection. Operators who need legibility on bright photos
+/// opt in to `Light` or `Dark` explicitly. Pre-existing pages that
+/// omitted the overlay field will render their photos at full
+/// strength — visually closer to the source material the operator
+/// chose.
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum PhotoOverlay {
-    /// No overlay — image renders raw.
+    /// No overlay — image renders raw. **Default since 2026-05-21.**
+    #[default]
     None,
     /// Light overlay (for dark photos / dark-text titles).
     Light,
-    /// Dark overlay (for bright photos / light-text titles). Default.
-    #[default]
+    /// Dark overlay (for bright photos / light-text titles).
     Dark,
 }
 
@@ -9947,6 +9958,47 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn photo_overlay_default_is_none_so_photos_render_at_full_strength() {
+        // Regression lock: pre-2026-05-21 the default was Dark,
+        // which applied a 55-75% canvas-color gradient overlay to
+        // every photo-forward hero, washing out the operator's
+        // source material. Real-site pixel-reproduction comparisons
+        // (prosperityclub.com, sacred.vote) flagged this as a
+        // bug. The default is now `None` — operators who actually
+        // need legibility on a bright photo opt in to Light or Dark
+        // explicitly.
+        assert_eq!(PhotoOverlay::default(), PhotoOverlay::None);
+    }
+
+    #[test]
+    fn image_hero_default_renders_no_overlay_class() {
+        // Image hero with HeroBackground::Photo and no `overlay`
+        // field set should render with `ov-none` (the new default)
+        // rather than `ov-dark`.
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "image_hero",
+                "title": "Welcome",
+                "cta": {"label": "Go", "href": "/", "data_backend": "go"},
+                "background": {
+                    "kind": "photo",
+                    "src": "/hero.jpg",
+                    "alt": "Hero photo"
+                },
+                "height": "comfortable",
+                "align": "start"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("ov-none"), "expected ov-none default, got:\n{html}");
+        assert!(!html.contains("ov-dark"), "ov-dark should NOT be the default");
     }
 
     #[test]
