@@ -752,7 +752,38 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed disambiguation list — "{Term} may refer to:" with
+    /// list of meanings, each a candidate target. Distinct
+    /// from [`CmsSection::DefList`] (term + single definition
+    /// pair), from [`CmsSection::Glossary`] (multi-term
+    /// glossary), from [`CmsSection::SearchResult`] (single
+    /// search row), and from [`CmsSection::RelatedReads`]
+    /// (cross-link list).
+    ///
+    /// Disambiguation is the typed primitive for the
+    /// Wikipedia / wiki-style "this term has multiple
+    /// meanings" page used by reference sites, taxonomy
+    /// indexes, and product catalogues with shared SKUs across
+    /// variants.
+    ///
+    /// Rendered with `<nav aria-label="Disambiguation
+    /// options">` so AT users can skim the alternatives.
+    Disambiguation {
+        /// Term being disambiguated ("Apple",
+        /// "Forge", "Service mesh").
+        term: String,
+        /// Optional lede explanation ("may refer to:", "is a
+        /// surname; people with this name include:"). Defaults
+        /// to no lede chrome when omitted.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lede: Option<String>,
+        /// Disambiguation entries in display order.
+        entries: Vec<DisambiguationEntry>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +2987,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3108,36 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// One entry in [`CmsSection::Disambiguation`].
+///
+/// Each entry is a candidate meaning of the disambiguated term —
+/// a name + description + optional link to the canonical page.
+/// Optional `qualifier` is a short parenthetical tag
+/// ("(company)", "(film, 2024)") that goes next to the name in
+/// the rendered list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
+pub struct DisambiguationEntry {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qualifier: Option<String>,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<DisambiguationLink>,
+}
+
+/// Optional link to the canonical page for a
+/// [`DisambiguationEntry`]. `href` is validated via
+/// `is_safe_url`; hostile schemes fall back to a non-
+/// interactive span.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
+pub struct DisambiguationLink {
+    pub href: String,
 }
 
 /// One comparison row.
@@ -5578,6 +5639,55 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 blockquote class="loom-epigraph__body" { (body) }
                 @if let Some(a) = attribution {
                     figcaption class="loom-epigraph__attribution" { "— " (a) }
+                }
+            }
+        },
+        CmsSection::Disambiguation {
+            term,
+            lede,
+            entries,
+        } => html! {
+            nav class="loom-disambiguation"
+                aria-label="Disambiguation options"
+                data-loom-reveal {
+                header class="loom-disambiguation__header" {
+                    h2 class="loom-disambiguation__term" { (term) }
+                    @if let Some(l) = lede {
+                        p class="loom-disambiguation__lede" { (l) }
+                    }
+                }
+                ul class="loom-disambiguation__entries" {
+                    @for entry in entries {
+                        @let href_safe = entry
+                            .link
+                            .as_ref()
+                            .is_some_and(|l| loom_components::composer::is_safe_url(&l.href));
+                        li class="loom-disambiguation__entry" {
+                            @if let Some(link) = &entry.link {
+                                @if href_safe {
+                                    a class="loom-disambiguation__name-link"
+                                        href=(link.href) {
+                                        span class="loom-disambiguation__name" { (entry.name) }
+                                    }
+                                } @else {
+                                    span class="loom-disambiguation__name-link"
+                                        data-blocked-href="true" {
+                                        span class="loom-disambiguation__name" { (entry.name) }
+                                    }
+                                }
+                            } @else {
+                                span class="loom-disambiguation__name" { (entry.name) }
+                            }
+                            @if let Some(q) = &entry.qualifier {
+                                span class="loom-disambiguation__qualifier" { " " (q) }
+                            }
+                            span class="loom-disambiguation__separator"
+                                aria-hidden="true" { " — " }
+                            span class="loom-disambiguation__description" {
+                                (entry.description)
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -9947,6 +10057,122 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn disambiguation_renders_nav_with_entries() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "disambiguation",
+                "term": "Forge",
+                "lede": "may refer to:",
+                "entries": [
+                    {"name": "PlausiDen Forge", "qualifier": "(this site builder)",
+                     "description": "Rust-based static site builder.",
+                     "link": {"href": "/forge"}},
+                    {"name": "Forge (Minecraft)",
+                     "description": "Modding framework for Minecraft.",
+                     "link": {"href": "https://files.minecraftforge.net/"}},
+                    {"name": "Forge (blacksmithing)",
+                     "description": "Workshop where metal is heated and shaped."}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-disambiguation"));
+        assert!(html.contains("aria-label=\"Disambiguation options\""));
+        // Term + lede.
+        assert!(html.contains("loom-disambiguation__term"));
+        assert!(html.contains(">Forge<"));
+        assert!(html.contains("loom-disambiguation__lede"));
+        assert!(html.contains("may refer to:"));
+        // 3 entries.
+        let entry_count = html.matches("loom-disambiguation__entry\"").count();
+        assert_eq!(entry_count, 3, "expected 3 entries, got {entry_count}");
+        // Linked entries render anchors.
+        assert!(html.contains("href=\"/forge\""));
+        assert!(html.contains("href=\"https://files.minecraftforge.net/\""));
+        // Qualifier rendered with space prefix.
+        assert!(html.contains("loom-disambiguation__qualifier"));
+        assert!(html.contains("(this site builder)"));
+        // Third entry has no link — plain span name.
+        assert!(html.contains("Forge (blacksmithing)"));
+        // Description with em-dash separator.
+        let sep_count = html.matches("loom-disambiguation__separator").count();
+        assert_eq!(sep_count, 3, "expected 3 separators, got {sep_count}");
+    }
+
+    #[test]
+    fn disambiguation_without_lede_omits_lede_chrome() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "disambiguation",
+                "term": "X",
+                "entries": [
+                    {"name": "A", "description": "Item A"}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("loom-disambiguation__lede"));
+    }
+
+    #[test]
+    fn disambiguation_unsafe_href_falls_back_to_span() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "disambiguation",
+                "term": "Hostile",
+                "entries": [
+                    {"name": "Bad", "description": "X",
+                     "link": {"href": "javascript:alert(1)"}}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("href=\"javascript:"));
+        assert!(html.contains("data-blocked-href=\"true\""));
+        // Name text still rendered.
+        assert!(html.contains(">Bad<"));
+    }
+
+    #[test]
+    fn disambiguation_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "disambiguation",
+                "term": "<script>alert('t')</script>",
+                "lede": "<script>alert('l')</script>",
+                "entries": [
+                    {"name": "<script>alert('n')</script>",
+                     "qualifier": "<script>alert('q')</script>",
+                     "description": "<script>alert('d')</script>"}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        assert!(
+            entity_hits >= 5,
+            "expected >= 5 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
