@@ -980,6 +980,43 @@ pub enum CmsSection {
     Citation { text: String, source: String },
     /// Pull-out single big stat inline in editorial.
     PullStat { value: String, label: String },
+    /// Editorial multi-stat grid — typed display of 2-6
+    /// related statistics with optional heading + kicker.
+    /// Distinct from [`CmsSection::StatBand`] (marketing-shape
+    /// "Numbers that compose" 4-stat ribbon with gradient
+    /// chrome), from [`CmsSection::PullStat`] (single inline
+    /// stat), and from generic [`CmsSection::Stack`] /
+    /// [`CmsSection::GridLayout`] (untyped layout
+    /// containers): PullStatGrid is the typed editorial
+    /// alternative — dense, semantic `<dl>`, no marketing
+    /// chrome.
+    ///
+    /// Editorial intent: research write-up / annual report /
+    /// data-journalism surface where the operator wants to
+    /// highlight several stats together without a
+    /// SaaS-marketing band. Anti-SaaS: no gradient, no
+    /// rounded card, no shadow — semantic definition list
+    /// with cascade-controlled typography.
+    PullStatGrid {
+        /// Optional heading rendered above the grid
+        /// (`"By the numbers"`, `"Key figures"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        heading: Option<String>,
+        /// Optional kicker / dek between heading and grid
+        /// (`"From the Q3 dataset (N=2,400)"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kicker: Option<String>,
+        /// Stats in display order (2-6 work best
+        /// typographically). Empty `items` renders an
+        /// empty-marker note so audit phases can flag the
+        /// gap.
+        items: Vec<PullStatGridItem>,
+        /// Layout style — horizontal row (default) or
+        /// stacked column. Both styles emit the same
+        /// `<dl>` markup; only chrome differs.
+        #[serde(default)]
+        layout: PullStatGridLayout,
+    },
 
     // Marketing extras (12).
     /// Testimonial card with avatar + role.
@@ -2956,7 +2993,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3114,54 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// One stat entry inside a [`CmsSection::PullStatGrid`].
+///
+/// Same `(value, label)` pair shape as
+/// [`CmsSection::PullStat`] but with an optional `sublabel`
+/// for unit / source-of-stat context ("of working-age adults",
+/// "vs. 2019 baseline").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct PullStatGridItem {
+    /// The headline number / value
+    /// (e.g. `"68%"`, `"$1.2M"`, `"4.5×"`).
+    pub value: String,
+    /// Primary label below the value
+    /// (e.g. `"of households"`, `"raised in Q3"`).
+    pub label: String,
+    /// Optional secondary line below the label
+    /// (e.g. `"vs. 2019 baseline"`, `"source: Pew 2024"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sublabel: Option<String>,
+}
+
+/// Layout style for [`CmsSection::PullStatGrid`]. Drives the
+/// `data-layout` attribute on the rendered aside; both styles
+/// emit the same semantic `<dl>` content.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PullStatGridLayout {
+    /// Stats laid out horizontally (default). Wraps at narrow
+    /// viewports per the theme cascade.
+    #[default]
+    Horizontal,
+    /// Stats stacked vertically. Useful when each stat has a
+    /// long sublabel.
+    Stacked,
+}
+
+impl PullStatGridLayout {
+    /// Stable kebab-case modifier slug. The
+    /// `.loom-pull-stat-grid--<modifier>` cascade targets these.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::Horizontal => "horizontal",
+            Self::Stacked => "stacked",
+        }
+    }
 }
 
 /// One comparison row.
@@ -5822,6 +5907,43 @@ pub fn render_section(section: &CmsSection) -> Markup {
             div class="loom-pull-stat" data-loom-reveal {
                 span class="loom-pull-stat__value" { (value) }
                 span class="loom-pull-stat__label" { (label) }
+            }
+        },
+        CmsSection::PullStatGrid {
+            heading,
+            kicker,
+            items,
+            layout,
+        } => {
+            let layout_mod = layout.modifier();
+            html! {
+                aside class={ "loom-pull-stat-grid loom-pull-stat-grid--" (layout_mod) }
+                      aria-label="Statistics"
+                      data-layout=(layout_mod)
+                      data-loom-reveal
+                {
+                    @if let Some(h) = heading {
+                        h3 class="loom-pull-stat-grid__heading" { (h) }
+                    }
+                    @if let Some(k) = kicker {
+                        p class="loom-pull-stat-grid__kicker" { (k) }
+                    }
+                    @if items.is_empty() {
+                        p class="loom-pull-stat-grid__empty" { "No stats." }
+                    } @else {
+                        dl class="loom-pull-stat-grid__items" {
+                            @for it in items {
+                                dt class="loom-pull-stat-grid__value" { (it.value) }
+                                dd class="loom-pull-stat-grid__label" {
+                                    span class="loom-pull-stat-grid__label-text" { (it.label) }
+                                    @if let Some(sub) = &it.sublabel {
+                                        span class="loom-pull-stat-grid__sublabel" { (sub) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         CmsSection::Testimonial {
@@ -10147,6 +10269,140 @@ mod tests {
         assert!(html.contains("Solo"));
         assert!(!html.contains("loom-byline__role"));
         assert!(!html.contains("loom-byline__dateline"));
+    }
+
+    // #104 (2026-05-21) — PullStatGrid editorial multi-stat grid.
+
+    #[test]
+    fn pull_stat_grid_renders_aside_with_heading_kicker_and_dl() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "pull_stat_grid",
+                "heading": "By the numbers",
+                "kicker": "From the Q3 dataset (N=2,400)",
+                "items": [
+                    {"value": "68%", "label": "of households", "sublabel": "vs. 2019 baseline"},
+                    {"value": "$1.2M", "label": "median wealth"},
+                    {"value": "4.5×", "label": "leverage ratio"}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<aside class="loom-pull-stat-grid loom-pull-stat-grid--horizontal""#));
+        assert!(html.contains(r#"aria-label="Statistics""#));
+        assert!(html.contains(r#"data-layout="horizontal""#));
+        assert!(html.contains(r#"class="loom-pull-stat-grid__heading""#));
+        assert!(html.contains(">By the numbers<"));
+        assert!(html.contains(r#"class="loom-pull-stat-grid__kicker""#));
+        assert!(html.contains(">From the Q3 dataset (N=2,400)<"));
+        assert!(html.contains(r#"<dl class="loom-pull-stat-grid__items""#));
+        // 3 stats → 3 dt values + 3 dd labels.
+        assert_eq!(html.matches(r#"class="loom-pull-stat-grid__value""#).count(), 3);
+        assert_eq!(html.matches(r#"class="loom-pull-stat-grid__label""#).count(), 3);
+        assert!(html.contains(">68%<"));
+        assert!(html.contains(">$1.2M<"));
+        assert!(html.contains(">4.5×<"));
+        // Sublabel only on first item.
+        assert_eq!(html.matches(r#"class="loom-pull-stat-grid__sublabel""#).count(), 1);
+        assert!(html.contains(">vs. 2019 baseline<"));
+    }
+
+    #[test]
+    fn pull_stat_grid_stacked_layout() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "pull_stat_grid",
+                "items": [{"value": "1", "label": "A"}],
+                "layout": "stacked"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-pull-stat-grid--stacked"));
+        assert!(html.contains(r#"data-layout="stacked""#));
+    }
+
+    #[test]
+    fn pull_stat_grid_heading_kicker_optional() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "pull_stat_grid",
+                "items": [{"value": "X", "label": "Y"}]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-pull-stat-grid__items"));
+        assert!(!html.contains("loom-pull-stat-grid__heading"));
+        assert!(!html.contains("loom-pull-stat-grid__kicker"));
+        // Default layout = horizontal.
+        assert!(html.contains("loom-pull-stat-grid--horizontal"));
+    }
+
+    #[test]
+    fn pull_stat_grid_empty_items_emits_empty_marker() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "pull_stat_grid",
+                "heading": "Stats",
+                "items": []
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-pull-stat-grid__empty"));
+        assert!(html.contains(">No stats.<"));
+        assert!(!html.contains("loom-pull-stat-grid__items"));
+    }
+
+    #[test]
+    fn pull_stat_grid_layout_modifier_stable_per_layout() {
+        assert_eq!(PullStatGridLayout::Horizontal.modifier(), "horizontal");
+        assert_eq!(PullStatGridLayout::Stacked.modifier(), "stacked");
+    }
+
+    #[test]
+    fn pull_stat_grid_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "pull_stat_grid",
+                "heading": "<script>h</script>",
+                "kicker": "<script>k</script>",
+                "items": [{
+                    "value": "<script>v</script>",
+                    "label": "<script>l</script>",
+                    "sublabel": "<script>s</script>"
+                }]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>h</script>",
+            "<script>k</script>",
+            "<script>v</script>",
+            "<script>l</script>",
+            "<script>s</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
