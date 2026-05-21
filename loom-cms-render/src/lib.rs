@@ -752,6 +752,47 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Methodology disclosure note — structured "how we
+    /// reported / measured / sampled this" block used by
+    /// journalism, polling, scientific reporting, and civic
+    /// publishing surfaces. Distinct from
+    /// [`CmsSection::ResearchAbstract`] (which is the
+    /// background/methods/results/conclusion structured abstract
+    /// of the artefact itself) and from
+    /// [`CmsSection::FactCheck`] (which is verdict + claim +
+    /// finding for a single claim).
+    ///
+    /// MethodologyNote is the typed "Methodology" sidebar that
+    /// readers expect to find at the bottom of a poll write-up,
+    /// data story, or investigation — disclosing sources,
+    /// sample size, time window, and stated limitations.
+    MethodologyNote {
+        /// Optional eyebrow ("Methodology", "How we reported
+        /// this", "About this analysis").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow: Option<String>,
+        /// Title; defaults to "Methodology" in caller-side
+        /// templates but typed here for editorial control.
+        title: String,
+        /// Sources — what data / interviews / records were
+        /// used. Multi-paragraph splits on `\n\n`.
+        sources: String,
+        /// Sample — population sampled / records reviewed /
+        /// interviews conducted. Multi-paragraph splits on
+        /// `\n\n`.
+        sample: String,
+        /// Time window — when data was collected; when records
+        /// span; when interviews occurred. Multi-paragraph
+        /// splits on `\n\n`.
+        time_window: String,
+        /// Limitations — known caveats, omissions, weighting
+        /// choices. Multi-paragraph splits on `\n\n`.
+        limitations: String,
+        /// Optional contact line ("Questions? methodology@…")
+        /// surfaced at the foot of the block.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        contact: Option<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2956,7 +2997,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5581,6 +5622,79 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::MethodologyNote {
+            eyebrow,
+            title,
+            sources,
+            sample,
+            time_window,
+            limitations,
+            contact,
+        } => {
+            let split_paragraphs = |s: &str| -> Vec<String> {
+                s.split("\n\n").map(|p| p.to_owned()).collect()
+            };
+            let sources_paras = split_paragraphs(sources);
+            let sample_paras = split_paragraphs(sample);
+            let time_paras = split_paragraphs(time_window);
+            let lim_paras = split_paragraphs(limitations);
+            html! {
+                aside class="loom-methodology-note" aria-label="Methodology"
+                    data-loom-reveal {
+                    header class="loom-methodology-note__header" {
+                        @if let Some(e) = eyebrow {
+                            span class="loom-methodology-note__eyebrow" { (e) }
+                        }
+                        h2 class="loom-methodology-note__title" { (title) }
+                    }
+                    section class="loom-methodology-note__section loom-methodology-note__section--sources"
+                        aria-labelledby="loom-methodology-note__h-sources" {
+                        h3 id="loom-methodology-note__h-sources"
+                            class="loom-methodology-note__h" { "Sources" }
+                        div class="loom-methodology-note__body" {
+                            @for p in &sources_paras {
+                                p class="loom-methodology-note__para" { (p) }
+                            }
+                        }
+                    }
+                    section class="loom-methodology-note__section loom-methodology-note__section--sample"
+                        aria-labelledby="loom-methodology-note__h-sample" {
+                        h3 id="loom-methodology-note__h-sample"
+                            class="loom-methodology-note__h" { "Sample" }
+                        div class="loom-methodology-note__body" {
+                            @for p in &sample_paras {
+                                p class="loom-methodology-note__para" { (p) }
+                            }
+                        }
+                    }
+                    section class="loom-methodology-note__section loom-methodology-note__section--time-window"
+                        aria-labelledby="loom-methodology-note__h-time-window" {
+                        h3 id="loom-methodology-note__h-time-window"
+                            class="loom-methodology-note__h" { "Time window" }
+                        div class="loom-methodology-note__body" {
+                            @for p in &time_paras {
+                                p class="loom-methodology-note__para" { (p) }
+                            }
+                        }
+                    }
+                    section class="loom-methodology-note__section loom-methodology-note__section--limitations"
+                        aria-labelledby="loom-methodology-note__h-limitations" {
+                        h3 id="loom-methodology-note__h-limitations"
+                            class="loom-methodology-note__h" { "Limitations" }
+                        div class="loom-methodology-note__body" {
+                            @for p in &lim_paras {
+                                p class="loom-methodology-note__para" { (p) }
+                            }
+                        }
+                    }
+                    @if let Some(c) = contact {
+                        footer class="loom-methodology-note__footer" {
+                            p class="loom-methodology-note__contact" { (c) }
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10061,123 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn methodology_note_renders_four_labelled_sections() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "methodology_note",
+                "title": "How we reported this",
+                "sources": "Public records requests filed in 12 jurisdictions.",
+                "sample": "342 case files reviewed.",
+                "time_window": "January 2024 through April 2026.",
+                "limitations": "Three jurisdictions declined to respond."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-methodology-note"));
+        assert!(html.contains("aria-label=\"Methodology\""));
+        assert!(html.contains("How we reported this"));
+        // Four section landmarks present.
+        assert!(html.contains("loom-methodology-note__h-sources"));
+        assert!(html.contains("loom-methodology-note__h-sample"));
+        assert!(html.contains("loom-methodology-note__h-time-window"));
+        assert!(html.contains("loom-methodology-note__h-limitations"));
+        // Each heading rendered.
+        assert!(html.contains(">Sources<"));
+        assert!(html.contains(">Sample<"));
+        assert!(html.contains(">Time window<"));
+        assert!(html.contains(">Limitations<"));
+        // Body content present.
+        assert!(html.contains("12 jurisdictions"));
+        assert!(html.contains("342 case files"));
+        assert!(html.contains("January 2024"));
+        assert!(html.contains("declined to respond"));
+        // Optional chrome absent.
+        assert!(!html.contains("loom-methodology-note__eyebrow"));
+        assert!(!html.contains("loom-methodology-note__footer"));
+        assert!(!html.contains("loom-methodology-note__contact"));
+    }
+
+    #[test]
+    fn methodology_note_full_chrome_with_eyebrow_and_contact() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "methodology_note",
+                "eyebrow": "About this analysis",
+                "title": "Methodology",
+                "sources": "Para one.\n\nPara two.",
+                "sample": "S",
+                "time_window": "T",
+                "limitations": "L",
+                "contact": "Questions? methodology@example.org"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-methodology-note__eyebrow"));
+        assert!(html.contains("About this analysis"));
+        // Multi-paragraph in sources.
+        assert!(html.contains("Para one"));
+        assert!(html.contains("Para two"));
+        // Contact footer rendered.
+        assert!(html.contains("loom-methodology-note__footer"));
+        assert!(html.contains("loom-methodology-note__contact"));
+        assert!(html.contains("methodology@example.org"));
+    }
+
+    #[test]
+    fn methodology_note_escapes_all_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "methodology_note",
+                "eyebrow": "<i>e</i>",
+                "title": "<script>alert('t')</script>",
+                "sources": "<script>alert('src')</script>",
+                "sample": "<script>alert('s')</script>",
+                "time_window": "<script>alert('tw')</script>",
+                "limitations": "<script>alert('l')</script>",
+                "contact": "<script>alert('c')</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        assert!(
+            entity_hits >= 6,
+            "expected >= 6 escaped script tokens, got {entity_hits}"
+        );
+        assert!(html.contains("&lt;i&gt;e&lt;/i&gt;"));
+    }
+
+    #[test]
+    fn methodology_note_no_contact_no_footer() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "methodology_note",
+                "title": "T",
+                "sources": "S", "sample": "Sa",
+                "time_window": "Tw", "limitations": "L"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("loom-methodology-note__footer"));
     }
 
     #[test]
