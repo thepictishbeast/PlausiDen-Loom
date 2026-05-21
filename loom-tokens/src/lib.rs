@@ -125,6 +125,24 @@ pub fn tokens_css() -> String {
         let _ = writeln!(out, "  --loom-color-{}: {};", role.role, role.color.css);
     }
     out.push_str("}\n");
+
+    // Substrate utility classes — emitted in the tokens CSS so
+    // tenants whose Content-Security-Policy is `style-src 'self'`
+    // can pick up Loom shell-padding without inline `style="…"`
+    // attributes (which CSP blocks). Mirrors Tailwind class names
+    // for readability but lives in loom-tokens output so it ships
+    // with every tenant build via `loom css > loom-tokens.css`.
+    out.push_str("\n/* Substrate utility classes (CSP-safe alternative to inline padding) */\n");
+    out.push_str(".loom-shell {\n");
+    out.push_str("  padding-left: 4rem;\n");
+    out.push_str("  padding-right: 4rem;\n");
+    out.push_str("}\n");
+    out.push_str("@media (max-width: 768px) {\n");
+    out.push_str("  .loom-shell {\n");
+    out.push_str("    padding-left: 1rem;\n");
+    out.push_str("    padding-right: 1rem;\n");
+    out.push_str("  }\n");
+    out.push_str("}\n");
     out
 }
 
