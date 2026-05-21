@@ -11555,3 +11555,35 @@ footer[data-loom-footer-style="dense"] h3 {
   text-underline-offset: 0.25rem;
   color: var(--loom-color-accent, var(--loom-color-primary, #3a7afe));
 }
+
+/* === CmsBlock::Figure ============================================== */
+/* Semantic <figure> with <img> + <figcaption>. Substrate asserts
+   structure; visual register (radius, caption font, credit weight)
+   flows from tenant [style] config. */
+.loom-block-figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.loom-block-figure__image {
+  width: 100%;
+  height: auto;
+  border-radius: var(--loom-radius-figure, var(--loom-radius-md, 0.5rem));
+}
+.loom-block-figure__caption {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--loom-color-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 65%, transparent));
+}
+.loom-block-figure__caption-text {
+  color: var(--loom-color-text, inherit);
+}
+.loom-block-figure__credit {
+  font-size: 0.75rem;
+  font-style: italic;
+  opacity: 0.85;
+}

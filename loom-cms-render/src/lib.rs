@@ -740,6 +740,27 @@ pub enum CmsBlock {
         #[serde(default)]
         direction: MarqueeDirection,
     },
+    /// Semantic `<figure>` with `<img>` + `<figcaption>`. Used for
+    /// captioned images / diagrams / illustrations. Distinct from
+    /// [`CmsBlock::Image`] (no caption) and the section-level
+    /// `CmsSection::Figure` (caption-only, no image URL).
+    ///
+    /// `image_url` is URL-validated via `is_safe_url`; hostile
+    /// schemes drop the entire block. `caption` is the visible
+    /// caption rendered inside `<figcaption>`; `credit` is an
+    /// optional photographer / source line rendered after the
+    /// caption.
+    Figure {
+        /// Image URL.
+        image_url: String,
+        /// Accessible alt text.
+        alt: String,
+        /// Caption text — rendered inside `<figcaption>`.
+        caption: String,
+        /// Optional credit / source line.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        credit: Option<String>,
+    },
     /// Slide gallery — image / content carousel using CSS
     /// `scroll-snap` for native swipe + keyboard navigation
     /// without a JS layer.
@@ -6826,6 +6847,27 @@ pub fn render_block(block: &CmsBlock) -> Markup {
         CmsBlock::Badge { text, tone } => html! {
             span class="loom-block-badge" data-tone=(tone.slug()) { (text) }
         },
+        CmsBlock::Figure {
+            image_url,
+            alt,
+            caption,
+            credit,
+        } => {
+            if !is_safe_url(image_url) {
+                return html! {};
+            }
+            html! {
+                figure class="loom-block-figure" {
+                    img class="loom-block-figure__image" src=(image_url) alt=(alt) loading="lazy";
+                    figcaption class="loom-block-figure__caption" {
+                        span class="loom-block-figure__caption-text" { (caption) }
+                        @if let Some(c) = credit {
+                            span class="loom-block-figure__credit" { (c) }
+                        }
+                    }
+                }
+            }
+        }
         CmsBlock::Carousel { label, slides } => {
             let total = slides.len();
             html! {
@@ -14466,6 +14508,49 @@ mod tests {
         assert!(html.contains("__lede"));
         assert!(html.contains("__cta"));
         assert!(html.contains(r#"href="/x""#));
+    }
+
+    #[test]
+    fn cms_block_figure_emits_img_caption_and_credit() {
+        let f = CmsBlock::Figure {
+            image_url: "/media/diagram.svg".into(),
+            alt: "System architecture diagram".into(),
+            caption: "Fig. 1 — Overall architecture.".into(),
+            credit: Some("Substrate team, 2026".into()),
+        };
+        let html = render_block(&f).into_string();
+        assert!(html.contains("<figure"));
+        assert!(html.contains("loom-block-figure"));
+        assert!(html.contains(r#"src="/media/diagram.svg""#));
+        assert!(html.contains(r#"alt="System architecture diagram""#));
+        assert!(html.contains("<figcaption"));
+        assert!(html.contains("Fig. 1 — Overall architecture."));
+        assert!(html.contains("loom-block-figure__credit"));
+        assert!(html.contains("Substrate team, 2026"));
+    }
+
+    #[test]
+    fn cms_block_figure_omits_credit_when_absent() {
+        let f = CmsBlock::Figure {
+            image_url: "/i.jpg".into(),
+            alt: "x".into(),
+            caption: "C".into(),
+            credit: None,
+        };
+        let html = render_block(&f).into_string();
+        assert!(!html.contains("loom-block-figure__credit"));
+    }
+
+    #[test]
+    fn cms_block_figure_suppresses_on_hostile_image_url() {
+        let f = CmsBlock::Figure {
+            image_url: "javascript:alert(1)".into(),
+            alt: "x".into(),
+            caption: "x".into(),
+            credit: None,
+        };
+        let html = render_block(&f).into_string();
+        assert_eq!(html, "");
     }
 
     #[test]
