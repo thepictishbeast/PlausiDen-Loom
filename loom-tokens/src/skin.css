@@ -10645,3 +10645,39 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
   background: transparent;
   color: inherit;
 }
+
+/* === CmsBlock::Grid ================================================ */
+/* CSS-grid layout primitive. Explicit column count (clamped 1..=12)
+   with token-scale gap. Cascade collapses to a single column at
+   narrow viewports per tenant responsive density config.
+
+   Distinct from .loom-block-row / .loom-block-column (flexbox) —
+   Grid projects display: grid for cell-based layouts. */
+.loom-block-grid {
+  display: grid;
+  gap: 1rem;
+}
+.loom-block-grid[data-columns="1"]  { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+.loom-block-grid[data-columns="2"]  { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.loom-block-grid[data-columns="3"]  { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.loom-block-grid[data-columns="4"]  { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.loom-block-grid[data-columns="5"]  { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.loom-block-grid[data-columns="6"]  { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.loom-block-grid[data-columns="7"]  { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.loom-block-grid[data-columns="8"]  { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+.loom-block-grid[data-columns="9"]  { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+.loom-block-grid[data-columns="10"] { grid-template-columns: repeat(10, minmax(0, 1fr)); }
+.loom-block-grid[data-columns="11"] { grid-template-columns: repeat(11, minmax(0, 1fr)); }
+.loom-block-grid[data-columns="12"] { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.loom-block-grid[data-gap="none"] { gap: 0; }
+.loom-block-grid[data-gap="xs"]   { gap: 0.25rem; }
+.loom-block-grid[data-gap="sm"]   { gap: 0.5rem; }
+.loom-block-grid[data-gap="md"]   { gap: 1rem; }
+.loom-block-grid[data-gap="lg"]   { gap: 2rem; }
+.loom-block-grid[data-gap="xl"]   { gap: 3rem; }
+.loom-block-grid[data-gap="xxl"]  { gap: 4rem; }
+@media (max-width: 640px) {
+  .loom-block-grid[data-columns]:not([data-columns="1"]) {
+    grid-template-columns: 1fr;
+  }
+}
