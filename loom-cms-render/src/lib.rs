@@ -752,6 +752,53 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed single-event detail card — venue + date/time +
+    /// description + ticket link. Distinct from
+    /// [`CmsSection::Timeline`] (historical milestones),
+    /// [`CmsSection::Roadmap`] (now/next/later stages),
+    /// [`CmsSection::ArticleSeries`] (multi-part editorial
+    /// navigation), and [`CmsSection::LiveUpdateLog`] (running
+    /// update list).
+    ///
+    /// EventDetail is the typed primitive for individual event
+    /// pages and event-list rows: conference sessions,
+    /// community meetups, art-show openings, ballot deadline
+    /// callouts, civic hearings. The structured slots let feed
+    /// crawlers + calendar aggregators extract the event
+    /// independent of the rendered chrome.
+    EventDetail {
+        /// Event title ("Q3 community town hall").
+        title: String,
+        /// Optional eyebrow ("Workshop", "Session 3",
+        /// "Free + open to public").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow: Option<String>,
+        /// Date/time display label (human-formatted by the
+        /// caller — locale + tz are publisher decisions).
+        date_label: String,
+        /// Optional RFC 3339 start timestamp surfaced as
+        /// `<time datetime>`. When present the date_label
+        /// becomes the visible text + datetime carries the
+        /// machine-readable form.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        starts_at: Option<String>,
+        /// Optional RFC 3339 end timestamp.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ends_at: Option<String>,
+        /// Venue / location label ("Downtown Library, Room A",
+        /// "Online — Zoom").
+        location: String,
+        /// Description / blurb. Multi-paragraph splits on
+        /// `\n\n`.
+        description: String,
+        /// Modality tag — In-person / Online / Hybrid. Surfaced
+        /// as `data-loom-event-modality`.
+        #[serde(default)]
+        modality: EventModality,
+        /// Optional ticket / RSVP / register link.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        registration: Option<EventRegistrationLink>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2956,7 +3003,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3124,35 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// Modality tag for [`CmsSection::EventDetail`]. Surfaces the
+/// modality as a `data-loom-event-modality` attribute so feed
+/// crawlers + calendar aggregators can filter independent of
+/// the chrome.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EventModality {
+    /// In-person event at a physical venue.
+    #[default]
+    InPerson,
+    /// Online-only event (video / livestream).
+    Online,
+    /// Hybrid event — both in-person and online attendance.
+    Hybrid,
+}
+
+/// Registration / ticket / RSVP link for
+/// [`CmsSection::EventDetail`]. `href` is validated via
+/// `is_safe_url`; hostile schemes fall back to a non-interactive
+/// span so the event card never emits an
+/// `<a href="javascript:…">`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
+pub struct EventRegistrationLink {
+    pub label: String,
+    pub href: String,
 }
 
 /// One comparison row.
@@ -5581,6 +5657,75 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::EventDetail {
+            title,
+            eyebrow,
+            date_label,
+            starts_at,
+            ends_at,
+            location,
+            description,
+            modality,
+            registration,
+        } => {
+            let (modality_slug, modality_label) = match modality {
+                EventModality::InPerson => ("in-person", "In-person"),
+                EventModality::Online => ("online", "Online"),
+                EventModality::Hybrid => ("hybrid", "Hybrid"),
+            };
+            let desc_paras: Vec<&str> = description.split("\n\n").collect();
+            let aria_label = format!("Event: {title}");
+            html! {
+                article class="loom-event-detail"
+                    data-loom-event-modality=(modality_slug)
+                    aria-label=(aria_label)
+                    data-loom-reveal {
+                    header class="loom-event-detail__header" {
+                        @if let Some(e) = eyebrow {
+                            span class="loom-event-detail__eyebrow" { (e) }
+                        }
+                        h2 class="loom-event-detail__title" { (title) }
+                        div class="loom-event-detail__meta" {
+                            @if let Some(starts) = starts_at {
+                                time class="loom-event-detail__date"
+                                    datetime=(starts) { (date_label) }
+                            } @else {
+                                span class="loom-event-detail__date" {
+                                    (date_label)
+                                }
+                            }
+                            @if let Some(ends) = ends_at {
+                                time class="loom-event-detail__end"
+                                    datetime=(ends) aria-hidden="true" {}
+                            }
+                            span class="loom-event-detail__separator"
+                                aria-hidden="true" { " · " }
+                            span class="loom-event-detail__location" { (location) }
+                            span class="loom-event-detail__separator"
+                                aria-hidden="true" { " · " }
+                            span class="loom-event-detail__modality" {
+                                (modality_label)
+                            }
+                        }
+                    }
+                    div class="loom-event-detail__description" {
+                        @for p in &desc_paras {
+                            p class="loom-event-detail__para" { (p) }
+                        }
+                    }
+                    @if let Some(reg) = registration {
+                        @let href_safe = loom_components::composer::is_safe_url(&reg.href);
+                        @if href_safe {
+                            a class="loom-event-detail__register"
+                                href=(reg.href) { (reg.label) }
+                        } @else {
+                            span class="loom-event-detail__register"
+                                data-blocked-href="true" { (reg.label) }
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10092,184 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn event_detail_renders_required_fields_with_time_datetime() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "event_detail",
+                "title": "Q3 community town hall",
+                "date_label": "Saturday, June 14 · 2 PM EDT",
+                "starts_at": "2026-06-14T18:00:00Z",
+                "location": "Downtown Library, Room A",
+                "description": "Quarterly update + Q&A."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-event-detail"));
+        assert!(html.contains("data-loom-event-modality=\"in-person\""));
+        assert!(html.contains("aria-label=\"Event: Q3 community town hall\""));
+        assert!(html.contains("Q3 community town hall"));
+        // <time datetime> with starts_at.
+        assert!(html.contains("datetime=\"2026-06-14T18:00:00Z\""));
+        assert!(html.contains("Saturday, June 14"));
+        assert!(html.contains("Downtown Library"));
+        assert!(html.contains(">In-person<"));
+        assert!(html.contains("Quarterly update"));
+        // Optional chrome absent.
+        assert!(!html.contains("loom-event-detail__eyebrow"));
+        assert!(!html.contains("loom-event-detail__register"));
+        assert!(!html.contains("loom-event-detail__end"));
+    }
+
+    #[test]
+    fn event_detail_each_modality_renders_distinct_slug() {
+        let cases: &[(&str, &str, &str)] = &[
+            ("online", "online", "Online"),
+            ("hybrid", "hybrid", "Hybrid"),
+        ];
+        for (json_mod, slug, label) in cases {
+            let json = format!(
+                r#"{{
+                "brand": null, "theme": null, "chrome": null, "content_width": null,
+                "nav_actions": [], "title": "t", "description": "d",
+                "path": "/p", "nav_links": [], "dev_devtools": false,
+                "sections": [{{
+                    "kind": "event_detail",
+                    "title": "T",
+                    "date_label": "D",
+                    "location": "L",
+                    "description": "X",
+                    "modality": "{json_mod}"
+                }}]
+            }}"#
+            );
+            let page: CmsPage =
+                serde_json::from_str(&json).unwrap_or_else(|_| panic!("modality={json_mod}"));
+            let html = render_to_string(&page);
+            assert!(
+                html.contains(&format!("data-loom-event-modality=\"{slug}\"")),
+                "modality={json_mod} missing data attr {slug}"
+            );
+            assert!(
+                html.contains(&format!(">{label}<")),
+                "modality={json_mod} missing visible label {label}"
+            );
+        }
+    }
+
+    #[test]
+    fn event_detail_with_eyebrow_and_registration_renders_chrome() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "event_detail",
+                "title": "Building substrates that scale",
+                "eyebrow": "Workshop · Track 2",
+                "date_label": "June 20 · 10 AM",
+                "starts_at": "2026-06-20T14:00:00Z",
+                "ends_at": "2026-06-20T16:00:00Z",
+                "location": "Online — Zoom",
+                "description": "Hands-on workshop.\n\nBring a laptop.",
+                "modality": "online",
+                "registration": {"label": "Register (free)",
+                                 "href": "/events/substrates-workshop"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-event-detail__eyebrow"));
+        assert!(html.contains("Workshop · Track 2"));
+        assert!(html.contains("data-loom-event-modality=\"online\""));
+        // <time> for ends_at.
+        assert!(html.contains("loom-event-detail__end"));
+        assert!(html.contains("datetime=\"2026-06-20T16:00:00Z\""));
+        // Multi-paragraph description.
+        let para_count = html.matches("loom-event-detail__para\"").count();
+        assert_eq!(para_count, 2, "expected 2 paras, got {para_count}");
+        // Registration anchor.
+        assert!(html.contains("href=\"/events/substrates-workshop\""));
+        assert!(html.contains("Register (free)"));
+    }
+
+    #[test]
+    fn event_detail_unsafe_registration_href_falls_back_to_span() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "event_detail",
+                "title": "T",
+                "date_label": "D",
+                "location": "L",
+                "description": "X",
+                "registration": {"label": "Visit",
+                                 "href": "javascript:alert(1)"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("href=\"javascript:"));
+        assert!(html.contains("data-blocked-href=\"true\""));
+    }
+
+    #[test]
+    fn event_detail_no_starts_at_renders_span_not_time() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "event_detail",
+                "title": "T",
+                "date_label": "Sometime in June",
+                "location": "L",
+                "description": "X"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // No <time datetime> when starts_at omitted.
+        assert!(!html.contains("datetime="));
+        // Visible date label still renders.
+        assert!(html.contains("Sometime in June"));
+    }
+
+    #[test]
+    fn event_detail_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "event_detail",
+                "title": "<script>alert('t')</script>",
+                "eyebrow": "<script>alert('e')</script>",
+                "date_label": "<script>alert('d')</script>",
+                "location": "<script>alert('loc')</script>",
+                "description": "<script>alert('desc')</script>",
+                "registration": {"label": "<script>alert('r')</script>",
+                                 "href": "/safe"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        // title appears in aria-label AND visible markup,
+        // plus eyebrow + date + loc + description + register.
+        assert!(
+            entity_hits >= 7,
+            "expected >= 7 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
