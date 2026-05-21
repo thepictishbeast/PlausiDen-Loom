@@ -917,6 +917,38 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reading_time: Option<String>,
     },
+    /// Single-link forward editorial navigation — a "continue
+    /// reading" / "next part" / "full report" link rendered as
+    /// a typed unit with label + optional eyebrow + optional
+    /// dek. Distinct from [`CmsSection::CallToAction`]
+    /// (marketing-shape closing block with prominent button),
+    /// from [`CmsSection::RelatedReads`] (multi-item list),
+    /// and from [`CmsSection::ChapterPager`] (3-slot prev/
+    /// index/next nav): ReadMore is a single-link inline
+    /// editorial pointer that fits anywhere body flow needs to
+    /// hand readers off to a related deep-dive.
+    ///
+    /// Editorial intent: long-form article surfaces where one
+    /// paragraph references another piece and the author wants
+    /// a clean link-as-content unit rather than an inline
+    /// `<a>` buried in prose.
+    ReadMore {
+        /// Optional eyebrow / kicker above the label
+        /// (`"Continue reading"`, `"Next part"`,
+        /// `"In depth"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow: Option<String>,
+        /// Link text — the title of the destination piece
+        /// (e.g. `"How to read the Q3 risk report"`).
+        label: String,
+        /// Target URL. Validated through `is_safe_url`; hostile
+        /// schemes render as a plain span (no `<a>`) so XSS is
+        /// impossible by construction.
+        href: String,
+        /// Optional one-line dek / description below the label.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dek: Option<String>,
+    },
     /// End-of-document footnote. Renders as a numbered entry at
     /// the bottom of a long-form piece. Distinct from
     /// [`CmsSection::Footnote`] (which is inline / mid-flow); use
@@ -2956,7 +2988,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5702,6 +5734,44 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::ReadMore {
+            eyebrow,
+            label,
+            href,
+            dek,
+        } => {
+            if is_safe_url(href) {
+                html! {
+                    a class="loom-read-more"
+                      href=(href)
+                      data-loom-reveal
+                    {
+                        @if let Some(e) = eyebrow {
+                            span class="loom-read-more__eyebrow" { (e) }
+                        }
+                        span class="loom-read-more__label" { (label) }
+                        span class="loom-read-more__arrow" aria-hidden="true" { " →" }
+                        @if let Some(d) = dek {
+                            span class="loom-read-more__dek" { (d) }
+                        }
+                    }
+                }
+            } else {
+                html! {
+                    span class="loom-read-more"
+                         data-blocked-href="true"
+                    {
+                        @if let Some(e) = eyebrow {
+                            span class="loom-read-more__eyebrow" { (e) }
+                        }
+                        span class="loom-read-more__label" { (label) }
+                        @if let Some(d) = dek {
+                            span class="loom-read-more__dek" { (d) }
+                        }
+                    }
+                }
+            }
+        }
         CmsSection::Endnote { number, text } => html! {
             aside class="loom-endnote" id={ "endnote-" (number.to_string()) } {
                 span class="loom-endnote__num" { (number.to_string()) "." } " " (text)
@@ -10162,6 +10232,107 @@ mod tests {
         assert!(html.contains("loom-endnote"));
         assert!(html.contains(r#"id="endnote-1""#));
         assert!(html.contains("Source: foo."));
+    }
+
+    // #104 (2026-05-21) — ReadMore single-link editorial primitive.
+
+    #[test]
+    fn read_more_renders_anchor_with_all_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "read_more",
+                "eyebrow": "Continue reading",
+                "label": "How to read the Q3 risk report",
+                "href": "/q3-risk-report/",
+                "dek": "Five sections, one chart per section."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<a class="loom-read-more""#));
+        assert!(html.contains(r#"href="/q3-risk-report/""#));
+        assert!(html.contains(r#"class="loom-read-more__eyebrow""#));
+        assert!(html.contains(">Continue reading<"));
+        assert!(html.contains(r#"class="loom-read-more__label""#));
+        assert!(html.contains(">How to read the Q3 risk report<"));
+        assert!(html.contains(r#"class="loom-read-more__arrow""#));
+        assert!(html.contains(r#"class="loom-read-more__dek""#));
+        assert!(html.contains(">Five sections, one chart per section.<"));
+    }
+
+    #[test]
+    fn read_more_omits_optional_slots_when_absent() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "read_more",
+                "label": "Continue",
+                "href": "/x/"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"href="/x/""#));
+        assert!(html.contains(">Continue<"));
+        // Arrow always renders for visual continuity.
+        assert!(html.contains("loom-read-more__arrow"));
+        // Eyebrow + dek omitted.
+        assert!(!html.contains("loom-read-more__eyebrow"));
+        assert!(!html.contains("loom-read-more__dek"));
+    }
+
+    #[test]
+    fn read_more_unsafe_href_falls_back_to_span() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "read_more",
+                "label": "Bad target",
+                "href": "javascript:alert(1)"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"data-blocked-href="true""#));
+        assert!(!html.contains("javascript:alert(1)"));
+        assert!(!html.contains(r#"<a class="loom-read-more" href="javascript:"#));
+        // Label still visible so the reader gets feedback.
+        assert!(html.contains(">Bad target<"));
+        // Arrow elided in the span path (no anchor → no nav signal).
+        assert!(!html.contains("loom-read-more__arrow"));
+    }
+
+    #[test]
+    fn read_more_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "read_more",
+                "eyebrow": "<script>e</script>",
+                "label": "<script>l</script>",
+                "href": "/x/",
+                "dek": "<script>d</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>e</script>",
+            "<script>l</script>",
+            "<script>d</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
