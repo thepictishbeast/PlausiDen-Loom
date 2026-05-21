@@ -430,6 +430,72 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Pure-CSS aspect-ratio container. Wraps a single child
+    /// block in a `<div>` with the `aspect-ratio` CSS property
+    /// set — child is constrained to the declared ratio with no
+    /// JS / layout math required. Useful for embeds, image
+    /// frames, video placeholders.
+    ///
+    /// Behavioral contract mirrors Radix UI's `AspectRatio`
+    /// primitive. Upstream:
+    /// <https://www.radix-ui.com/primitives/docs/components/aspect-ratio>
+    /// (MIT). No source copied.
+    AspectRatio {
+        /// Width / height ratio. e.g. `(16, 9)` for widescreen.
+        /// Clamped to `(1, 1)` minimum to avoid zero-dimension
+        /// containers.
+        ratio_w: u16,
+        /// Height side of the ratio.
+        ratio_h: u16,
+        /// Child block tree.
+        children: Vec<CmsBlock>,
+    },
+    /// Application toolbar — a horizontal row of actions / form
+    /// controls that share a single landmark. Renders as
+    /// `<div role="toolbar" aria-orientation>` with arbitrary
+    /// block children (typically a row of Buttons + ToggleGroups
+    /// + Switches).
+    ///
+    /// Behavioral contract mirrors Radix UI's `Toolbar`
+    /// primitive. Upstream:
+    /// <https://www.radix-ui.com/primitives/docs/components/toolbar>
+    /// (MIT). No source copied.
+    Toolbar {
+        /// Optional `aria-label` describing the toolbar's
+        /// purpose. Defaults to `"Toolbar"`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        aria_label: Option<String>,
+        /// Orientation — drives `aria-orientation` + flex
+        /// direction.
+        #[serde(default)]
+        orientation: ToolbarOrientation,
+        /// Child block tree.
+        children: Vec<CmsBlock>,
+    },
+    /// Mutually-exclusive (`single`) or multi-select (`multiple`)
+    /// group of toggle buttons. Renders as a row of `<button
+    /// aria-pressed>` elements with shared `data-name` for the
+    /// future Loom JS runtime to coordinate.
+    ///
+    /// Behavioral contract mirrors Radix UI's `ToggleGroup`
+    /// primitive. Upstream:
+    /// <https://www.radix-ui.com/primitives/docs/components/toggle-group>
+    /// (MIT). No source copied.
+    ToggleGroup {
+        /// Group name — shared `data-name` across all buttons so
+        /// the JS runtime can coordinate selection within one
+        /// group.
+        name: String,
+        /// Selection mode.
+        #[serde(default)]
+        mode: ToggleGroupMode,
+        /// Items in left-to-right order.
+        items: Vec<BlockToggleItem>,
+        /// Optional `aria-label` describing the group's purpose.
+        /// Defaults to `name`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        aria_label: Option<String>,
+    },
     /// Right-click context menu — hidden until the user
     /// right-clicks on the target element. Substrate emits the
     /// menu markup with `popover="manual"` so the future Loom JS
@@ -1066,6 +1132,44 @@ pub enum CmsBlock {
         #[serde(default)]
         disabled: bool,
     },
+}
+
+/// Orientation for a [`CmsBlock::Toolbar`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum ToolbarOrientation {
+    #[default]
+    Horizontal,
+    Vertical,
+}
+
+/// Selection mode for a [`CmsBlock::ToggleGroup`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum ToggleGroupMode {
+    /// One item at most can be pressed (radio-like).
+    #[default]
+    Single,
+    /// Any combination of items can be pressed.
+    Multiple,
+}
+
+/// One button inside a [`CmsBlock::ToggleGroup`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockToggleItem {
+    /// Submission / dispatch value when this item is pressed.
+    pub value: String,
+    /// Visible label.
+    pub label: String,
+    /// Initial pressed state.
+    #[serde(default)]
+    pub pressed: bool,
+    /// When true, render as disabled.
+    #[serde(default)]
+    pub disabled: bool,
 }
 
 /// Pane orientation for a [`CmsBlock::Resizable`].
@@ -5838,6 +5942,89 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                                     (render_block(child))
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+        CmsBlock::AspectRatio {
+            ratio_w,
+            ratio_h,
+            children,
+        } => {
+            let w = (*ratio_w).max(1);
+            let h = (*ratio_h).max(1);
+            html! {
+                div
+                    class="loom-block-aspect-ratio"
+                    data-loom-slot="aspect-ratio"
+                    style=(format!("aspect-ratio: {w} / {h};"))
+                {
+                    @for child in children {
+                        (render_block(child))
+                    }
+                }
+            }
+        }
+        CmsBlock::Toolbar {
+            aria_label,
+            orientation,
+            children,
+        } => {
+            let label = aria_label.as_deref().unwrap_or("Toolbar");
+            let orient = match orientation {
+                ToolbarOrientation::Horizontal => "horizontal",
+                ToolbarOrientation::Vertical => "vertical",
+            };
+            html! {
+                div
+                    class="loom-block-toolbar"
+                    data-loom-slot="toolbar"
+                    data-orientation=(orient)
+                    role="toolbar"
+                    aria-label=(label)
+                    aria-orientation=(orient)
+                {
+                    @for child in children {
+                        (render_block(child))
+                    }
+                }
+            }
+        }
+        CmsBlock::ToggleGroup {
+            name,
+            mode,
+            items,
+            aria_label,
+        } => {
+            let label = aria_label.as_deref().unwrap_or(name.as_str());
+            let mode_slug = match mode {
+                ToggleGroupMode::Single => "single",
+                ToggleGroupMode::Multiple => "multiple",
+            };
+            let group_role = match mode {
+                ToggleGroupMode::Single => "radiogroup",
+                ToggleGroupMode::Multiple => "group",
+            };
+            html! {
+                div
+                    class="loom-block-toggle-group"
+                    data-loom-slot="toggle-group"
+                    data-mode=(mode_slug)
+                    role=(group_role)
+                    aria-label=(label)
+                {
+                    @for item in items {
+                        button
+                            type="button"
+                            class="loom-block-toggle-group__item"
+                            data-loom-slot="toggle-group-item"
+                            data-name=(name)
+                            data-value=(item.value)
+                            aria-pressed=(if item.pressed { "true" } else { "false" })
+                            disabled[item.disabled]
+                        {
+                            (item.label)
                         }
                     }
                 }
@@ -11314,6 +11501,85 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_aspect_ratio_renders_inline_style() {
+        let json = r#"{
+            "kind": "aspect_ratio",
+            "ratio_w": 16, "ratio_h": 9,
+            "children": [{"kind":"image","src":"/hero.webp","alt":"Hero"}]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-loom-slot="aspect-ratio""#));
+        assert!(html.contains(r#"aspect-ratio: 16 / 9"#));
+        assert!(html.contains("/hero.webp"));
+    }
+
+    #[test]
+    fn cms_block_aspect_ratio_clamps_zero_to_one() {
+        let json = r#"{"kind":"aspect_ratio","ratio_w":0,"ratio_h":0,"children":[]}"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains("aspect-ratio: 1 / 1"));
+    }
+
+    #[test]
+    fn cms_block_toolbar_renders_role_toolbar_with_orientation() {
+        let json = r#"{
+            "kind":"toolbar",
+            "orientation":"vertical",
+            "aria_label":"Editor toolbar",
+            "children":[]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"role="toolbar""#));
+        assert!(html.contains(r#"aria-orientation="vertical""#));
+        assert!(html.contains(r#"aria-label="Editor toolbar""#));
+        assert!(html.contains(r#"data-orientation="vertical""#));
+    }
+
+    #[test]
+    fn cms_block_toggle_group_single_uses_radiogroup_role() {
+        let json = r#"{
+            "kind":"toggle_group",
+            "name":"text-align",
+            "mode":"single",
+            "items":[
+                {"value":"left","label":"Left","pressed":true},
+                {"value":"center","label":"Center"},
+                {"value":"right","label":"Right"}
+            ]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"role="radiogroup""#));
+        assert!(html.contains(r#"data-mode="single""#));
+        assert!(html.contains(r#"aria-label="text-align""#));
+        assert_eq!(html.matches(r#"data-name="text-align""#).count(), 3);
+        // The default-pressed one carries aria-pressed=true.
+        assert!(html.contains(r#"data-value="left""#));
+        assert!(html.contains(r#"aria-pressed="true""#));
+        // Two aria-pressed=false.
+        assert_eq!(html.matches(r#"aria-pressed="false""#).count(), 2);
+    }
+
+    #[test]
+    fn cms_block_toggle_group_multiple_uses_group_role() {
+        let json = r#"{
+            "kind":"toggle_group","name":"format","mode":"multiple",
+            "items":[
+                {"value":"bold","label":"B","pressed":true},
+                {"value":"italic","label":"I","pressed":true}
+            ]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"role="group""#));
+        assert!(html.contains(r#"data-mode="multiple""#));
+        assert_eq!(html.matches(r#"aria-pressed="true""#).count(), 2);
     }
 
     #[test]
