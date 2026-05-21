@@ -9843,3 +9843,82 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* === CmsBlock::TagInput ============================================ */
+.loom-block-tag-input {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.loom-block-tag-input__label {
+  font-size: 0.92rem;
+  color: var(--loom-color-ink, var(--loom-fg));
+  font-weight: 500;
+}
+.loom-block-tag-input__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid color-mix(in oklab, var(--loom-color-border, var(--loom-border)) 70%, transparent);
+  border-radius: var(--loom-radius-sm, 6px);
+  background: var(--loom-color-surface, var(--loom-bg, #fff));
+  transition: border-color var(--loom-motion-fast, 120ms) var(--loom-ease-out, ease),
+              box-shadow var(--loom-motion-fast, 120ms) var(--loom-ease-out, ease);
+  min-height: 2.4rem;
+}
+.loom-block-tag-input__chips:focus-within {
+  border-color: var(--loom-color-primary, var(--loom-accent));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--loom-color-primary, var(--loom-accent)) 20%, transparent);
+}
+.loom-block-tag-input__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.25rem 0.2rem 0.55rem;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--loom-color-primary, var(--loom-accent)) 12%, transparent);
+  color: var(--loom-color-primary, var(--loom-accent));
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.loom-block-tag-input__chip-remove {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 9999px;
+  width: 1.2rem;
+  height: 1.2rem;
+  font-size: 0.95rem;
+  line-height: 1;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.loom-block-tag-input__chip-remove:hover {
+  background: color-mix(in oklab, var(--loom-color-primary, var(--loom-accent)) 22%, transparent);
+}
+.loom-block-tag-input__chip-remove:focus-visible {
+  outline: 2px solid var(--loom-color-primary, var(--loom-accent));
+  outline-offset: 1px;
+}
+.loom-block-tag-input__input {
+  flex: 1;
+  min-width: 6rem;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  padding: 0.25rem 0.2rem;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--loom-color-ink, var(--loom-fg));
+}
+.loom-block-tag-input__input:disabled,
+.loom-block-tag-input__chip-remove:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
