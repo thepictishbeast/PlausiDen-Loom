@@ -513,6 +513,24 @@ pub enum CmsBlock {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         footer: Vec<CmsBlock>,
     },
+    /// Inline status badge — a small text pill conveying state
+    /// (e.g., `"Beta"`, `"Active"`, `"v2.1"`). Renders as
+    /// `<span class="loom-block-badge" data-tone="…">`. Distinct
+    /// from [`CmsBlock::Button`]: Badge is non-interactive and
+    /// semantic-only; Button is a CTA.
+    ///
+    /// `tone` selects from the canonical Loom tone palette
+    /// (`neutral`, `info`, `success`, `warning`, `danger`,
+    /// `accent`) which the tenant's `[style]` config maps to
+    /// concrete fill / border / text colors.
+    Badge {
+        /// Visible label.
+        text: String,
+        /// Semantic tone — drives the data-attribute that the
+        /// cascade keys off.
+        #[serde(default)]
+        tone: BadgeTone,
+    },
     /// Sandboxed `<iframe>` embed. Used for third-party widgets
     /// (YouTube / Vimeo / Maps / payment forms) without granting
     /// them ambient access to the parent document. Substrate
@@ -1691,6 +1709,44 @@ impl IframeSandbox {
             tokens.push("allow-presentation");
         }
         tokens.join(" ")
+    }
+}
+
+/// Canonical Loom tone palette for [`CmsBlock::Badge`]. The
+/// substrate ships six semantic tones; tenant `[style]` config
+/// maps each to concrete fill / border / text colors. Authors
+/// pick the semantic name, tenants own the visual register.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BadgeTone {
+    /// Neutral / default — unscoped state, generic chip.
+    #[default]
+    Neutral,
+    /// Informational — neutral-positive callout (e.g., "Beta").
+    Info,
+    /// Success — completed / healthy.
+    Success,
+    /// Warning — soft alarm, attention needed.
+    Warning,
+    /// Danger — hard alarm, error / deprecation.
+    Danger,
+    /// Accent — brand-color emphasis.
+    Accent,
+}
+
+impl BadgeTone {
+    /// Slug for the `data-tone` attribute. Caller-side stable
+    /// API: cascade selectors key off these strings.
+    #[must_use]
+    pub const fn slug(self) -> &'static str {
+        match self {
+            Self::Neutral => "neutral",
+            Self::Info => "info",
+            Self::Success => "success",
+            Self::Warning => "warning",
+            Self::Danger => "danger",
+            Self::Accent => "accent",
+        }
     }
 }
 
@@ -6279,6 +6335,9 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::Badge { text, tone } => html! {
+            span class="loom-block-badge" data-tone=(tone.slug()) { (text) }
+        },
         CmsBlock::Iframe {
             src,
             title,
@@ -13558,6 +13617,40 @@ mod tests {
         let html = render_block(&s).into_string();
         assert!(html.contains(">Substrate A<"));
         assert!(html.contains(">Substrate B<"));
+    }
+
+    #[test]
+    fn cms_block_badge_emits_tone_data_attr() {
+        let b = CmsBlock::Badge {
+            text: "Beta".into(),
+            tone: BadgeTone::Info,
+        };
+        let html = render_block(&b).into_string();
+        assert!(html.contains("<span"));
+        assert!(html.contains("loom-block-badge"));
+        assert!(html.contains(r#"data-tone="info""#));
+        assert!(html.contains(">Beta<"));
+    }
+
+    #[test]
+    fn cms_block_badge_default_tone_is_neutral() {
+        let b = CmsBlock::Badge {
+            text: "Active".into(),
+            tone: BadgeTone::default(),
+        };
+        let html = render_block(&b).into_string();
+        assert!(html.contains(r#"data-tone="neutral""#));
+    }
+
+    #[test]
+    fn cms_block_badge_escapes_html_in_text() {
+        let b = CmsBlock::Badge {
+            text: "<script>".into(),
+            tone: BadgeTone::Danger,
+        };
+        let html = render_block(&b).into_string();
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
