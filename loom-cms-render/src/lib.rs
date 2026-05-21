@@ -769,6 +769,29 @@ pub enum CmsSection {
         #[serde(default)]
         position: MarginaliaPosition,
     },
+    /// Book-cover-style praise ribbon — a row of short blurbs
+    /// with attribution. Distinct from
+    /// [`CmsSection::Testimonial`] (single quote in a
+    /// decorated card), [`CmsSection::PullQuote`] (single
+    /// typographic moment quoting body text), and
+    /// [`CmsSection::LogoCloud`] (logos only): BlurbStrip is
+    /// multiple one-line praise quotes presented as an
+    /// editorial ribbon — the kind that runs across the back
+    /// cover of a book or the masthead of a literary magazine.
+    ///
+    /// Editorial intent: literary press / book site / report
+    /// landing page where the publisher wants to surface
+    /// short reviews / endorsements without a full
+    /// testimonial section.
+    BlurbStrip {
+        /// Optional heading rendered above the ribbon
+        /// (`"Press"`, `"Praise"`, `"What readers said"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        heading: Option<String>,
+        /// Blurbs in display order. Empty `items` renders an
+        /// empty-marker note so audit phases can flag the gap.
+        items: Vec<BlurbStripItem>,
+    },
     /// Account-summary card — typed surface for a logged-in
     /// user's at-a-glance state. Renders avatar + display name +
     /// plan + member-since. Read-only; editing flows through
@@ -2956,7 +2979,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3100,23 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// One praise entry inside a [`CmsSection::BlurbStrip`].
+///
+/// Short-form: one quoted line + one attribution. Long-form
+/// praise belongs in [`CmsSection::Testimonial`] (per-item
+/// decoration) or [`CmsSection::PullQuote`] (single
+/// typographic moment).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct BlurbStripItem {
+    /// Short praise text — one line works best. Multi-line
+    /// values render verbatim with `\n` collapsed.
+    pub quote: String,
+    /// Source attribution (e.g. `"— Reviewer Name, Publication"`,
+    /// `"— Reader, 5/5"`).
+    pub attribution: String,
 }
 
 /// One comparison row.
@@ -5295,6 +5335,28 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         }
+        CmsSection::BlurbStrip { heading, items } => html! {
+            aside class="loom-blurb-strip"
+                  aria-label="Press quotes"
+                  data-loom-reveal
+            {
+                @if let Some(h) = heading {
+                    h3 class="loom-blurb-strip__heading" { (h) }
+                }
+                @if items.is_empty() {
+                    p class="loom-blurb-strip__empty" { "No blurbs." }
+                } @else {
+                    ul class="loom-blurb-strip__items" {
+                        @for it in items {
+                            li class="loom-blurb-strip__item" {
+                                blockquote class="loom-blurb-strip__quote" { (it.quote) }
+                                cite class="loom-blurb-strip__attribution" { (it.attribution) }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         CmsSection::AccountSummary {
             display_name,
             avatar,
@@ -10147,6 +10209,101 @@ mod tests {
         assert!(html.contains("Solo"));
         assert!(!html.contains("loom-byline__role"));
         assert!(!html.contains("loom-byline__dateline"));
+    }
+
+    // #104 (2026-05-21) — BlurbStrip book-cover praise ribbon.
+
+    #[test]
+    fn blurb_strip_renders_aside_with_heading_and_items() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "blurb_strip",
+                "heading": "Press",
+                "items": [
+                    {"quote": "Required reading.",  "attribution": "— Reviewer X, Quarterly Review"},
+                    {"quote": "A clear, fair guide.", "attribution": "— Reviewer Y, City Times"},
+                    {"quote": "Stunning.",            "attribution": "— Reader, 5/5"}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<aside class="loom-blurb-strip""#));
+        assert!(html.contains(r#"aria-label="Press quotes""#));
+        assert!(html.contains(r#"<h3 class="loom-blurb-strip__heading""#));
+        assert!(html.contains(">Press<"));
+        assert!(html.contains(r#"<ul class="loom-blurb-strip__items""#));
+        // Three quotes + three attributions.
+        assert_eq!(html.matches(r#"class="loom-blurb-strip__quote""#).count(), 3);
+        assert_eq!(html.matches(r#"class="loom-blurb-strip__attribution""#).count(), 3);
+        assert!(html.contains(">Required reading.<"));
+        assert!(html.contains(">A clear, fair guide.<"));
+        assert!(html.contains(">Stunning.<"));
+    }
+
+    #[test]
+    fn blurb_strip_heading_optional() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "blurb_strip",
+                "items": [{"quote": "Solid.", "attribution": "— Reader"}]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-blurb-strip__items"));
+        assert!(!html.contains("loom-blurb-strip__heading"));
+    }
+
+    #[test]
+    fn blurb_strip_empty_items_emits_empty_marker() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "blurb_strip",
+                "heading": "Press",
+                "items": []
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-blurb-strip__empty"));
+        assert!(html.contains(">No blurbs.<"));
+        assert!(!html.contains("loom-blurb-strip__items"));
+    }
+
+    #[test]
+    fn blurb_strip_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "blurb_strip",
+                "heading": "<script>h</script>",
+                "items": [
+                    {"quote": "<script>q</script>", "attribution": "<script>a</script>"}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>h</script>",
+            "<script>q</script>",
+            "<script>a</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
