@@ -11398,3 +11398,104 @@ footer[data-loom-footer-style="dense"] .grid {
 footer[data-loom-footer-style="dense"] h3 {
   font-size: 0.95rem;
 }
+
+/* === CmsSection::HeroSplit ========================================= */
+/* Image-on-one-side, text-on-the-other hero. Cascade flips
+   flex-direction based on data-image-side. */
+.loom-section-hero-split {
+  padding: 5rem 0;
+  background: var(--loom-color-hero-bg, var(--loom-color-bg, transparent));
+}
+.loom-section-hero-split__grid {
+  display: flex;
+  align-items: center;
+  gap: 3rem;
+  max-width: 80rem;
+  margin: 0 auto;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+}
+.loom-section-hero-split[data-image-side="left"] .loom-section-hero-split__grid {
+  flex-direction: row-reverse;
+}
+.loom-section-hero-split__text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.loom-section-hero-split__title {
+  margin: 0;
+  font-size: var(--loom-font-hero, 3rem);
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--loom-color-text, inherit);
+}
+.loom-section-hero-split__lede {
+  margin: 0;
+  font-size: 1.125rem;
+  line-height: 1.55;
+  color: var(--loom-color-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 70%, transparent));
+  max-width: 36rem;
+}
+.loom-section-hero-split__cta {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.75rem 1.5rem;
+  background: var(--loom-color-accent, var(--loom-color-primary, #3a7afe));
+  color: var(--loom-color-on-accent, #fff);
+  border-radius: var(--loom-radius-button, var(--loom-radius-md, 0.5rem));
+  font-weight: 600;
+  text-decoration: none;
+}
+.loom-section-hero-split__media {
+  flex: 1;
+}
+.loom-section-hero-split__image {
+  width: 100%;
+  height: auto;
+  border-radius: var(--loom-radius-image, var(--loom-radius-md, 0.75rem));
+}
+.loom-section-hero-split__placeholder {
+  aspect-ratio: 4 / 3;
+  background: var(--loom-color-surface-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 5%, transparent));
+  border-radius: var(--loom-radius-image, var(--loom-radius-md, 0.75rem));
+}
+@media (max-width: 768px) {
+  .loom-section-hero-split__grid {
+    flex-direction: column !important;
+  }
+}
+
+/* === CmsSection::HeroMinimal ======================================= */
+/* Text-only hero. No decoration, no eyebrow, no background tint.
+   Just title + optional lede + optional CTA, centered. */
+.loom-section-hero-minimal {
+  padding: 4rem 1.5rem 3rem;
+  text-align: left;
+  max-width: 56rem;
+  margin: 0 auto;
+}
+.loom-section-hero-minimal__title {
+  margin: 0;
+  font-size: var(--loom-font-hero, 2.75rem);
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--loom-color-text, inherit);
+}
+.loom-section-hero-minimal__lede {
+  margin: 1rem 0 0;
+  font-size: 1.125rem;
+  line-height: 1.55;
+  color: var(--loom-color-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 65%, transparent));
+}
+.loom-section-hero-minimal__cta {
+  display: inline-flex;
+  margin-top: 1.5rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 0.125rem;
+  text-underline-offset: 0.25rem;
+  color: var(--loom-color-accent, var(--loom-color-primary, #3a7afe));
+}
