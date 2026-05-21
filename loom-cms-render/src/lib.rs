@@ -752,6 +752,38 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Click-to-expand single detail block using native HTML
+    /// `<details>` / `<summary>`. Distinct from
+    /// [`CmsSection::Faq`] (accordion of N items with JS
+    /// expand control), from [`CmsSection::AsideNote`]
+    /// (always-visible callout), and from
+    /// [`CmsSection::AccordionGroup`] (multiple grouped
+    /// items): ExpandableDetail is a single self-contained
+    /// `<details>` element. Native HTML — no JS needed,
+    /// works in noscript mode, accessible by default
+    /// (keyboard activated, screen-readable as a disclosure
+    /// button).
+    ///
+    /// Editorial intent: "Click for more details" / "Show
+    /// the methodology" / "Read the full citation" — content
+    /// that's optional to the main flow but should remain
+    /// reachable. Anti-SaaS: no JS-driven popover; the
+    /// browser's native disclosure widget.
+    ExpandableDetail {
+        /// Summary text shown collapsed — also the click
+        /// target. Rendered inside `<summary>`.
+        summary: String,
+        /// Body content revealed when expanded. Multi-
+        /// paragraph splits on `\n\n` into separate `<p>`
+        /// tags.
+        body: String,
+        /// Initial open state. Defaults to `false`
+        /// (collapsed) per browser default; operators can
+        /// set `true` to render expanded on load (still
+        /// collapsible by the user).
+        #[serde(default)]
+        open_by_default: bool,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2956,7 +2988,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5578,6 +5610,23 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 blockquote class="loom-epigraph__body" { (body) }
                 @if let Some(a) = attribution {
                     figcaption class="loom-epigraph__attribution" { "— " (a) }
+                }
+            }
+        },
+        CmsSection::ExpandableDetail {
+            summary,
+            body,
+            open_by_default,
+        } => html! {
+            details class="loom-expandable-detail"
+                    data-loom-reveal
+                    open[*open_by_default]
+            {
+                summary class="loom-expandable-detail__summary" { (summary) }
+                div class="loom-expandable-detail__body" {
+                    @for para in body.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
+                        p { (para) }
+                    }
                 }
             }
         },
@@ -9946,6 +9995,96 @@ mod tests {
         let page: CmsPage = serde_json::from_str(json).expect("page parses");
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    // #104 (2026-05-21) — ExpandableDetail native <details>
+    // click-to-expand block.
+
+    #[test]
+    fn expandable_detail_renders_collapsed_by_default() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "expandable_detail",
+                "summary": "Methodology",
+                "body": "We surveyed 2,400 households between January and March."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<details class="loom-expandable-detail""#));
+        // open attribute absent when open_by_default=false
+        // (the maud `open[bool]` form only emits when true).
+        assert!(!html.contains(r#"<details class="loom-expandable-detail" data-loom-reveal open"#));
+        assert!(html.contains(r#"<summary class="loom-expandable-detail__summary""#));
+        assert!(html.contains(">Methodology<"));
+        assert!(html.contains(r#"class="loom-expandable-detail__body""#));
+        assert!(html.contains(">We surveyed 2,400 households between January and March.<"));
+    }
+
+    #[test]
+    fn expandable_detail_open_by_default_emits_open_attribute() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "expandable_detail",
+                "summary": "Always visible",
+                "body": "Body.",
+                "open_by_default": true
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // maud emits the `open` attribute when the boolean is true.
+        // Position may vary; assert the attribute appears on the
+        // <details> element.
+        let details_open = html.find("<details").expect("details");
+        let details_close = html[details_open..].find('>').expect("end") + details_open;
+        let details_tag = &html[details_open..=details_close];
+        assert!(details_tag.contains("open"), "expected `open` attr in: {details_tag}");
+    }
+
+    #[test]
+    fn expandable_detail_body_splits_on_blank_lines() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "expandable_detail",
+                "summary": "Notes",
+                "body": "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        let open = html.find("loom-expandable-detail__body").expect("body");
+        let close = html[open..].find("</div>").expect("/div") + open;
+        let slice = &html[open..close];
+        assert_eq!(slice.matches("<p>").count(), 3);
+    }
+
+    #[test]
+    fn expandable_detail_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "expandable_detail",
+                "summary": "<script>s</script>",
+                "body": "<script>b</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>s</script>"));
+        assert!(!html.contains("<script>b</script>"));
         assert!(html.contains("&lt;script&gt;"));
     }
 
