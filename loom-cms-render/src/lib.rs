@@ -752,6 +752,48 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Academic-paper structured abstract — the
+    /// background/methods/results/conclusion shape used by
+    /// scientific journals, policy briefs, white papers, and
+    /// research-publishing sites. Distinct from
+    /// [`CmsSection::AbstractBlock`] (single-paragraph abstract,
+    /// generic editorial preface) and from
+    /// [`CmsSection::FactCheck`] (verdict + claim + finding):
+    /// ResearchAbstract is the dense four-quadrant abstract
+    /// readers expect at the top of a research artefact.
+    ///
+    /// Each section body is plain text; multi-paragraph splits
+    /// on `\n\n` at render time. Optional DOI / keyword chrome
+    /// surfaces the bibliographic metadata that distinguishes a
+    /// research abstract from a marketing summary.
+    ResearchAbstract {
+        /// Optional eyebrow ("Research summary",
+        /// "Working paper", "Preprint").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow: Option<String>,
+        /// Title of the abstract / paper. Used as the
+        /// section heading.
+        title: String,
+        /// "Background" / "Introduction" body.
+        background: String,
+        /// "Methods" / "Approach" body.
+        methods: String,
+        /// "Results" / "Findings" body.
+        results: String,
+        /// "Conclusion" / "Discussion" body.
+        conclusion: String,
+        /// Optional DOI or persistent identifier
+        /// ("10.1234/example.2026.045") surfaced as plain text
+        /// — link rendering is the caller's job through a
+        /// separate `Paragraph` to keep this primitive narrow.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        doi: Option<String>,
+        /// Optional bibliographic keyword tags
+        /// (vocabulary terms, MeSH-style). Empty vec renders
+        /// no keyword chrome at all.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        keywords: Vec<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2956,7 +2998,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5581,6 +5623,92 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::ResearchAbstract {
+            eyebrow,
+            title,
+            background,
+            methods,
+            results,
+            conclusion,
+            doi,
+            keywords,
+        } => {
+            let split_paragraphs = |s: &str| -> Vec<String> {
+                s.split("\n\n").map(|p| p.to_owned()).collect()
+            };
+            let bg_paras = split_paragraphs(background);
+            let m_paras = split_paragraphs(methods);
+            let r_paras = split_paragraphs(results);
+            let c_paras = split_paragraphs(conclusion);
+            html! {
+                article class="loom-research-abstract" data-loom-reveal {
+                    header class="loom-research-abstract__header" {
+                        @if let Some(e) = eyebrow {
+                            span class="loom-research-abstract__eyebrow" { (e) }
+                        }
+                        h2 class="loom-research-abstract__title" { (title) }
+                    }
+                    section class="loom-research-abstract__section loom-research-abstract__section--background"
+                        aria-labelledby="loom-research-abstract__h-background" {
+                        h3 id="loom-research-abstract__h-background"
+                            class="loom-research-abstract__h" { "Background" }
+                        div class="loom-research-abstract__body" {
+                            @for p in &bg_paras {
+                                p class="loom-research-abstract__para" { (p) }
+                            }
+                        }
+                    }
+                    section class="loom-research-abstract__section loom-research-abstract__section--methods"
+                        aria-labelledby="loom-research-abstract__h-methods" {
+                        h3 id="loom-research-abstract__h-methods"
+                            class="loom-research-abstract__h" { "Methods" }
+                        div class="loom-research-abstract__body" {
+                            @for p in &m_paras {
+                                p class="loom-research-abstract__para" { (p) }
+                            }
+                        }
+                    }
+                    section class="loom-research-abstract__section loom-research-abstract__section--results"
+                        aria-labelledby="loom-research-abstract__h-results" {
+                        h3 id="loom-research-abstract__h-results"
+                            class="loom-research-abstract__h" { "Results" }
+                        div class="loom-research-abstract__body" {
+                            @for p in &r_paras {
+                                p class="loom-research-abstract__para" { (p) }
+                            }
+                        }
+                    }
+                    section class="loom-research-abstract__section loom-research-abstract__section--conclusion"
+                        aria-labelledby="loom-research-abstract__h-conclusion" {
+                        h3 id="loom-research-abstract__h-conclusion"
+                            class="loom-research-abstract__h" { "Conclusion" }
+                        div class="loom-research-abstract__body" {
+                            @for p in &c_paras {
+                                p class="loom-research-abstract__para" { (p) }
+                            }
+                        }
+                    }
+                    @if doi.is_some() || !keywords.is_empty() {
+                        footer class="loom-research-abstract__footer" {
+                            @if let Some(d) = doi {
+                                p class="loom-research-abstract__doi" {
+                                    span class="loom-research-abstract__doi-label" { "DOI: " }
+                                    code class="loom-research-abstract__doi-value" { (d) }
+                                }
+                            }
+                            @if !keywords.is_empty() {
+                                ul class="loom-research-abstract__keywords"
+                                    aria-label="Keywords" {
+                                    @for kw in keywords {
+                                        li class="loom-research-abstract__keyword" { (kw) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10075,166 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn research_abstract_renders_four_sections() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "research_abstract",
+                "title": "Cooperative behaviour in cross-jurisdictional vote tallies",
+                "background": "Cross-jurisdictional vote tallies require coordination between independent election authorities.",
+                "methods": "We conducted a comparative analysis of 18 jurisdictions.",
+                "results": "Coordinated tally protocols reduced reconciliation latency by 47%.",
+                "conclusion": "Cross-jurisdictional cooperation is feasible and beneficial."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-research-abstract"));
+        assert!(html.contains("loom-research-abstract__title"));
+        assert!(html.contains("Cooperative behaviour"));
+        // Each labelled section landmark present.
+        assert!(html.contains("loom-research-abstract__h-background"));
+        assert!(html.contains("loom-research-abstract__h-methods"));
+        assert!(html.contains("loom-research-abstract__h-results"));
+        assert!(html.contains("loom-research-abstract__h-conclusion"));
+        // Each heading text present.
+        assert!(html.contains(">Background<"));
+        assert!(html.contains(">Methods<"));
+        assert!(html.contains(">Results<"));
+        assert!(html.contains(">Conclusion<"));
+        // Each body fragment present.
+        assert!(html.contains("18 jurisdictions"));
+        assert!(html.contains("47%"));
+        assert!(html.contains("feasible and beneficial"));
+        // Optional chrome absent when not provided.
+        assert!(!html.contains("loom-research-abstract__eyebrow"));
+        assert!(!html.contains("loom-research-abstract__doi"));
+        assert!(!html.contains("loom-research-abstract__keywords"));
+        assert!(!html.contains("loom-research-abstract__footer"));
+    }
+
+    #[test]
+    fn research_abstract_full_chrome_with_doi_and_keywords() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "research_abstract",
+                "eyebrow": "Working paper",
+                "title": "Sortition-based jury selection",
+                "background": "Background paragraph one.\n\nBackground paragraph two.",
+                "methods": "Methods one.",
+                "results": "Results one.",
+                "conclusion": "Conclusion one.",
+                "doi": "10.1234/sv.2026.045",
+                "keywords": ["sortition", "deliberative democracy", "jury", "selection"]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // Eyebrow chrome.
+        assert!(html.contains("loom-research-abstract__eyebrow"));
+        assert!(html.contains("Working paper"));
+        // Multi-paragraph splits on \n\n inside background section.
+        assert!(html.contains("Background paragraph one"));
+        assert!(html.contains("Background paragraph two"));
+        // DOI rendered inside <code>.
+        assert!(html.contains("loom-research-abstract__doi"));
+        assert!(html.contains("10.1234/sv.2026.045"));
+        // Keywords rendered as <ul>.
+        assert!(html.contains("loom-research-abstract__keywords"));
+        let kw_count = html.matches("loom-research-abstract__keyword\"").count();
+        assert_eq!(
+            kw_count, 4,
+            "expected 4 keyword <li>, got {kw_count} in:\n{html}"
+        );
+        assert!(html.contains("sortition"));
+        assert!(html.contains("deliberative democracy"));
+        assert!(html.contains("loom-research-abstract__footer"));
+        // Keywords list has accessible name.
+        assert!(html.contains("aria-label=\"Keywords\""));
+    }
+
+    #[test]
+    fn research_abstract_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "research_abstract",
+                "eyebrow": "<i>e</i>",
+                "title": "<script>alert('t')</script>",
+                "background": "<script>alert('b')</script>",
+                "methods": "<script>alert('m')</script>",
+                "results": "<script>alert('r')</script>",
+                "conclusion": "<script>alert('c')</script>",
+                "doi": "<script>alert('d')</script>",
+                "keywords": ["<script>alert('k')</script>"]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // No raw scripts survive.
+        assert!(!html.contains("<script>alert"));
+        // Entity-encoded variants from at least 7 fields (eyebrow,
+        // title, 4 sections, doi, keyword).
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        assert!(
+            entity_hits >= 7,
+            "expected >= 7 escaped script tokens, got {entity_hits}"
+        );
+        assert!(html.contains("&lt;i&gt;e&lt;/i&gt;"));
+    }
+
+    #[test]
+    fn research_abstract_only_doi_no_keywords() {
+        // Asymmetric chrome: footer renders for DOI alone.
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "research_abstract",
+                "title": "Title",
+                "background": "B", "methods": "M",
+                "results": "R", "conclusion": "C",
+                "doi": "10.5555/example"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-research-abstract__footer"));
+        assert!(html.contains("loom-research-abstract__doi"));
+        assert!(!html.contains("loom-research-abstract__keywords"));
+    }
+
+    #[test]
+    fn research_abstract_only_keywords_no_doi() {
+        // Asymmetric chrome the other way.
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "research_abstract",
+                "title": "Title",
+                "background": "B", "methods": "M",
+                "results": "R", "conclusion": "C",
+                "keywords": ["alpha", "beta"]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-research-abstract__footer"));
+        assert!(html.contains("loom-research-abstract__keywords"));
+        assert!(!html.contains("loom-research-abstract__doi"));
     }
 
     #[test]
