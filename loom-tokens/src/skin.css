@@ -10919,3 +10919,34 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
 .loom-block-table__tr:nth-child(even) > .loom-block-table__td {
   background: var(--loom-color-table-stripe, color-mix(in oklab, var(--loom-color-text, currentColor) 2%, transparent));
 }
+
+/* === CmsBlock::DefinitionList ====================================== */
+/* Semantic <dl>/<dt>/<dd> primitive. The HTML spec's purpose-built
+   shape for key/value content. Substrate asserts structure; tenant
+   [style] config drives the visual register (term weight, desc
+   indent, density). */
+.loom-block-deflist {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(8rem, max-content) 1fr;
+  gap: 0.5rem 1.5rem;
+  color: var(--loom-color-text, inherit);
+  font-size: var(--loom-font-body, 1rem);
+  line-height: 1.55;
+}
+.loom-block-deflist__term {
+  font-weight: 600;
+  color: var(--loom-color-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 70%, transparent));
+}
+.loom-block-deflist__desc {
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .loom-block-deflist {
+    grid-template-columns: 1fr;
+    gap: 0.125rem 0;
+  }
+  .loom-block-deflist__desc {
+    margin-bottom: 0.5rem;
+  }
+}
