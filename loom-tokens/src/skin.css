@@ -6958,6 +6958,24 @@ body[data-loom-drawer-open] .loom-drawer-scrim {
   font: 700 1.4rem/1 var(--loom-font-display);
   color: var(--loom-color-primary, var(--loom-accent));
 }
+.loom-feature-spotlight__photo {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border-radius: var(--loom-radius, 10px);
+  margin-bottom: 1rem;
+  background: color-mix(in oklab, var(--loom-color-ink, var(--loom-fg)) 6%, transparent);
+}
+.loom-feature-spotlight.deco-editorial .loom-feature-spotlight__photo {
+  aspect-ratio: 4 / 3;
+  border-radius: var(--loom-radius-sm, 6px);
+  margin-bottom: 1.1rem;
+}
+.loom-feature-spotlight.deco-minimal .loom-feature-spotlight__photo {
+  aspect-ratio: 1 / 1;
+  border-radius: 0;
+}
 .loom-feature-spotlight__title {
   margin: 0 0 0.55rem;
   font: 700 1.2rem/1.25 var(--loom-font-display);
