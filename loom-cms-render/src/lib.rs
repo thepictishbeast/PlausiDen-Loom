@@ -430,6 +430,48 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Application menubar — File / Edit / View-style top bar
+    /// where leaf items are commands (`<button>`) rather than
+    /// page links. Same recursive disclosure pattern as
+    /// [`CmsBlock::NavigationMenu`] but the leaves carry
+    /// `data-action` slugs for the future Loom JS runtime to
+    /// dispatch on.
+    ///
+    /// Behavioral contract mirrors Radix UI's `Menubar`
+    /// primitive. Upstream:
+    /// <https://www.radix-ui.com/primitives/docs/components/menubar>
+    /// (MIT). No source copied.
+    Menubar {
+        /// Top-level command groups in left-to-right order.
+        items: Vec<BlockMenubarItem>,
+        /// Optional `aria-label` override. Defaults to
+        /// `"Application menu"`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        aria_label: Option<String>,
+    },
+    /// Two-pane split with a draggable separator. Substrate
+    /// renders fixed `start_size`-percent split; a future Loom
+    /// JS runtime adds drag-resize on the handle. The separator
+    /// carries `role="separator"` + `aria-valuenow/min/max` per
+    /// the WAI-ARIA Window Splitter pattern.
+    ///
+    /// Behavioral contract mirrors Radix UI's `Resizable` /
+    /// react-resizable-panels. Upstream:
+    /// <https://github.com/bvaughn/react-resizable-panels>
+    /// (MIT). No source copied.
+    Resizable {
+        /// Pane orientation — `Horizontal` (side-by-side) or
+        /// `Vertical` (stacked).
+        #[serde(default)]
+        orientation: ResizableOrientation,
+        /// Start-pane size as a percentage (0..=100). The
+        /// remaining percentage goes to the end pane.
+        start_size: u8,
+        /// Block tree for the start pane.
+        start: Vec<CmsBlock>,
+        /// Block tree for the end pane.
+        end: Vec<CmsBlock>,
+    },
     /// Hierarchical navigation menu — top-level horizontal bar
     /// with optional dropdown submenus per item. Static substrate
     /// renders submenus as native `<details>/<summary>` pairs so
@@ -998,6 +1040,43 @@ pub enum CmsBlock {
         #[serde(default)]
         disabled: bool,
     },
+}
+
+/// Pane orientation for a [`CmsBlock::Resizable`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum ResizableOrientation {
+    /// Side-by-side split (handle is vertical).
+    #[default]
+    Horizontal,
+    /// Stacked split (handle is horizontal).
+    Vertical,
+}
+
+/// One command-group entry in a [`CmsBlock::Menubar`]. Recursive
+/// like [`BlockNavMenuItem`] but leaves carry `data-action`
+/// slugs instead of href links.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockMenubarItem {
+    /// Visible label.
+    pub label: String,
+    /// Action slug — dispatched by the future Loom JS runtime
+    /// on activation. None on container items that only hold
+    /// children.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    /// Submenu items. Empty = leaf command.
+    #[serde(default)]
+    pub children: Vec<BlockMenubarItem>,
+    /// Optional keyboard accelerator hint (e.g. `"Ctrl+S"`).
+    /// Rendered as muted secondary text alongside the label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accelerator: Option<String>,
+    /// When true, the leaf is disabled (`aria-disabled="true"`).
+    #[serde(default)]
+    pub disabled: bool,
 }
 
 /// One item inside a [`CmsBlock::NavigationMenu`]. An item can
@@ -5735,6 +5814,78 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::Menubar { items, aria_label } => {
+            let label = aria_label.as_deref().unwrap_or("Application menu");
+            html! {
+                div class="loom-block-menubar" data-loom-slot="menubar" {
+                    ul
+                        class="loom-block-menubar__list"
+                        data-loom-slot="menubar-list"
+                        role="menubar"
+                        aria-label=(label)
+                    {
+                        @for item in items {
+                            (render_menubar_item(item, true))
+                        }
+                    }
+                }
+            }
+        }
+        CmsBlock::Resizable {
+            orientation,
+            start_size,
+            start,
+            end,
+        } => {
+            let orient_slug = match orientation {
+                ResizableOrientation::Horizontal => "horizontal",
+                ResizableOrientation::Vertical => "vertical",
+            };
+            let aria_orient = match orientation {
+                ResizableOrientation::Horizontal => "vertical",   // handle is vertical
+                ResizableOrientation::Vertical => "horizontal",   // handle is horizontal
+            };
+            let s = (*start_size).clamp(0, 100);
+            let e = 100u8.saturating_sub(s);
+            let start_dim = format!("{s}%");
+            let end_dim = format!("{e}%");
+            html! {
+                div
+                    class="loom-block-resizable"
+                    data-loom-slot="resizable"
+                    data-orientation=(orient_slug)
+                {
+                    div
+                        class="loom-block-resizable__pane loom-block-resizable__pane--start"
+                        data-loom-slot="resizable-pane-start"
+                        style=(format!("flex-basis: {start_dim};"))
+                    {
+                        @for child in start {
+                            (render_block(child))
+                        }
+                    }
+                    div
+                        class="loom-block-resizable__handle"
+                        data-loom-slot="resizable-handle"
+                        role="separator"
+                        aria-orientation=(aria_orient)
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        aria-valuenow=(s)
+                        tabindex="0"
+                    {}
+                    div
+                        class="loom-block-resizable__pane loom-block-resizable__pane--end"
+                        data-loom-slot="resizable-pane-end"
+                        style=(format!("flex-basis: {end_dim};"))
+                    {
+                        @for child in end {
+                            (render_block(child))
+                        }
+                    }
+                }
+            }
+        }
         CmsBlock::NavigationMenu { items, aria_label } => {
             let label = aria_label.as_deref().unwrap_or("Primary navigation");
             html! {
@@ -6590,6 +6741,54 @@ pub const fn block_spacing_slug(s: BlockSpacing) -> &'static str {
         BlockSpacing::Lg => "lg",
         BlockSpacing::Xl => "xl",
         BlockSpacing::Xxl => "xxl",
+    }
+}
+
+/// Recursive renderer for a [`BlockMenubarItem`]. Leaf items
+/// render as `<button>` with `data-action`; container items
+/// render as native `<details>` disclosures, same pattern as
+/// `render_nav_menu_item` but the leaves are buttons not links.
+fn render_menubar_item(item: &BlockMenubarItem, _top_level: bool) -> Markup {
+    html! {
+        li class="loom-block-menubar__item" data-loom-slot="menubar-item" role="none" {
+            @if item.children.is_empty() {
+                button
+                    type="button"
+                    class="loom-block-menubar__leaf"
+                    data-loom-slot="menubar-leaf"
+                    role="menuitem"
+                    data-action=[item.action.as_deref()]
+                    aria-disabled=(if item.disabled { "true" } else { "false" })
+                    disabled[item.disabled]
+                {
+                    span class="loom-block-menubar__leaf-label" { (item.label) }
+                    @if let Some(acc) = &item.accelerator {
+                        kbd class="loom-block-menubar__leaf-accelerator" aria-hidden="true" {
+                            (acc)
+                        }
+                    }
+                }
+            } @else {
+                details
+                    class="loom-block-menubar__submenu"
+                    data-loom-slot="menubar-submenu"
+                {
+                    summary
+                        class="loom-block-menubar__trigger"
+                        data-loom-slot="menubar-trigger"
+                        role="menuitem"
+                        aria-haspopup="menu"
+                    {
+                        (item.label)
+                    }
+                    ul class="loom-block-menubar__sublist" data-loom-slot="menubar-sublist" role="menu" {
+                        @for child in &item.children {
+                            (render_menubar_item(child, false))
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -11036,6 +11235,81 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_menubar_renders_action_buttons_with_accelerator() {
+        let json = r#"{
+            "kind": "menubar",
+            "items": [
+                {"label":"File","children":[
+                    {"label":"New","action":"file.new","accelerator":"Ctrl+N"},
+                    {"label":"Save","action":"file.save","accelerator":"Ctrl+S"},
+                    {"label":"Quit","action":"file.quit","disabled":true}
+                ]},
+                {"label":"Edit","children":[
+                    {"label":"Undo","action":"edit.undo","accelerator":"Ctrl+Z"}
+                ]}
+            ]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"role="menubar""#));
+        assert!(html.contains(r#"aria-label="Application menu""#));
+        // Two top-level items with disclosure submenus.
+        assert!(html.contains(r#"<details"#));
+        assert!(html.contains(r#"aria-haspopup="menu""#));
+        // Leaf items rendered as <button> with data-action.
+        assert!(html.contains(r#"<button"#));
+        assert!(html.contains(r#"data-action="file.new""#));
+        assert!(html.contains(r#"data-action="file.save""#));
+        assert!(html.contains(r#"data-action="edit.undo""#));
+        // Accelerator rendered as <kbd>.
+        assert!(html.contains(r#"<kbd"#));
+        assert!(html.contains(">Ctrl+N</kbd>"));
+        // Disabled item.
+        assert!(html.contains(r#"aria-disabled="true""#));
+    }
+
+    #[test]
+    fn cms_block_resizable_renders_horizontal_split_with_separator() {
+        let json = r#"{
+            "kind": "resizable",
+            "orientation": "horizontal",
+            "start_size": 30,
+            "start": [{"kind":"text","text":"sidebar"}],
+            "end":   [{"kind":"text","text":"content"}]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-loom-slot="resizable""#));
+        assert!(html.contains(r#"data-orientation="horizontal""#));
+        // Start + end panes with explicit flex-basis percentages.
+        assert!(html.contains(r#"flex-basis: 30%;"#));
+        assert!(html.contains(r#"flex-basis: 70%;"#));
+        // Separator with ARIA splitter wiring.
+        assert!(html.contains(r#"role="separator""#));
+        // Horizontal split → handle is vertical orientation.
+        assert!(html.contains(r#"aria-orientation="vertical""#));
+        assert!(html.contains(r#"aria-valuemin="0""#));
+        assert!(html.contains(r#"aria-valuemax="100""#));
+        assert!(html.contains(r#"aria-valuenow="30""#));
+        assert!(html.contains(r#"tabindex="0""#));
+        // Pane content rendered.
+        assert!(html.contains("sidebar"));
+        assert!(html.contains("content"));
+    }
+
+    #[test]
+    fn cms_block_resizable_vertical_emits_horizontal_aria_orient() {
+        let json = r#"{
+            "kind":"resizable","orientation":"vertical","start_size":50,
+            "start":[],"end":[]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        // Vertical split → handle is horizontal orientation.
+        assert!(html.contains(r#"aria-orientation="horizontal""#));
     }
 
     #[test]
