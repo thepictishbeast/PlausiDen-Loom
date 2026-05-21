@@ -752,6 +752,33 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Live-blog / breaking-news update log — a reverse-
+    /// chronological list of timestamped editorial updates
+    /// (newest first). Distinct from
+    /// [`CmsSection::ArticleSeries`] (multi-part navigation),
+    /// from [`CmsSection::Errata`] (corrections to a published
+    /// piece), and from a generic timeline (which is historical
+    /// not running).
+    ///
+    /// LiveUpdateLog is the typed primitive for the "live
+    /// updates" surface news rooms use during ongoing coverage,
+    /// for status-page incident timelines, and for any
+    /// append-only editorial log. The list is rendered as an
+    /// `<ol>` with `aria-live="polite"` so screen readers
+    /// announce new entries when the page polls + re-renders.
+    LiveUpdateLog {
+        /// Optional eyebrow ("Live updates", "Latest", "Live
+        /// blog").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow: Option<String>,
+        /// Section title ("Coverage updates",
+        /// "Incident timeline").
+        title: String,
+        /// Entries in reverse-chronological order (caller is
+        /// responsible for the ordering; renderer does not
+        /// sort).
+        entries: Vec<LiveUpdateEntry>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2956,7 +2983,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3104,30 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// One entry in a [`CmsSection::LiveUpdateLog`].
+///
+/// `timestamp` is the human-facing label (already-formatted
+/// editorial timestamp — caller is responsible for locale and
+/// timezone). `iso8601` carries the machine-readable RFC 3339
+/// stamp used by the `<time datetime>` attribute when present;
+/// when None the `<time>` element renders the label only.
+///
+/// `body` splits on `\n\n` at render time. `headline` is
+/// optional — short status updates (`"Server restored."`,
+/// `"Polls have closed in NV."`) commonly skip the headline and
+/// surface only the body line.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
+pub struct LiveUpdateEntry {
+    pub timestamp: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iso8601: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headline: Option<String>,
+    pub body: String,
 }
 
 /// One comparison row.
@@ -5578,6 +5629,46 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 blockquote class="loom-epigraph__body" { (body) }
                 @if let Some(a) = attribution {
                     figcaption class="loom-epigraph__attribution" { "— " (a) }
+                }
+            }
+        },
+        CmsSection::LiveUpdateLog {
+            eyebrow,
+            title,
+            entries,
+        } => html! {
+            section class="loom-live-update-log" aria-label="Live updates"
+                data-loom-reveal {
+                header class="loom-live-update-log__header" {
+                    @if let Some(e) = eyebrow {
+                        span class="loom-live-update-log__eyebrow" { (e) }
+                    }
+                    h2 class="loom-live-update-log__title" { (title) }
+                }
+                ol class="loom-live-update-log__entries"
+                    aria-live="polite" aria-atomic="false" {
+                    @for entry in entries {
+                        li class="loom-live-update-log__entry" {
+                            @if let Some(iso) = &entry.iso8601 {
+                                time class="loom-live-update-log__timestamp"
+                                    datetime=(iso) { (entry.timestamp) }
+                            } @else {
+                                time class="loom-live-update-log__timestamp" {
+                                    (entry.timestamp)
+                                }
+                            }
+                            @if let Some(h) = &entry.headline {
+                                h3 class="loom-live-update-log__headline" { (h) }
+                            }
+                            div class="loom-live-update-log__body" {
+                                @for para in entry.body.split("\n\n") {
+                                    p class="loom-live-update-log__para" {
+                                        (para)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -9947,6 +10038,141 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn live_update_log_renders_aria_live_list() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "live_update_log",
+                "title": "Election-night coverage",
+                "entries": [
+                    {
+                        "timestamp": "11:42 PM EST",
+                        "iso8601": "2026-11-03T23:42:00-05:00",
+                        "headline": "AP calls NV for incumbent",
+                        "body": "Networks follow the call within 90 seconds."
+                    },
+                    {
+                        "timestamp": "11:15 PM EST",
+                        "body": "Polls close in the western Pacific time zone."
+                    }
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // List landmark + live region.
+        assert!(html.contains("loom-live-update-log"));
+        assert!(html.contains("aria-label=\"Live updates\""));
+        assert!(html.contains("aria-live=\"polite\""));
+        assert!(html.contains("aria-atomic=\"false\""));
+        // Title.
+        assert!(html.contains("Election-night coverage"));
+        // Two entries rendered.
+        let entry_count = html.matches("loom-live-update-log__entry\"").count();
+        assert_eq!(entry_count, 2, "expected 2 entries, got {entry_count}");
+        // First entry has datetime attr; second doesn't.
+        assert!(html.contains("datetime=\"2026-11-03T23:42:00-05:00\""));
+        // Both timestamps rendered.
+        assert!(html.contains("11:42 PM EST"));
+        assert!(html.contains("11:15 PM EST"));
+        // First entry has headline; second omits headline.
+        assert!(html.contains("AP calls NV for incumbent"));
+        let headline_count = html.matches("loom-live-update-log__headline").count();
+        assert_eq!(
+            headline_count, 1,
+            "expected 1 headline (only first entry has one)"
+        );
+        // Body content present.
+        assert!(html.contains("western Pacific"));
+    }
+
+    #[test]
+    fn live_update_log_multi_paragraph_body() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "live_update_log",
+                "eyebrow": "Live updates",
+                "title": "Server incident",
+                "entries": [
+                    {
+                        "timestamp": "09:14 UTC",
+                        "iso8601": "2026-05-21T09:14:00Z",
+                        "headline": "Mitigation deployed",
+                        "body": "Rolled back the bad config push.\n\nMonitoring for residual error rate."
+                    }
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // Eyebrow chrome.
+        assert!(html.contains("loom-live-update-log__eyebrow"));
+        assert!(html.contains(">Live updates<"));
+        // Multi-paragraph splits on \n\n.
+        let para_count = html.matches("loom-live-update-log__para\"").count();
+        assert_eq!(para_count, 2, "expected 2 paragraphs, got {para_count}");
+        assert!(html.contains("Rolled back"));
+        assert!(html.contains("Monitoring for residual"));
+    }
+
+    #[test]
+    fn live_update_log_empty_entries_renders_empty_list() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "live_update_log",
+                "title": "Coverage updates",
+                "entries": []
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // Wrapper + live region present even with no entries.
+        assert!(html.contains("loom-live-update-log"));
+        assert!(html.contains("aria-live=\"polite\""));
+        // No entries rendered.
+        assert!(!html.contains("loom-live-update-log__entry"));
+    }
+
+    #[test]
+    fn live_update_log_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "live_update_log",
+                "eyebrow": "<i>e</i>",
+                "title": "<script>alert('t')</script>",
+                "entries": [
+                    {
+                        "timestamp": "<script>alert('ts')</script>",
+                        "iso8601": "2026-05-21T00:00:00Z",
+                        "headline": "<script>alert('h')</script>",
+                        "body": "<script>alert('b')</script>"
+                    }
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        assert!(
+            entity_hits >= 4,
+            "expected >= 4 escaped script tokens, got {entity_hits}"
+        );
+        assert!(html.contains("&lt;i&gt;e&lt;/i&gt;"));
     }
 
     #[test]
