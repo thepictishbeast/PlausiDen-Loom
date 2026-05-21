@@ -752,7 +752,51 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed map embed with a REQUIRED accessible address
+    /// fallback. Distinct from
+    /// [`CmsSection::VideoEmbed`] (video player) and from a raw
+    /// `<iframe>` `Composer` block: MapEmbed enforces an
+    /// address-readable fallback that screen-reader users,
+    /// no-JS users, and crawlers can consume without rendering
+    /// the iframe.
+    ///
+    /// The bug class this primitive prevents: operators
+    /// embedding `<iframe src="https://www.google.com/maps/..."
+    /// title="map">` with no readable address anywhere on the
+    /// page. AT users land on the iframe and hear only "map" —
+    /// useless. Sighted no-JS users see a blank panel. MapEmbed
+    /// forces every caller to supply a text address that
+    /// renders alongside (or instead of) the iframe.
+    ///
+    /// The iframe src is validated via `is_safe_url`; hostile
+    /// schemes (`javascript:`, `data:`) render only the
+    /// fallback. Common embed providers (Google Maps,
+    /// OpenStreetMap, Mapbox) all use https URLs that pass.
+    MapEmbed {
+        /// Accessible name for the iframe.
+        title: String,
+        /// Embed URL of the map iframe (typically a
+        /// Google Maps / OpenStreetMap / Mapbox embed URL).
+        /// Validated via `is_safe_url`.
+        src: String,
+        /// Address text — required, not optional. Multi-line
+        /// allowed; rendered inside the fallback `<address>`
+        /// landmark. Screen-reader users get the address even
+        /// when the iframe fails or is blocked.
+        address: String,
+        /// Optional caption beneath the embed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caption: Option<String>,
+        /// Optional "Open in maps" link (Google Maps share URL,
+        /// platform-specific scheme, etc.). Validated via
+        /// `is_safe_url`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        open_in_link: Option<MapEmbedOpenInLink>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +3000,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3121,19 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// "Open in maps" link surfaced beneath a
+/// [`CmsSection::MapEmbed`]. `href` is validated via
+/// `is_safe_url`; hostile schemes fall back to a non-interactive
+/// span so the embed never emits an
+/// `<a href="javascript:…">`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
+pub struct MapEmbedOpenInLink {
+    pub label: String,
+    pub href: String,
 }
 
 /// One comparison row.
@@ -5581,6 +5638,52 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::MapEmbed {
+            title,
+            src,
+            address,
+            caption,
+            open_in_link,
+        } => {
+            let src_safe = loom_components::composer::is_safe_url(src);
+            let address_lines: Vec<&str> = address.split('\n').collect();
+            html! {
+                figure class="loom-map-embed" data-loom-reveal {
+                    div class="loom-map-embed__frame" {
+                        @if src_safe {
+                            iframe class="loom-map-embed__iframe"
+                                src=(src)
+                                title=(title)
+                                loading="lazy"
+                                referrerpolicy="no-referrer-when-downgrade" {}
+                        } @else {
+                            div class="loom-map-embed__iframe"
+                                data-blocked-src="true"
+                                aria-label=(title) {}
+                        }
+                    }
+                    address class="loom-map-embed__address" {
+                        @for line in &address_lines {
+                            span class="loom-map-embed__address-line" { (line) }
+                        }
+                    }
+                    @if let Some(link) = open_in_link {
+                        @let href_safe = loom_components::composer::is_safe_url(&link.href);
+                        @if href_safe {
+                            a class="loom-map-embed__open-in"
+                                href=(link.href)
+                                rel="noopener" { (link.label) }
+                        } @else {
+                            span class="loom-map-embed__open-in"
+                                data-blocked-href="true" { (link.label) }
+                        }
+                    }
+                    @if let Some(c) = caption {
+                        figcaption class="loom-map-embed__caption" { (c) }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10050,138 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn map_embed_renders_iframe_and_address_fallback() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "map_embed",
+                "title": "Map of Downtown Library",
+                "src": "https://www.openstreetmap.org/export/embed.html?bbox=...",
+                "address": "100 Main St\nSpringfield, IL 62701"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-map-embed"));
+        assert!(html.contains("<iframe"));
+        assert!(html.contains("title=\"Map of Downtown Library\""));
+        assert!(html.contains("loading=\"lazy\""));
+        assert!(html.contains("referrerpolicy=\"no-referrer-when-downgrade\""));
+        // Address fallback is REQUIRED, rendered as <address>.
+        assert!(html.contains("<address class=\"loom-map-embed__address\""));
+        assert!(html.contains("100 Main St"));
+        assert!(html.contains("Springfield, IL 62701"));
+        // Multi-line address splits into per-line spans.
+        let line_count = html.matches("loom-map-embed__address-line\"").count();
+        assert_eq!(line_count, 2, "expected 2 address lines, got {line_count}");
+        // Optional chrome absent.
+        assert!(!html.contains("loom-map-embed__open-in"));
+        assert!(!html.contains("loom-map-embed__caption"));
+    }
+
+    #[test]
+    fn map_embed_with_open_in_link_and_caption() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "map_embed",
+                "title": "Conference venue",
+                "src": "https://www.openstreetmap.org/export/embed.html?...",
+                "address": "Civic Center, 200 Park Ave",
+                "caption": "Free parking available in the rear lot.",
+                "open_in_link": {"label": "Open in Maps",
+                                 "href": "https://maps.example.com/?q=civic-center"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-map-embed__open-in"));
+        assert!(html.contains("href=\"https://maps.example.com/?q=civic-center\""));
+        assert!(html.contains("Open in Maps"));
+        assert!(html.contains("rel=\"noopener\""));
+        assert!(html.contains("loom-map-embed__caption"));
+        assert!(html.contains("Free parking available"));
+    }
+
+    #[test]
+    fn map_embed_unsafe_src_renders_address_without_iframe() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "map_embed",
+                "title": "Map",
+                "src": "javascript:alert(1)",
+                "address": "Safe address still rendered"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // No iframe tag.
+        assert!(!html.contains("<iframe"));
+        // Fallback div emitted with sentinel.
+        assert!(html.contains("data-blocked-src=\"true\""));
+        // Title preserved as accessible label.
+        assert!(html.contains("aria-label=\"Map\""));
+        // Address still rendered.
+        assert!(html.contains("Safe address still rendered"));
+    }
+
+    #[test]
+    fn map_embed_unsafe_open_in_href_falls_back_to_span() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "map_embed",
+                "title": "Map",
+                "src": "https://maps.openstreetmap.org/",
+                "address": "A",
+                "open_in_link": {"label": "Visit",
+                                 "href": "javascript:alert(1)"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // Iframe still rendered (its src is safe).
+        assert!(html.contains("<iframe"));
+        // Open-in span (not anchor) with sentinel.
+        assert!(html.contains("data-blocked-href=\"true\""));
+    }
+
+    #[test]
+    fn map_embed_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "map_embed",
+                "title": "<script>alert('t')</script>",
+                "src": "https://maps.example.com/",
+                "address": "<script>alert('a')</script>",
+                "caption": "<script>alert('c')</script>",
+                "open_in_link": {"label": "<script>alert('l')</script>",
+                                 "href": "/safe"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        assert!(
+            entity_hits >= 4,
+            "expected >= 4 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
