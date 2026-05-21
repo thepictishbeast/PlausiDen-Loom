@@ -2337,6 +2337,47 @@ pub enum CmsSection {
         #[serde(default)]
         background: HeroEditorialBackground,
     },
+    /// Split hero — image / decoration on one side, text on the
+    /// other. Distinct visual register from centered Hero +
+    /// asymmetric HeroEditorial: the eye lands on the image
+    /// first, the text second. Common for product / app /
+    /// landing pages where the visual artifact is the pitch.
+    ///
+    /// `image_side` controls which side the image goes on
+    /// (Left = image left + text right; Right = image right +
+    /// text left).
+    HeroSplit {
+        /// Headline text.
+        title: String,
+        /// Lede paragraph.
+        lede: String,
+        /// Image URL. Validated via `composer::is_safe_url`;
+        /// hostile schemes drop the image and fall back to a
+        /// solid decoration block.
+        image_url: String,
+        /// Image alt text. Empty string permitted only for
+        /// decorative images.
+        image_alt: String,
+        /// Which side the image goes on.
+        #[serde(default)]
+        image_side: HeroSplitSide,
+        /// Optional primary CTA.
+        cta: Option<HeroCta>,
+    },
+    /// Minimal hero — text-only, no decoration, no eyebrow, no
+    /// background tint. Just a heading + optional lede + optional
+    /// CTA. For sites where the rest of the page does the visual
+    /// work and the hero just announces the page topic.
+    HeroMinimal {
+        /// Headline text.
+        title: String,
+        /// Optional lede paragraph.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lede: Option<String>,
+        /// Optional primary CTA.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cta: Option<HeroCta>,
+    },
     /// Group: a heading + a body paragraph, framed as a `<section>`.
     /// Useful for "How it works" / "Rules" type explainer blocks.
     Group {
@@ -4917,6 +4958,32 @@ pub enum HeroEditorialBackground {
     Plain,
     /// AMOLED true-black (`#000`).
     Amoled,
+}
+
+/// Image placement for [`CmsSection::HeroSplit`]. `Right` is the
+/// default — Western reading-order puts text first, image second.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum HeroSplitSide {
+    /// Image on left, text on right.
+    Left,
+    /// Image on right, text on left. Default.
+    #[default]
+    Right,
+}
+
+impl HeroSplitSide {
+    /// Slug for the `data-image-side` attribute on the rendered
+    /// section so the cascade can flip the flex direction.
+    #[must_use]
+    pub const fn slug(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Right => "right",
+        }
+    }
 }
 
 /// Visual treatment for [`CmsSection::FeatureSpotlight`].
@@ -8637,6 +8704,77 @@ pub fn render_section(section: &CmsSection) -> Markup {
                                     (c.label)
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+        CmsSection::HeroSplit {
+            title,
+            lede,
+            image_url,
+            image_alt,
+            image_side,
+            cta,
+        } => {
+            let cta_href_safe = cta
+                .as_ref()
+                .is_none_or(|c| loom_components::composer::is_safe_url(&c.href));
+            let image_safe = loom_components::composer::is_safe_url(image_url);
+            html! {
+                section
+                    class="loom-section-hero-split"
+                    data-loom-hero-split
+                    data-image-side=(image_side.slug())
+                {
+                    div class="loom-section-hero-split__grid" {
+                        div class="loom-section-hero-split__text" {
+                            h1 class="loom-section-hero-split__title" { (title) }
+                            p class="loom-section-hero-split__lede" { (lede) }
+                            @if let Some(c) = cta {
+                                a
+                                    class="loom-section-hero-split__cta"
+                                    href=(if cta_href_safe { c.href.as_str() } else { "#invalid-cta" })
+                                    data-backend=(c.data_backend)
+                                    data-invalid=[(!cta_href_safe).then_some("true")]
+                                {
+                                    (c.label)
+                                }
+                            }
+                        }
+                        div class="loom-section-hero-split__media" {
+                            @if image_safe {
+                                img
+                                    class="loom-section-hero-split__image"
+                                    src=(image_url)
+                                    alt=(image_alt)
+                                    loading="lazy";
+                            } @else {
+                                div class="loom-section-hero-split__placeholder" aria-hidden="true" {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        CmsSection::HeroMinimal { title, lede, cta } => {
+            let cta_href_safe = cta
+                .as_ref()
+                .is_none_or(|c| loom_components::composer::is_safe_url(&c.href));
+            html! {
+                section class="loom-section-hero-minimal" data-loom-hero-minimal {
+                    h1 class="loom-section-hero-minimal__title" { (title) }
+                    @if let Some(l) = lede {
+                        p class="loom-section-hero-minimal__lede" { (l) }
+                    }
+                    @if let Some(c) = cta {
+                        a
+                            class="loom-section-hero-minimal__cta"
+                            href=(if cta_href_safe { c.href.as_str() } else { "#invalid-cta" })
+                            data-backend=(c.data_backend)
+                            data-invalid=[(!cta_href_safe).then_some("true")]
+                        {
+                            (c.label)
                         }
                     }
                 }
@@ -14257,6 +14395,77 @@ mod tests {
         let html = render_block(&s).into_string();
         assert!(html.contains(">Substrate A<"));
         assert!(html.contains(">Substrate B<"));
+    }
+
+    #[test]
+    fn cms_section_hero_split_renders_image_side_attr() {
+        let s = CmsSection::HeroSplit {
+            title: "Hero title".into(),
+            lede: "Lede paragraph.".into(),
+            image_url: "/img.jpg".into(),
+            image_alt: "Alt".into(),
+            image_side: HeroSplitSide::Left,
+            cta: None,
+        };
+        let html = render_section(&s).into_string();
+        assert!(html.contains("loom-section-hero-split"));
+        assert!(html.contains(r#"data-image-side="left""#));
+        assert!(html.contains("Hero title"));
+        assert!(html.contains("Lede paragraph"));
+        assert!(html.contains(r#"src="/img.jpg""#));
+        assert!(html.contains(r#"alt="Alt""#));
+    }
+
+    #[test]
+    fn cms_section_hero_split_default_side_is_right() {
+        assert!(matches!(HeroSplitSide::default(), HeroSplitSide::Right));
+    }
+
+    #[test]
+    fn cms_section_hero_split_drops_hostile_image_url() {
+        let s = CmsSection::HeroSplit {
+            title: "x".into(),
+            lede: "x".into(),
+            image_url: "javascript:alert(1)".into(),
+            image_alt: "x".into(),
+            image_side: HeroSplitSide::Right,
+            cta: None,
+        };
+        let html = render_section(&s).into_string();
+        assert!(!html.contains("javascript:"));
+        assert!(html.contains("loom-section-hero-split__placeholder"));
+        assert!(!html.contains("<img"));
+    }
+
+    #[test]
+    fn cms_section_hero_minimal_renders_title_only_when_no_lede_no_cta() {
+        let s = CmsSection::HeroMinimal {
+            title: "Just a title".into(),
+            lede: None,
+            cta: None,
+        };
+        let html = render_section(&s).into_string();
+        assert!(html.contains("loom-section-hero-minimal"));
+        assert!(html.contains(">Just a title<"));
+        assert!(!html.contains("__lede"));
+        assert!(!html.contains("__cta"));
+    }
+
+    #[test]
+    fn cms_section_hero_minimal_full_renders_lede_and_cta() {
+        let s = CmsSection::HeroMinimal {
+            title: "T".into(),
+            lede: Some("L".into()),
+            cta: Some(HeroCta {
+                label: "Go".into(),
+                href: "/x".into(),
+                data_backend: "noop".into(),
+            }),
+        };
+        let html = render_section(&s).into_string();
+        assert!(html.contains("__lede"));
+        assert!(html.contains("__cta"));
+        assert!(html.contains(r#"href="/x""#));
     }
 
     #[test]
