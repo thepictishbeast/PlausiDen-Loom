@@ -966,6 +966,32 @@ pub enum CmsSection {
     DefList { items: Vec<DefListItem> },
     /// Glossary — sorted definition list with anchored terms.
     Glossary { items: Vec<DefListItem> },
+    /// Inline horizontal term-definition row — a compact
+    /// "at-a-glance" glossary strip for sidebar / footer /
+    /// callout use. Distinct from [`CmsSection::DefList`]
+    /// (vertical full-width `<dl>`) and from
+    /// [`CmsSection::Glossary`] (sorted long-form with anchors):
+    /// GlossaryStrip is short + horizontal, the kind of mini-
+    /// glossary that sits next to a chart explaining axis
+    /// labels, or under a financial table defining acronyms.
+    ///
+    /// Editorial intent: long-form article surfaces where a
+    /// passage uses a handful of domain terms and the author
+    /// wants to gloss them inline without breaking flow into a
+    /// full definition list. Anti-SaaS: not a tooltip popover
+    /// (which requires JS + hides content); a visible compact
+    /// row that ships content to every reader (server-rendered
+    /// + screen-reader-friendly).
+    GlossaryStrip {
+        /// Optional heading rendered above the strip
+        /// (`"Quick gloss"`, `"Terms"`, `"In this section"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        heading: Option<String>,
+        /// Items in display order. Renderer does not sort —
+        /// operator chooses order. Empty `items` renders an
+        /// empty-marker note so audit phases can flag the gap.
+        items: Vec<GlossaryStripItem>,
+    },
     /// Auto-derived table of contents marker.
     TocBlock { heading: Option<String> },
     /// Mermaid-shaped diagram (typed source).
@@ -2956,7 +2982,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3076,6 +3102,22 @@ pub struct AccordionItem {
 #[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
 pub struct DefListItem {
     pub term: String,
+    pub definition: String,
+}
+
+/// One inline glossary entry in a [`CmsSection::GlossaryStrip`].
+///
+/// Same shape as `DefListItem` but kept as a separate struct so
+/// the rendered chrome can differ (compact inline pair vs
+/// stacked `<dt>` / `<dd>`) without theming both at the same
+/// CSS selectors.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct GlossaryStripItem {
+    /// Term (e.g. `"HSA"`, `"401(k)"`, `"Roth IRA"`).
+    pub term: String,
+    /// Compact definition — one short sentence; long-form
+    /// definitions belong in `Glossary`.
     pub definition: String,
 }
 
@@ -5779,6 +5821,26 @@ pub fn render_section(section: &CmsSection) -> Markup {
                     @for it in items {
                         dt class="loom-deflist__term" id={ "term-" (slugify(&it.term)) } { (it.term) }
                         dd class="loom-deflist__def" { (it.definition) }
+                    }
+                }
+            }
+        },
+        CmsSection::GlossaryStrip { heading, items } => html! {
+            aside class="loom-glossary-strip"
+                  aria-label="Quick glossary"
+                  data-loom-reveal
+            {
+                @if let Some(h) = heading {
+                    h3 class="loom-glossary-strip__heading" { (h) }
+                }
+                @if items.is_empty() {
+                    p class="loom-glossary-strip__empty" { "No terms." }
+                } @else {
+                    dl class="loom-glossary-strip__items" {
+                        @for it in items {
+                            dt class="loom-glossary-strip__term" { (it.term) }
+                            dd class="loom-glossary-strip__def" { (it.definition) }
+                        }
                     }
                 }
             }
@@ -10162,6 +10224,104 @@ mod tests {
         assert!(html.contains("loom-endnote"));
         assert!(html.contains(r#"id="endnote-1""#));
         assert!(html.contains("Source: foo."));
+    }
+
+    // #104 (2026-05-21) — GlossaryStrip inline horizontal
+    // term-definition row primitive.
+
+    #[test]
+    fn glossary_strip_renders_aside_with_heading_and_items() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "glossary_strip",
+                "heading": "Quick gloss",
+                "items": [
+                    {"term": "HSA",       "definition": "Health Savings Account."},
+                    {"term": "Roth IRA",  "definition": "Tax-free growth retirement account."},
+                    {"term": "401(k)",    "definition": "Employer-sponsored pre-tax retirement plan."}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<aside class="loom-glossary-strip""#));
+        assert!(html.contains(r#"aria-label="Quick glossary""#));
+        assert!(html.contains(r#"class="loom-glossary-strip__heading""#));
+        assert!(html.contains(">Quick gloss<"));
+        assert!(html.contains(r#"<dl class="loom-glossary-strip__items""#));
+        assert!(html.contains(r#"class="loom-glossary-strip__term""#));
+        assert!(html.contains(r#"class="loom-glossary-strip__def""#));
+        assert!(html.contains(">HSA<"));
+        assert!(html.contains(">Health Savings Account.<"));
+        assert!(html.contains(">Roth IRA<"));
+        assert!(html.contains(">401(k)<"));
+        // Three <dt> + three <dd> emitted.
+        assert_eq!(html.matches(r#"class="loom-glossary-strip__term""#).count(), 3);
+        assert_eq!(html.matches(r#"class="loom-glossary-strip__def""#).count(), 3);
+    }
+
+    #[test]
+    fn glossary_strip_heading_optional() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "glossary_strip",
+                "items": [{"term": "T", "definition": "D"}]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-glossary-strip__items"));
+        assert!(!html.contains("loom-glossary-strip__heading"));
+    }
+
+    #[test]
+    fn glossary_strip_empty_items_emits_empty_marker() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "glossary_strip",
+                "heading": "Terms",
+                "items": []
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-glossary-strip__empty"));
+        assert!(html.contains(">No terms.<"));
+        // No <dl> when items empty.
+        assert!(!html.contains("loom-glossary-strip__items"));
+    }
+
+    #[test]
+    fn glossary_strip_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "glossary_strip",
+                "heading": "<script>h</script>",
+                "items": [{"term": "<script>t</script>", "definition": "<script>d</script>"}]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>h</script>",
+            "<script>t</script>",
+            "<script>d</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
