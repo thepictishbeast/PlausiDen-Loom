@@ -531,6 +531,29 @@ pub enum CmsBlock {
         #[serde(default)]
         tone: BadgeTone,
     },
+    /// User / brand avatar with image + initials fallback.
+    /// Renders as `<span class="loom-block-avatar">` containing
+    /// either an `<img>` (when `image_url` is provided and passes
+    /// `is_safe_url`) or two-character initials extracted from
+    /// `name`. Decorative role for the image; `name` is the
+    /// accessible label regardless of whether the image renders.
+    ///
+    /// Size flows from the tenant's `[style]` density config via
+    /// the `data-size` attribute (`sm` / `md` / `lg`); concrete
+    /// pixel sizes are tenant-overridable.
+    Avatar {
+        /// Display name. Used for initials fallback + as the
+        /// accessible label on the wrapper.
+        name: String,
+        /// Optional image URL. Validated via `is_safe_url`;
+        /// hostile schemes drop the image and fall back to
+        /// initials.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image_url: Option<String>,
+        /// Token-scale size step.
+        #[serde(default)]
+        size: AvatarSize,
+    },
     /// Sandboxed `<iframe>` embed. Used for third-party widgets
     /// (YouTube / Vimeo / Maps / payment forms) without granting
     /// them ambient access to the parent document. Substrate
@@ -1710,6 +1733,43 @@ impl IframeSandbox {
         }
         tokens.join(" ")
     }
+}
+
+/// Token-scale size step for [`CmsBlock::Avatar`]. Concrete
+/// pixel sizes flow from tenant `[style]` config; substrate only
+/// asserts the semantic step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum AvatarSize {
+    Sm,
+    #[default]
+    Md,
+    Lg,
+}
+
+impl AvatarSize {
+    /// Slug for the `data-size` attribute.
+    #[must_use]
+    pub const fn slug(self) -> &'static str {
+        match self {
+            Self::Sm => "sm",
+            Self::Md => "md",
+            Self::Lg => "lg",
+        }
+    }
+}
+
+/// Extract up to two initials from a display name. Splits on
+/// whitespace; takes the first char of each of the first two
+/// tokens. Empty name returns empty string.
+#[must_use]
+pub fn avatar_initials(name: &str) -> String {
+    name.split_whitespace()
+        .take(2)
+        .filter_map(|w| w.chars().next())
+        .map(|c| c.to_uppercase().next().unwrap_or(c))
+        .collect()
 }
 
 /// Canonical Loom tone palette for [`CmsBlock::Badge`]. The
@@ -6338,6 +6398,28 @@ pub fn render_block(block: &CmsBlock) -> Markup {
         CmsBlock::Badge { text, tone } => html! {
             span class="loom-block-badge" data-tone=(tone.slug()) { (text) }
         },
+        CmsBlock::Avatar {
+            name,
+            image_url,
+            size,
+        } => {
+            let safe_img = image_url.as_deref().and_then(|u| {
+                if is_safe_url(u) {
+                    Some(u)
+                } else {
+                    None
+                }
+            });
+            let initials = avatar_initials(name);
+            html! {
+                span class="loom-block-avatar" data-size=(size.slug()) aria-label=(name) {
+                    @match safe_img {
+                        Some(url) => img src=(url) alt="" class="loom-block-avatar__img";,
+                        None => span class="loom-block-avatar__initials" aria-hidden="true" { (initials) },
+                    }
+                }
+            }
+        }
         CmsBlock::Iframe {
             src,
             title,
@@ -13617,6 +13699,59 @@ mod tests {
         let html = render_block(&s).into_string();
         assert!(html.contains(">Substrate A<"));
         assert!(html.contains(">Substrate B<"));
+    }
+
+    #[test]
+    fn cms_block_avatar_emits_img_when_safe_url() {
+        let a = CmsBlock::Avatar {
+            name: "Ada Lovelace".into(),
+            image_url: Some("/static/ada.jpg".into()),
+            size: AvatarSize::Lg,
+        };
+        let html = render_block(&a).into_string();
+        assert!(html.contains("loom-block-avatar"));
+        assert!(html.contains(r#"data-size="lg""#));
+        assert!(html.contains(r#"aria-label="Ada Lovelace""#));
+        assert!(html.contains(r#"src="/static/ada.jpg""#));
+        assert!(html.contains(r#"alt="""#));
+        assert!(!html.contains("loom-block-avatar__initials"));
+    }
+
+    #[test]
+    fn cms_block_avatar_falls_back_to_initials_when_no_image() {
+        let a = CmsBlock::Avatar {
+            name: "Ada Lovelace".into(),
+            image_url: None,
+            size: AvatarSize::Md,
+        };
+        let html = render_block(&a).into_string();
+        assert!(html.contains(r#"data-size="md""#));
+        assert!(html.contains("loom-block-avatar__initials"));
+        assert!(html.contains(">AL<"));
+        assert!(!html.contains("<img"));
+    }
+
+    #[test]
+    fn cms_block_avatar_falls_back_on_hostile_image_url() {
+        let a = CmsBlock::Avatar {
+            name: "X".into(),
+            image_url: Some("javascript:alert(1)".into()),
+            size: AvatarSize::Sm,
+        };
+        let html = render_block(&a).into_string();
+        assert!(html.contains(">X<"));
+        assert!(!html.contains("javascript:"));
+        assert!(!html.contains("<img"));
+    }
+
+    #[test]
+    fn avatar_initials_extracts_two_chars() {
+        assert_eq!(avatar_initials("Ada Lovelace"), "AL");
+        assert_eq!(avatar_initials("ada lovelace"), "AL");
+        assert_eq!(avatar_initials("Madonna"), "M");
+        assert_eq!(avatar_initials("Mary Anne Hobbs"), "MA");
+        assert_eq!(avatar_initials(""), "");
+        assert_eq!(avatar_initials("   "), "");
     }
 
     #[test]
