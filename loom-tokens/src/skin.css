@@ -10387,3 +10387,140 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* === CmsBlock::Sheet =============================================== */
+.loom-block-sheet {
+  padding: 0;
+  border: 0;
+  background: var(--loom-color-surface, var(--loom-bg, #fff));
+  color: var(--loom-color-ink, var(--loom-fg));
+  box-shadow: var(--loom-shadow-lg, 0 18px 40px rgba(0,0,0,0.18));
+  overflow: hidden;
+  max-width: none;
+  max-height: none;
+}
+.loom-block-sheet::backdrop {
+  background: color-mix(in oklab, var(--loom-color-ink, var(--loom-fg)) 50%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.loom-block-sheet[data-edge="right"] {
+  top: 0; right: 0; bottom: 0; left: auto;
+  height: 100vh;
+  width: min(28rem, 100vw);
+  margin: 0 0 0 auto;
+  border-radius: 0;
+}
+.loom-block-sheet[data-edge="left"] {
+  top: 0; left: 0; bottom: 0; right: auto;
+  height: 100vh;
+  width: min(28rem, 100vw);
+  margin: 0 auto 0 0;
+  border-radius: 0;
+}
+.loom-block-sheet[data-edge="top"] {
+  top: 0; left: 0; right: 0; bottom: auto;
+  width: 100vw;
+  height: min(28rem, 100vh);
+  margin: 0 auto auto;
+  border-radius: 0;
+}
+.loom-block-sheet[data-edge="bottom"] {
+  bottom: 0; left: 0; right: 0; top: auto;
+  width: 100vw;
+  height: min(28rem, 100vh);
+  margin: auto auto 0;
+  border-radius: var(--loom-radius-lg, 18px) var(--loom-radius-lg, 18px) 0 0;
+}
+.loom-block-sheet__close-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0;
+  padding: 0.75rem 0.75rem 0;
+}
+.loom-block-sheet__close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: var(--loom-radius-full, 9999px);
+  width: 2rem;
+  height: 2rem;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: color-mix(in oklab, var(--loom-color-ink, var(--loom-fg)) 70%, transparent);
+  cursor: pointer;
+}
+.loom-block-sheet__close:hover {
+  background: color-mix(in oklab, var(--loom-color-ink, var(--loom-fg)) 8%, transparent);
+  color: var(--loom-color-ink, var(--loom-fg));
+}
+.loom-block-sheet__close:focus-visible {
+  outline: 2px solid var(--loom-color-primary, var(--loom-accent));
+  outline-offset: 2px;
+}
+.loom-block-sheet__title {
+  margin: 0;
+  padding: 0 1.5rem 0.5rem;
+  font-family: var(--loom-font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.018em;
+  color: var(--loom-color-ink, var(--loom-fg));
+}
+.loom-block-sheet__content {
+  padding: 0.5rem 1.5rem 1.5rem;
+  overflow-y: auto;
+}
+
+/* === CmsBlock::HoverCard =========================================== */
+.loom-block-hover-card {
+  position: relative;
+  display: inline-block;
+  border-bottom: 1px dotted color-mix(in oklab, var(--loom-color-ink, var(--loom-fg)) 50%, transparent);
+  cursor: help;
+}
+.loom-block-hover-card__content {
+  position: absolute;
+  z-index: 100;
+  width: 18rem;
+  padding: 1rem;
+  border-radius: var(--loom-radius, 10px);
+  background: var(--loom-color-surface, var(--loom-bg, #fff));
+  color: var(--loom-color-ink, var(--loom-fg));
+  border: 1px solid color-mix(in oklab, var(--loom-color-border, var(--loom-border)) 60%, transparent);
+  box-shadow: var(--loom-shadow-md, 0 4px 14px rgba(0,0,0,0.08));
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition: opacity var(--loom-motion-base, 220ms) var(--loom-ease-out, ease),
+              transform var(--loom-motion-base, 220ms) var(--loom-ease-out, ease),
+              visibility 0s var(--loom-motion-base, 220ms);
+  pointer-events: none;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+.loom-block-hover-card:hover > .loom-block-hover-card__content,
+.loom-block-hover-card:focus-visible > .loom-block-hover-card__content,
+.loom-block-hover-card:focus-within > .loom-block-hover-card__content {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition-delay: 100ms;
+  pointer-events: auto;
+}
+.loom-block-hover-card[data-placement="top"]    > .loom-block-hover-card__content { bottom: calc(100% + 8px); left: 50%; transform: translate(-50%, 4px); }
+.loom-block-hover-card[data-placement="top"]:hover    > .loom-block-hover-card__content,
+.loom-block-hover-card[data-placement="top"]:focus-visible > .loom-block-hover-card__content,
+.loom-block-hover-card[data-placement="top"]:focus-within  > .loom-block-hover-card__content { transform: translate(-50%, 0); }
+.loom-block-hover-card[data-placement="bottom"] > .loom-block-hover-card__content { top: calc(100% + 8px); left: 50%; transform: translate(-50%, -4px); }
+.loom-block-hover-card[data-placement="bottom"]:hover > .loom-block-hover-card__content,
+.loom-block-hover-card[data-placement="bottom"]:focus-visible > .loom-block-hover-card__content,
+.loom-block-hover-card[data-placement="bottom"]:focus-within  > .loom-block-hover-card__content { transform: translate(-50%, 0); }
+.loom-block-hover-card[data-placement="left"]   > .loom-block-hover-card__content { right: calc(100% + 8px); top: 50%; transform: translate(4px, -50%); }
+.loom-block-hover-card[data-placement="left"]:hover > .loom-block-hover-card__content,
+.loom-block-hover-card[data-placement="left"]:focus-visible > .loom-block-hover-card__content,
+.loom-block-hover-card[data-placement="left"]:focus-within  > .loom-block-hover-card__content { transform: translate(0, -50%); }
+.loom-block-hover-card[data-placement="right"]  > .loom-block-hover-card__content { left: calc(100% + 8px); top: 50%; transform: translate(-4px, -50%); }
+.loom-block-hover-card[data-placement="right"]:hover > .loom-block-hover-card__content,
+.loom-block-hover-card[data-placement="right"]:focus-visible > .loom-block-hover-card__content,
+.loom-block-hover-card[data-placement="right"]:focus-within  > .loom-block-hover-card__content { transform: translate(0, -50%); }

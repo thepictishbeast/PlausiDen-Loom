@@ -430,6 +430,51 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Off-canvas drawer — modal `<dialog>` styled to slide in
+    /// from one edge (top / right / bottom / left). Same native
+    /// HTML `<dialog>` machinery as [`CmsBlock::Dialog`] (#92)
+    /// plus an edge-positioned CSS transform + `data-edge`
+    /// attribute that the skin cascade animates.
+    ///
+    /// Behavioral contract mirrors Radix UI's `Sheet` (community)
+    /// + Vaul's drawer primitive. Upstream:
+    /// <https://www.radix-ui.com/themes/docs/components/sheet>
+    /// (MIT). No source copied.
+    Sheet {
+        /// Unique HTML `id`. External triggers reference this
+        /// via `popovertarget=` or `.showModal()` from JS.
+        id: String,
+        /// Sheet title rendered in `<h2>` at the top.
+        title: String,
+        /// Edge to dock against.
+        #[serde(default)]
+        edge: SheetEdge,
+        /// Block tree for the sheet body.
+        content: Vec<CmsBlock>,
+        /// When true, render with `open` attribute so the sheet
+        /// is visible on first paint.
+        #[serde(default)]
+        open: bool,
+    },
+    /// Rich hover-revealed card. Same reveal pattern as
+    /// [`CmsBlock::Tooltip`] (#91) but the content is a block
+    /// tree rather than a string — useful for username chips
+    /// that reveal a profile card, abbreviations with linked
+    /// references, etc.
+    ///
+    /// Behavioral contract mirrors Radix UI's `HoverCard`
+    /// primitive. Upstream:
+    /// <https://www.radix-ui.com/primitives/docs/components/hover-card>
+    /// (MIT). No source copied.
+    HoverCard {
+        /// Visible trigger text.
+        trigger_label: String,
+        /// Card body — arbitrary block tree.
+        content: Vec<CmsBlock>,
+        /// Placement relative to the trigger.
+        #[serde(default)]
+        placement: TooltipPlacement,
+    },
     /// Pure-CSS aspect-ratio container. Wraps a single child
     /// block in a `<div>` with the `aspect-ratio` CSS property
     /// set — child is constrained to the declared ratio with no
@@ -1132,6 +1177,18 @@ pub enum CmsBlock {
         #[serde(default)]
         disabled: bool,
     },
+}
+
+/// Edge a [`CmsBlock::Sheet`] docks against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum SheetEdge {
+    Top,
+    #[default]
+    Right,
+    Bottom,
+    Left,
 }
 
 /// Orientation for a [`CmsBlock::Toolbar`].
@@ -5942,6 +5999,82 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                                     (render_block(child))
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+        CmsBlock::Sheet {
+            id,
+            title,
+            edge,
+            content,
+            open,
+        } => {
+            let edge_slug = match edge {
+                SheetEdge::Top => "top",
+                SheetEdge::Right => "right",
+                SheetEdge::Bottom => "bottom",
+                SheetEdge::Left => "left",
+            };
+            html! {
+                dialog
+                    class="loom-block-sheet"
+                    data-loom-slot="sheet"
+                    data-edge=(edge_slug)
+                    id=(id)
+                    open[*open]
+                    aria-labelledby={ (id) "__title" }
+                {
+                    form method="dialog" class="loom-block-sheet__close-row" {
+                        button
+                            type="submit"
+                            class="loom-block-sheet__close"
+                            data-loom-slot="sheet-close"
+                            aria-label="Close sheet"
+                            value="cancel"
+                        {
+                            "×"
+                        }
+                    }
+                    h2
+                        class="loom-block-sheet__title"
+                        data-loom-slot="sheet-title"
+                        id={ (id) "__title" }
+                    {
+                        (title)
+                    }
+                    div class="loom-block-sheet__content" data-loom-slot="sheet-content" {
+                        @for child in content {
+                            (render_block(child))
+                        }
+                    }
+                }
+            }
+        }
+        CmsBlock::HoverCard {
+            trigger_label,
+            content,
+            placement,
+        } => {
+            let place = tooltip_placement_slug(*placement);
+            html! {
+                span
+                    class="loom-block-hover-card"
+                    data-loom-slot="hover-card"
+                    data-placement=(place)
+                    tabindex="0"
+                {
+                    span class="loom-block-hover-card__trigger" data-loom-slot="hover-card-trigger" {
+                        (trigger_label)
+                    }
+                    div
+                        class="loom-block-hover-card__content"
+                        data-loom-slot="hover-card-content"
+                        role="tooltip"
+                    {
+                        @for child in content {
+                            (render_block(child))
                         }
                     }
                 }
@@ -11501,6 +11634,80 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_sheet_renders_native_dialog_with_edge_attr() {
+        let json = r#"{
+            "kind": "sheet",
+            "id": "settings-sheet",
+            "title": "Settings",
+            "edge": "right",
+            "content": [{"kind":"text","text":"body"}]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains("<dialog"));
+        assert!(html.contains(r#"data-loom-slot="sheet""#));
+        assert!(html.contains(r#"data-edge="right""#));
+        assert!(html.contains(r#"id="settings-sheet""#));
+        assert!(html.contains(r#"aria-labelledby="settings-sheet__title""#));
+        assert!(html.contains(r#"id="settings-sheet__title""#));
+        assert!(html.contains(">Settings</h2>"));
+        // Native close-row form for no-JS dismissal.
+        assert!(html.contains(r#"<form method="dialog""#));
+        assert!(html.contains(r#"aria-label="Close sheet""#));
+        // Body content rendered.
+        assert!(html.contains("body"));
+    }
+
+    #[test]
+    fn cms_block_sheet_default_edge_is_right() {
+        let json = r#"{"kind":"sheet","id":"x","title":"T","content":[]}"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-edge="right""#));
+    }
+
+    #[test]
+    fn cms_block_sheet_open_attr_emitted_when_true() {
+        let json = r#"{"kind":"sheet","id":"x","title":"T","content":[],"open":true}"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(" open"));
+    }
+
+    #[test]
+    fn cms_block_hover_card_renders_with_block_tree_content() {
+        let json = r#"{
+            "kind": "hover_card",
+            "trigger_label": "@dee",
+            "content": [
+                {"kind":"heading","level":4,"text":"Deborah Armstrong"},
+                {"kind":"text","text":"Licensed insurance agent"}
+            ],
+            "placement": "right"
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-loom-slot="hover-card""#));
+        assert!(html.contains(r#"data-placement="right""#));
+        assert!(html.contains(r#"tabindex="0""#));
+        assert!(html.contains(r#"role="tooltip""#));
+        // Trigger label.
+        assert!(html.contains(">@dee</span>"));
+        // Rich body (heading + text rendered via render_block recursion).
+        assert!(html.contains("loom-block-heading"));
+        assert!(html.contains("Deborah Armstrong"));
+        assert!(html.contains("Licensed insurance agent"));
+    }
+
+    #[test]
+    fn cms_block_hover_card_default_placement_is_top() {
+        let json = r#"{"kind":"hover_card","trigger_label":"x","content":[]}"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-placement="top""#));
     }
 
     #[test]
