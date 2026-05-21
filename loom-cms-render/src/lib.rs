@@ -752,6 +752,36 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed quick-fact callout — single verifiable claim
+    /// with source attribution + optional context paragraph.
+    /// Distinct from [`CmsSection::PullStat`] (numeric stat
+    /// only), from [`CmsSection::AsideNote`] (generic tone-
+    /// coloured callout), from [`CmsSection::KeyTakeaway`]
+    /// (article summary), and from
+    /// [`CmsSection::FactCheck`] (verdict on a claim):
+    /// FactBox is one fact + one source. The source IS the
+    /// point.
+    ///
+    /// Editorial intent: journalism / educational / financial-
+    /// explainer surfaces where the author wants to surface
+    /// a single citable fact ("Median household savings is
+    /// $5,300 — Federal Reserve, 2023").
+    FactBox {
+        /// Optional eyebrow override. `None` renders the
+        /// default `"Fact"` label. Common overrides:
+        /// `"Did you know?"`, `"Quick fact"`, `"By the
+        /// numbers"`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow: Option<String>,
+        /// The fact statement (one or two sentences).
+        fact: String,
+        /// Source attribution.
+        source: String,
+        /// Optional context paragraph rendered below the
+        /// fact + source. Multi-paragraph splits on `\n\n`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context: Option<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2956,7 +2986,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5578,6 +5608,34 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 blockquote class="loom-epigraph__body" { (body) }
                 @if let Some(a) = attribution {
                     figcaption class="loom-epigraph__attribution" { "— " (a) }
+                }
+            }
+        },
+        CmsSection::FactBox {
+            eyebrow,
+            fact,
+            source,
+            context,
+        } => {
+            let eyebrow_text: &str = eyebrow.as_deref().unwrap_or("Fact");
+            html! {
+                aside class="loom-fact-box"
+                      role="note"
+                      aria-label="Fact"
+                      data-loom-reveal
+                {
+                    p class="loom-fact-box__eyebrow" { (eyebrow_text) }
+                    p class="loom-fact-box__fact" { (fact) }
+                    p class="loom-fact-box__source" {
+                        "Source: " (source)
+                    }
+                    @if let Some(c) = context {
+                        div class="loom-fact-box__context" {
+                            @for para in c.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
+                                p { (para) }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -9946,6 +10004,86 @@ mod tests {
         let page: CmsPage = serde_json::from_str(json).expect("page parses");
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    // #104 (2026-05-21) — FactBox single-fact callout.
+
+    #[test]
+    fn fact_box_default_eyebrow_is_fact() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "fact_box",
+                "fact": "Median household savings is $5,300.",
+                "source": "Federal Reserve, 2023"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<aside class="loom-fact-box""#));
+        assert!(html.contains(r#"role="note""#));
+        assert!(html.contains(r#"aria-label="Fact""#));
+        assert!(html.contains(r#"class="loom-fact-box__eyebrow""#));
+        assert!(html.contains(">Fact<"));
+        assert!(html.contains(r#"class="loom-fact-box__fact""#));
+        assert!(html.contains(">Median household savings is $5,300.<"));
+        assert!(html.contains(r#"class="loom-fact-box__source""#));
+        assert!(html.contains("Source: Federal Reserve, 2023"));
+        assert!(!html.contains("loom-fact-box__context"));
+    }
+
+    #[test]
+    fn fact_box_custom_eyebrow_with_context() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "fact_box",
+                "eyebrow": "Did you know?",
+                "fact": "X.",
+                "source": "Y",
+                "context": "First context paragraph.\n\nSecond context paragraph."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(">Did you know?<"));
+        assert!(!html.contains(">Fact<"));
+        // 2 context paragraphs.
+        let ctx_open = html.find("loom-fact-box__context").expect("context");
+        let ctx_close = html[ctx_open..].find("</div>").expect("/div") + ctx_open;
+        let ctx_slice = &html[ctx_open..ctx_close];
+        assert_eq!(ctx_slice.matches("<p>").count(), 2);
+    }
+
+    #[test]
+    fn fact_box_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "fact_box",
+                "eyebrow": "<script>e</script>",
+                "fact": "<script>f</script>",
+                "source": "<script>s</script>",
+                "context": "<script>c</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>e</script>",
+            "<script>f</script>",
+            "<script>s</script>",
+            "<script>c</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
         assert!(html.contains("&lt;script&gt;"));
     }
 
