@@ -85,6 +85,7 @@ fn cms_template_landing(title: &str, path: &str) -> loom_cms_render::CmsPage {
     };
     CmsPage {
         brand: None,
+        brand_logo: None,
         theme: None,
         chrome: None,
         content_width: None,
@@ -157,6 +158,7 @@ fn cms_template_explainer(title: &str, path: &str) -> loom_cms_render::CmsPage {
     use loom_cms_render::{CmsPage, CmsSection};
     CmsPage {
         brand: None,
+        brand_logo: None,
         theme: None,
         chrome: None,
         content_width: None,
@@ -203,6 +205,7 @@ fn cms_template_form(title: &str, path: &str) -> loom_cms_render::CmsPage {
     };
     CmsPage {
         brand: None,
+        brand_logo: None,
         theme: None,
         chrome: None,
         content_width: None,

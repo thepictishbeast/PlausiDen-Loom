@@ -104,6 +104,7 @@ fn build_state_matrix_page() -> loom_cms_render::CmsPage {
     };
     CmsPage {
         brand: None,
+        brand_logo: None,
         theme: None,
         chrome: None,
         content_width: None,
