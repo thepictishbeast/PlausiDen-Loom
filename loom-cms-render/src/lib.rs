@@ -769,6 +769,40 @@ pub enum CmsSection {
         #[serde(default)]
         position: MarginaliaPosition,
     },
+    /// Mid-article breakout / emphasis box — a "sidebar in the
+    /// flow" for related-but-distinct content: a definition
+    /// expanded, a case-study snippet, a methodology note, a
+    /// historical aside. Distinct from
+    /// [`CmsSection::AsideNote`] (small generic tone-coloured
+    /// callout), [`CmsSection::Marginalia`] (true sidenote that
+    /// floats at wide viewports), and [`CmsSection::PullQuote`]
+    /// (single typographic moment quoting body text):
+    /// BreakoutBox carries its own heading + body + optional
+    /// citation, sized larger than an AsideNote.
+    ///
+    /// Editorial intent: long-form article surfaces where the
+    /// main argument occasionally pauses for a supporting
+    /// expansion. Anti-SaaS: not a "feature card" with shadow
+    /// + gradient + icon; an editorial sidebar with type
+    /// hierarchy + a thin rule on one side per the theme
+    /// cascade.
+    BreakoutBox {
+        /// Optional eyebrow / kicker above the heading
+        /// (`"Case study"`, `"Methodology note"`, `"In depth"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow: Option<String>,
+        /// Optional heading. When `None` the body renders alone
+        /// (e.g. a quotation breakout with no label).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        heading: Option<String>,
+        /// Body text — multi-paragraph splits on `\n\n`.
+        body: String,
+        /// Optional source citation rendered below the body
+        /// (e.g. `"— Smith & Lee, 2024"` or
+        /// `"Source: Department of Labor"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        citation: Option<String>,
+    },
     /// Account-summary card — typed surface for a logged-in
     /// user's at-a-glance state. Renders avatar + display name +
     /// plan + member-since. Read-only; editing flows through
@@ -2956,7 +2990,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5295,6 +5329,33 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         }
+        CmsSection::BreakoutBox {
+            eyebrow,
+            heading,
+            body,
+            citation,
+        } => html! {
+            aside class="loom-breakout-box"
+                  role="complementary"
+                  aria-label="Sidebar"
+                  data-loom-reveal
+            {
+                @if let Some(e) = eyebrow {
+                    p class="loom-breakout-box__eyebrow" { (e) }
+                }
+                @if let Some(h) = heading {
+                    h3 class="loom-breakout-box__heading" { (h) }
+                }
+                div class="loom-breakout-box__body" {
+                    @for para in body.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
+                        p { (para) }
+                    }
+                }
+                @if let Some(c) = citation {
+                    p class="loom-breakout-box__citation" { (c) }
+                }
+            }
+        },
         CmsSection::AccountSummary {
             display_name,
             avatar,
@@ -9404,6 +9465,103 @@ mod tests {
         assert!(!html.contains("loom-quote-attribution"));
         assert!(!html.contains("loom-quote-role"));
         assert!(!html.contains("loom-quote-footer"));
+    }
+
+    // #104 (2026-05-21) — BreakoutBox mid-article emphasis box.
+
+    #[test]
+    fn breakout_box_renders_complementary_aside_with_all_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "breakout_box",
+                "eyebrow": "In depth",
+                "heading": "What an HSA actually does",
+                "body": "Triple-tax-advantaged: pre-tax in, tax-free growth, tax-free out for qualified medical expenses.\n\nUnused balance rolls forward — many people use HSAs as stealth retirement accounts after 65.",
+                "citation": "— IRS Publication 969"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<aside class="loom-breakout-box""#));
+        assert!(html.contains(r#"role="complementary""#));
+        assert!(html.contains(r#"aria-label="Sidebar""#));
+        assert!(html.contains(r#"class="loom-breakout-box__eyebrow""#));
+        assert!(html.contains(">In depth<"));
+        assert!(html.contains(r#"<h3 class="loom-breakout-box__heading""#));
+        assert!(html.contains(">What an HSA actually does<"));
+        assert!(html.contains(r#"class="loom-breakout-box__body""#));
+        assert!(html.contains(">Triple-tax-advantaged: pre-tax in, tax-free growth, tax-free out for qualified medical expenses.<"));
+        assert!(html.contains(r#"class="loom-breakout-box__citation""#));
+        assert!(html.contains(">— IRS Publication 969<"));
+    }
+
+    #[test]
+    fn breakout_box_omits_optional_chrome_when_absent() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "breakout_box",
+                "body": "Body-only breakout, no chrome."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<aside class="loom-breakout-box""#));
+        assert!(html.contains(">Body-only breakout, no chrome.<"));
+        assert!(!html.contains("loom-breakout-box__eyebrow"));
+        assert!(!html.contains("loom-breakout-box__heading"));
+        assert!(!html.contains("loom-breakout-box__citation"));
+    }
+
+    #[test]
+    fn breakout_box_body_splits_on_blank_lines() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "breakout_box",
+                "body": "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        let open = html.find("loom-breakout-box__body").expect("body class");
+        let close = html[open..].find("</div>").expect("/div") + open;
+        let slice = &html[open..close];
+        assert_eq!(slice.matches("<p>").count(), 3);
+    }
+
+    #[test]
+    fn breakout_box_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "breakout_box",
+                "eyebrow": "<script>e</script>",
+                "heading": "<script>h</script>",
+                "body": "<script>b</script>",
+                "citation": "<script>c</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>e</script>",
+            "<script>h</script>",
+            "<script>b</script>",
+            "<script>c</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
