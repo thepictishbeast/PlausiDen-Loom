@@ -430,6 +430,25 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Menu of actions — popover surface with `role="menu"` +
+    /// `role="menuitem"` children. Same native-popover machinery
+    /// as [`CmsBlock::Popover`] (browser handles open/close +
+    /// light-dismiss + focus); the menu role tells assistive tech
+    /// to expose menu-navigation semantics (arrow keys, type-to-
+    /// jump).
+    ///
+    /// Behavioral contract mirrors Radix UI's `DropdownMenu`
+    /// primitive. Upstream spec:
+    /// <https://www.radix-ui.com/primitives/docs/components/dropdown-menu>
+    /// (MIT). No source copied.
+    DropdownMenu {
+        /// Unique HTML `id` referenced by `popovertarget=`.
+        id: String,
+        /// Visible label on the trigger button.
+        trigger_label: String,
+        /// Menu items in order.
+        items: Vec<BlockDropdownItem>,
+    },
     /// Anchored content that opens on trigger click. Uses the
     /// native HTML `popover` attribute (Chromium 114+, Safari
     /// 17+, Firefox 125+) so the browser handles open/close +
@@ -603,6 +622,28 @@ pub enum CmsBlock {
         #[serde(default)]
         disabled: bool,
     },
+}
+
+/// One menu item inside a [`CmsBlock::DropdownMenu`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockDropdownItem {
+    /// Visible menu-item label.
+    pub label: String,
+    /// Optional href. Validated via `is_safe_url` at render
+    /// time; hostile schemes route to `#invalid-link`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub href: Option<String>,
+    /// Optional `data-backend` slug for the phantom-button gate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_backend: Option<String>,
+    /// When true, render as disabled (greyed out, non-actionable).
+    #[serde(default)]
+    pub disabled: bool,
+    /// When true, render an `<hr role="separator">` immediately
+    /// above this item — used to group related menu items.
+    #[serde(default)]
+    pub separator_before: bool,
 }
 
 /// One tab item inside a [`CmsBlock::Tabs`].
@@ -5200,6 +5241,68 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::DropdownMenu {
+            id,
+            trigger_label,
+            items,
+        } => html! {
+            div class="loom-block-dropdown" data-loom-slot="dropdown" {
+                button
+                    type="button"
+                    class="loom-block-dropdown__trigger"
+                    data-loom-slot="dropdown-trigger"
+                    popovertarget=(id)
+                    aria-haspopup="menu"
+                    aria-controls=(id)
+                    aria-expanded="false"
+                {
+                    (trigger_label)
+                }
+                div
+                    popover="auto"
+                    id=(id)
+                    class="loom-block-dropdown__menu"
+                    data-loom-slot="dropdown-menu"
+                    role="menu"
+                {
+                    @for item in items {
+                        @if item.separator_before {
+                            hr class="loom-block-dropdown__separator" role="separator";
+                        }
+                        @match &item.href {
+                            Some(href) => {
+                                @let safe = loom_components::composer::is_safe_url(href);
+                                a
+                                    role="menuitem"
+                                    class="loom-block-dropdown__item"
+                                    data-loom-slot="dropdown-item"
+                                    href=(if safe { href.as_str() } else { "#invalid-link" })
+                                    data-backend=[item.data_backend.as_deref()]
+                                    data-invalid=[(!safe).then_some("true")]
+                                    aria-disabled=(if item.disabled { "true" } else { "false" })
+                                    tabindex=(if item.disabled { "-1" } else { "0" })
+                                {
+                                    (item.label)
+                                }
+                            }
+                            None => {
+                                button
+                                    type="button"
+                                    role="menuitem"
+                                    class="loom-block-dropdown__item"
+                                    data-loom-slot="dropdown-item"
+                                    data-backend=[item.data_backend.as_deref()]
+                                    disabled[item.disabled]
+                                    aria-disabled=(if item.disabled { "true" } else { "false" })
+                                {
+                                    (item.label)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         CmsBlock::Popover {
             id,
             trigger_label,
@@ -9761,6 +9864,49 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_dropdown_menu_renders_role_menu_with_items() {
+        let json = r#"{
+            "kind": "dropdown_menu",
+            "id": "actions",
+            "trigger_label": "More",
+            "items": [
+                {"label":"Edit","href":"/edit","data_backend":"edit-record"},
+                {"label":"Duplicate"},
+                {"label":"Delete","href":"/delete","disabled":true,"separator_before":true}
+            ]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"popovertarget="actions""#));
+        assert!(html.contains(r#"aria-haspopup="menu""#));
+        assert!(html.contains(r#"role="menu""#));
+        // Three menuitems.
+        assert_eq!(html.matches(r#"role="menuitem""#).count(), 3);
+        // First item is anchor with safe href.
+        assert!(html.contains(r#"href="/edit""#));
+        assert!(html.contains(r#"data-backend="edit-record""#));
+        // Item without href renders as button.
+        assert!(html.contains(r#">Duplicate</button>"#));
+        // Disabled item gets aria-disabled.
+        assert!(html.contains(r#"aria-disabled="true""#));
+        // Separator before Delete.
+        assert!(html.contains(r#"role="separator""#));
+    }
+
+    #[test]
+    fn cms_block_dropdown_unsafe_href_marks_invalid() {
+        let json = r##"{
+            "kind":"dropdown_menu","id":"x","trigger_label":"T",
+            "items":[{"label":"Hostile","href":"javascript:alert(1)"}]
+        }"##;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r##"href="#invalid-link""##));
+        assert!(html.contains(r#"data-invalid="true""#));
+        assert!(!html.contains("javascript:"));
     }
 
     #[test]
