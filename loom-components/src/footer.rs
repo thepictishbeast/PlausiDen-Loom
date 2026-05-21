@@ -104,7 +104,7 @@ impl Footer<'_> {
         };
         html! {
             footer class="bg-slate-900 text-slate-300 py-16" data-loom-footer-style=(style_attr) {
-                div class="container mx-auto px-4 md:px-6" {
+                div class="container mx-auto px-4 md:px-8 lg:px-12 xl:px-16" {
                     div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12" {
                         // Brand column
                         div class="space-y-6" {

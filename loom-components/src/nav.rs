@@ -114,7 +114,7 @@ impl Nav<'_> {
 
         html! {
             nav id="site-nav" class="fixed top-0 left-0 right-0 z-50 transition-all duration-300 border-b bg-transparent border-transparent py-5" data-loom-nav-style=(nav_style_attr) {
-                div class="container mx-auto px-4 md:px-6 flex items-center justify-between" {
+                div class="container mx-auto px-4 md:px-8 lg:px-12 xl:px-16 flex items-center justify-between gap-8" {
                     a href="/" class="shrink-0" {
                         div class="flex items-center gap-3 cursor-pointer group" {
                             div class=(logo_class) {
