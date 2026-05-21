@@ -10787,3 +10787,44 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
   color: var(--loom-color-badge-accent-text, var(--loom-color-accent, var(--loom-color-primary, #3a7afe)));
   border-color: var(--loom-color-badge-accent-border, color-mix(in oklab, var(--loom-color-accent, var(--loom-color-primary, #3a7afe)) 35%, transparent));
 }
+
+/* === CmsBlock::Avatar ============================================== */
+/* User / brand avatar with initials fallback. Substrate asserts
+   structure + size data-attr; visual register (fill, radius, font)
+   flows from tenant [style] config. */
+.loom-block-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--loom-color-avatar-bg, color-mix(in oklab, var(--loom-color-text, currentColor) 8%, transparent));
+  color: var(--loom-color-avatar-text, var(--loom-color-text, inherit));
+  border-radius: var(--loom-radius-avatar, 9999px);
+  font-weight: 600;
+  user-select: none;
+  flex-shrink: 0;
+}
+.loom-block-avatar[data-size="sm"] {
+  width: var(--loom-avatar-sm, 1.75rem);
+  height: var(--loom-avatar-sm, 1.75rem);
+  font-size: 0.625rem;
+}
+.loom-block-avatar[data-size="md"] {
+  width: var(--loom-avatar-md, 2.5rem);
+  height: var(--loom-avatar-md, 2.5rem);
+  font-size: 0.875rem;
+}
+.loom-block-avatar[data-size="lg"] {
+  width: var(--loom-avatar-lg, 3.5rem);
+  height: var(--loom-avatar-lg, 3.5rem);
+  font-size: 1.125rem;
+}
+.loom-block-avatar__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.loom-block-avatar__initials {
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
