@@ -705,6 +705,19 @@ pub enum CmsBlock {
         /// doesn't sort.
         steps: Vec<StepperStep>,
     },
+    /// Keyboard-shortcut display — semantic `<kbd>` per HTML
+    /// spec. Multi-key shortcuts render as
+    /// `<kbd>Ctrl</kbd>+<kbd>K</kbd>` with the separator
+    /// rendered between elements (configurable via cascade
+    /// content rules, defaults to `+`).
+    ///
+    /// Use for documenting hotkeys, terminal commands shown
+    /// inline, or any single keystroke / key-combo.
+    KbdShortcut {
+        /// Individual key labels (e.g., `["Ctrl", "K"]` for
+        /// Ctrl+K).
+        keys: Vec<String>,
+    },
     /// Sandboxed `<iframe>` embed. Used for third-party widgets
     /// (YouTube / Vimeo / Maps / payment forms) without granting
     /// them ambient access to the parent document. Substrate
@@ -6676,6 +6689,16 @@ pub fn render_block(block: &CmsBlock) -> Markup {
         }
         CmsBlock::Badge { text, tone } => html! {
             span class="loom-block-badge" data-tone=(tone.slug()) { (text) }
+        },
+        CmsBlock::KbdShortcut { keys } => html! {
+            span class="loom-block-kbd" {
+                @for (i, key) in keys.iter().enumerate() {
+                    @if i > 0 {
+                        span class="loom-block-kbd__sep" aria-hidden="true" { "+" }
+                    }
+                    kbd class="loom-block-kbd__key" { (key) }
+                }
+            }
         },
         CmsBlock::Stepper { steps } => html! {
             ol class="loom-block-stepper" {
@@ -14111,6 +14134,44 @@ mod tests {
         let html = render_block(&s).into_string();
         assert!(html.contains(">Substrate A<"));
         assert!(html.contains(">Substrate B<"));
+    }
+
+    #[test]
+    fn cms_block_kbd_shortcut_renders_kbd_elements_with_plus_separator() {
+        let k = CmsBlock::KbdShortcut {
+            keys: vec!["Ctrl".into(), "Shift".into(), "P".into()],
+        };
+        let html = render_block(&k).into_string();
+        assert!(html.contains("loom-block-kbd"));
+        assert!(html.contains("<kbd"));
+        assert_eq!(html.matches("<kbd").count(), 3);
+        // Two separators between three keys
+        assert_eq!(html.matches("loom-block-kbd__sep").count(), 2);
+        assert!(html.contains(">Ctrl<"));
+        assert!(html.contains(">Shift<"));
+        assert!(html.contains(">P<"));
+        assert!(html.contains(">+<"));
+    }
+
+    #[test]
+    fn cms_block_kbd_shortcut_single_key_omits_separator() {
+        let k = CmsBlock::KbdShortcut {
+            keys: vec!["Esc".into()],
+        };
+        let html = render_block(&k).into_string();
+        assert!(html.contains("<kbd"));
+        assert!(html.contains(">Esc<"));
+        assert!(!html.contains("loom-block-kbd__sep"));
+    }
+
+    #[test]
+    fn cms_block_kbd_shortcut_escapes_html_in_keys() {
+        let k = CmsBlock::KbdShortcut {
+            keys: vec!["<script>".into()],
+        };
+        let html = render_block(&k).into_string();
+        assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]

@@ -11212,3 +11212,34 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
   color: var(--loom-color-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 50%, transparent));
   background: transparent;
 }
+
+/* === CmsBlock::KbdShortcut ========================================= */
+/* Semantic <kbd> elements with cascade-driven keycap appearance.
+   Tenant cascade overrides via --loom-color-kbd-{bg,text,border}. */
+.loom-block-kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  vertical-align: baseline;
+  font-family: var(--loom-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.loom-block-kbd__key {
+  display: inline-block;
+  padding: 0.0625rem 0.4rem;
+  background: var(--loom-color-kbd-bg, color-mix(in oklab, var(--loom-color-text, currentColor) 5%, transparent));
+  color: var(--loom-color-kbd-text, var(--loom-color-text, inherit));
+  border: 1px solid var(--loom-color-kbd-border, color-mix(in oklab, var(--loom-color-text, currentColor) 18%, transparent));
+  border-bottom-width: 2px;
+  border-radius: var(--loom-radius-kbd, 0.25rem);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  box-shadow: inset 0 -1px 0 0 var(--loom-color-kbd-border, color-mix(in oklab, var(--loom-color-text, currentColor) 12%, transparent));
+}
+.loom-block-kbd__sep {
+  color: var(--loom-color-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 50%, transparent));
+  font-size: 0.8125rem;
+  font-weight: 500;
+  user-select: none;
+}
