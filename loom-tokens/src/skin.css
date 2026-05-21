@@ -10708,3 +10708,35 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
   border-top: 1px solid var(--loom-color-border, color-mix(in oklab, var(--loom-color-text, currentColor) 10%, transparent));
   background: var(--loom-color-surface-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 1.5%, transparent));
 }
+
+/* === CmsBlock::Video =============================================== */
+/* Native <video> embed. Substrate emits controls + preload="metadata"
+   only; autoplay / muted-autoplay / scroll-trigger are intentionally
+   absent (engagement-pattern decisions live at the tenant tier). */
+.loom-block-video {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  background: var(--loom-color-surface-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 4%, transparent));
+  border-radius: var(--loom-radius-video, var(--loom-radius-md, 0.5rem));
+}
+.loom-block-video__fallback {
+  padding: 1rem;
+  font-size: 0.9rem;
+  color: var(--loom-color-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 60%, transparent));
+}
+
+/* === CmsBlock::Iframe ============================================== */
+/* Sandboxed third-party embed. Substrate emits sandbox + lazy-load +
+   no-referrer; visual chrome (aspect ratio, border, radius) flows
+   from tenant [style] config. */
+.loom-block-iframe {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  border: 0;
+  background: var(--loom-color-surface-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 4%, transparent));
+  border-radius: var(--loom-radius-iframe, var(--loom-radius-md, 0.5rem));
+  aspect-ratio: var(--loom-iframe-aspect, 16 / 9);
+}
