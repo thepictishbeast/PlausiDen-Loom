@@ -10002,6 +10002,43 @@ mod tests {
     }
 
     #[test]
+    fn theme_toggle_js_preserves_named_themes() {
+        // Regression lock: pre-2026-05-21 the THEME_TOGGLE_JS init
+        // only accepted T=['light','dark','auto']; any
+        // server-emitted data-theme outside that set (warm /
+        // ocean / forest / rose / violet / sepia / press / hc-*)
+        // was overwritten to 'light' on first paint, collapsing
+        // every Forge site's theme to the indigo default. Paul
+        // flagged "all the sites are so similar" on 2026-05-21
+        // and the rendered dev.plausiden.com HTML showed
+        // data-theme="light" despite cms/index.json setting
+        // "theme": "warm".
+        //
+        // The fixed JS preserves any server attribute and only
+        // routes through T for the toggle CYCLE (click handler).
+        assert!(
+            THEME_TOGGLE_JS.contains("return s||'light'"),
+            "fall-through must preserve server theme, not reset to light"
+        );
+        assert!(
+            !THEME_TOGGLE_JS.contains("if(T.indexOf(s)>=0)return s;return 'light'"),
+            "old indexOf-only fall-through still present"
+        );
+    }
+
+    #[test]
+    fn theme_toggle_click_cycle_handles_named_theme_gracefully() {
+        // When current theme is named (warm/ocean/etc.), indexOf
+        // returns -1. The fixed JS uses i<0?0:i+1 so a click from
+        // a named theme cycles to T[0]='light' rather than
+        // producing T[NaN].
+        assert!(
+            THEME_TOGGLE_JS.contains("var i=T.indexOf(c);var n=T[(i<0?0:i+1)%T.length]"),
+            "click handler must handle named-theme indexOf=-1 case"
+        );
+    }
+
+    #[test]
     fn testimonial_default_decoration_is_decorated() {
         let json = r#"{
             "brand": null, "theme": null, "chrome": null, "content_width": null,
@@ -12259,7 +12296,7 @@ pub const DEFER_ONLOAD_JS: &str = "this.media='all';this.removeAttribute('onload
 ///
 /// SECURITY: only writes to data-theme on html element + localStorage
 /// with a fixed key. No DOM injection, no eval, no fetch.
-pub const THEME_TOGGLE_JS: &str = "(function(){var K='loom-theme';var B=document.querySelector('[data-loom-theme-toggle]');if(!B)return;var T=['light','dark','auto'];function r(){var v=null;try{v=localStorage.getItem(K);}catch(_){}if(T.indexOf(v)>=0)return v;var s=document.documentElement.getAttribute('data-theme');if(T.indexOf(s)>=0)return s;return 'light';}function a(t){document.documentElement.setAttribute('data-theme',t);B.setAttribute('aria-label','Theme: '+t+' (click to cycle)');B.setAttribute('aria-pressed',t==='dark'?'true':'false');B.textContent=t==='light'?'☀':(t==='dark'?'☾':'◐');}a(r());B.addEventListener('click',function(){var c=r();var n=T[(T.indexOf(c)+1)%T.length];try{localStorage.setItem(K,n);}catch(_){}a(n);});})();";
+pub const THEME_TOGGLE_JS: &str = "(function(){var K='loom-theme';var B=document.querySelector('[data-loom-theme-toggle]');if(!B)return;var T=['light','dark','auto'];function r(){var v=null;try{v=localStorage.getItem(K);}catch(_){}if(T.indexOf(v)>=0)return v;var s=document.documentElement.getAttribute('data-theme');return s||'light';}function a(t){document.documentElement.setAttribute('data-theme',t);B.setAttribute('aria-label','Theme: '+t+' (click to cycle)');B.setAttribute('aria-pressed',t==='dark'?'true':'false');B.textContent=t==='light'?'☀':(t==='dark'?'☾':'◐');}a(r());B.addEventListener('click',function(){var c=r();var i=T.indexOf(c);var n=T[(i<0?0:i+1)%T.length];try{localStorage.setItem(K,n);}catch(_){}a(n);});})();";
 
 /// Dev-only Eruda loader. Inlined into `<head>` when
 /// `CmsPage.dev_devtools = true`. Runs always; only loads the
