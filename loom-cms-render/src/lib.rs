@@ -691,6 +691,20 @@ pub enum CmsBlock {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         action: Option<EmptyStateAction>,
     },
+    /// Multi-step process indicator (onboarding, checkout,
+    /// guided wizard). Each step has a label and one of three
+    /// states (`done` / `current` / `upcoming`). Substrate
+    /// emits a semantic `<ol>` with per-item `data-state` so
+    /// assistive tech announces progress and cascade colors the
+    /// states distinctly.
+    ///
+    /// `aria-current="step"` is set on the current step per
+    /// WAI-ARIA Authoring Practices.
+    Stepper {
+        /// Steps in order. Caller-defined order; substrate
+        /// doesn't sort.
+        steps: Vec<StepperStep>,
+    },
     /// Sandboxed `<iframe>` embed. Used for third-party widgets
     /// (YouTube / Vimeo / Maps / payment forms) without granting
     /// them ambient access to the parent document. Substrate
@@ -1888,6 +1902,41 @@ pub struct EmptyStateAction {
     pub label: String,
     /// Destination URL.
     pub href: String,
+}
+
+/// One step in a [`CmsBlock::Stepper`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StepperStep {
+    /// Visible step label (e.g., `"Choose plan"`).
+    pub label: String,
+    /// Lifecycle state — drives `data-state` + ARIA semantics.
+    pub state: StepperState,
+}
+
+/// Three canonical states for a [`StepperStep`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum StepperState {
+    /// Completed — checkmark + accent color.
+    Done,
+    /// Currently active — `aria-current="step"` set.
+    Current,
+    /// Not yet reached — muted color.
+    #[default]
+    Upcoming,
+}
+
+impl StepperState {
+    /// Slug for the `data-state` attribute.
+    #[must_use]
+    pub const fn slug(self) -> &'static str {
+        match self {
+            Self::Done => "done",
+            Self::Current => "current",
+            Self::Upcoming => "upcoming",
+        }
+    }
 }
 
 /// One event in a [`CmsBlock::Timeline`]. Optional timestamp
@@ -6627,6 +6676,20 @@ pub fn render_block(block: &CmsBlock) -> Markup {
         }
         CmsBlock::Badge { text, tone } => html! {
             span class="loom-block-badge" data-tone=(tone.slug()) { (text) }
+        },
+        CmsBlock::Stepper { steps } => html! {
+            ol class="loom-block-stepper" {
+                @for (i, step) in steps.iter().enumerate() {
+                    li
+                        class="loom-block-stepper__step"
+                        data-state=(step.state.slug())
+                        aria-current=[if matches!(step.state, StepperState::Current) { Some("step") } else { None }]
+                    {
+                        span class="loom-block-stepper__index" aria-hidden="true" { ((i + 1).to_string()) }
+                        span class="loom-block-stepper__label" { (step.label) }
+                    }
+                }
+            }
         },
         CmsBlock::EmptyState { title, body, action } => {
             let safe_action = action.as_ref().filter(|a| is_safe_url(&a.href));
@@ -14048,6 +14111,59 @@ mod tests {
         let html = render_block(&s).into_string();
         assert!(html.contains(">Substrate A<"));
         assert!(html.contains(">Substrate B<"));
+    }
+
+    #[test]
+    fn cms_block_stepper_emits_ol_with_per_step_state() {
+        let s = CmsBlock::Stepper {
+            steps: vec![
+                StepperStep {
+                    label: "Sign up".into(),
+                    state: StepperState::Done,
+                },
+                StepperStep {
+                    label: "Verify email".into(),
+                    state: StepperState::Current,
+                },
+                StepperStep {
+                    label: "Pick a plan".into(),
+                    state: StepperState::Upcoming,
+                },
+            ],
+        };
+        let html = render_block(&s).into_string();
+        assert!(html.contains("<ol"));
+        assert!(html.contains("loom-block-stepper"));
+        assert!(html.contains(r#"data-state="done""#));
+        assert!(html.contains(r#"data-state="current""#));
+        assert!(html.contains(r#"data-state="upcoming""#));
+        assert!(html.contains(r#"aria-current="step""#));
+        // aria-current should appear EXACTLY once (only on the current step)
+        assert_eq!(html.matches("aria-current").count(), 1);
+        assert!(html.contains(">Sign up<"));
+        assert!(html.contains(">Verify email<"));
+        assert!(html.contains(">Pick a plan<"));
+        // Numbered index 1 / 2 / 3
+        assert!(html.contains(">1<"));
+        assert!(html.contains(">3<"));
+    }
+
+    #[test]
+    fn cms_block_stepper_default_state_is_upcoming() {
+        assert_eq!(StepperState::default().slug(), "upcoming");
+    }
+
+    #[test]
+    fn cms_block_stepper_escapes_html_in_labels() {
+        let s = CmsBlock::Stepper {
+            steps: vec![StepperStep {
+                label: "<script>".into(),
+                state: StepperState::Current,
+            }],
+        };
+        let html = render_block(&s).into_string();
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
