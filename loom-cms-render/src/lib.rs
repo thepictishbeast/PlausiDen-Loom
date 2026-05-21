@@ -576,6 +576,29 @@ pub enum CmsBlock {
         #[serde(default)]
         tone: BadgeTone,
     },
+    /// Semantic data table. Renders as `<table>` with optional
+    /// `<caption>`, required `<thead>` (column headers), and
+    /// `<tbody>` (row data). Cells are plain text — escaped at
+    /// render. Rich cell content (a cell with a Link + Badge,
+    /// say) gets a dedicated `Table::Rich` variant when the need
+    /// is real; v1 covers the 90% case of tabular text data.
+    ///
+    /// `scope="col"` on every header per WCAG 1.3.1; screen
+    /// readers announce the column when navigating data cells.
+    /// Width / column-alignment / zebra-striping flow from
+    /// tenant `[style]` config — substrate asserts semantics
+    /// only.
+    Table {
+        /// Optional accessible caption rendered as `<caption>`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caption: Option<String>,
+        /// Column header labels.
+        headers: Vec<String>,
+        /// Data rows. Each inner Vec is one row; cells beyond
+        /// the header count render anyway, but a balanced
+        /// table is expected.
+        rows: Vec<Vec<String>>,
+    },
     /// Sandboxed `<iframe>` embed. Used for third-party widgets
     /// (YouTube / Vimeo / Maps / payment forms) without granting
     /// them ambient access to the parent document. Substrate
@@ -6419,6 +6442,33 @@ pub fn render_block(block: &CmsBlock) -> Markup {
         }
         CmsBlock::Badge { text, tone } => html! {
             span class="loom-block-badge" data-tone=(tone.slug()) { (text) }
+        },
+        CmsBlock::Table {
+            caption,
+            headers,
+            rows,
+        } => html! {
+            table class="loom-block-table" {
+                @if let Some(c) = caption {
+                    caption class="loom-block-table__caption" { (c) }
+                }
+                thead class="loom-block-table__thead" {
+                    tr {
+                        @for h in headers {
+                            th scope="col" class="loom-block-table__th" { (h) }
+                        }
+                    }
+                }
+                tbody class="loom-block-table__tbody" {
+                    @for row in rows {
+                        tr class="loom-block-table__tr" {
+                            @for cell in row {
+                                td class="loom-block-table__td" { (cell) }
+                            }
+                        }
+                    }
+                }
+            }
         },
         CmsBlock::Alert { title, body, tone } => {
             let role = match tone {
@@ -13735,6 +13785,54 @@ mod tests {
         let html = render_block(&s).into_string();
         assert!(html.contains(">Substrate A<"));
         assert!(html.contains(">Substrate B<"));
+    }
+
+    #[test]
+    fn cms_block_table_emits_semantic_thead_tbody() {
+        let t = CmsBlock::Table {
+            caption: Some("Q3 numbers".into()),
+            headers: vec!["Metric".into(), "Value".into()],
+            rows: vec![
+                vec!["Revenue".into(), "$1.2M".into()],
+                vec!["Users".into(), "47k".into()],
+            ],
+        };
+        let html = render_block(&t).into_string();
+        assert!(html.contains("<table"));
+        assert!(html.contains("loom-block-table"));
+        assert!(html.contains("<caption"));
+        assert!(html.contains("Q3 numbers"));
+        assert!(html.contains("<thead"));
+        assert!(html.contains("<tbody"));
+        assert!(html.contains(r#"scope="col""#));
+        assert!(html.contains(">Metric<"));
+        assert!(html.contains(">Revenue<"));
+        assert!(html.contains(">47k<"));
+    }
+
+    #[test]
+    fn cms_block_table_omits_caption_when_absent() {
+        let t = CmsBlock::Table {
+            caption: None,
+            headers: vec!["A".into()],
+            rows: vec![vec!["1".into()]],
+        };
+        let html = render_block(&t).into_string();
+        assert!(!html.contains("<caption"));
+    }
+
+    #[test]
+    fn cms_block_table_escapes_html_in_cells() {
+        let t = CmsBlock::Table {
+            caption: None,
+            headers: vec!["<script>".into()],
+            rows: vec![vec!["<img src=x>".into()]],
+        };
+        let html = render_block(&t).into_string();
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<img src=x"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("&lt;img"));
     }
 
     #[test]

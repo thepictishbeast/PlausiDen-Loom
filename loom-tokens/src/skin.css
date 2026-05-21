@@ -10885,3 +10885,37 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
   color: var(--loom-color-badge-accent-text, var(--loom-color-accent, var(--loom-color-primary, #3a7afe)));
   border-color: var(--loom-color-badge-accent-border, color-mix(in oklab, var(--loom-color-accent, var(--loom-color-primary, #3a7afe)) 30%, transparent));
 }
+
+/* === CmsBlock::Table =============================================== */
+/* Semantic data table. Substrate asserts <table>/<thead>/<tbody>/
+   <caption>/scope=col; tenant [style] config drives the visual
+   register (zebra striping, border, density). */
+.loom-block-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--loom-font-table, 0.9375rem);
+  line-height: 1.45;
+  color: var(--loom-color-text, inherit);
+}
+.loom-block-table__caption {
+  caption-side: top;
+  text-align: left;
+  padding: 0 0 0.5rem;
+  font-weight: 600;
+  color: var(--loom-color-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 70%, transparent));
+}
+.loom-block-table__th {
+  text-align: left;
+  font-weight: 600;
+  padding: 0.625rem 0.75rem;
+  border-bottom: 2px solid var(--loom-color-border, color-mix(in oklab, var(--loom-color-text, currentColor) 18%, transparent));
+  background: var(--loom-color-surface-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 4%, transparent));
+}
+.loom-block-table__td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--loom-color-border, color-mix(in oklab, var(--loom-color-text, currentColor) 10%, transparent));
+  vertical-align: top;
+}
+.loom-block-table__tr:nth-child(even) > .loom-block-table__td {
+  background: var(--loom-color-table-stripe, color-mix(in oklab, var(--loom-color-text, currentColor) 2%, transparent));
+}
