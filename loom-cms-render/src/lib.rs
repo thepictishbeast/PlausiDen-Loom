@@ -430,6 +430,32 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Right-click context menu — hidden until the user
+    /// right-clicks on the target element. Substrate emits the
+    /// menu markup with `popover="manual"` so the future Loom JS
+    /// runtime can call `.showPopover()` from a `contextmenu`
+    /// event handler. Items share the same shape as
+    /// [`CmsBlock::DropdownMenu`] (label / href / data-backend /
+    /// disabled / separator).
+    ///
+    /// Behavioral contract mirrors Radix UI's `ContextMenu`
+    /// primitive. Upstream spec:
+    /// <https://www.radix-ui.com/primitives/docs/components/context-menu>
+    /// (MIT). No source copied.
+    ContextMenu {
+        /// Unique HTML `id`. The future Loom JS runtime
+        /// references this when binding the contextmenu handler
+        /// + calling `.showPopover()`.
+        id: String,
+        /// CSS selector for the trigger element(s). The JS
+        /// runtime attaches a `contextmenu` event listener to
+        /// every element matching this selector. Default is
+        /// `"body"` (whole-page right-click).
+        #[serde(default = "default_context_menu_target")]
+        target_selector: String,
+        /// Menu items.
+        items: Vec<BlockDropdownItem>,
+    },
     /// Application menubar — File / Edit / View-style top bar
     /// where leaf items are commands (`<button>`) rather than
     /// page links. Same recursive disclosure pattern as
@@ -4414,6 +4440,9 @@ fn default_slider_step() -> f64 {
 fn default_breadcrumb_separator() -> String {
     "/".to_owned()
 }
+fn default_context_menu_target() -> String {
+    "body".to_owned()
+}
 
 /// Page-shell chrome kind. Picks the header + body-backdrop
 /// shape. Each variant is a complete chrome aesthetic, not a
@@ -5814,6 +5843,56 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::ContextMenu {
+            id,
+            target_selector,
+            items,
+        } => html! {
+            div
+                popover="manual"
+                id=(id)
+                class="loom-block-context-menu"
+                data-loom-slot="context-menu"
+                data-target-selector=(target_selector)
+                role="menu"
+            {
+                @for item in items {
+                    @if item.separator_before {
+                        hr class="loom-block-context-menu__separator" role="separator";
+                    }
+                    @match &item.href {
+                        Some(href) => {
+                            @let safe = loom_components::composer::is_safe_url(href);
+                            a
+                                role="menuitem"
+                                class="loom-block-context-menu__item"
+                                data-loom-slot="context-menu-item"
+                                href=(if safe { href.as_str() } else { "#invalid-link" })
+                                data-backend=[item.data_backend.as_deref()]
+                                data-invalid=[(!safe).then_some("true")]
+                                aria-disabled=(if item.disabled { "true" } else { "false" })
+                                tabindex=(if item.disabled { "-1" } else { "0" })
+                            {
+                                (item.label)
+                            }
+                        }
+                        None => {
+                            button
+                                type="button"
+                                role="menuitem"
+                                class="loom-block-context-menu__item"
+                                data-loom-slot="context-menu-item"
+                                data-backend=[item.data_backend.as_deref()]
+                                disabled[item.disabled]
+                                aria-disabled=(if item.disabled { "true" } else { "false" })
+                            {
+                                (item.label)
+                            }
+                        }
+                    }
+                }
+            }
+        },
         CmsBlock::Menubar { items, aria_label } => {
             let label = aria_label.as_deref().unwrap_or("Application menu");
             html! {
@@ -11235,6 +11314,46 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_context_menu_renders_popover_manual_with_items() {
+        let json = r#"{
+            "kind": "context_menu",
+            "id": "page-ctx",
+            "target_selector": ".doc",
+            "items": [
+                {"label":"Copy","data_backend":"clipboard-copy"},
+                {"label":"Paste","data_backend":"clipboard-paste","separator_before":true},
+                {"label":"Open in new tab","href":"/x","separator_before":true},
+                {"label":"Delete","disabled":true}
+            ]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        // Native popover=manual so JS runtime controls open/close.
+        assert!(html.contains(r#"popover="manual""#));
+        assert!(html.contains(r#"id="page-ctx""#));
+        // Target selector exposed via data attr.
+        assert!(html.contains(r#"data-target-selector=".doc""#));
+        // role=menu on container + role=menuitem on items.
+        assert!(html.contains(r#"role="menu""#));
+        assert_eq!(html.matches(r#"role="menuitem""#).count(), 4);
+        // Items without href render as <button>, with href render as <a>.
+        assert!(html.contains(">Copy</button>"));
+        assert!(html.contains(r#"href="/x""#));
+        // Two items with separator_before → 2 <hr role=separator>.
+        assert_eq!(html.matches(r#"role="separator""#).count(), 2);
+        // Disabled item.
+        assert!(html.contains(r#"aria-disabled="true""#));
+    }
+
+    #[test]
+    fn cms_block_context_menu_default_target_is_body() {
+        let json = r#"{"kind":"context_menu","id":"c","items":[]}"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-target-selector="body""#));
     }
 
     #[test]
