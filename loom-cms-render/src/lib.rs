@@ -752,7 +752,52 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed order-receipt block — order number + date + line
+    /// items + totals (subtotal / tax / shipping / discount /
+    /// total). Distinct from
+    /// [`CmsSection::FormSuccessConfirm`] (typed post-submit
+    /// confirmation, narrower), from [`CmsSection::Pricing`]
+    /// (commerce / SaaS plan grid), and from
+    /// [`CmsSection::ProductCard`] (commerce browse card).
+    ///
+    /// OrderReceipt is the typed primitive for post-purchase
+    /// summaries: confirmation pages, transactional emails
+    /// (when emitted as HTML), and account / order-history
+    /// surfaces. The structured totals + per-item line shape
+    /// lets feed crawlers and analytics extract financials
+    /// without parsing rendered chrome.
+    OrderReceipt {
+        /// Order identifier ("ORD-2026-04219", "#12,394").
+        order_id: String,
+        /// Optional editorial date label ("June 14, 2026 ·
+        /// 14:32 UTC"). Free-form.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        date_label: Option<String>,
+        /// Currency code (ISO 4217 free-form so cutting-edge
+        /// currencies aren't blocked).
+        currency: String,
+        /// Line items.
+        items: Vec<OrderReceiptItem>,
+        /// Subtotal in minor units of the currency (cents for
+        /// USD/EUR/GBP; yen for JPY).
+        subtotal_minor: u64,
+        /// Optional tax in minor units.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tax_minor: Option<u64>,
+        /// Optional shipping in minor units.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shipping_minor: Option<u64>,
+        /// Optional discount in minor units (positive value;
+        /// renderer prefixes with "−" for visual clarity).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        discount_minor: Option<u64>,
+        /// Final total in minor units.
+        total_minor: u64,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +3001,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3122,22 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// One line item in [`CmsSection::OrderReceipt`]. Quantity is
+/// `u32` (orders rarely need 4G+ of one item); per-item price
+/// and per-item line total are minor units of the parent
+/// receipt's currency.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
+pub struct OrderReceiptItem {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sku: Option<String>,
+    pub quantity: u32,
+    pub unit_price_minor: u64,
+    pub line_total_minor: u64,
 }
 
 /// One comparison row.
@@ -5581,6 +5642,130 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::OrderReceipt {
+            order_id,
+            date_label,
+            currency,
+            items,
+            subtotal_minor,
+            tax_minor,
+            shipping_minor,
+            discount_minor,
+            total_minor,
+        } => {
+            let zero_minor = matches!(
+                currency.to_ascii_uppercase().as_str(),
+                "JPY" | "KRW" | "VND" | "ISK" | "CLP" | "UGX"
+            );
+            let format_amount = |minor: u64| -> String {
+                if zero_minor {
+                    format!("{minor}")
+                } else {
+                    let major = minor / 100;
+                    let frac = minor % 100;
+                    format!("{major}.{frac:02}")
+                }
+            };
+            let aria_label = format!("Order receipt: {order_id}");
+            html! {
+                article class="loom-order-receipt"
+                    aria-label=(aria_label)
+                    data-loom-order-id=(order_id)
+                    data-loom-order-currency=(currency)
+                    data-loom-reveal {
+                    header class="loom-order-receipt__header" {
+                        h2 class="loom-order-receipt__heading" { "Order " (order_id) }
+                        @if let Some(d) = date_label {
+                            p class="loom-order-receipt__date" { (d) }
+                        }
+                    }
+                    table class="loom-order-receipt__items" {
+                        caption class="loom-order-receipt__caption" {
+                            "Order line items"
+                        }
+                        thead {
+                            tr {
+                                th scope="col" class="loom-order-receipt__col-item" {
+                                    "Item"
+                                }
+                                th scope="col" class="loom-order-receipt__col-qty" {
+                                    "Qty"
+                                }
+                                th scope="col" class="loom-order-receipt__col-unit" {
+                                    "Unit price"
+                                }
+                                th scope="col" class="loom-order-receipt__col-line" {
+                                    "Line total"
+                                }
+                            }
+                        }
+                        tbody {
+                            @for item in items {
+                                tr class="loom-order-receipt__row" {
+                                    td class="loom-order-receipt__item-cell" {
+                                        span class="loom-order-receipt__item-name" {
+                                            (item.name)
+                                        }
+                                        @if let Some(sku) = &item.sku {
+                                            span class="loom-order-receipt__item-sku" {
+                                                " · " (sku)
+                                            }
+                                        }
+                                    }
+                                    td class="loom-order-receipt__qty-cell" {
+                                        (item.quantity)
+                                    }
+                                    td class="loom-order-receipt__unit-cell" {
+                                        (currency) " " (format_amount(item.unit_price_minor))
+                                    }
+                                    td class="loom-order-receipt__line-cell" {
+                                        (currency) " " (format_amount(item.line_total_minor))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    div class="loom-order-receipt__totals" {
+                        p class="loom-order-receipt__total-row loom-order-receipt__subtotal" {
+                            span class="loom-order-receipt__total-label" { "Subtotal" }
+                            span class="loom-order-receipt__total-value" {
+                                (currency) " " (format_amount(*subtotal_minor))
+                            }
+                        }
+                        @if let Some(t) = tax_minor {
+                            p class="loom-order-receipt__total-row loom-order-receipt__tax" {
+                                span class="loom-order-receipt__total-label" { "Tax" }
+                                span class="loom-order-receipt__total-value" {
+                                    (currency) " " (format_amount(*t))
+                                }
+                            }
+                        }
+                        @if let Some(s) = shipping_minor {
+                            p class="loom-order-receipt__total-row loom-order-receipt__shipping" {
+                                span class="loom-order-receipt__total-label" { "Shipping" }
+                                span class="loom-order-receipt__total-value" {
+                                    (currency) " " (format_amount(*s))
+                                }
+                            }
+                        }
+                        @if let Some(d) = discount_minor {
+                            p class="loom-order-receipt__total-row loom-order-receipt__discount" {
+                                span class="loom-order-receipt__total-label" { "Discount" }
+                                span class="loom-order-receipt__total-value" {
+                                    "−" (currency) " " (format_amount(*d))
+                                }
+                            }
+                        }
+                        p class="loom-order-receipt__total-row loom-order-receipt__total" {
+                            span class="loom-order-receipt__total-label" { "Total" }
+                            span class="loom-order-receipt__total-value" {
+                                (currency) " " (format_amount(*total_minor))
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10132,157 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn order_receipt_renders_table_with_required_totals() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "order_receipt",
+                "order_id": "ORD-2026-04219",
+                "currency": "USD",
+                "items": [
+                    {"name": "PlausiDen Annual", "quantity": 1,
+                     "unit_price_minor": 9900, "line_total_minor": 9900}
+                ],
+                "subtotal_minor": 9900,
+                "total_minor": 9900
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-order-receipt"));
+        assert!(html.contains("aria-label=\"Order receipt: ORD-2026-04219\""));
+        assert!(html.contains("data-loom-order-id=\"ORD-2026-04219\""));
+        assert!(html.contains("data-loom-order-currency=\"USD\""));
+        assert!(html.contains("Order ORD-2026-04219"));
+        // Table with caption + headers.
+        assert!(html.contains("<table"));
+        assert!(html.contains("<caption"));
+        assert!(html.contains("Order line items"));
+        assert!(html.contains("scope=\"col\""));
+        // Line item rendered.
+        assert!(html.contains("PlausiDen Annual"));
+        assert!(html.contains("USD 99.00"));
+        // Subtotal + total.
+        assert!(html.contains("loom-order-receipt__subtotal"));
+        assert!(html.contains(">Subtotal<"));
+        assert!(html.contains("loom-order-receipt__total\""));
+        assert!(html.contains(">Total<"));
+        // Optional rows absent.
+        assert!(!html.contains("loom-order-receipt__tax"));
+        assert!(!html.contains("loom-order-receipt__shipping"));
+        assert!(!html.contains("loom-order-receipt__discount"));
+        assert!(!html.contains("loom-order-receipt__date"));
+    }
+
+    #[test]
+    fn order_receipt_with_all_totals_and_discount_prefix() {
+        let json = r##"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "order_receipt",
+                "order_id": "#12394",
+                "date_label": "June 14, 2026 · 14:32 UTC",
+                "currency": "USD",
+                "items": [
+                    {"name": "Annual sub", "sku": "ANN-001",
+                     "quantity": 1, "unit_price_minor": 9900,
+                     "line_total_minor": 9900},
+                    {"name": "Add-on", "quantity": 2,
+                     "unit_price_minor": 500, "line_total_minor": 1000}
+                ],
+                "subtotal_minor": 10900,
+                "tax_minor": 950,
+                "shipping_minor": 500,
+                "discount_minor": 1000,
+                "total_minor": 11350
+            }]
+        }"##;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-order-receipt__date"));
+        assert!(html.contains("June 14, 2026 · 14:32 UTC"));
+        // Both items.
+        let row_count = html.matches("loom-order-receipt__row").count();
+        assert_eq!(row_count, 2, "expected 2 rows, got {row_count}");
+        assert!(html.contains("ANN-001"));
+        assert!(html.contains("Add-on"));
+        // All totals rendered.
+        assert!(html.contains("loom-order-receipt__subtotal"));
+        assert!(html.contains("USD 109.00"));
+        assert!(html.contains("loom-order-receipt__tax"));
+        assert!(html.contains("USD 9.50"));
+        assert!(html.contains("loom-order-receipt__shipping"));
+        assert!(html.contains("USD 5.00"));
+        // Discount prefixed with "−".
+        assert!(html.contains("loom-order-receipt__discount"));
+        assert!(html.contains("−USD 10.00"));
+        // Final total.
+        assert!(html.contains("loom-order-receipt__total\""));
+        assert!(html.contains("USD 113.50"));
+    }
+
+    #[test]
+    fn order_receipt_jpy_renders_no_decimals() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "order_receipt",
+                "order_id": "JP-001",
+                "currency": "JPY",
+                "items": [
+                    {"name": "Item", "quantity": 1,
+                     "unit_price_minor": 5000, "line_total_minor": 5000}
+                ],
+                "subtotal_minor": 5000,
+                "total_minor": 5000
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("JPY 5000"));
+        assert!(!html.contains("JPY 50.00"));
+    }
+
+    #[test]
+    fn order_receipt_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "order_receipt",
+                "order_id": "<script>alert('id')</script>",
+                "date_label": "<script>alert('d')</script>",
+                "currency": "USD",
+                "items": [
+                    {"name": "<script>alert('n')</script>",
+                     "sku": "<script>alert('s')</script>",
+                     "quantity": 1, "unit_price_minor": 100,
+                     "line_total_minor": 100}
+                ],
+                "subtotal_minor": 100,
+                "total_minor": 100
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        // order_id appears in aria-label + visible + data attr,
+        // date + item name + sku each appear once.
+        assert!(
+            entity_hits >= 5,
+            "expected >= 5 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
