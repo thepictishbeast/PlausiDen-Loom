@@ -752,7 +752,50 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed reader letter / letter to the editor. Distinct
+    /// from [`CmsSection::Testimonial`] (third-party praise),
+    /// from [`CmsSection::PullQuote`] (extracted body quote
+    /// inside an article), from [`CmsSection::Endorsement`]
+    /// (publication's own first-person editorial position),
+    /// and from [`CmsSection::OpenLetter`] (the publication's
+    /// own addressed statement).
+    ///
+    /// LetterToEditor is the typed primitive for the reader-
+    /// submitted-letter section of a publication: subject line
+    /// + greeting + multi-paragraph body + sign-off + writer
+    /// attribution (with optional location). Maps directly to
+    /// the structured shape readers expect on op-ed and
+    /// letters pages.
+    LetterToEditor {
+        /// Subject line ("RE: Op-ed on housing policy",
+        /// "On the November 4 election coverage").
+        subject: String,
+        /// Optional greeting ("To the editor", "Dear editor",
+        /// "Sirs"). Defaults to no greeting block when
+        /// omitted — many publications drop the greeting in
+        /// favor of going straight to the subject.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        greeting: Option<String>,
+        /// Letter body. Multi-paragraph splits on `\n\n`.
+        body: String,
+        /// Optional sign-off ("Sincerely", "Regards",
+        /// "Respectfully").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sign_off: Option<String>,
+        /// Author name (required — the letter is attributed).
+        author: String,
+        /// Optional location ("Portland, OR", "Chicago, IL"
+        /// — the editorial convention).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        location: Option<String>,
+        /// Optional date label of the letter.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        date_label: Option<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +2999,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5581,6 +5624,66 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::LetterToEditor {
+            subject,
+            greeting,
+            body,
+            sign_off,
+            author,
+            location,
+            date_label,
+        } => {
+            let body_paras: Vec<&str> = body.split("\n\n").collect();
+            let aria_label = format!("Letter to the editor: {subject}");
+            html! {
+                article class="loom-letter-to-editor"
+                    aria-label=(aria_label)
+                    data-loom-reveal {
+                    header class="loom-letter-to-editor__header" {
+                        p class="loom-letter-to-editor__subject" {
+                            span class="loom-letter-to-editor__subject-label" {
+                                "Subject: "
+                            }
+                            span class="loom-letter-to-editor__subject-value" {
+                                (subject)
+                            }
+                        }
+                        @if let Some(g) = greeting {
+                            p class="loom-letter-to-editor__greeting" { (g) }
+                        }
+                    }
+                    div class="loom-letter-to-editor__body" {
+                        @for p in &body_paras {
+                            p class="loom-letter-to-editor__para" { (p) }
+                        }
+                    }
+                    footer class="loom-letter-to-editor__footer" {
+                        @if let Some(s) = sign_off {
+                            p class="loom-letter-to-editor__sign-off" { (s) "," }
+                        }
+                        p class="loom-letter-to-editor__author" { (author) }
+                        @if location.is_some() || date_label.is_some() {
+                            p class="loom-letter-to-editor__attribution" {
+                                @if let Some(loc) = location {
+                                    span class="loom-letter-to-editor__location" {
+                                        (loc)
+                                    }
+                                }
+                                @if location.is_some() && date_label.is_some() {
+                                    span class="loom-letter-to-editor__separator"
+                                        aria-hidden="true" { " · " }
+                                }
+                                @if let Some(d) = date_label {
+                                    span class="loom-letter-to-editor__date" {
+                                        (d)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10050,126 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn letter_to_editor_minimal_renders_required_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "letter_to_editor",
+                "subject": "RE: housing policy coverage",
+                "body": "The November 12 piece missed key context.",
+                "author": "Jane Smith"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-letter-to-editor"));
+        assert!(html.contains("aria-label=\"Letter to the editor: RE: housing policy coverage\""));
+        // Subject rendered.
+        assert!(html.contains("loom-letter-to-editor__subject"));
+        assert!(html.contains("RE: housing policy coverage"));
+        // Body rendered.
+        assert!(html.contains("loom-letter-to-editor__body"));
+        assert!(html.contains("missed key context"));
+        // Author rendered.
+        assert!(html.contains("loom-letter-to-editor__author"));
+        assert!(html.contains("Jane Smith"));
+        // Optional chrome absent.
+        assert!(!html.contains("loom-letter-to-editor__greeting"));
+        assert!(!html.contains("loom-letter-to-editor__sign-off"));
+        assert!(!html.contains("loom-letter-to-editor__attribution"));
+    }
+
+    #[test]
+    fn letter_to_editor_with_full_chrome() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "letter_to_editor",
+                "subject": "On the November 4 election coverage",
+                "greeting": "To the editor",
+                "body": "Para one.\n\nPara two.\n\nPara three.",
+                "sign_off": "Sincerely",
+                "author": "Alex Park",
+                "location": "Portland, OR",
+                "date_label": "November 8, 2026"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // Greeting rendered.
+        assert!(html.contains("loom-letter-to-editor__greeting"));
+        assert!(html.contains("To the editor"));
+        // Multi-paragraph body.
+        let para_count = html.matches("loom-letter-to-editor__para\"").count();
+        assert_eq!(para_count, 3, "expected 3 paragraphs, got {para_count}");
+        // Sign-off rendered with trailing comma.
+        assert!(html.contains("loom-letter-to-editor__sign-off"));
+        assert!(html.contains("Sincerely,"));
+        // Attribution line with both location + date and separator.
+        assert!(html.contains("loom-letter-to-editor__attribution"));
+        assert!(html.contains("loom-letter-to-editor__location"));
+        assert!(html.contains("Portland, OR"));
+        assert!(html.contains("loom-letter-to-editor__date"));
+        assert!(html.contains("November 8, 2026"));
+        let sep_count = html.matches("loom-letter-to-editor__separator").count();
+        assert_eq!(sep_count, 1, "expected 1 separator, got {sep_count}");
+    }
+
+    #[test]
+    fn letter_to_editor_only_location_no_date_omits_separator() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "letter_to_editor",
+                "subject": "S",
+                "body": "B",
+                "author": "A",
+                "location": "Chicago, IL"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-letter-to-editor__location"));
+        assert!(!html.contains("loom-letter-to-editor__date"));
+        assert!(!html.contains("loom-letter-to-editor__separator"));
+    }
+
+    #[test]
+    fn letter_to_editor_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "letter_to_editor",
+                "subject": "<script>alert('subj')</script>",
+                "greeting": "<script>alert('g')</script>",
+                "body": "<script>alert('b')</script>",
+                "sign_off": "<script>alert('s')</script>",
+                "author": "<script>alert('a')</script>",
+                "location": "<script>alert('loc')</script>",
+                "date_label": "<script>alert('d')</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        // subject appears twice (aria-label + visible) plus
+        // greeting + body + sign-off + author + location + date.
+        assert!(
+            entity_hits >= 8,
+            "expected >= 8 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
