@@ -77,18 +77,7 @@ fn walk_cms_json(
     dir: &std::path::Path,
     out: &mut Vec<std::path::PathBuf>,
 ) -> Result<(), std::io::Error> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            walk_cms_json(&path, out)?;
-            continue;
-        }
-        if path.extension().and_then(|e| e.to_str()) == Some("json") {
-            out.push(path);
-        }
-    }
-    Ok(())
+    crate::walk::walk_paths_by_ext(dir, out, |e| e == "json")
 }
 
 /// Build the journey JSON value. Pure function — testable
@@ -129,11 +118,7 @@ mod cmd_journey_from_cms_tests {
     use super::*;
 
     fn unique(label: &str) -> std::path::PathBuf {
-        let pid = std::process::id();
-        let n = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos());
-        std::env::temp_dir().join(format!("loom-journey-{label}-{pid}-{n}"))
+        crate::test_support::unique_tmp("loom-journey", label)
     }
 
     #[test]

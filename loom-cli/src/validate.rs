@@ -88,18 +88,7 @@ fn walk_json(
     dir: &std::path::Path,
     out: &mut Vec<std::path::PathBuf>,
 ) -> Result<(), std::io::Error> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            walk_json(&path, out)?;
-            continue;
-        }
-        if path.extension().and_then(|e| e.to_str()) == Some("json") {
-            out.push(path);
-        }
-    }
-    Ok(())
+    crate::walk::walk_paths_by_ext(dir, out, |e| e == "json")
 }
 
 /// Walk every URL field in a `CmsPage` and accumulate descriptive
@@ -186,11 +175,7 @@ mod cmd_validate_tests {
     use super::*;
 
     fn unique(label: &str) -> std::path::PathBuf {
-        let pid = std::process::id();
-        let n = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos());
-        std::env::temp_dir().join(format!("loom-validate-{label}-{pid}-{n}"))
+        crate::test_support::unique_tmp("loom-validate", label)
     }
 
     #[test]

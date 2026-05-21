@@ -77,14 +77,16 @@ use serde::{Deserialize, Serialize};
 ///
 /// See module docs for the per-tier definition + reference
 /// exemplars.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DensityTier {
     /// Substantial whitespace, 1-2 ideas per viewport. Premium
     /// marketing + product-page default.
     Sparse,
     /// Balanced whitespace, 3-5 ideas per viewport. Substrate
-    /// default. SaaS marketing default.
+    /// default. SaaS marketing default. Most editorial sites
+    /// land here, so this is the derived `Default` variant.
+    #[default]
     Comfortable,
     /// Editorial / dashboard density, 8-15 ideas per viewport.
     /// Operator-tool default.
@@ -92,14 +94,6 @@ pub enum DensityTier {
     /// Extreme info-density, every-pixel-earns-its-place.
     /// Terminal-style / pro-trader-tool default.
     Extreme,
-}
-
-impl Default for DensityTier {
-    /// `Comfortable` — the substrate default. Most marketing +
-    /// editorial sites land here.
-    fn default() -> Self {
-        Self::Comfortable
-    }
 }
 
 impl DensityTier {
