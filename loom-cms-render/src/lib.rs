@@ -1136,6 +1136,40 @@ pub enum CmsSection {
     },
     /// Initial-letter drop-cap paragraph.
     DropCap { text: String },
+    /// Crucible challenge embed. Renders a mount node + a
+    /// `<script type="module">` that imports the crucible-widget
+    /// WASM bundle and calls its `init(...)` against the mount.
+    ///
+    /// Forge sites that want bot-screening drop a section like:
+    /// ```json
+    /// {
+    ///   "kind": "crucible_challenge",
+    ///   "kind_slug": "math-arithmetic",
+    ///   "tenant_id": "acme",
+    ///   "base_path": "/crucible",
+    ///   "widget_url": "/static/crucible-widget/crucible_widget.js"
+    /// }
+    /// ```
+    /// The host runs a `crucible-server` peer (typically as a
+    /// reverse-proxy backend under `<base_path>`) that mints +
+    /// verifies challenges and emits CapturedTuple → LFI corpus.
+    CrucibleChallenge {
+        /// Challenge kind slug (`"math-arithmetic"`,
+        /// `"semantic-similarity"`, etc). Passed to the
+        /// widget's `init(kind, ...)` argument.
+        kind_slug: String,
+        /// Tenant identifier for per-tenant attribution +
+        /// corpus scope. Passed to the widget's
+        /// `init(..., tenant_id, ...)` argument.
+        tenant_id: String,
+        /// Base path of the crucible-server router. Defaults
+        /// to `/crucible` if absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        base_path: Option<String>,
+        /// URL of the widget JS module emitted by `wasm-pack
+        /// build --target web`. Required.
+        widget_url: String,
+    },
     /// Renderer-supplied "fact about Loom" — a typed slot that
     /// expands to the current value at render time so cms/*.json
     /// authors never hand-write counts that go stale.
@@ -6125,6 +6159,44 @@ pub fn render_section(section: &CmsSection) -> Markup {
         CmsSection::DropCap { text } => {
             html! { p class="loom-dropcap" data-loom-reveal { (text) } }
         }
+        CmsSection::CrucibleChallenge {
+            kind_slug,
+            tenant_id,
+            base_path,
+            widget_url,
+        } => {
+            // Mount id is deterministic per (kind, tenant) so
+            // multiple challenge embeds on one page don't
+            // collide. The widget's init() looks the mount up
+            // by id.
+            let mount_id = format!("crucible-{}-{}", kind_slug, tenant_id);
+            let base = base_path.as_deref().unwrap_or("/crucible");
+            // The widget exposes `init(element_id, kind,
+            // tenant_id, base_path)`. We invoke it from a
+            // module script that imports the wasm-pack
+            // bundle's default export (the loader) + the
+            // `init` named export (our widget entry).
+            let inline = format!(
+                r#"
+import init, {{ init as crucible_init }} from "{widget_url}";
+(async () => {{
+  await init();
+  await crucible_init({mount_id_lit}, {kind_lit}, {tenant_lit}, {base_lit});
+}})();
+"#,
+                widget_url = widget_url,
+                mount_id_lit = json_string_literal(&mount_id),
+                kind_lit = json_string_literal(kind_slug),
+                tenant_lit = json_string_literal(tenant_id),
+                base_lit = json_string_literal(base),
+            );
+            html! {
+                section class="loom-crucible-challenge" data-loom-reveal {
+                    div id=(mount_id) class="loom-crucible-challenge__mount" {}
+                    script type="module" { (maud::PreEscaped(inline)) }
+                }
+            }
+        }
         CmsSection::LoomFact { which, shape } => {
             let value = match which {
                 LoomFactKind::PrimitiveCount => loom_facts::PRIMITIVE_COUNT,
@@ -9778,6 +9850,84 @@ mod tests {
     }
 
     #[test]
+    fn crucible_challenge_renders_mount_and_script() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::CrucibleChallenge {
+                kind_slug: "math-arithmetic".to_owned(),
+                tenant_id: "acme".to_owned(),
+                base_path: None,
+                widget_url: "/static/crucible-widget/crucible_widget.js".to_owned(),
+            }],
+        };
+        let html = render_to_string(&p);
+        // Mount node with deterministic id.
+        assert!(
+            html.contains(r#"id="crucible-math-arithmetic-acme""#),
+            "missing mount id; got:\n{html}"
+        );
+        // Module-script imports the widget bundle.
+        assert!(html.contains("script type=\"module\""));
+        assert!(html.contains(r#"import init, { init as crucible_init } from "/static/crucible-widget/crucible_widget.js""#));
+        // init() called with kind + tenant + base_path defaults.
+        assert!(html.contains(r#"crucible_init("crucible-math-arithmetic-acme", "math-arithmetic", "acme", "/crucible")"#));
+    }
+
+    #[test]
+    fn crucible_challenge_honors_custom_base_path() {
+        let p = CmsPage {
+            brand: None,
+            theme: None,
+            chrome: None,
+            content_width: None,
+            nav_actions: vec![],
+            schema: None,
+            title: "x".to_owned(),
+            description: "x".to_owned(),
+            path: "/x".to_owned(),
+            nav_links: vec![],
+            dev_devtools: false,
+            footer: None,
+            site_origin: None,
+            social_image: None,
+            sections: vec![CmsSection::CrucibleChallenge {
+                kind_slug: "semantic-similarity".to_owned(),
+                tenant_id: "acme".to_owned(),
+                base_path: Some("/api/cr".to_owned()),
+                widget_url: "/w.js".to_owned(),
+            }],
+        };
+        let html = render_to_string(&p);
+        assert!(html.contains(r#""/api/cr""#));
+    }
+
+    #[test]
+    fn json_string_literal_escapes_special_chars() {
+        assert_eq!(json_string_literal("abc"), r#""abc""#);
+        assert_eq!(json_string_literal(r#"a"b"#), r#""a\"b""#);
+        assert_eq!(json_string_literal("a\\b"), r#""a\\b""#);
+        assert_eq!(json_string_literal("a\nb"), r#""a\nb""#);
+        // Closing-script-tag prevention: < / > / & all escape.
+        let s = json_string_literal("</script>");
+        assert!(!s.contains("</script>"));
+        assert!(s.contains("\\u003c"));
+        assert!(s.contains("\\u003e"));
+    }
+
+    #[test]
     fn pull_quote_renders_body_only() {
         let p = CmsPage {
             brand: None,
@@ -13101,6 +13251,40 @@ pub fn escape_html_text(s: &str) -> String {
             None => c.to_string(),
         })
         .collect()
+}
+
+/// Render `s` as a JSON-string-literal — wrapped in double
+/// quotes, with backslash + control-char + quote escapes.
+/// Used for safely embedding strings into inline `<script>`
+/// blocks where serde_json::Value::to_string is overkill.
+///
+/// REGRESSION-GUARD: closing-`</script>` injections are blocked
+/// because `<` and `/` aren't part of the escape set — but the
+/// renderer's caller is expected to keep CMS-author strings out
+/// of the value here (kind_slug, tenant_id, mount_id are
+/// substrate-controlled identifiers, not free text).
+#[must_use]
+pub fn json_string_literal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '<' => out.push_str("\\u003c"),
+            '>' => out.push_str("\\u003e"),
+            '&' => out.push_str("\\u0026"),
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// Escape a value going inside a double-quoted attribute.
