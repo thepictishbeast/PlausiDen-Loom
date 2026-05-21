@@ -430,6 +430,45 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Modal / non-modal dialog. Renders as the native HTML
+    /// `<dialog>` element — universally supported (Chromium 37+,
+    /// Safari 15.4+, Firefox 98+). Includes a default close
+    /// button wrapped in `<form method="dialog">` so the dialog
+    /// closes without JS when the button is clicked (the browser
+    /// implements the `dialog` form method natively).
+    ///
+    /// `modal=true` is rendered as a `data-modal="true"` hint;
+    /// actual modal behaviour (`.showModal()` vs `.show()`)
+    /// requires a JS layer that the substrate's progressive-
+    /// enhancement runtime drives. Static substrate respects
+    /// `open=true` to render the dialog as visible on first
+    /// paint; `open=false` produces a hidden dialog the JS
+    /// runtime can open.
+    ///
+    /// Behavioral contract mirrors Radix UI's `Dialog` primitive.
+    /// Upstream spec: <https://www.radix-ui.com/primitives/docs/components/dialog>
+    /// (MIT). No source copied.
+    Dialog {
+        /// Unique HTML `id`. Required so external triggers can
+        /// target the dialog (e.g. a button with
+        /// `onclick="document.getElementById('id').showModal()"`).
+        id: String,
+        /// Dialog title rendered inside `<h2>` at the top of the
+        /// content area.
+        title: String,
+        /// Block tree for the dialog body.
+        content: Vec<CmsBlock>,
+        /// When true, render with the `open` attribute so the
+        /// dialog is visible on first paint.
+        #[serde(default)]
+        open: bool,
+        /// When true, mark the dialog as intended-modal. The
+        /// substrate JS runtime uses this to choose between
+        /// `.show()` and `.showModal()` when programmatically
+        /// opening.
+        #[serde(default)]
+        modal: bool,
+    },
     /// Tooltip — hover/focus-revealed annotation tied to a
     /// trigger phrase. Renders entirely CSS-driven (no JS): the
     /// tooltip body shows on `:hover` and `:focus-visible` of
@@ -5110,6 +5149,46 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::Dialog {
+            id,
+            title,
+            content,
+            open,
+            modal,
+        } => html! {
+            dialog
+                class="loom-block-dialog"
+                data-loom-slot="dialog"
+                data-modal=(if *modal { "true" } else { "false" })
+                id=(id)
+                open[*open]
+                aria-labelledby={ (id) "__title" }
+            {
+                form method="dialog" class="loom-block-dialog__close-row" {
+                    button
+                        type="submit"
+                        class="loom-block-dialog__close"
+                        data-loom-slot="dialog-close"
+                        aria-label="Close dialog"
+                        value="cancel"
+                    {
+                        "×"
+                    }
+                }
+                h2
+                    class="loom-block-dialog__title"
+                    data-loom-slot="dialog-title"
+                    id={ (id) "__title" }
+                {
+                    (title)
+                }
+                div class="loom-block-dialog__content" data-loom-slot="dialog-content" {
+                    @for child in content {
+                        (render_block(child))
+                    }
+                }
+            }
+        },
         CmsBlock::Tooltip {
             label,
             content,
@@ -9556,6 +9635,55 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_dialog_renders_native_dialog_element() {
+        let json = r#"{
+            "kind": "dialog",
+            "id": "confirm-delete",
+            "title": "Confirm",
+            "content": [
+                {"kind":"text","text":"Are you sure?"}
+            ]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains("<dialog"));
+        assert!(html.contains(r#"id="confirm-delete""#));
+        assert!(html.contains(r#"data-loom-slot="dialog""#));
+        assert!(html.contains(r#"data-modal="false""#));
+        // Title rendered + linked via aria-labelledby
+        assert!(html.contains(r#"aria-labelledby="confirm-delete__title""#));
+        assert!(html.contains(r#"id="confirm-delete__title""#));
+        assert!(html.contains(">Confirm</h2>"));
+        // Native close mechanism (no JS): form method=dialog
+        assert!(html.contains(r#"<form method="dialog""#));
+        assert!(html.contains(r#"data-loom-slot="dialog-close""#));
+        assert!(html.contains(r#"aria-label="Close dialog""#));
+        // Body content rendered
+        assert!(html.contains("Are you sure?"));
+    }
+
+    #[test]
+    fn cms_block_dialog_open_attr_when_open_true() {
+        let json = r#"{
+            "kind":"dialog","id":"d","title":"T","content":[],"open":true
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        // `open` attr on the dialog element.
+        assert!(html.contains(" open"));
+    }
+
+    #[test]
+    fn cms_block_dialog_modal_true_emits_modal_data_attr() {
+        let json = r#"{
+            "kind":"dialog","id":"d","title":"T","content":[],"modal":true
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-modal="true""#));
     }
 
     #[test]
