@@ -1100,6 +1100,32 @@ pub enum CmsSection {
         before_slug: String,
         after_slug: String,
     },
+    /// Two-image side-by-side editorial layout — a typed
+    /// duet for then/now, before/after, or any two-image
+    /// comparison without the slider chrome of
+    /// [`CmsSection::BeforeAfter`]. Distinct from
+    /// [`CmsSection::ImageGrid`] (N images, gallery shape),
+    /// from [`CmsSection::Figure`] (single image), and from
+    /// [`CmsSection::BeforeAfter`] (interactive slider):
+    /// ImageDuet is two images presented as one editorial
+    /// unit with per-side labels + captions.
+    ///
+    /// Editorial intent: journalism / case-study / portfolio
+    /// surfaces where the meaning IS the comparison — a
+    /// city block in 1985 vs today, a draft vs the
+    /// published version, two artifacts juxtaposed.
+    ImageDuet {
+        /// Optional heading above the duet.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        heading: Option<String>,
+        /// Optional dek below the heading.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dek: Option<String>,
+        /// Left image side.
+        left: ImageDuetSide,
+        /// Right image side.
+        right: ImageDuetSide,
+    },
     /// Lightbox trigger row (click to enlarge).
     Lightbox { items: Vec<GalleryImage> },
     /// Irregular mosaic grid.
@@ -2956,7 +2982,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3103,27 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// One side of a [`CmsSection::ImageDuet`].
+///
+/// Carries the image (src + required alt) plus optional
+/// per-side label (eyebrow) + caption (below the image).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct ImageDuetSide {
+    /// Image source URL.
+    pub src: String,
+    /// Required alt text (WCAG 1.1.1).
+    pub alt: String,
+    /// Optional label / eyebrow above the image
+    /// (`"1985"`, `"Today"`, `"Before"`, `"After"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Optional caption below the image — short editorial
+    /// context (one sentence).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
 }
 
 /// One comparison row.
@@ -6104,6 +6151,51 @@ pub fn render_section(section: &CmsSection) -> Markup {
                         decoding="async";
                 }
                 input type="range" min="0" max="100" value="50" aria-label="Reveal slider" class="loom-before-after__slider";
+            }
+        },
+        CmsSection::ImageDuet {
+            heading,
+            dek,
+            left,
+            right,
+        } => {
+            let render_side = |side: &ImageDuetSide, side_mod: &'static str| -> Markup {
+                html! {
+                    figure class={ "loom-image-duet__side loom-image-duet__side--" (side_mod) } {
+                        @if let Some(l) = &side.label {
+                            figcaption class="loom-image-duet__label" { (l) }
+                        }
+                        img class="loom-image-duet__img"
+                            src=(side.src)
+                            alt=(side.alt)
+                            loading="lazy"
+                            decoding="async";
+                        @if let Some(c) = &side.caption {
+                            figcaption class="loom-image-duet__caption" { (c) }
+                        }
+                    }
+                }
+            };
+            html! {
+                figure class="loom-image-duet"
+                       aria-label="Image comparison"
+                       data-loom-reveal
+                {
+                    @if heading.is_some() || dek.is_some() {
+                        figcaption class="loom-image-duet__header" {
+                            @if let Some(h) = heading {
+                                p class="loom-image-duet__heading" { (h) }
+                            }
+                            @if let Some(d) = dek {
+                                p class="loom-image-duet__dek" { (d) }
+                            }
+                        }
+                    }
+                    div class="loom-image-duet__sides" {
+                        (render_side(left, "left"))
+                        (render_side(right, "right"))
+                    }
+                }
             }
         },
         CmsSection::Lightbox { items } => html! {
@@ -10147,6 +10239,142 @@ mod tests {
         assert!(html.contains("Solo"));
         assert!(!html.contains("loom-byline__role"));
         assert!(!html.contains("loom-byline__dateline"));
+    }
+
+    // #104 (2026-05-21) — ImageDuet two-image comparison.
+
+    #[test]
+    fn image_duet_renders_full_chrome_with_both_sides() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "image_duet",
+                "heading": "Then and now",
+                "dek": "The corner of 8th and Main, 40 years apart.",
+                "left": {
+                    "src": "/img/1985.jpg",
+                    "alt": "Black and white photo of the intersection in 1985.",
+                    "label": "1985",
+                    "caption": "Before the redevelopment."
+                },
+                "right": {
+                    "src": "/img/today.jpg",
+                    "alt": "Same intersection today, in colour.",
+                    "label": "Today",
+                    "caption": "After the 2018 redesign."
+                }
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<figure class="loom-image-duet""#));
+        assert!(html.contains(r#"aria-label="Image comparison""#));
+        assert!(html.contains(r#"class="loom-image-duet__heading""#));
+        assert!(html.contains(">Then and now<"));
+        assert!(html.contains(r#"class="loom-image-duet__dek""#));
+        assert!(html.contains(">The corner of 8th and Main, 40 years apart.<"));
+        assert!(html.contains("loom-image-duet__side--left"));
+        assert!(html.contains("loom-image-duet__side--right"));
+        // Per-side labels.
+        assert!(html.contains(">1985<"));
+        assert!(html.contains(">Today<"));
+        // Captions.
+        assert!(html.contains(">Before the redevelopment.<"));
+        assert!(html.contains(">After the 2018 redesign.<"));
+        // Image attributes.
+        assert!(html.contains(r#"src="/img/1985.jpg""#));
+        assert!(html.contains(r#"src="/img/today.jpg""#));
+        assert!(html.contains(r#"loading="lazy""#));
+        assert!(html.contains(r#"decoding="async""#));
+    }
+
+    #[test]
+    fn image_duet_minimal_sides_only_src_and_alt() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "image_duet",
+                "left": {"src": "/a.jpg", "alt": "A"},
+                "right": {"src": "/b.jpg", "alt": "B"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // No header chrome when heading + dek both absent.
+        assert!(!html.contains("loom-image-duet__header"));
+        assert!(!html.contains("loom-image-duet__heading"));
+        assert!(!html.contains("loom-image-duet__dek"));
+        // No per-side label / caption chrome when absent.
+        assert!(!html.contains("loom-image-duet__label"));
+        assert!(!html.contains("loom-image-duet__caption"));
+        // Images still present.
+        assert!(html.contains(r#"src="/a.jpg""#));
+        assert!(html.contains(r#"src="/b.jpg""#));
+    }
+
+    #[test]
+    fn image_duet_heading_only_emits_header_no_dek() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "image_duet",
+                "heading": "X",
+                "left": {"src": "/a.jpg", "alt": "A"},
+                "right": {"src": "/b.jpg", "alt": "B"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-image-duet__header"));
+        assert!(html.contains("loom-image-duet__heading"));
+        assert!(!html.contains("loom-image-duet__dek"));
+    }
+
+    #[test]
+    fn image_duet_html_escaped_across_all_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "image_duet",
+                "heading": "<script>h</script>",
+                "dek": "<script>d</script>",
+                "left": {
+                    "src": "/a.jpg",
+                    "alt": "<script>la</script>",
+                    "label": "<script>ll</script>",
+                    "caption": "<script>lc</script>"
+                },
+                "right": {
+                    "src": "/b.jpg",
+                    "alt": "<script>ra</script>",
+                    "label": "<script>rl</script>",
+                    "caption": "<script>rc</script>"
+                }
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>h</script>",
+            "<script>d</script>",
+            "<script>la</script>",
+            "<script>ll</script>",
+            "<script>lc</script>",
+            "<script>ra</script>",
+            "<script>rl</script>",
+            "<script>rc</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
