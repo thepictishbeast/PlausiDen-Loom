@@ -718,6 +718,28 @@ pub enum CmsBlock {
         /// Ctrl+K).
         keys: Vec<String>,
     },
+    /// Horizontally-scrolling marquee — the canonical logo-wall
+    /// / news-ticker / press-mention pattern. Items render
+    /// twice in the DOM (substrate-emitted) so the CSS keyframe
+    /// animation loops seamlessly without a JS layer.
+    ///
+    /// Honours `prefers-reduced-motion`: the cascade disables
+    /// the animation entirely when the user has reduced-motion
+    /// set, leaving the first copy of items static and accessible.
+    /// Animation is pure CSS — no JS required.
+    Marquee {
+        /// The block tree that scrolls. Typically a `Row` of
+        /// `Image` blocks (logo wall) or a `Row` of `Text`
+        /// blocks (news ticker).
+        items: Vec<CmsBlock>,
+        /// Token-scale animation speed.
+        #[serde(default)]
+        speed: MarqueeSpeed,
+        /// Scroll direction. Defaults to `Left` (the common
+        /// LTR-page reading-into-the-page direction).
+        #[serde(default)]
+        direction: MarqueeDirection,
+    },
     /// Sandboxed `<iframe>` embed. Used for third-party widgets
     /// (YouTube / Vimeo / Maps / payment forms) without granting
     /// them ambient access to the parent document. Substrate
@@ -1915,6 +1937,32 @@ pub struct EmptyStateAction {
     pub label: String,
     /// Destination URL.
     pub href: String,
+}
+
+/// Token-scale animation speed for [`CmsBlock::Marquee`].
+/// Concrete `animation-duration` values flow from the cascade
+/// via the `data-speed` attribute; substrate ships sensible
+/// defaults that tenants can override.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum MarqueeSpeed {
+    Slow,
+    #[default]
+    Medium,
+    Fast,
+}
+
+impl MarqueeSpeed {
+    /// Slug for the `data-speed` attribute.
+    #[must_use]
+    pub const fn slug(self) -> &'static str {
+        match self {
+            Self::Slow => "slow",
+            Self::Medium => "medium",
+            Self::Fast => "fast",
+        }
+    }
 }
 
 /// One step in a [`CmsBlock::Stepper`].
@@ -6689,6 +6737,36 @@ pub fn render_block(block: &CmsBlock) -> Markup {
         }
         CmsBlock::Badge { text, tone } => html! {
             span class="loom-block-badge" data-tone=(tone.slug()) { (text) }
+        },
+        CmsBlock::Marquee {
+            items,
+            speed,
+            direction,
+        } => html! {
+            div
+                class="loom-block-marquee"
+                data-speed=(speed.slug())
+                data-direction=({
+                    match direction {
+                        MarqueeDirection::Left => "left",
+                        MarqueeDirection::Right => "right",
+                    }
+                })
+                aria-label="Scrolling content"
+            {
+                div class="loom-block-marquee__track" {
+                    div class="loom-block-marquee__group" aria-hidden="false" {
+                        @for child in items {
+                            (render_block(child))
+                        }
+                    }
+                    div class="loom-block-marquee__group" aria-hidden="true" {
+                        @for child in items {
+                            (render_block(child))
+                        }
+                    }
+                }
+            }
         },
         CmsBlock::KbdShortcut { keys } => html! {
             span class="loom-block-kbd" {
@@ -14134,6 +14212,55 @@ mod tests {
         let html = render_block(&s).into_string();
         assert!(html.contains(">Substrate A<"));
         assert!(html.contains(">Substrate B<"));
+    }
+
+    #[test]
+    fn cms_block_marquee_emits_doubled_track_with_aria_hidden_clone() {
+        let m = CmsBlock::Marquee {
+            items: vec![
+                CmsBlock::Text {
+                    text: "Alpha".into(),
+                },
+                CmsBlock::Text {
+                    text: "Beta".into(),
+                },
+            ],
+            speed: MarqueeSpeed::Slow,
+            direction: MarqueeDirection::Right,
+        };
+        let html = render_block(&m).into_string();
+        assert!(html.contains("loom-block-marquee"));
+        assert!(html.contains(r#"data-speed="slow""#));
+        assert!(html.contains(r#"data-direction="right""#));
+        assert!(html.contains(r#"aria-label="Scrolling content""#));
+        // Two groups — one a11y-visible, one a11y-hidden clone
+        assert_eq!(
+            html.matches("loom-block-marquee__group").count(),
+            2,
+            "items duplicated for seamless loop"
+        );
+        assert!(html.contains(r#"aria-hidden="true""#));
+        // Alpha + Beta each appear twice (once per group)
+        assert_eq!(html.matches(">Alpha</p>").count(), 2);
+        assert_eq!(html.matches(">Beta</p>").count(), 2);
+    }
+
+    #[test]
+    fn cms_block_marquee_default_speed_and_direction() {
+        assert_eq!(MarqueeSpeed::default().slug(), "medium");
+        assert!(matches!(MarqueeDirection::default(), MarqueeDirection::Left));
+    }
+
+    #[test]
+    fn cms_block_marquee_empty_items_still_renders_shell() {
+        let m = CmsBlock::Marquee {
+            items: vec![],
+            speed: MarqueeSpeed::Medium,
+            direction: MarqueeDirection::Left,
+        };
+        let html = render_block(&m).into_string();
+        assert!(html.contains("loom-block-marquee__track"));
+        assert_eq!(html.matches("loom-block-marquee__group").count(), 2);
     }
 
     #[test]
