@@ -752,7 +752,40 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed API response example — status code + content type
+    /// + body. Pairs with [`CmsSection::ApiEndpointCard`] to
+    /// show an example response on the same page. Distinct
+    /// from [`CmsSection::Code`] (free-form code block) and
+    /// [`CmsSection::CodeShell`] (terminal command).
+    ///
+    /// The structured `status_code` + `content_type` slots let
+    /// feed crawlers + OpenAPI-comparators extract response
+    /// examples without parsing rendered chrome. Status code
+    /// surfaced as `data-loom-api-response-status` for
+    /// per-status filtering.
+    ApiResponseExample {
+        /// HTTP status code (200, 201, 204, 400, 401, 403,
+        /// 404, 422, 500, etc.).
+        status_code: u16,
+        /// Optional status reason ("OK", "Created", "Not
+        /// Found"). Free-form so non-standard codes work.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status_reason: Option<String>,
+        /// Response Content-Type ("application/json",
+        /// "text/plain", "application/vnd.api+json").
+        content_type: String,
+        /// Response body as a code block. Multi-line text
+        /// preserved as-is (rendered inside `<pre><code>`).
+        body: String,
+        /// Optional caption / description ("Successful
+        /// response", "Validation error").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caption: Option<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +2989,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5581,6 +5614,54 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::ApiResponseExample {
+            status_code,
+            status_reason,
+            content_type,
+            body,
+            caption,
+        } => {
+            let status_class = match status_code {
+                100..=199 => "info",
+                200..=299 => "success",
+                300..=399 => "redirect",
+                400..=499 => "client-error",
+                500..=599 => "server-error",
+                _ => "unknown",
+            };
+            let status_str = status_code.to_string();
+            html! {
+                figure class={ "loom-api-response-example loom-api-response-example--" (status_class) }
+                    data-loom-api-response-status=(status_str)
+                    data-loom-api-response-status-class=(status_class)
+                    data-loom-reveal {
+                    figcaption class="loom-api-response-example__header" {
+                        span class={
+                            "loom-api-response-example__status "
+                            "loom-api-response-example__status--" (status_class)
+                        } { (status_str) }
+                        @if let Some(reason) = status_reason {
+                            span class="loom-api-response-example__status-reason" {
+                                " " (reason)
+                            }
+                        }
+                        span class="loom-api-response-example__separator"
+                            aria-hidden="true" { " · " }
+                        code class="loom-api-response-example__content-type" {
+                            (content_type)
+                        }
+                    }
+                    pre class="loom-api-response-example__body" {
+                        code class="loom-api-response-example__body-code" {
+                            (body)
+                        }
+                    }
+                    @if let Some(c) = caption {
+                        p class="loom-api-response-example__caption" { (c) }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9945,6 +10026,114 @@ mod tests {
         }"#;
         let page: CmsPage = serde_json::from_str(json).expect("page parses");
         let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn api_response_example_200_renders_success_class() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "api_response_example",
+                "status_code": 200,
+                "status_reason": "OK",
+                "content_type": "application/json",
+                "body": "{\n  \"id\": \"u_123\"\n}"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-api-response-example"));
+        assert!(html.contains("loom-api-response-example--success"));
+        assert!(html.contains("data-loom-api-response-status=\"200\""));
+        assert!(html.contains("data-loom-api-response-status-class=\"success\""));
+        assert!(html.contains(">200<"));
+        assert!(html.contains(" OK"));
+        assert!(html.contains("application/json"));
+        // <pre><code> with body content.
+        assert!(html.contains("<pre"));
+        assert!(html.contains("u_123"));
+    }
+
+    #[test]
+    fn api_response_example_status_classes_by_range() {
+        let cases: &[(u16, &str)] = &[
+            (100, "info"),
+            (201, "success"),
+            (301, "redirect"),
+            (404, "client-error"),
+            (500, "server-error"),
+            (999, "unknown"),
+        ];
+        for (code, class) in cases {
+            let json = format!(
+                r#"{{
+                "brand": null, "theme": null, "chrome": null, "content_width": null,
+                "nav_actions": [], "title": "t", "description": "d",
+                "path": "/p", "nav_links": [], "dev_devtools": false,
+                "sections": [{{
+                    "kind": "api_response_example",
+                    "status_code": {code},
+                    "content_type": "application/json",
+                    "body": "{{}}"
+                }}]
+            }}"#
+            );
+            let page: CmsPage = serde_json::from_str(&json)
+                .unwrap_or_else(|_| panic!("status={code}"));
+            let html = render_to_string(&page);
+            assert!(
+                html.contains(&format!("loom-api-response-example--{class}")),
+                "status={code} missing class --{class}"
+            );
+            assert!(
+                html.contains(&format!("data-loom-api-response-status-class=\"{class}\"")),
+                "status={code} missing data class attr"
+            );
+        }
+    }
+
+    #[test]
+    fn api_response_example_with_caption() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "api_response_example",
+                "status_code": 422,
+                "status_reason": "Unprocessable Entity",
+                "content_type": "application/json",
+                "body": "{\"error\": \"invalid\"}",
+                "caption": "Validation error response"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-api-response-example__caption"));
+        assert!(html.contains("Validation error response"));
+        assert!(html.contains("loom-api-response-example--client-error"));
+    }
+
+    #[test]
+    fn api_response_example_escapes_body_html() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "api_response_example",
+                "status_code": 200,
+                "content_type": "text/html",
+                "body": "<script>alert('xss')</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // Body rendered inside <pre><code> with escape.
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
     }
