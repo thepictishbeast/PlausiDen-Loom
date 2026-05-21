@@ -425,6 +425,29 @@ pub enum CmsBlock {
         /// Item labels. Plain strings, escaped at render.
         items: Vec<String>,
     },
+    /// Block quotation. Renders as `<blockquote>` with required
+    /// quotation text + optional attribution rendered inside
+    /// `<cite>`. The `cite_url` attribute (when present) projects
+    /// onto the `<blockquote cite="...">` URL attribute per HTML
+    /// spec; it's validated via `composer::is_safe_url` and
+    /// stripped on hostile schemes.
+    ///
+    /// Distinct from the section-level `PullQuote` primitive,
+    /// which carries editorial visual register and lives at the
+    /// section tier. `Quote` is the atomic, semantic-HTML form
+    /// authors compose inside any `CmsSection::Compose` tree.
+    Quote {
+        /// Quotation body. Escaped at render time.
+        text: String,
+        /// Optional attribution — name / source rendered inside
+        /// `<cite>`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        attribution: Option<String>,
+        /// Optional source URL projected as the
+        /// `<blockquote cite="...">` attribute. URL-validated.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cite_url: Option<String>,
+    },
     /// Disclosure list — collapsible summary + content panels.
     /// Behavioral contract mirrors Radix UI's `Accordion`
     /// primitive (slot composition: each item carries a
@@ -6076,6 +6099,27 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                             li class="loom-block-list__item" { (item) }
                         }
                     },
+                }
+            }
+        }
+        CmsBlock::Quote {
+            text,
+            attribution,
+            cite_url,
+        } => {
+            let safe_cite = cite_url.as_deref().and_then(|u| {
+                if is_safe_url(u) {
+                    Some(u)
+                } else {
+                    None
+                }
+            });
+            html! {
+                blockquote class="loom-block-quote" cite=[safe_cite] {
+                    p class="loom-block-quote__text" { (text) }
+                    @if let Some(attr) = attribution {
+                        cite class="loom-block-quote__cite" { (attr) }
+                    }
                 }
             }
         }
@@ -13107,6 +13151,47 @@ mod tests {
         assert!(html.contains("<ol"));
         assert!(html.contains(r#"data-style="ordered""#));
         assert!(html.contains(">one<"));
+    }
+
+    #[test]
+    fn cms_block_quote_renders_blockquote_with_cite() {
+        let q = CmsBlock::Quote {
+            text: "The substrate is the only path.".into(),
+            attribution: Some("paul, 2026-05-20".into()),
+            cite_url: Some("https://plausiden.com/doctrine".into()),
+        };
+        let html = render_block(&q).into_string();
+        assert!(html.contains("<blockquote"));
+        assert!(html.contains("loom-block-quote"));
+        assert!(html.contains(r#"cite="https://plausiden.com/doctrine""#));
+        assert!(html.contains("The substrate is the only path"));
+        assert!(html.contains("<cite"));
+        assert!(html.contains("paul, 2026-05-20"));
+    }
+
+    #[test]
+    fn cms_block_quote_strips_hostile_cite_url() {
+        let q = CmsBlock::Quote {
+            text: "Body".into(),
+            attribution: None,
+            cite_url: Some("javascript:alert(1)".into()),
+        };
+        let html = render_block(&q).into_string();
+        assert!(html.contains("<blockquote"));
+        assert!(!html.contains("javascript:"));
+        assert!(!html.contains("cite="));
+    }
+
+    #[test]
+    fn cms_block_quote_omits_cite_when_no_attribution() {
+        let q = CmsBlock::Quote {
+            text: "Body".into(),
+            attribution: None,
+            cite_url: None,
+        };
+        let html = render_block(&q).into_string();
+        assert!(html.contains("<blockquote"));
+        assert!(!html.contains("<cite"));
     }
 
     #[test]

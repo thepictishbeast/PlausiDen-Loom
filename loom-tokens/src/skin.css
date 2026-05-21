@@ -10593,3 +10593,32 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
 .loom-block-list__item::marker {
   color: var(--loom-color-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 55%, transparent));
 }
+
+/* === CmsBlock::Quote =============================================== */
+/* Semantic <blockquote> primitive. Editorial register (rule color,
+   indent, italics) flows from tenant [style] config; substrate only
+   asserts the structural intent. */
+.loom-block-quote {
+  margin: 0;
+  padding: 0.75rem 1rem 0.75rem 1.25rem;
+  border-left: 3px solid var(--loom-color-accent, var(--loom-color-primary, currentColor));
+  background: var(--loom-color-quote-bg, transparent);
+  color: var(--loom-color-quote-text, var(--loom-color-text, inherit));
+  font-style: var(--loom-quote-style, italic);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.loom-block-quote__text {
+  margin: 0;
+  font-size: var(--loom-font-quote, 1.05rem);
+  line-height: var(--loom-leading-quote, 1.55);
+}
+.loom-block-quote__cite {
+  font-style: normal;
+  font-size: 0.875rem;
+  color: var(--loom-color-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 60%, transparent));
+}
+.loom-block-quote__cite::before {
+  content: "— ";
+}
