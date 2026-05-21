@@ -752,7 +752,53 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed software / content license display. Distinct from
+    /// [`CmsSection::Disclaimer`] (legal / sponsored disclosure),
+    /// from [`CmsSection::Citation`] (inline source citation),
+    /// and from [`CmsSection::LegalDoc`] (full legal-document
+    /// chrome).
+    ///
+    /// LicenseInfo is the typed primitive for the license card
+    /// rendered alongside open-source projects, downloadable
+    /// content, Creative Commons material, and any artefact
+    /// where the licensee needs to know the terms at a glance.
+    ///
+    /// The `spdx_id` field carries the SPDX short identifier
+    /// (`MIT`, `Apache-2.0`, `CC-BY-4.0`, `CC0-1.0`, `BSD-3-
+    /// Clause`, etc.) so feed crawlers + SBOM tooling can
+    /// extract the license without parsing the rendered card.
+    /// The substrate audits across an entire surface so
+    /// operators can't ship multiple licenses with stale SPDX
+    /// tags.
+    LicenseInfo {
+        /// SPDX identifier (`"MIT"`, `"Apache-2.0"`,
+        /// `"CC-BY-4.0"`). Free-form string — SPDX maintains
+        /// the canonical list; the substrate does not enforce
+        /// closed-world here so operators on cutting-edge
+        /// licenses aren't blocked.
+        spdx_id: String,
+        /// Human-readable license name
+        /// (`"MIT License"`, `"Creative Commons Attribution
+        /// 4.0 International"`).
+        name: String,
+        /// Optional summary explaining the license in plain
+        /// language. Multi-paragraph splits on `\n\n`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        summary: Option<String>,
+        /// Optional copyright holder + year line
+        /// (`"© 2026 Example Corp"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        copyright_line: Option<String>,
+        /// Optional canonical license-text link (typically the
+        /// SPDX or upstream URL). Validated via `is_safe_url`;
+        /// hostile schemes fall back to a non-interactive span.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        canonical_link: Option<LicenseCanonicalLink>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +3002,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3123,18 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// Canonical license-text link surfaced by
+/// [`CmsSection::LicenseInfo`]. `href` is validated via
+/// `is_safe_url`; hostile schemes fall back to a non-interactive
+/// span.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
+pub struct LicenseCanonicalLink {
+    pub label: String,
+    pub href: String,
 }
 
 /// One comparison row.
@@ -5581,6 +5639,47 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::LicenseInfo {
+            spdx_id,
+            name,
+            summary,
+            copyright_line,
+            canonical_link,
+        } => {
+            let aria_label = format!("License: {name}");
+            html! {
+                aside class="loom-license-info"
+                    aria-label=(aria_label)
+                    data-loom-license-spdx=(spdx_id)
+                    data-loom-reveal {
+                    header class="loom-license-info__header" {
+                        code class="loom-license-info__spdx" { (spdx_id) }
+                        h2 class="loom-license-info__name" { (name) }
+                    }
+                    @if let Some(s) = summary {
+                        div class="loom-license-info__summary" {
+                            @for para in s.split("\n\n") {
+                                p class="loom-license-info__para" { (para) }
+                            }
+                        }
+                    }
+                    @if let Some(c) = copyright_line {
+                        p class="loom-license-info__copyright" { (c) }
+                    }
+                    @if let Some(link) = canonical_link {
+                        @let href_safe = loom_components::composer::is_safe_url(&link.href);
+                        @if href_safe {
+                            a class="loom-license-info__canonical"
+                                href=(link.href)
+                                rel="license" { (link.label) }
+                        } @else {
+                            span class="loom-license-info__canonical"
+                                data-blocked-href="true" { (link.label) }
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10046,111 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn license_info_renders_required_fields_with_spdx_attr() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "license_info",
+                "spdx_id": "MIT",
+                "name": "MIT License"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-license-info"));
+        assert!(html.contains("data-loom-license-spdx=\"MIT\""));
+        assert!(html.contains("aria-label=\"License: MIT License\""));
+        assert!(html.contains("<code class=\"loom-license-info__spdx\">MIT</code>"));
+        assert!(html.contains("MIT License"));
+        // Optional chrome absent.
+        assert!(!html.contains("loom-license-info__summary"));
+        assert!(!html.contains("loom-license-info__copyright"));
+        assert!(!html.contains("loom-license-info__canonical"));
+    }
+
+    #[test]
+    fn license_info_with_full_chrome_and_canonical_link() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "license_info",
+                "spdx_id": "CC-BY-4.0",
+                "name": "Creative Commons Attribution 4.0 International",
+                "summary": "You may share and adapt this work.\n\nYou must give appropriate credit.",
+                "copyright_line": "© 2026 Example Foundation",
+                "canonical_link": {"label": "Full license text",
+                                   "href": "https://creativecommons.org/licenses/by/4.0/"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("data-loom-license-spdx=\"CC-BY-4.0\""));
+        // Multi-paragraph summary.
+        let para_count = html.matches("loom-license-info__para\"").count();
+        assert_eq!(para_count, 2, "expected 2 summary paragraphs, got {para_count}");
+        assert!(html.contains("share and adapt"));
+        assert!(html.contains("appropriate credit"));
+        // Copyright + canonical link rendered.
+        assert!(html.contains("loom-license-info__copyright"));
+        assert!(html.contains("© 2026 Example Foundation"));
+        assert!(html.contains("href=\"https://creativecommons.org/licenses/by/4.0/\""));
+        assert!(html.contains("rel=\"license\""));
+        assert!(html.contains("Full license text"));
+    }
+
+    #[test]
+    fn license_info_unsafe_canonical_href_falls_back_to_span() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "license_info",
+                "spdx_id": "MIT",
+                "name": "MIT License",
+                "canonical_link": {"label": "Visit",
+                                   "href": "javascript:alert(1)"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("href=\"javascript:"));
+        assert!(html.contains("data-blocked-href=\"true\""));
+    }
+
+    #[test]
+    fn license_info_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "license_info",
+                "spdx_id": "<script>alert('s')</script>",
+                "name": "<script>alert('n')</script>",
+                "summary": "<script>alert('sum')</script>",
+                "copyright_line": "<script>alert('c')</script>",
+                "canonical_link": {"label": "<script>alert('l')</script>",
+                                   "href": "/safe"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        // spdx_id + name appear in markup AND name appears in
+        // aria-label, so >= 5.
+        assert!(
+            entity_hits >= 5,
+            "expected >= 5 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
