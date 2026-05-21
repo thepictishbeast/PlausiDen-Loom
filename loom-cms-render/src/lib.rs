@@ -752,7 +752,46 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed honeypot anti-spam form field. Renders an
+    /// off-screen input that legitimate users never see / fill,
+    /// but naive form-spamming bots populate automatically.
+    /// The form handler rejects submissions where the honeypot
+    /// is non-empty.
+    ///
+    /// Distinct from [`CmsSection::FormInput`] (visible typed
+    /// input) and [`CmsSection::ConsentScreen`] (anti-spam
+    /// challenge UI): Honeypot is the typed primitive for the
+    /// invisible-to-humans / visible-to-bots field that backs
+    /// any form-spam defence layer.
+    ///
+    /// Rendered with the full anti-detection toolkit:
+    ///   - `aria-hidden="true"` so AT skips it
+    ///   - `tabindex="-1"` so keyboard skip
+    ///   - `autocomplete="off"` so browsers don't autofill
+    ///   - `inert` so it's removed from focus traversal entirely
+    ///     (modern browsers)
+    ///   - `<label>` carrying a misleading-but-realistic name
+    ///     ("Website" / "Phone (do not fill)") so bot text-
+    ///     classifiers populate it
+    ///   - inline style positioning it off-screen
+    Honeypot {
+        /// Form field `name=` attribute. The field is invisible
+        /// to humans but its name MUST look legitimate to bots
+        /// (typical values: `website`, `homepage`, `phone`,
+        /// `subject`). Surfaced as data attribute for spam-
+        /// filter observability.
+        name: String,
+        /// Label text displayed inside the off-screen `<label>`.
+        /// Should match the field name's apparent legitimacy
+        /// ("Website", "Your phone number"). Should NOT say
+        /// "honeypot" / "anti-spam" / "do not fill" in plain
+        /// text — defeats the purpose if visible.
+        label: String,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +2995,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5579,6 +5618,23 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 @if let Some(a) = attribution {
                     figcaption class="loom-epigraph__attribution" { "— " (a) }
                 }
+            }
+        },
+        CmsSection::Honeypot { name, label } => html! {
+            div class="loom-honeypot"
+                aria-hidden="true"
+                inert
+                data-loom-honeypot-name=(name)
+                style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;" {
+                label class="loom-honeypot__label"
+                    for={ "loom-honeypot__input-" (name) } { (label) }
+                input class="loom-honeypot__input"
+                    id={ "loom-honeypot__input-" (name) }
+                    type="text"
+                    name=(name)
+                    value=""
+                    tabindex="-1"
+                    autocomplete="off";
             }
         },
         // ─── T660 P5 — catalogue expansion render arms ───
@@ -9942,6 +9998,78 @@ mod tests {
             "nav_actions": [], "title": "t", "description": "d",
             "path": "/p", "nav_links": [], "dev_devtools": false,
             "sections": [{"kind": "epigraph", "body": "<script>alert(1)</script>"}]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn honeypot_renders_with_anti_detection_attrs() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "honeypot",
+                "name": "website",
+                "label": "Website"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-honeypot"));
+        // Anti-AT signals.
+        assert!(html.contains("aria-hidden=\"true\""));
+        assert!(html.contains(" inert"));
+        // Anti-keyboard signals.
+        assert!(html.contains("tabindex=\"-1\""));
+        // Anti-browser-autofill signal.
+        assert!(html.contains("autocomplete=\"off\""));
+        // Off-screen positioning.
+        assert!(html.contains("position:absolute"));
+        assert!(html.contains("left:-10000px"));
+        // Data attribute for observability.
+        assert!(html.contains("data-loom-honeypot-name=\"website\""));
+        // Form field with attacker-facing legitimate-looking name.
+        assert!(html.contains("name=\"website\""));
+        assert!(html.contains("type=\"text\""));
+        // Label with the human-facing-misleading name.
+        assert!(html.contains("loom-honeypot__label"));
+        assert!(html.contains(">Website<"));
+    }
+
+    #[test]
+    fn honeypot_input_id_includes_name_for_label_pairing() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "honeypot",
+                "name": "phone",
+                "label": "Phone"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // <label for> + <input id> match.
+        assert!(html.contains("for=\"loom-honeypot__input-phone\""));
+        assert!(html.contains("id=\"loom-honeypot__input-phone\""));
+    }
+
+    #[test]
+    fn honeypot_escapes_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "honeypot",
+                "name": "<script>alert('n')</script>",
+                "label": "<script>alert('l')</script>"
+            }]
         }"#;
         let page: CmsPage = serde_json::from_str(json).expect("page parses");
         let html = render_to_string(&page);
