@@ -430,6 +430,43 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Transient notification banner. Renders with ARIA live-
+    /// region semantics so screen readers announce the message
+    /// as it appears. `role` + `aria-live` are derived from
+    /// `tone`: info/success → `role=status` + `aria-live=polite`;
+    /// warning/error → `role=alert` + `aria-live=assertive`.
+    ///
+    /// Static substrate renders the toast inline; a future Loom
+    /// JS runtime animates show/dismiss + handles auto-dismiss
+    /// timers. `dismissible=true` includes a close button that
+    /// the JS runtime wires to `hidden` toggling.
+    ///
+    /// Behavioral contract mirrors Radix UI's `Toast` primitive.
+    /// Upstream spec: <https://www.radix-ui.com/primitives/docs/components/toast>
+    /// (MIT). No source copied.
+    Toast {
+        /// Unique HTML `id`. The JS runtime references this for
+        /// auto-dismiss timers + open/close transitions.
+        id: String,
+        /// Tone — drives the live-region severity + visual
+        /// accent.
+        #[serde(default)]
+        tone: ToastTone,
+        /// Optional bold title rendered above the message body.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        /// Main message body.
+        message: String,
+        /// When true, render an `<button aria-label="Dismiss">`
+        /// the JS runtime wires to hide the toast.
+        #[serde(default)]
+        dismissible: bool,
+        /// When false, the toast renders with the `hidden`
+        /// attribute so the JS runtime can reveal it on demand
+        /// (page-load + interaction triggers).
+        #[serde(default = "default_true")]
+        open: bool,
+    },
     /// Text input with an autocomplete list. Renders the native
     /// `<input list>` + `<datalist>` pattern — browser shows the
     /// dropdown of matching options as the user types. No JS
@@ -733,6 +770,19 @@ pub enum BlockSpacing {
     Lg,
     Xl,
     Xxl,
+}
+
+/// Severity / accent tone for a [`CmsBlock::Toast`]. Drives the
+/// `role` + `aria-live` policy as well as the visual accent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum ToastTone {
+    #[default]
+    Info,
+    Success,
+    Warning,
+    Error,
 }
 
 /// Placement of a [`CmsBlock::Tooltip`] relative to its trigger.
@@ -5281,6 +5331,53 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::Toast {
+            id,
+            tone,
+            title,
+            message,
+            dismissible,
+            open,
+        } => {
+            let tone_slug = toast_tone_slug(*tone);
+            let (role, aria_live) = match tone {
+                ToastTone::Info | ToastTone::Success => ("status", "polite"),
+                ToastTone::Warning | ToastTone::Error => ("alert", "assertive"),
+            };
+            html! {
+                div
+                    class="loom-block-toast"
+                    data-loom-slot="toast"
+                    data-tone=(tone_slug)
+                    role=(role)
+                    aria-live=(aria_live)
+                    id=(id)
+                    hidden[!*open]
+                {
+                    div class="loom-block-toast__body" data-loom-slot="toast-body" {
+                        @if let Some(t) = title {
+                            strong class="loom-block-toast__title" data-loom-slot="toast-title" {
+                                (t)
+                            }
+                        }
+                        p class="loom-block-toast__message" data-loom-slot="toast-message" {
+                            (message)
+                        }
+                    }
+                    @if *dismissible {
+                        button
+                            type="button"
+                            class="loom-block-toast__close"
+                            data-loom-slot="toast-close"
+                            aria-label="Dismiss notification"
+                            aria-controls=(id)
+                        {
+                            "×"
+                        }
+                    }
+                }
+            }
+        }
         CmsBlock::Combobox {
             id,
             label,
@@ -5620,6 +5717,18 @@ pub const fn block_spacing_slug(s: BlockSpacing) -> &'static str {
         BlockSpacing::Lg => "lg",
         BlockSpacing::Xl => "xl",
         BlockSpacing::Xxl => "xxl",
+    }
+}
+
+/// Kebab-case slug for a [`ToastTone`]. Emitted as `data-tone`
+/// so the skin cascade can apply tone-specific accent + icon.
+#[must_use]
+pub const fn toast_tone_slug(t: ToastTone) -> &'static str {
+    match t {
+        ToastTone::Info => "info",
+        ToastTone::Success => "success",
+        ToastTone::Warning => "warning",
+        ToastTone::Error => "error",
     }
 }
 
@@ -9946,6 +10055,62 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_toast_renders_with_live_region_semantics() {
+        let json = r#"{
+            "kind": "toast",
+            "id": "saved",
+            "tone": "success",
+            "title": "Saved",
+            "message": "Your changes were saved.",
+            "dismissible": true
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-loom-slot="toast""#));
+        assert!(html.contains(r#"data-tone="success""#));
+        // success → status + polite live region.
+        assert!(html.contains(r#"role="status""#));
+        assert!(html.contains(r#"aria-live="polite""#));
+        assert!(html.contains(">Saved</strong>"));
+        assert!(html.contains("Your changes were saved."));
+        // Dismiss button + aria-label + aria-controls binding.
+        assert!(html.contains(r#"data-loom-slot="toast-close""#));
+        assert!(html.contains(r#"aria-label="Dismiss notification""#));
+        assert!(html.contains(r#"aria-controls="saved""#));
+    }
+
+    #[test]
+    fn cms_block_toast_error_uses_assertive_alert() {
+        let json = r#"{
+            "kind":"toast","id":"x","tone":"error","message":"Save failed"
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"role="alert""#));
+        assert!(html.contains(r#"aria-live="assertive""#));
+    }
+
+    #[test]
+    fn cms_block_toast_open_false_emits_hidden_attr() {
+        let json = r#"{
+            "kind":"toast","id":"x","message":"hi","open":false
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(" hidden"));
+    }
+
+    #[test]
+    fn cms_block_toast_open_true_default_omits_hidden() {
+        let json = r#"{
+            "kind":"toast","id":"x","message":"hi"
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(!html.contains(r#" hidden=""#));
     }
 
     #[test]
