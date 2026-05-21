@@ -17,6 +17,7 @@
 pub mod axes;
 pub mod color;
 pub mod density;
+pub mod gradient_pool;
 pub mod icons;
 pub mod polish;
 pub mod radius;
