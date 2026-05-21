@@ -3500,15 +3500,48 @@ pub enum SplitVisual {
 #[serde(deny_unknown_fields)]
 pub struct SpotlightItem {
     /// Optional loom-assets icon slug (e.g. `icon-arrow-right`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_slug: Option<String>,
+    /// Optional per-item photograph. Renders as a 16:9
+    /// `object-fit: cover` panel above the title. Mutually
+    /// composable with `icon_slug` — the icon renders in the
+    /// title area, the photo above it. When neither is set,
+    /// the item is text-only (typography-and-rule editorial
+    /// composition).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<SpotlightImage>,
     /// Feature heading.
     pub title: String,
     /// Feature body paragraph.
     pub body: String,
     /// Optional "learn more" link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub href: Option<String>,
     /// Backend slug paired with href.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_backend: Option<String>,
+}
+
+/// Per-item photograph for a [`SpotlightItem`].
+///
+/// `src` is validated via `composer::is_safe_url` at render
+/// time; hostile schemes (`javascript:`, `data:`) suppress the
+/// `<img>` and the item falls back to text-only.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SpotlightImage {
+    /// Image URL (root-relative or https:// only).
+    pub src: String,
+    /// Accessible name. Required even for decorative photos —
+    /// operators who genuinely want decorative-only pass an
+    /// empty string + opt in via `aria-hidden` on the parent.
+    pub alt: String,
+    /// Optional intrinsic width hint (CLS prevention).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    /// Optional intrinsic height hint (CLS prevention).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
 }
 
 /// One stat in a [`CmsSection::StatBand`].
@@ -5126,6 +5159,17 @@ pub fn render_section(section: &CmsSection) -> Markup {
                     div class="loom-feature-spotlight__grid" {
                         @for item in items {
                             article class="loom-feature-spotlight__item" data-loom-reveal {
+                                @if let Some(img) = &item.image {
+                                    @if loom_components::composer::is_safe_url(&img.src) {
+                                        img class="loom-feature-spotlight__photo"
+                                            src=(img.src)
+                                            alt=(img.alt)
+                                            width=[img.width]
+                                            height=[img.height]
+                                            decoding="async"
+                                            loading="lazy";
+                                    }
+                                }
                                 @if let Some(icon) = &item.icon_slug {
                                     span class="loom-feature-spotlight__icon"
                                         data-asset-slug=(icon) aria-hidden="true" {
