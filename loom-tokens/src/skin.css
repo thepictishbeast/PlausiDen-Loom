@@ -10134,3 +10134,134 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
 .loom-block-nav-menu__sublist .loom-block-nav-menu__submenu[open] > .loom-block-nav-menu__sublist {
   display: block;
 }
+
+/* === CmsBlock::Menubar ============================================= */
+.loom-block-menubar {
+  display: inline-flex;
+  border: 1px solid color-mix(in oklab, var(--loom-color-border, var(--loom-border)) 60%, transparent);
+  border-radius: var(--loom-radius-sm, 6px);
+  background: var(--loom-color-surface, var(--loom-bg, #fff));
+}
+.loom-block-menubar__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.05rem;
+  margin: 0;
+  padding: 0.15rem;
+  list-style: none;
+}
+.loom-block-menubar__item {
+  position: relative;
+}
+.loom-block-menubar__leaf,
+.loom-block-menubar__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--loom-radius-sm, 6px);
+  background: transparent;
+  border: 0;
+  color: var(--loom-color-ink, var(--loom-fg));
+  font: inherit;
+  font-size: 0.92rem;
+  cursor: pointer;
+  list-style: none;
+}
+.loom-block-menubar__leaf:hover:not([aria-disabled="true"]):not([disabled]),
+.loom-block-menubar__trigger:hover {
+  background: color-mix(in oklab, var(--loom-color-primary, var(--loom-accent)) 10%, transparent);
+  color: var(--loom-color-primary, var(--loom-accent));
+}
+.loom-block-menubar__leaf:focus-visible,
+.loom-block-menubar__trigger:focus-visible {
+  outline: 2px solid var(--loom-color-primary, var(--loom-accent));
+  outline-offset: -1px;
+}
+.loom-block-menubar__leaf[aria-disabled="true"],
+.loom-block-menubar__leaf[disabled] {
+  color: color-mix(in oklab, var(--loom-color-ink, var(--loom-fg)) 40%, transparent);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.loom-block-menubar__leaf-accelerator {
+  font-family: var(--loom-font-mono, monospace);
+  font-size: 0.78rem;
+  color: color-mix(in oklab, var(--loom-color-ink, var(--loom-fg)) 50%, transparent);
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+.loom-block-menubar__submenu summary::-webkit-details-marker { display: none; }
+.loom-block-menubar__submenu summary::marker { content: ""; }
+.loom-block-menubar__trigger::after {
+  content: "▾";
+  font-size: 0.7em;
+  color: color-mix(in oklab, var(--loom-color-ink, var(--loom-fg)) 55%, transparent);
+}
+.loom-block-menubar__sublist {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  display: none;
+  min-width: 13rem;
+  margin: 0;
+  padding: 0.3rem;
+  list-style: none;
+  border: 1px solid color-mix(in oklab, var(--loom-color-border, var(--loom-border)) 70%, transparent);
+  border-radius: var(--loom-radius, 10px);
+  background: var(--loom-color-surface, var(--loom-bg, #fff));
+  box-shadow: var(--loom-shadow-md, 0 4px 14px rgba(0,0,0,0.08));
+}
+.loom-block-menubar__submenu[open] > .loom-block-menubar__sublist {
+  display: block;
+}
+.loom-block-menubar__sublist .loom-block-menubar__leaf,
+.loom-block-menubar__sublist .loom-block-menubar__trigger {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+}
+
+/* === CmsBlock::Resizable =========================================== */
+.loom-block-resizable {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 12rem;
+  border: 1px solid color-mix(in oklab, var(--loom-color-border, var(--loom-border)) 60%, transparent);
+  border-radius: var(--loom-radius-sm, 6px);
+  overflow: hidden;
+}
+.loom-block-resizable[data-orientation="horizontal"] {
+  flex-direction: row;
+}
+.loom-block-resizable[data-orientation="vertical"] {
+  flex-direction: column;
+}
+.loom-block-resizable__pane {
+  flex-grow: 0;
+  flex-shrink: 0;
+  overflow: auto;
+  padding: 1rem;
+}
+.loom-block-resizable__handle {
+  flex: 0 0 auto;
+  background: color-mix(in oklab, var(--loom-color-border, var(--loom-border)) 60%, transparent);
+  cursor: col-resize;
+  transition: background var(--loom-motion-fast, 120ms) var(--loom-ease-out, ease);
+}
+.loom-block-resizable[data-orientation="horizontal"] > .loom-block-resizable__handle {
+  width: 4px;
+  cursor: col-resize;
+}
+.loom-block-resizable[data-orientation="vertical"] > .loom-block-resizable__handle {
+  height: 4px;
+  cursor: row-resize;
+}
+.loom-block-resizable__handle:hover,
+.loom-block-resizable__handle:focus-visible {
+  background: var(--loom-color-primary, var(--loom-accent));
+  outline: none;
+}
