@@ -917,6 +917,47 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reading_time: Option<String>,
     },
+    /// Newspaper-style dateline — location + date + optional
+    /// source/wire-service marker rendered as a single inline
+    /// editorial unit. Distinct from [`CmsSection::Byline`]
+    /// (author + role + dateline + reading-time, multi-field)
+    /// and from [`CmsSection::Caption`] (image / figure
+    /// caption): Dateline is the classical journalism opener
+    /// that precedes the first paragraph of a wire story.
+    ///
+    /// Editorial intent: journalism / news / wire-style
+    /// editorial where the location-of-reporting + date matter
+    /// to readers ("WASHINGTON — March 5, 2026"). Pairs with
+    /// a leading [`CmsSection::Heading`] above and a
+    /// [`CmsSection::Paragraph`] body below. Anti-SaaS: small
+    /// inline element, not a card; uses classical em-dash
+    /// punctuation or modern bullet separators per style enum.
+    Dateline {
+        /// Reporting location (e.g. `"WASHINGTON"`,
+        /// `"TORONTO"`, `"PHILADELPHIA, PA"`). Rendered as the
+        /// dateline's lead element in Classical/Modern styles;
+        /// omitted in Minimal.
+        location: String,
+        /// Date string (RFC 3339 preferred for the `datetime`
+        /// attribute on the rendered `<time>` element; the
+        /// visible text is the same string verbatim, so
+        /// human-readable forms like `"March 5, 2026"` also
+        /// work — operator picks the visible vs.
+        /// machine-readable trade-off).
+        date: String,
+        /// Optional source / wire-service identifier
+        /// (`"AP"`, `"Reuters"`, `"PC Wire"`). Rendered in
+        /// parentheses after the date in Classical style; as
+        /// a bullet-separated trailing segment in Modern style;
+        /// elided in Minimal.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<String>,
+        /// Visual style — drives the separators between
+        /// location / date / source slots. All styles emit the
+        /// same semantic markup; only chrome differs.
+        #[serde(default)]
+        style: DatelineStyle,
+    },
     /// End-of-document footnote. Renders as a numbered entry at
     /// the bottom of a long-form piece. Distinct from
     /// [`CmsSection::Footnote`] (which is inline / mid-flow); use
@@ -2738,6 +2779,43 @@ pub enum PullQuoteTone {
     Amoled,
 }
 
+/// Visual style for [`CmsSection::Dateline`]. All styles emit
+/// the same semantic markup (`<p class="loom-dateline">` with
+/// `<span>` slots for location + source, `<time>` for the
+/// date); only the separator chrome between slots changes.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum DatelineStyle {
+    /// Classical newspaper convention — UPPERCASE location +
+    /// em-dash + date, optional source in parens at end:
+    /// `WASHINGTON — March 5, 2026 (AP)`.
+    #[default]
+    Classical,
+    /// Modern bullet-separated — location · date · source,
+    /// no case transform:
+    /// `Washington · March 5, 2026 · AP`.
+    Modern,
+    /// Minimal — only the date renders, location + source
+    /// suppressed. Useful when the location is duplicate
+    /// information higher in the page chrome.
+    Minimal,
+}
+
+impl DatelineStyle {
+    /// Stable kebab-case modifier slug. The
+    /// `.loom-dateline--<modifier>` cascade targets these.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::Classical => "classical",
+            Self::Modern => "modern",
+            Self::Minimal => "minimal",
+        }
+    }
+}
+
 /// Layout density for [`CmsSection::KvPair`]. Mirrors
 /// `loom_components::card::KvPairDensity`. Affects vertical rhythm
 /// inside each item; horizontal sizing is the grid's job.
@@ -2956,7 +3034,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5702,6 +5780,44 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::Dateline {
+            location,
+            date,
+            source,
+            style,
+        } => {
+            let style_mod = style.modifier();
+            html! {
+                p class={ "loom-dateline loom-dateline--" (style_mod) }
+                  data-style=(style_mod)
+                  data-loom-reveal
+                {
+                    @match style {
+                        DatelineStyle::Classical => {
+                            span class="loom-dateline__location" { (location) }
+                            span class="loom-dateline__sep" aria-hidden="true" { " — " }
+                            time class="loom-dateline__date" datetime=(date) { (date) }
+                            @if let Some(s) = source {
+                                " "
+                                span class="loom-dateline__source" { "(" (s) ")" }
+                            }
+                        }
+                        DatelineStyle::Modern => {
+                            span class="loom-dateline__location" { (location) }
+                            span class="loom-dateline__sep" aria-hidden="true" { " · " }
+                            time class="loom-dateline__date" datetime=(date) { (date) }
+                            @if let Some(s) = source {
+                                span class="loom-dateline__sep" aria-hidden="true" { " · " }
+                                span class="loom-dateline__source" { (s) }
+                            }
+                        }
+                        DatelineStyle::Minimal => {
+                            time class="loom-dateline__date" datetime=(date) { (date) }
+                        }
+                    }
+                }
+            }
+        }
         CmsSection::Endnote { number, text } => html! {
             aside class="loom-endnote" id={ "endnote-" (number.to_string()) } {
                 span class="loom-endnote__num" { (number.to_string()) "." } " " (text)
@@ -10162,6 +10278,178 @@ mod tests {
         assert!(html.contains("loom-endnote"));
         assert!(html.contains(r#"id="endnote-1""#));
         assert!(html.contains("Source: foo."));
+    }
+
+    // #104 (2026-05-21) — Dateline newspaper-style location +
+    // date + optional source primitive.
+
+    #[test]
+    fn dateline_classical_renders_location_emdash_date_and_source_in_parens() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "dateline",
+                "location": "WASHINGTON",
+                "date": "2026-03-05",
+                "source": "AP"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<p class="loom-dateline loom-dateline--classical""#));
+        assert!(html.contains(r#"data-style="classical""#));
+        assert!(html.contains(r#"class="loom-dateline__location""#));
+        assert!(html.contains(">WASHINGTON<"));
+        assert!(html.contains(" — "));
+        assert!(html.contains(r#"<time class="loom-dateline__date" datetime="2026-03-05""#));
+        assert!(html.contains(">2026-03-05<"));
+        assert!(html.contains(r#"class="loom-dateline__source""#));
+        assert!(html.contains(">(AP)<"));
+    }
+
+    #[test]
+    fn dateline_modern_uses_bullets_no_parens() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "dateline",
+                "location": "Toronto",
+                "date": "March 5, 2026",
+                "source": "Reuters",
+                "style": "modern"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-dateline--modern"));
+        assert!(html.contains(r#"data-style="modern""#));
+        assert!(html.contains(" · "));
+        assert!(html.contains(">Toronto<"));
+        assert!(html.contains(">Reuters<"));
+        // No parens around source in modern style.
+        assert!(!html.contains(">(Reuters)<"));
+    }
+
+    #[test]
+    fn dateline_minimal_renders_only_date() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "dateline",
+                "location": "Suppressed",
+                "date": "2026-03-05",
+                "source": "Suppressed-Source",
+                "style": "minimal"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-dateline--minimal"));
+        assert!(html.contains(r#"<time class="loom-dateline__date" datetime="2026-03-05""#));
+        // Location + source are not emitted in minimal style.
+        assert!(!html.contains(">Suppressed<"));
+        assert!(!html.contains(">Suppressed-Source<"));
+        assert!(!html.contains("loom-dateline__location"));
+        assert!(!html.contains("loom-dateline__source"));
+        // No separator chrome either — date is alone.
+        assert!(!html.contains(" — "));
+        assert!(!html.contains(" · "));
+    }
+
+    #[test]
+    fn dateline_omits_source_when_none_in_classical() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "dateline",
+                "location": "NEW YORK",
+                "date": "2026-03-05"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-dateline--classical"));
+        assert!(html.contains(">NEW YORK<"));
+        // No source chrome when source is None.
+        assert!(!html.contains("loom-dateline__source"));
+        assert!(!html.contains(">(<"));
+    }
+
+    #[test]
+    fn dateline_datetime_attribute_machine_readable_date() {
+        // Operator may supply an ISO date for the datetime attr and
+        // the visible text is the same string — that's fine; both
+        // sighted readers + machines see consistent content.
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "dateline",
+                "location": "LONDON",
+                "date": "2026-03-05T14:00:00Z"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"datetime="2026-03-05T14:00:00Z""#));
+    }
+
+    #[test]
+    fn dateline_style_modifier_stable_per_style() {
+        assert_eq!(DatelineStyle::Classical.modifier(), "classical");
+        assert_eq!(DatelineStyle::Modern.modifier(), "modern");
+        assert_eq!(DatelineStyle::Minimal.modifier(), "minimal");
+    }
+
+    #[test]
+    fn dateline_html_escaped_across_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "dateline",
+                "location": "<script>l</script>",
+                "date": "<script>d</script>",
+                "source": "<script>s</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>l</script>",
+            "<script>d</script>",
+            "<script>s</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn dateline_style_defaults_to_classical_when_omitted() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "dateline",
+                "location": "PARIS",
+                "date": "2026-03-05"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-dateline--classical"));
     }
 
     #[test]
