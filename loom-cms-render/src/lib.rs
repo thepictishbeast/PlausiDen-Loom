@@ -430,6 +430,32 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Text input with an autocomplete list. Renders the native
+    /// `<input list>` + `<datalist>` pattern — browser shows the
+    /// dropdown of matching options as the user types. No JS
+    /// required.
+    ///
+    /// Behavioral contract mirrors Radix UI's `Combobox` /
+    /// React Aria's `ComboBox` primitive. Upstream specs:
+    /// <https://react-spectrum.adobe.com/react-aria/ComboBox.html>
+    /// (Apache-2.0). No source copied.
+    Combobox {
+        /// Unique HTML `id` for the input.
+        id: String,
+        /// Visible label text.
+        label: String,
+        /// Optional form-field `name` attribute.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Optional placeholder.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placeholder: Option<String>,
+        /// Optional initial value.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
+        /// Autocomplete option list.
+        options: Vec<BlockComboboxOption>,
+    },
     /// Menu of actions — popover surface with `role="menu"` +
     /// `role="menuitem"` children. Same native-popover machinery
     /// as [`CmsBlock::Popover`] (browser handles open/close +
@@ -622,6 +648,20 @@ pub enum CmsBlock {
         #[serde(default)]
         disabled: bool,
     },
+}
+
+/// One autocomplete option inside a [`CmsBlock::Combobox`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockComboboxOption {
+    /// Submission value (also the visible suggestion when `label`
+    /// is unset).
+    pub value: String,
+    /// Optional human-readable label. When set, the dropdown
+    /// shows the label and the input fills with the value on
+    /// selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 /// One menu item inside a [`CmsBlock::DropdownMenu`].
@@ -5234,6 +5274,48 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                             div class="loom-block-accordion__content" data-loom-slot="accordion-content" {
                                 @for child in &item.content {
                                     (render_block(child))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        CmsBlock::Combobox {
+            id,
+            label,
+            name,
+            placeholder,
+            value,
+            options,
+        } => {
+            let list_id = format!("{id}-options");
+            html! {
+                div class="loom-block-combobox" data-loom-slot="combobox" {
+                    label
+                        class="loom-block-combobox__label"
+                        data-loom-slot="combobox-label"
+                        for=(id)
+                    {
+                        (label)
+                    }
+                    input
+                        type="text"
+                        class="loom-block-combobox__input"
+                        data-loom-slot="combobox-input"
+                        id=(id)
+                        name=[name.as_deref()]
+                        list=(list_id)
+                        placeholder=[placeholder.as_deref()]
+                        value=[value.as_deref()]
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-controls=(list_id);
+                    datalist id=(list_id) data-loom-slot="combobox-options" {
+                        @for opt in options {
+                            option value=(opt.value) {
+                                @if let Some(l) = &opt.label {
+                                    (l)
                                 }
                             }
                         }
@@ -9864,6 +9946,50 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_combobox_renders_native_input_with_datalist() {
+        let json = r#"{
+            "kind": "combobox",
+            "id": "country",
+            "label": "Country",
+            "name": "country_code",
+            "placeholder": "Start typing…",
+            "options": [
+                {"value":"US","label":"United States"},
+                {"value":"CA","label":"Canada"},
+                {"value":"MX"}
+            ]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        // Native input + datalist binding.
+        assert!(html.contains(r#"<input"#));
+        assert!(html.contains(r#"list="country-options""#));
+        assert!(html.contains(r#"<datalist id="country-options""#));
+        // ARIA combobox.
+        assert!(html.contains(r#"role="combobox""#));
+        assert!(html.contains(r#"aria-autocomplete="list""#));
+        assert!(html.contains(r#"aria-controls="country-options""#));
+        // Form-control attrs.
+        assert!(html.contains(r#"name="country_code""#));
+        assert!(html.contains(r#"placeholder="Start typing…""#));
+        // Options.
+        assert!(html.contains(r#"<option value="US">United States</option>"#));
+        assert!(html.contains(r#"<option value="CA">Canada</option>"#));
+        // Option without label renders empty body (value only).
+        assert!(html.contains(r#"<option value="MX">"#));
+    }
+
+    #[test]
+    fn cms_block_combobox_no_placeholder_omits_attr() {
+        let json = r#"{
+            "kind":"combobox","id":"x","label":"L","options":[]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(!html.contains(r#"placeholder="""#));
     }
 
     #[test]
