@@ -11243,3 +11243,62 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
   font-weight: 500;
   user-select: none;
 }
+
+/* === CmsBlock::Marquee ============================================= */
+/* Horizontally-scrolling marquee — logo wall / news ticker / press
+   mentions. Items are duplicated in the DOM (substrate-emitted) so the
+   CSS keyframe loops seamlessly. The second copy is aria-hidden so
+   screen readers don't announce duplicates.
+
+   Honours prefers-reduced-motion: animation disabled, first group
+   shown statically. No JS layer. */
+.loom-block-marquee {
+  overflow: hidden;
+  width: 100%;
+  position: relative;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 8%,
+    black 92%,
+    transparent
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 8%,
+    black 92%,
+    transparent
+  );
+}
+.loom-block-marquee__track {
+  display: flex;
+  width: max-content;
+  gap: 3rem;
+  animation: loom-marquee-scroll var(--loom-marquee-duration, 40s) linear infinite;
+}
+.loom-block-marquee__group {
+  display: flex;
+  align-items: center;
+  gap: 3rem;
+  flex-shrink: 0;
+}
+.loom-block-marquee[data-speed="slow"]   .loom-block-marquee__track { --loom-marquee-duration: 60s; }
+.loom-block-marquee[data-speed="medium"] .loom-block-marquee__track { --loom-marquee-duration: 40s; }
+.loom-block-marquee[data-speed="fast"]   .loom-block-marquee__track { --loom-marquee-duration: 24s; }
+.loom-block-marquee[data-direction="right"] .loom-block-marquee__track {
+  animation-direction: reverse;
+}
+@keyframes loom-marquee-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loom-block-marquee__track {
+    animation: none;
+  }
+  /* Hide the cloned group so static rendering doesn't show duplicates */
+  .loom-block-marquee__group[aria-hidden="true"] {
+    display: none;
+  }
+}
