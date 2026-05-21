@@ -10950,3 +10950,41 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
     margin-bottom: 0.5rem;
   }
 }
+
+/* === CmsBlock::Stat ================================================ */
+/* Single-number callout. Semantic <dl>/<dt>/<dd> so the value is the
+   description of the label. Substrate asserts structure + trend
+   data-attr; tenant [style] drives font scale + trend colors. */
+.loom-block-stat {
+  margin: 0;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.125rem;
+}
+.loom-block-stat__label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--loom-color-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 65%, transparent));
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.loom-block-stat__value {
+  margin: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.loom-block-stat__value-text {
+  font-size: var(--loom-font-stat, 2.5rem);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--loom-color-text, inherit);
+  font-variant-numeric: tabular-nums;
+}
+.loom-block-stat__trend {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.loom-block-stat__trend[data-trend="up"]   { color: var(--loom-color-trend-up, #16a34a); }
+.loom-block-stat__trend[data-trend="down"] { color: var(--loom-color-trend-down, #dc2626); }
+.loom-block-stat__trend[data-trend="flat"] { color: var(--loom-color-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 60%, transparent)); }

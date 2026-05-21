@@ -615,6 +615,27 @@ pub enum CmsBlock {
         /// The (term, description) pairs.
         entries: Vec<DefinitionEntry>,
     },
+    /// Single-number callout — a prominent value with a label
+    /// and optional trend annotation. The canonical "47k users"
+    /// / "$1.2M ARR" / "99.9% uptime" marketing-page shape.
+    ///
+    /// Substrate emits semantic structure (`<dl>` so the
+    /// value is the description of the label) + a `data-trend`
+    /// attribute for tenant cascade selectors. Concrete font
+    /// scale + trend color flow from `[style]` config.
+    Stat {
+        /// The prominent value (e.g., `"47k"`, `"$1.2M"`).
+        value: String,
+        /// Short caption beneath / beside the value.
+        label: String,
+        /// Optional trend annotation rendered next to the
+        /// value (e.g., `"+12%"`, `"-3.4%"`). The trend
+        /// direction (`up` / `down` / `flat`) feeds the
+        /// `data-trend` attribute so the cascade can color
+        /// up-green / down-red etc.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        trend: Option<StatTrend>,
+    },
     /// Sandboxed `<iframe>` embed. Used for third-party widgets
     /// (YouTube / Vimeo / Maps / payment forms) without granting
     /// them ambient access to the parent document. Substrate
@@ -1793,6 +1814,44 @@ impl IframeSandbox {
             tokens.push("allow-presentation");
         }
         tokens.join(" ")
+    }
+}
+
+/// Direction + label for a [`CmsBlock::Stat`] trend
+/// annotation. The substrate ships the three canonical
+/// directions; tenant `[style]` config colors them via the
+/// `data-trend` attribute selector.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StatTrend {
+    /// Visible label (e.g., `"+12%"`, `"-3.4%"`, `"flat"`).
+    pub label: String,
+    /// Direction — feeds `data-trend` so cascade can color.
+    pub direction: StatTrendDirection,
+}
+
+/// Three canonical directions for a [`StatTrend`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum StatTrendDirection {
+    /// Positive movement (typically green).
+    Up,
+    /// Negative movement (typically red).
+    Down,
+    /// No change (typically muted gray).
+    #[default]
+    Flat,
+}
+
+impl StatTrendDirection {
+    /// Slug for the `data-trend` attribute.
+    #[must_use]
+    pub const fn slug(self) -> &'static str {
+        match self {
+            Self::Up => "up",
+            Self::Down => "down",
+            Self::Flat => "flat",
+        }
     }
 }
 
@@ -6471,6 +6530,19 @@ pub fn render_block(block: &CmsBlock) -> Markup {
         }
         CmsBlock::Badge { text, tone } => html! {
             span class="loom-block-badge" data-tone=(tone.slug()) { (text) }
+        },
+        CmsBlock::Stat { value, label, trend } => html! {
+            dl class="loom-block-stat" {
+                dt class="loom-block-stat__label" { (label) }
+                dd class="loom-block-stat__value" {
+                    span class="loom-block-stat__value-text" { (value) }
+                    @if let Some(t) = trend {
+                        span class="loom-block-stat__trend" data-trend=(t.direction.slug()) {
+                            (t.label)
+                        }
+                    }
+                }
+            }
         },
         CmsBlock::DefinitionList { entries } => html! {
             dl class="loom-block-deflist" {
@@ -13766,9 +13838,11 @@ mod tests {
 
     #[test]
     fn apply_variables_substitutes_inside_block_text_fields() {
+        // Generic placeholder fixture per substrate discipline —
+        // never bake a real tenant name into substrate Rust.
         use std::collections::BTreeMap;
         let mut variables = BTreeMap::new();
-        variables.insert("BRAND".into(), "PlausiDen".into());
+        variables.insert("BRAND".into(), "Acme".into());
         let mut assets = BTreeMap::new();
         assets.insert("hero".into(), "/static/hero.webp".into());
         let vars = TenantVariables::from_parts(variables, BTreeMap::new(), assets);
@@ -13788,8 +13862,8 @@ mod tests {
         };
         let substituted = apply_variables(&block, &vars).expect("round-trip");
         let html = render_block(&substituted).into_string();
-        assert!(html.contains("Welcome to PlausiDen"));
-        assert!(html.contains("PlausiDen hero"));
+        assert!(html.contains("Welcome to Acme"));
+        assert!(html.contains("Acme hero"));
         assert!(html.contains("/static/hero.webp"));
         assert!(!html.contains("{{ BRAND }}"));
         assert!(!html.contains("@hero"));
@@ -13822,6 +13896,62 @@ mod tests {
         let html = render_block(&s).into_string();
         assert!(html.contains(">Substrate A<"));
         assert!(html.contains(">Substrate B<"));
+    }
+
+    #[test]
+    fn cms_block_stat_renders_value_label_no_trend() {
+        let s = CmsBlock::Stat {
+            value: "47k".into(),
+            label: "Users".into(),
+            trend: None,
+        };
+        let html = render_block(&s).into_string();
+        assert!(html.contains("<dl"));
+        assert!(html.contains("loom-block-stat"));
+        assert!(html.contains(">47k<"));
+        assert!(html.contains(">Users<"));
+        assert!(!html.contains("loom-block-stat__trend"));
+        assert!(!html.contains("data-trend"));
+    }
+
+    #[test]
+    fn cms_block_stat_emits_trend_with_direction_data_attr() {
+        let s = CmsBlock::Stat {
+            value: "$1.2M".into(),
+            label: "ARR".into(),
+            trend: Some(StatTrend {
+                label: "+12%".into(),
+                direction: StatTrendDirection::Up,
+            }),
+        };
+        let html = render_block(&s).into_string();
+        assert!(html.contains(">$1.2M<"));
+        assert!(html.contains(">ARR<"));
+        assert!(html.contains("loom-block-stat__trend"));
+        assert!(html.contains(r#"data-trend="up""#));
+        assert!(html.contains(">+12%<"));
+    }
+
+    #[test]
+    fn cms_block_stat_escapes_html_in_value_label_trend() {
+        let s = CmsBlock::Stat {
+            value: "<script>".into(),
+            label: "<img>".into(),
+            trend: Some(StatTrend {
+                label: "<x>".into(),
+                direction: StatTrendDirection::Down,
+            }),
+        };
+        let html = render_block(&s).into_string();
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<img>"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains(r#"data-trend="down""#));
+    }
+
+    #[test]
+    fn stat_trend_direction_default_is_flat() {
+        assert_eq!(StatTrendDirection::default().slug(), "flat");
     }
 
     #[test]
@@ -19531,14 +19661,15 @@ mod page_shell_tests {
 
     #[test]
     fn jsonld_emitted_when_brand_and_site_origin_set() {
+        // Generic placeholder fixture per substrate discipline.
         let mut p = empty_page();
-        p.brand = Some("PlausiDen LLC".into());
-        p.site_origin = Some("https://dev.plausiden.com".into());
+        p.brand = Some("Acme Co".into());
+        p.site_origin = Some("https://example.test".into());
         let h = page_shell_themed(&p, "/x.css", "<main></main>", None, None);
         assert!(h.contains("application/ld+json"));
         assert!(h.contains("\"@type\":\"Organization\""));
-        assert!(h.contains("\"name\":\"PlausiDen LLC\""));
-        assert!(h.contains("\"url\":\"https://dev.plausiden.com\""));
+        assert!(h.contains("\"name\":\"Acme Co\""));
+        assert!(h.contains("\"url\":\"https://example.test\""));
     }
 
     #[test]

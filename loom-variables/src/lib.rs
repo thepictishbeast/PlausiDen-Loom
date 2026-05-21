@@ -172,7 +172,7 @@ mod tests {
 
     fn fixture() -> TenantVariables {
         let mut v = BTreeMap::new();
-        v.insert("BRAND_NAME".into(), "PlausiDen".into());
+        v.insert("BRAND_NAME".into(), "Acme".into());
         v.insert("YEAR".into(), "2026".into());
         let mut p = BTreeMap::new();
         p.insert("fg".into(), "#0a0a0a".into());
@@ -186,7 +186,7 @@ mod tests {
     #[test]
     fn substitutes_simple_variable() {
         let out = substitute("Welcome to {{ BRAND_NAME }}", &fixture());
-        assert_eq!(out, "Welcome to PlausiDen");
+        assert_eq!(out, "Welcome to Acme");
     }
 
     #[test]
@@ -240,7 +240,7 @@ mod tests {
     #[test]
     fn unicode_passthrough() {
         let out = substitute("café — {{ BRAND_NAME }} → ✓", &fixture());
-        assert_eq!(out, "café — PlausiDen → ✓");
+        assert_eq!(out, "café — Acme → ✓");
     }
 
     #[test]
