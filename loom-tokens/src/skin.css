@@ -10622,3 +10622,26 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
 .loom-block-quote__cite::before {
   content: "— ";
 }
+
+/* === CmsBlock::Code ================================================ */
+/* Pre-formatted code block. Substrate emits NO syntax highlighting;
+   tenants plug a highlighter (Prism, highlight.js, server-side
+   syntect) over the same DOM. Cascade asserts monospace + scrollable
+   on overflow + tenant-overridable surface color. */
+.loom-block-code {
+  margin: 0;
+  padding: 0.875rem 1rem;
+  background: var(--loom-color-code-bg, color-mix(in oklab, var(--loom-color-text, currentColor) 6%, transparent));
+  color: var(--loom-color-code-text, var(--loom-color-text, inherit));
+  font-family: var(--loom-font-mono, ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace);
+  font-size: var(--loom-font-code, 0.9rem);
+  line-height: var(--loom-leading-code, 1.55);
+  border-radius: var(--loom-radius-code, var(--loom-radius-sm, 0.25rem));
+  overflow-x: auto;
+  white-space: pre;
+}
+.loom-block-code__code {
+  font-family: inherit;
+  background: transparent;
+  color: inherit;
+}
