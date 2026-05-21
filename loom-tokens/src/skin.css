@@ -763,6 +763,62 @@
     --loom-leading-tight: 1.1;
     --loom-leading-snug:  1.3;
     --loom-leading-base:  1.5;
+
+    /* ── Atomic-primitive cascade tokens (#336) ──
+     * Every var() consumed by skin.css below needs a base
+     * declaration here so theme_consistency's "consumed but
+     * undefined" gate stays green. Values mirror the
+     * fallback strings each cascade rule carries inline. */
+    --loom-color-bg: #ffffff;
+    --loom-color-text: hsl(222 47% 11%);
+    --loom-color-muted: hsl(215 16% 47%);
+    --loom-color-accent-2: hsl(239 84% 67%);
+    --loom-color-focus: hsl(217 91% 60%);
+    --loom-color-on-primary: #ffffff;
+    --loom-color-on-dark: #ffffff;
+    --loom-color-primary-hover: hsl(220 90% 22%);
+
+    /* Hero / Quote / Code / Table / Avatar / Kbd surfaces */
+    --loom-color-hero-bg: transparent;
+    --loom-color-quote-bg: transparent;
+    --loom-color-quote-text: hsl(215 25% 27%);
+    --loom-color-code-bg: hsl(214 32% 95%);
+    --loom-color-code-text: hsl(222 47% 11%);
+    --loom-color-table-stripe: hsl(210 40% 98%);
+    --loom-color-progress-track: hsl(214 32% 91%);
+    --loom-color-avatar-bg: hsl(214 32% 91%);
+    --loom-color-avatar-text: hsl(215 25% 27%);
+    --loom-color-kbd-bg: hsl(214 32% 95%);
+    --loom-color-kbd-text: hsl(215 25% 27%);
+    --loom-color-kbd-border: hsl(213 27% 84%);
+
+    /* Stat trend + Stepper state */
+    --loom-color-trend-up: hsl(158 64% 39%);
+    --loom-color-trend-down: hsl(347 77% 49%);
+    --loom-color-stepper-done: hsl(158 64% 39%);
+    --loom-color-stepper-done-bg: hsl(152 81% 96%);
+    --loom-color-stepper-current: hsl(221 83% 53%);
+    --loom-color-stepper-current-bg: hsl(214 100% 97%);
+
+    /* Badge tones — each carries {bg, text, border} */
+    --loom-color-badge-neutral-bg: hsl(214 32% 95%);
+    --loom-color-badge-neutral-text: hsl(215 25% 27%);
+    --loom-color-badge-neutral-border: hsl(213 27% 84%);
+    --loom-color-badge-info-bg: hsl(204 94% 94%);
+    --loom-color-badge-info-text: hsl(201 90% 35%);
+    --loom-color-badge-info-border: hsl(199 95% 74%);
+    --loom-color-badge-success-bg: hsl(149 80% 90%);
+    --loom-color-badge-success-text: hsl(158 64% 30%);
+    --loom-color-badge-success-border: hsl(156 72% 67%);
+    --loom-color-badge-warning-bg: hsl(48 96% 89%);
+    --loom-color-badge-warning-text: hsl(23 83% 31%);
+    --loom-color-badge-warning-border: hsl(46 97% 65%);
+    --loom-color-badge-danger-bg: hsl(356 100% 94%);
+    --loom-color-badge-danger-text: hsl(345 83% 41%);
+    --loom-color-badge-danger-border: hsl(352 96% 79%);
+    --loom-color-badge-accent-bg: hsl(226 100% 94%);
+    --loom-color-badge-accent-text: hsl(229 76% 40%);
+    --loom-color-badge-accent-border: hsl(230 94% 77%);
   }
   @media (min-width: 768px) {
     :root {

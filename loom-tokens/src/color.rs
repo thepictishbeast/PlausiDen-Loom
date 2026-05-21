@@ -306,6 +306,199 @@ impl ColorRole {
                     css: "hsl(220 28% 95%)",
                 },
             },
+            // ── Cascade aliases (#336) ──
+            // The atomic-primitive cascade in `skin.css` consumes
+            // these via `var(--loom-color-<name>, fallback)`. The
+            // values below back the fallback path so substrate
+            // tenants without a custom palette get coherent
+            // defaults. Tenant `[style.palette]` config overrides
+            // any of these.
+            //
+            // Semantic aliases for existing slots:
+            Self {
+                role: "bg",
+                color: Color { name: "bg", tailwind: "white", css: "#ffffff" },
+            },
+            Self {
+                role: "text",
+                color: Color { name: "text", tailwind: "slate-900", css: "hsl(222 47% 11%)" },
+            },
+            Self {
+                role: "muted",
+                color: Color { name: "muted", tailwind: "slate-500", css: "hsl(215 16% 47%)" },
+            },
+            Self {
+                role: "accent-2",
+                color: Color { name: "accent-2", tailwind: "indigo-500", css: "hsl(239 84% 67%)" },
+            },
+            Self {
+                role: "focus",
+                color: Color { name: "focus", tailwind: "blue-500", css: "hsl(217 91% 60%)" },
+            },
+            Self {
+                role: "on-primary",
+                color: Color { name: "on-primary", tailwind: "white", css: "#ffffff" },
+            },
+            Self {
+                role: "on-dark",
+                color: Color { name: "on-dark", tailwind: "white", css: "#ffffff" },
+            },
+            Self {
+                role: "primary-hover",
+                color: Color { name: "primary-hover", tailwind: "primary-700", css: "hsl(220 90% 22%)" },
+            },
+            // Hero / Quote / Code / Table per-primitive surfaces:
+            Self {
+                role: "hero-bg",
+                color: Color { name: "hero-bg", tailwind: "transparent", css: "transparent" },
+            },
+            Self {
+                role: "quote-bg",
+                color: Color { name: "quote-bg", tailwind: "transparent", css: "transparent" },
+            },
+            Self {
+                role: "quote-text",
+                color: Color { name: "quote-text", tailwind: "slate-700", css: "hsl(215 25% 27%)" },
+            },
+            Self {
+                role: "code-bg",
+                color: Color { name: "code-bg", tailwind: "slate-100", css: "hsl(214 32% 95%)" },
+            },
+            Self {
+                role: "code-text",
+                color: Color { name: "code-text", tailwind: "slate-900", css: "hsl(222 47% 11%)" },
+            },
+            Self {
+                role: "table-stripe",
+                color: Color { name: "table-stripe", tailwind: "slate-50", css: "hsl(210 40% 98%)" },
+            },
+            Self {
+                role: "progress-track",
+                color: Color { name: "progress-track", tailwind: "slate-200", css: "hsl(214 32% 91%)" },
+            },
+            // Avatar:
+            Self {
+                role: "avatar-bg",
+                color: Color { name: "avatar-bg", tailwind: "slate-200", css: "hsl(214 32% 91%)" },
+            },
+            Self {
+                role: "avatar-text",
+                color: Color { name: "avatar-text", tailwind: "slate-700", css: "hsl(215 25% 27%)" },
+            },
+            // Kbd:
+            Self {
+                role: "kbd-bg",
+                color: Color { name: "kbd-bg", tailwind: "slate-100", css: "hsl(214 32% 95%)" },
+            },
+            Self {
+                role: "kbd-text",
+                color: Color { name: "kbd-text", tailwind: "slate-700", css: "hsl(215 25% 27%)" },
+            },
+            Self {
+                role: "kbd-border",
+                color: Color { name: "kbd-border", tailwind: "slate-300", css: "hsl(213 27% 84%)" },
+            },
+            // Trend (Stat block):
+            Self {
+                role: "trend-up",
+                color: Color { name: "trend-up", tailwind: "emerald-600", css: "hsl(158 64% 39%)" },
+            },
+            Self {
+                role: "trend-down",
+                color: Color { name: "trend-down", tailwind: "rose-600", css: "hsl(347 77% 49%)" },
+            },
+            // Stepper:
+            Self {
+                role: "stepper-done",
+                color: Color { name: "stepper-done", tailwind: "emerald-600", css: "hsl(158 64% 39%)" },
+            },
+            Self {
+                role: "stepper-done-bg",
+                color: Color { name: "stepper-done-bg", tailwind: "emerald-50", css: "hsl(152 81% 96%)" },
+            },
+            Self {
+                role: "stepper-current",
+                color: Color { name: "stepper-current", tailwind: "blue-600", css: "hsl(221 83% 53%)" },
+            },
+            Self {
+                role: "stepper-current-bg",
+                color: Color { name: "stepper-current-bg", tailwind: "blue-50", css: "hsl(214 100% 97%)" },
+            },
+            // Badge tones (neutral / info / success / warning / danger / accent)
+            // — each carries a {bg, text, border} triple. Tenants
+            // override per tone or per surface as needed.
+            Self {
+                role: "badge-neutral-bg",
+                color: Color { name: "badge-neutral-bg", tailwind: "slate-100", css: "hsl(214 32% 95%)" },
+            },
+            Self {
+                role: "badge-neutral-text",
+                color: Color { name: "badge-neutral-text", tailwind: "slate-700", css: "hsl(215 25% 27%)" },
+            },
+            Self {
+                role: "badge-neutral-border",
+                color: Color { name: "badge-neutral-border", tailwind: "slate-300", css: "hsl(213 27% 84%)" },
+            },
+            Self {
+                role: "badge-info-bg",
+                color: Color { name: "badge-info-bg", tailwind: "sky-100", css: "hsl(204 94% 94%)" },
+            },
+            Self {
+                role: "badge-info-text",
+                color: Color { name: "badge-info-text", tailwind: "sky-700", css: "hsl(201 90% 35%)" },
+            },
+            Self {
+                role: "badge-info-border",
+                color: Color { name: "badge-info-border", tailwind: "sky-300", css: "hsl(199 95% 74%)" },
+            },
+            Self {
+                role: "badge-success-bg",
+                color: Color { name: "badge-success-bg", tailwind: "emerald-100", css: "hsl(149 80% 90%)" },
+            },
+            Self {
+                role: "badge-success-text",
+                color: Color { name: "badge-success-text", tailwind: "emerald-700", css: "hsl(158 64% 30%)" },
+            },
+            Self {
+                role: "badge-success-border",
+                color: Color { name: "badge-success-border", tailwind: "emerald-300", css: "hsl(156 72% 67%)" },
+            },
+            Self {
+                role: "badge-warning-bg",
+                color: Color { name: "badge-warning-bg", tailwind: "amber-100", css: "hsl(48 96% 89%)" },
+            },
+            Self {
+                role: "badge-warning-text",
+                color: Color { name: "badge-warning-text", tailwind: "amber-800", css: "hsl(23 83% 31%)" },
+            },
+            Self {
+                role: "badge-warning-border",
+                color: Color { name: "badge-warning-border", tailwind: "amber-300", css: "hsl(46 97% 65%)" },
+            },
+            Self {
+                role: "badge-danger-bg",
+                color: Color { name: "badge-danger-bg", tailwind: "rose-100", css: "hsl(356 100% 94%)" },
+            },
+            Self {
+                role: "badge-danger-text",
+                color: Color { name: "badge-danger-text", tailwind: "rose-700", css: "hsl(345 83% 41%)" },
+            },
+            Self {
+                role: "badge-danger-border",
+                color: Color { name: "badge-danger-border", tailwind: "rose-300", css: "hsl(352 96% 79%)" },
+            },
+            Self {
+                role: "badge-accent-bg",
+                color: Color { name: "badge-accent-bg", tailwind: "indigo-100", css: "hsl(226 100% 94%)" },
+            },
+            Self {
+                role: "badge-accent-text",
+                color: Color { name: "badge-accent-text", tailwind: "indigo-700", css: "hsl(229 76% 40%)" },
+            },
+            Self {
+                role: "badge-accent-border",
+                color: Color { name: "badge-accent-border", tailwind: "indigo-300", css: "hsl(230 94% 77%)" },
+            },
         ]
     }
 
@@ -487,6 +680,183 @@ impl ColorRole {
                     tailwind: "slate-800",
                     css: "hsl(220 24% 20%)",
                 },
+            },
+            // ── Cascade aliases (#336) — dark theme ──
+            Self {
+                role: "bg",
+                color: Color { name: "bg", tailwind: "slate-950", css: "hsl(220 33% 6%)" },
+            },
+            Self {
+                role: "text",
+                color: Color { name: "text", tailwind: "slate-100", css: "hsl(210 40% 96%)" },
+            },
+            Self {
+                role: "muted",
+                color: Color { name: "muted", tailwind: "slate-400", css: "hsl(213 27% 64%)" },
+            },
+            Self {
+                role: "accent-2",
+                color: Color { name: "accent-2", tailwind: "indigo-400", css: "hsl(234 89% 74%)" },
+            },
+            Self {
+                role: "focus",
+                color: Color { name: "focus", tailwind: "blue-400", css: "hsl(213 94% 68%)" },
+            },
+            Self {
+                role: "on-primary",
+                color: Color { name: "on-primary", tailwind: "slate-950", css: "hsl(220 33% 6%)" },
+            },
+            Self {
+                role: "on-dark",
+                color: Color { name: "on-dark", tailwind: "slate-100", css: "hsl(210 40% 96%)" },
+            },
+            Self {
+                role: "primary-hover",
+                color: Color { name: "primary-hover", tailwind: "primary-300", css: "hsl(220 90% 70%)" },
+            },
+            Self {
+                role: "hero-bg",
+                color: Color { name: "hero-bg", tailwind: "transparent", css: "transparent" },
+            },
+            Self {
+                role: "quote-bg",
+                color: Color { name: "quote-bg", tailwind: "transparent", css: "transparent" },
+            },
+            Self {
+                role: "quote-text",
+                color: Color { name: "quote-text", tailwind: "slate-300", css: "hsl(213 27% 84%)" },
+            },
+            Self {
+                role: "code-bg",
+                color: Color { name: "code-bg", tailwind: "slate-800", css: "hsl(220 24% 20%)" },
+            },
+            Self {
+                role: "code-text",
+                color: Color { name: "code-text", tailwind: "slate-100", css: "hsl(210 40% 96%)" },
+            },
+            Self {
+                role: "table-stripe",
+                color: Color { name: "table-stripe", tailwind: "slate-900", css: "hsl(222 47% 11%)" },
+            },
+            Self {
+                role: "progress-track",
+                color: Color { name: "progress-track", tailwind: "slate-800", css: "hsl(220 24% 20%)" },
+            },
+            Self {
+                role: "avatar-bg",
+                color: Color { name: "avatar-bg", tailwind: "slate-700", css: "hsl(215 25% 27%)" },
+            },
+            Self {
+                role: "avatar-text",
+                color: Color { name: "avatar-text", tailwind: "slate-200", css: "hsl(214 32% 91%)" },
+            },
+            Self {
+                role: "kbd-bg",
+                color: Color { name: "kbd-bg", tailwind: "slate-800", css: "hsl(220 24% 20%)" },
+            },
+            Self {
+                role: "kbd-text",
+                color: Color { name: "kbd-text", tailwind: "slate-200", css: "hsl(214 32% 91%)" },
+            },
+            Self {
+                role: "kbd-border",
+                color: Color { name: "kbd-border", tailwind: "slate-700", css: "hsl(215 25% 27%)" },
+            },
+            Self {
+                role: "trend-up",
+                color: Color { name: "trend-up", tailwind: "emerald-400", css: "hsl(158 64% 52%)" },
+            },
+            Self {
+                role: "trend-down",
+                color: Color { name: "trend-down", tailwind: "rose-400", css: "hsl(351 95% 71%)" },
+            },
+            Self {
+                role: "stepper-done",
+                color: Color { name: "stepper-done", tailwind: "emerald-400", css: "hsl(158 64% 52%)" },
+            },
+            Self {
+                role: "stepper-done-bg",
+                color: Color { name: "stepper-done-bg", tailwind: "emerald-950", css: "hsl(166 88% 8%)" },
+            },
+            Self {
+                role: "stepper-current",
+                color: Color { name: "stepper-current", tailwind: "blue-400", css: "hsl(213 94% 68%)" },
+            },
+            Self {
+                role: "stepper-current-bg",
+                color: Color { name: "stepper-current-bg", tailwind: "blue-950", css: "hsl(229 84% 13%)" },
+            },
+            Self {
+                role: "badge-neutral-bg",
+                color: Color { name: "badge-neutral-bg", tailwind: "slate-800", css: "hsl(220 24% 20%)" },
+            },
+            Self {
+                role: "badge-neutral-text",
+                color: Color { name: "badge-neutral-text", tailwind: "slate-200", css: "hsl(214 32% 91%)" },
+            },
+            Self {
+                role: "badge-neutral-border",
+                color: Color { name: "badge-neutral-border", tailwind: "slate-700", css: "hsl(215 25% 27%)" },
+            },
+            Self {
+                role: "badge-info-bg",
+                color: Color { name: "badge-info-bg", tailwind: "sky-950", css: "hsl(204 80% 16%)" },
+            },
+            Self {
+                role: "badge-info-text",
+                color: Color { name: "badge-info-text", tailwind: "sky-300", css: "hsl(199 95% 74%)" },
+            },
+            Self {
+                role: "badge-info-border",
+                color: Color { name: "badge-info-border", tailwind: "sky-800", css: "hsl(201 90% 27%)" },
+            },
+            Self {
+                role: "badge-success-bg",
+                color: Color { name: "badge-success-bg", tailwind: "emerald-950", css: "hsl(166 88% 8%)" },
+            },
+            Self {
+                role: "badge-success-text",
+                color: Color { name: "badge-success-text", tailwind: "emerald-300", css: "hsl(156 72% 67%)" },
+            },
+            Self {
+                role: "badge-success-border",
+                color: Color { name: "badge-success-border", tailwind: "emerald-800", css: "hsl(163 88% 20%)" },
+            },
+            Self {
+                role: "badge-warning-bg",
+                color: Color { name: "badge-warning-bg", tailwind: "amber-950", css: "hsl(20 91% 14%)" },
+            },
+            Self {
+                role: "badge-warning-text",
+                color: Color { name: "badge-warning-text", tailwind: "amber-300", css: "hsl(46 97% 65%)" },
+            },
+            Self {
+                role: "badge-warning-border",
+                color: Color { name: "badge-warning-border", tailwind: "amber-800", css: "hsl(23 83% 31%)" },
+            },
+            Self {
+                role: "badge-danger-bg",
+                color: Color { name: "badge-danger-bg", tailwind: "rose-950", css: "hsl(343 88% 12%)" },
+            },
+            Self {
+                role: "badge-danger-text",
+                color: Color { name: "badge-danger-text", tailwind: "rose-300", css: "hsl(352 96% 79%)" },
+            },
+            Self {
+                role: "badge-danger-border",
+                color: Color { name: "badge-danger-border", tailwind: "rose-800", css: "hsl(343 80% 27%)" },
+            },
+            Self {
+                role: "badge-accent-bg",
+                color: Color { name: "badge-accent-bg", tailwind: "indigo-950", css: "hsl(232 62% 16%)" },
+            },
+            Self {
+                role: "badge-accent-text",
+                color: Color { name: "badge-accent-text", tailwind: "indigo-300", css: "hsl(230 94% 77%)" },
+            },
+            Self {
+                role: "badge-accent-border",
+                color: Color { name: "badge-accent-border", tailwind: "indigo-800", css: "hsl(232 70% 30%)" },
             },
         ]
     }
