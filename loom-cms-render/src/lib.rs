@@ -599,6 +599,22 @@ pub enum CmsBlock {
         /// table is expected.
         rows: Vec<Vec<String>>,
     },
+    /// Semantic definition list. Renders as `<dl>` with
+    /// alternating `<dt>` (term) and `<dd>` (description) pairs.
+    /// The HTML spec's purpose-built shape for key/value content
+    /// (specs, glossaries, kv panels). Distinct from
+    /// [`CmsBlock::List`] (sequential items) and
+    /// [`CmsBlock::Table`] (multi-column tabular data).
+    ///
+    /// One entry = one `(term, description)` pair. Both are
+    /// plain strings, escaped at render. A definition with the
+    /// same term repeated emits two `<dt>` siblings with one
+    /// `<dd>` — that's the HTML spec for synonym groupings —
+    /// but the current shape is one-to-one.
+    DefinitionList {
+        /// The (term, description) pairs.
+        entries: Vec<DefinitionEntry>,
+    },
     /// Sandboxed `<iframe>` embed. Used for third-party widgets
     /// (YouTube / Vimeo / Maps / payment forms) without granting
     /// them ambient access to the parent document. Substrate
@@ -1778,6 +1794,19 @@ impl IframeSandbox {
         }
         tokens.join(" ")
     }
+}
+
+/// One (term, description) pair in a
+/// [`CmsBlock::DefinitionList`]. Both fields are plain strings;
+/// rich descriptions get their own variant when the need is
+/// real.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DefinitionEntry {
+    /// The term — rendered inside `<dt>`.
+    pub term: String,
+    /// The description — rendered inside `<dd>`.
+    pub description: String,
 }
 
 /// Token-scale size step for [`CmsBlock::Avatar`]. Concrete
@@ -6442,6 +6471,14 @@ pub fn render_block(block: &CmsBlock) -> Markup {
         }
         CmsBlock::Badge { text, tone } => html! {
             span class="loom-block-badge" data-tone=(tone.slug()) { (text) }
+        },
+        CmsBlock::DefinitionList { entries } => html! {
+            dl class="loom-block-deflist" {
+                @for entry in entries {
+                    dt class="loom-block-deflist__term" { (entry.term) }
+                    dd class="loom-block-deflist__desc" { (entry.description) }
+                }
+            }
         },
         CmsBlock::Table {
             caption,
@@ -13785,6 +13822,54 @@ mod tests {
         let html = render_block(&s).into_string();
         assert!(html.contains(">Substrate A<"));
         assert!(html.contains(">Substrate B<"));
+    }
+
+    #[test]
+    fn cms_block_definition_list_renders_dl_dt_dd_pairs() {
+        let d = CmsBlock::DefinitionList {
+            entries: vec![
+                DefinitionEntry {
+                    term: "RPO".into(),
+                    description: "Recovery Point Objective.".into(),
+                },
+                DefinitionEntry {
+                    term: "RTO".into(),
+                    description: "Recovery Time Objective.".into(),
+                },
+            ],
+        };
+        let html = render_block(&d).into_string();
+        assert!(html.contains("<dl"));
+        assert!(html.contains("loom-block-deflist"));
+        assert!(html.contains("<dt"));
+        assert!(html.contains("<dd"));
+        assert!(html.contains(">RPO<"));
+        assert!(html.contains(">Recovery Point Objective.<"));
+        assert!(html.contains(">RTO<"));
+    }
+
+    #[test]
+    fn cms_block_definition_list_escapes_html_in_terms_and_descs() {
+        let d = CmsBlock::DefinitionList {
+            entries: vec![DefinitionEntry {
+                term: "<script>".into(),
+                description: "<img src=x>".into(),
+            }],
+        };
+        let html = render_block(&d).into_string();
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<img src=x"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("&lt;img"));
+    }
+
+    #[test]
+    fn cms_block_definition_list_empty_emits_empty_dl() {
+        let d = CmsBlock::DefinitionList { entries: vec![] };
+        let html = render_block(&d).into_string();
+        assert!(html.contains("<dl"));
+        assert!(!html.contains("<dt"));
+        assert!(!html.contains("<dd"));
     }
 
     #[test]
