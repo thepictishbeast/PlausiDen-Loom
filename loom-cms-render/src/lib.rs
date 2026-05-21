@@ -408,6 +408,47 @@ pub enum CmsBlock {
         /// Block children.
         children: Vec<CmsBlock>,
     },
+    /// Disclosure list — collapsible summary + content panels.
+    /// Behavioral contract mirrors Radix UI's `Accordion`
+    /// primitive (slot composition: each item carries a
+    /// `summary` and a child block tree). Renders as the native
+    /// `<details>/<summary>` element pair: no JS required, full
+    /// keyboard + screen-reader support out of the box.
+    ///
+    /// Upstream behavioral spec: <https://www.radix-ui.com/primitives/docs/components/accordion>
+    /// (MIT). No source copied — typed Rust reimplementation.
+    ///
+    /// `single_expand: true` enforces "at most one open at a time"
+    /// via the shared HTML `name` attribute on `<details>` (Chromium
+    /// 120+, Safari 17.5+, Firefox 130+). Older browsers degrade
+    /// gracefully to independent-open behavior.
+    Accordion {
+        /// Item list.
+        items: Vec<BlockAccordionItem>,
+        /// When true, all `<details>` elements share the same
+        /// `name` attribute so only one is open at any moment.
+        #[serde(default)]
+        single_expand: bool,
+    },
+}
+
+/// One disclosure item inside a [`CmsBlock::Accordion`]. Distinct
+/// from the section-level [`AccordionItem`] (which is `title +
+/// body: String`) — block-level items hold an arbitrary child
+/// block tree so an accordion panel can carry any composition the
+/// atomic primitives support.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockAccordionItem {
+    /// Summary text rendered inside `<summary>` — the always-
+    /// visible label that toggles the panel.
+    pub summary: String,
+    /// Block tree rendered inside the disclosure panel.
+    pub content: Vec<CmsBlock>,
+    /// When true, the item is expanded on initial render
+    /// (`<details open>`).
+    #[serde(default)]
+    pub default_open: bool,
 }
 
 /// Token-scale spacing step. Resolves to actual pixel / rem at
@@ -4924,6 +4965,37 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::Accordion {
+            items,
+            single_expand,
+        } => {
+            let group_name = if *single_expand {
+                Some("loom-accordion-group")
+            } else {
+                None
+            };
+            html! {
+                div class="loom-block-accordion" data-loom-slot="accordion" {
+                    @for item in items {
+                        details
+                            class="loom-block-accordion__item"
+                            data-loom-slot="accordion-item"
+                            open[item.default_open]
+                            name=[group_name]
+                        {
+                            summary class="loom-block-accordion__summary" data-loom-slot="accordion-trigger" {
+                                (item.summary)
+                            }
+                            div class="loom-block-accordion__content" data-loom-slot="accordion-content" {
+                                @for child in &item.content {
+                                    (render_block(child))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -9197,6 +9269,51 @@ mod tests {
             CmsBlock::Text { text } => assert_eq!(text, "Hello world"),
             _ => panic!("wrong variant"),
         }
+    }
+
+    #[test]
+    fn cms_block_accordion_renders_details_summary_pairs() {
+        let json = r##"{"kind":"accordion","items":[
+            {"summary":"First","content":[{"kind":"text","text":"Body A"}]},
+            {"summary":"Second","content":[{"kind":"text","text":"Body B"}],"default_open":true}
+        ]}"##;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains("loom-block-accordion"));
+        assert!(html.contains("<details"));
+        assert!(html.contains("<summary"));
+        assert!(html.contains(">First</summary>"));
+        assert!(html.contains(">Second</summary>"));
+        assert!(html.contains("Body A"));
+        assert!(html.contains("Body B"));
+        // default_open=true on the second item, false on the first.
+        assert_eq!(html.matches("open").count(), 1);
+    }
+
+    #[test]
+    fn cms_block_accordion_single_expand_emits_shared_name() {
+        let json = r##"{"kind":"accordion","single_expand":true,"items":[
+            {"summary":"A","content":[]},
+            {"summary":"B","content":[]}
+        ]}"##;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        // Both <details> share name="loom-accordion-group" so the
+        // browser enforces at-most-one-open.
+        assert_eq!(html.matches("name=\"loom-accordion-group\"").count(), 2);
+    }
+
+    #[test]
+    fn cms_block_accordion_emits_loom_slots() {
+        let json = r##"{"kind":"accordion","items":[{"summary":"X","content":[]}]}"##;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        // data-loom-slot attrs name each composition slot per the
+        // Radix-canonical convention (Trigger / Content).
+        assert!(html.contains(r#"data-loom-slot="accordion""#));
+        assert!(html.contains(r#"data-loom-slot="accordion-item""#));
+        assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
+        assert!(html.contains(r#"data-loom-slot="accordion-content""#));
     }
 
     #[test]
