@@ -769,6 +769,49 @@ pub enum CmsSection {
         #[serde(default)]
         position: MarginaliaPosition,
     },
+    /// Publication identity strip — typed editorial masthead
+    /// carrying publication name + tagline + editor + founded
+    /// year + ISSN + contact + mission. Distinct from
+    /// [`CmsSection::AnnouncementBar`] (single-line ribbon),
+    /// from [`CmsSection::ContactStrip`] (channel-only), and
+    /// from the page chrome `<header>` (site nav): Masthead is
+    /// the editorial-credentials block found at the bottom of
+    /// newspapers, the footer of literary magazines, the
+    /// about page of journals.
+    ///
+    /// Editorial intent: editorial / journalism / newsletter /
+    /// literary-press surfaces where the publication wants to
+    /// state its standing — who's editing it, when it was
+    /// founded, how to reach the editor, what the editorial
+    /// stance is.
+    Masthead {
+        /// Publication name (e.g. `"Prosperity Club"`,
+        /// `"The Tribune"`). Renders as the masthead heading.
+        publication: String,
+        /// Optional tagline / motto / strapline.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tagline: Option<String>,
+        /// Editor name + role
+        /// (e.g. `"Deborah Armstrong, Editor in Chief"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        editor: Option<String>,
+        /// Founded year / date (`"Est. 2024"`,
+        /// `"Founded 1920"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        founded: Option<String>,
+        /// Optional ISSN / publication identifier.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        issn: Option<String>,
+        /// Optional contact email rendered verbatim. When safe,
+        /// the renderer emits a `mailto:` link.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        contact_email: Option<String>,
+        /// Optional brief mission / editorial-stance statement.
+        /// Multi-paragraph values render as separate `<p>` tags
+        /// split on `\n\n`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mission: Option<String>,
+    },
     /// Account-summary card — typed surface for a logged-in
     /// user's at-a-glance state. Renders avatar + display name +
     /// plan + member-since. Read-only; editing flows through
@@ -2956,7 +2999,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5292,6 +5335,83 @@ pub fn render_section(section: &CmsSection) -> Markup {
             html! {
                 aside class={ "loom-marginalia " (pos_class) } role="note" {
                     span class="loom-marginalia__body" { (body) }
+                }
+            }
+        }
+        CmsSection::Masthead {
+            publication,
+            tagline,
+            editor,
+            founded,
+            issn,
+            contact_email,
+            mission,
+        } => {
+            // Email is safe to mailto: when it's a simple
+            // `local@domain.tld`-ish shape with no scheme leak.
+            // We hand the renderer responsibility for shaping
+            // the mailto link only when the address parses
+            // cleanly under the is_safe_url + manual `@` check.
+            let mailto_safe = contact_email
+                .as_deref()
+                .map(|e| {
+                    let trimmed = e.trim();
+                    !trimmed.is_empty()
+                        && trimmed.contains('@')
+                        && !trimmed.contains(':')
+                        && !trimmed.contains(' ')
+                        && !trimmed.contains('<')
+                        && !trimmed.contains('>')
+                })
+                .unwrap_or(false);
+            let has_meta_row =
+                editor.is_some() || founded.is_some() || issn.is_some();
+            html! {
+                section class="loom-masthead"
+                        aria-label="Publication masthead"
+                        data-loom-reveal
+                {
+                    h2 class="loom-masthead__publication" { (publication) }
+                    @if let Some(t) = tagline {
+                        p class="loom-masthead__tagline" { (t) }
+                    }
+                    @if has_meta_row {
+                        dl class="loom-masthead__meta" {
+                            @if let Some(e) = editor {
+                                dt class="loom-masthead__term loom-masthead__term--editor" { "Editor" }
+                                dd class="loom-masthead__value" { (e) }
+                            }
+                            @if let Some(f) = founded {
+                                dt class="loom-masthead__term loom-masthead__term--founded" { "Founded" }
+                                dd class="loom-masthead__value" { (f) }
+                            }
+                            @if let Some(id) = issn {
+                                dt class="loom-masthead__term loom-masthead__term--issn" { "ISSN" }
+                                dd class="loom-masthead__value" { (id) }
+                            }
+                        }
+                    }
+                    @if let Some(em) = contact_email {
+                        p class="loom-masthead__contact" {
+                            @if mailto_safe {
+                                @let href = format!("mailto:{em}");
+                                "Contact: "
+                                a class="loom-masthead__email" href=(href) { (em) }
+                            } @else {
+                                "Contact: "
+                                span class="loom-masthead__email"
+                                     data-blocked-href="true"
+                                { (em) }
+                            }
+                        }
+                    }
+                    @if let Some(m) = mission {
+                        div class="loom-masthead__mission" {
+                            @for para in m.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
+                                p { (para) }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -10147,6 +10267,144 @@ mod tests {
         assert!(html.contains("Solo"));
         assert!(!html.contains("loom-byline__role"));
         assert!(!html.contains("loom-byline__dateline"));
+    }
+
+    // #104 (2026-05-21) — Masthead publication identity strip.
+
+    #[test]
+    fn masthead_renders_section_with_publication_name() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "masthead",
+                "publication": "Prosperity Club"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<section class="loom-masthead""#));
+        assert!(html.contains(r#"aria-label="Publication masthead""#));
+        assert!(html.contains(r#"<h2 class="loom-masthead__publication""#));
+        assert!(html.contains(">Prosperity Club<"));
+        // All optional chrome absent.
+        assert!(!html.contains("loom-masthead__tagline"));
+        assert!(!html.contains("loom-masthead__meta"));
+        assert!(!html.contains("loom-masthead__contact"));
+        assert!(!html.contains("loom-masthead__mission"));
+    }
+
+    #[test]
+    fn masthead_renders_full_fields_with_mailto() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "masthead",
+                "publication": "The Tribune",
+                "tagline": "Honest reporting since the start.",
+                "editor": "Jane Doe, Editor in Chief",
+                "founded": "Est. 2024",
+                "issn": "ISSN 1234-5678",
+                "contact_email": "editor@example.org",
+                "mission": "Independent journalism for working readers.\n\nNo paywalls. No outside funders."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(">The Tribune<"));
+        assert!(html.contains(r#"class="loom-masthead__tagline""#));
+        assert!(html.contains(">Honest reporting since the start.<"));
+        assert!(html.contains(r#"<dl class="loom-masthead__meta""#));
+        assert!(html.contains("loom-masthead__term--editor"));
+        assert!(html.contains(">Editor<"));
+        assert!(html.contains(">Jane Doe, Editor in Chief<"));
+        assert!(html.contains("loom-masthead__term--founded"));
+        assert!(html.contains(">Est. 2024<"));
+        assert!(html.contains("loom-masthead__term--issn"));
+        assert!(html.contains(">ISSN 1234-5678<"));
+        // Mailto safe — anchor emitted.
+        assert!(html.contains(r#"<a class="loom-masthead__email" href="mailto:editor@example.org""#));
+        assert!(html.contains(">editor@example.org<"));
+        // Mission body — two paragraphs.
+        let m_open = html.find("loom-masthead__mission").expect("mission");
+        let m_close = html[m_open..].find("</div>").expect("/div") + m_open;
+        let m_slice = &html[m_open..m_close];
+        assert_eq!(m_slice.matches("<p>").count(), 2);
+    }
+
+    #[test]
+    fn masthead_unsafe_email_falls_back_to_span() {
+        // Embedded ":" / "<" / whitespace breaks the mailto
+        // safety gate — renderer drops the anchor, marks the
+        // span with data-blocked-href, but still surfaces the
+        // visible address so editorial content survives.
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "masthead",
+                "publication": "X",
+                "contact_email": "javascript:alert(1)@example.org"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"data-blocked-href="true""#));
+        assert!(!html.contains(r#"href="mailto:javascript:"#));
+    }
+
+    #[test]
+    fn masthead_meta_row_elided_when_all_three_none() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "masthead",
+                "publication": "X",
+                "tagline": "Y"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-masthead__tagline"));
+        // No <dl> when none of editor/founded/issn are set.
+        assert!(!html.contains("loom-masthead__meta"));
+    }
+
+    #[test]
+    fn masthead_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "masthead",
+                "publication": "<script>p</script>",
+                "tagline": "<script>t</script>",
+                "editor": "<script>e</script>",
+                "founded": "<script>f</script>",
+                "issn": "<script>i</script>",
+                "mission": "<script>m</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>p</script>",
+            "<script>t</script>",
+            "<script>e</script>",
+            "<script>f</script>",
+            "<script>i</script>",
+            "<script>m</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
