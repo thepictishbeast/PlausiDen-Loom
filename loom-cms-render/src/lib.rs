@@ -752,7 +752,45 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Multi-image photo gallery / showcase. Distinct from
+    /// [`CmsSection::Picture`] (single image), from
+    /// [`CmsSection::ImageHero`] (banner / hero image), and from
+    /// [`CmsSection::ImageDuet`] (exactly two images for
+    /// comparison). ImageGallery is the typed primitive for
+    /// photo essays, product showcases, before/after sequences,
+    /// research figure plates.
+    ///
+    /// Each item carries its own alt text — required, not
+    /// optional. Empty alt is permitted only on the
+    /// `decorative` variant (which renders `alt=""` and is
+    /// ignored by assistive tech). Operators cannot ship a
+    /// gallery item without explicitly declaring alt intent,
+    /// which is the structural lever that makes the primitive
+    /// safer than `Composer { html: "<div><img><img>..." }`.
+    ImageGallery {
+        /// Optional eyebrow ("Photo essay", "Plate I",
+        /// "Figure 3").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow: Option<String>,
+        /// Optional gallery title — accessible name of the
+        /// `<figure>` landmark when present.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        /// Optional shared caption beneath the entire gallery
+        /// (caller-side narrative).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caption: Option<String>,
+        /// Visual layout choice.
+        #[serde(default)]
+        layout: ImageGalleryLayout,
+        /// Items in display order. Caller is responsible for
+        /// ordering — renderer does NOT sort.
+        items: Vec<ImageGalleryItem>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +2994,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3115,61 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// One image in [`CmsSection::ImageGallery`]. Alt-text intent is
+/// modelled with the `ImageGalleryAlt` enum so operators cannot
+/// quietly omit an `alt=` attribute: they must pick `Meaningful`
+/// + provide text OR explicitly mark the image `Decorative`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
+pub struct ImageGalleryItem {
+    pub src: String,
+    pub alt: ImageGalleryAlt,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
+}
+
+/// Alt-text intent for [`ImageGalleryItem`]. The enum surfaces
+/// the decision explicitly so the substrate can audit gallery
+/// alt-text quality even when an item is intentionally
+/// decorative (in which case `alt=""` is the WCAG-correct
+/// markup).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ImageGalleryAlt {
+    /// Meaningful image — alt text required, rendered as
+    /// `alt="…"`.
+    Meaningful {
+        /// Alt text. Becomes the `<img alt="…">` value (or the
+        /// `aria-label` on the unsafe-src fallback span).
+        text: String,
+    },
+    /// Decorative image — explicitly marked as ignorable by
+    /// assistive tech. Renders `alt=""`.
+    Decorative,
+}
+
+/// Visual layout choice for [`CmsSection::ImageGallery`]. The
+/// renderer maps each variant to a class slug; CSS lives in the
+/// theme layer so callers can't bypass the typed contract by
+/// passing a free-form grid.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageGalleryLayout {
+    /// Default — equal-width grid that wraps responsively.
+    #[default]
+    Grid,
+    /// Single-row carousel (horizontally scrollable; no JS
+    /// dependence — CSS scroll-snap only).
+    Carousel,
+    /// Vertical column — each image full-width stacked, captions
+    /// inline. Suitable for portrait photo essays.
+    Stacked,
+    /// Asymmetric collage with deliberate width variance per
+    /// item (renderer picks the variance from item index).
+    Collage,
 }
 
 /// One comparison row.
@@ -5581,6 +5674,82 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::ImageGallery {
+            eyebrow,
+            title,
+            caption,
+            layout,
+            items,
+        } => {
+            let layout_slug = match layout {
+                ImageGalleryLayout::Grid => "grid",
+                ImageGalleryLayout::Carousel => "carousel",
+                ImageGalleryLayout::Stacked => "stacked",
+                ImageGalleryLayout::Collage => "collage",
+            };
+            html! {
+                figure class={ "loom-image-gallery loom-image-gallery--" (layout_slug) }
+                    data-loom-gallery-layout=(layout_slug)
+                    data-loom-reveal {
+                    @if eyebrow.is_some() || title.is_some() {
+                        header class="loom-image-gallery__header" {
+                            @if let Some(e) = eyebrow {
+                                span class="loom-image-gallery__eyebrow" { (e) }
+                            }
+                            @if let Some(t) = title {
+                                h2 class="loom-image-gallery__title" { (t) }
+                            }
+                        }
+                    }
+                    ol class="loom-image-gallery__items" {
+                        @for item in items {
+                            @let src_safe = loom_components::composer::is_safe_url(&item.src);
+                            li class="loom-image-gallery__item" {
+                                @match &item.alt {
+                                    ImageGalleryAlt::Meaningful { text } => {
+                                        @if src_safe {
+                                            img class="loom-image-gallery__img"
+                                                src=(item.src)
+                                                alt=(text)
+                                                loading="lazy"
+                                                decoding="async";
+                                        } @else {
+                                            span class="loom-image-gallery__img"
+                                                data-blocked-src="true"
+                                                aria-label=(text) {}
+                                        }
+                                    }
+                                    ImageGalleryAlt::Decorative => {
+                                        @if src_safe {
+                                            img class="loom-image-gallery__img"
+                                                src=(item.src)
+                                                alt=""
+                                                loading="lazy"
+                                                decoding="async"
+                                                aria-hidden="true";
+                                        } @else {
+                                            span class="loom-image-gallery__img"
+                                                data-blocked-src="true"
+                                                aria-hidden="true" {}
+                                        }
+                                    }
+                                }
+                                @if let Some(c) = &item.caption {
+                                    figcaption class="loom-image-gallery__caption" {
+                                        (c)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    @if let Some(c) = caption {
+                        figcaption class="loom-image-gallery__shared-caption" {
+                            (c)
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10116,185 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn image_gallery_renders_grid_with_meaningful_alt() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "image_gallery",
+                "items": [
+                    {"src": "/photos/a.jpg",
+                     "alt": {"kind": "meaningful",
+                             "text": "Riverbank at dawn"}},
+                    {"src": "/photos/b.jpg",
+                     "alt": {"kind": "meaningful",
+                             "text": "City skyline at dusk"},
+                     "caption": "Manhattan, looking south."}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-image-gallery"));
+        assert!(html.contains("loom-image-gallery--grid"));
+        assert!(html.contains("data-loom-gallery-layout=\"grid\""));
+        // Two items rendered.
+        let item_count = html.matches("loom-image-gallery__item\"").count();
+        assert_eq!(item_count, 2, "expected 2 gallery items, got {item_count}");
+        // Both <img alt="…"> rendered with meaningful text.
+        assert!(html.contains("alt=\"Riverbank at dawn\""));
+        assert!(html.contains("alt=\"City skyline at dusk\""));
+        // Lazy-loading + decoding attrs present.
+        assert!(html.contains("loading=\"lazy\""));
+        assert!(html.contains("decoding=\"async\""));
+        // Second item caption rendered.
+        assert!(html.contains("Manhattan, looking south"));
+        // Decorative aria-hidden NOT applied to meaningful images.
+        assert!(!html.contains("aria-hidden=\"true\""));
+        // Optional chrome absent.
+        assert!(!html.contains("loom-image-gallery__header"));
+        assert!(!html.contains("loom-image-gallery__shared-caption"));
+    }
+
+    #[test]
+    fn image_gallery_decorative_renders_empty_alt_and_aria_hidden() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "image_gallery",
+                "items": [
+                    {"src": "/ornament.jpg",
+                     "alt": {"kind": "decorative"}}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("alt=\"\""));
+        assert!(html.contains("aria-hidden=\"true\""));
+    }
+
+    #[test]
+    fn image_gallery_layout_variants_render_distinct_slugs() {
+        let cases: &[(&str, &str)] = &[
+            ("carousel", "carousel"),
+            ("stacked", "stacked"),
+            ("collage", "collage"),
+        ];
+        for (json_layout, slug) in cases {
+            let json = format!(
+                r#"{{
+                "brand": null, "theme": null, "chrome": null, "content_width": null,
+                "nav_actions": [], "title": "t", "description": "d",
+                "path": "/p", "nav_links": [], "dev_devtools": false,
+                "sections": [{{
+                    "kind": "image_gallery",
+                    "layout": "{json_layout}",
+                    "items": [
+                        {{"src": "/a.jpg",
+                          "alt": {{"kind": "meaningful", "text": "A"}}}}
+                    ]
+                }}]
+            }}"#
+            );
+            let page: CmsPage = serde_json::from_str(&json)
+                .unwrap_or_else(|_| panic!("layout={json_layout}"));
+            let html = render_to_string(&page);
+            assert!(
+                html.contains(&format!("loom-image-gallery--{slug}")),
+                "layout={json_layout} missing --{slug} slug"
+            );
+            assert!(
+                html.contains(&format!("data-loom-gallery-layout=\"{slug}\"")),
+                "layout={json_layout} missing data attr"
+            );
+        }
+    }
+
+    #[test]
+    fn image_gallery_full_chrome_with_header_and_shared_caption() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "image_gallery",
+                "eyebrow": "Plate III",
+                "title": "Field trial — site B",
+                "caption": "Captured across 14 sessions, May 2026.",
+                "layout": "collage",
+                "items": [
+                    {"src": "/p1.jpg",
+                     "alt": {"kind": "meaningful", "text": "P1"}},
+                    {"src": "/p2.jpg",
+                     "alt": {"kind": "meaningful", "text": "P2"}}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-image-gallery__header"));
+        assert!(html.contains("loom-image-gallery__eyebrow"));
+        assert!(html.contains("Plate III"));
+        assert!(html.contains("loom-image-gallery__title"));
+        assert!(html.contains("Field trial"));
+        assert!(html.contains("loom-image-gallery__shared-caption"));
+        assert!(html.contains("Captured across 14 sessions"));
+    }
+
+    #[test]
+    fn image_gallery_unsafe_src_falls_back_to_span() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "image_gallery",
+                "items": [
+                    {"src": "javascript:alert(1)",
+                     "alt": {"kind": "meaningful",
+                             "text": "Hostile image"}}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("src=\"javascript:"), "hostile src leaked");
+        assert!(html.contains("data-blocked-src=\"true\""));
+        // Accessible label preserved on the fallback span.
+        assert!(html.contains("aria-label=\"Hostile image\""));
+    }
+
+    #[test]
+    fn image_gallery_alt_text_is_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "image_gallery",
+                "items": [
+                    {"src": "/safe.jpg",
+                     "alt": {"kind": "meaningful",
+                             "text": "<script>alert('a')</script>"},
+                     "caption": "<script>alert('c')</script>"}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        assert!(
+            entity_hits >= 2,
+            "expected >= 2 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
