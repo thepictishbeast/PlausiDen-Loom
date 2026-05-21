@@ -752,6 +752,39 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed multi-part article series navigation block —
+    /// "Part X of Y in series Z" with optional prev / next /
+    /// index links. Distinct from
+    /// [`CmsSection::ChapterPager`] (chapter-level prev /
+    /// index / next within ONE work), from
+    /// [`CmsSection::RelatedReads`] (semantic "you may also
+    /// like"), and from [`CmsSection::Pagination`]
+    /// (page-index 1-of-N): ArticleSeries identifies the
+    /// current piece as part of an editorial series with
+    /// named title.
+    ///
+    /// Editorial intent: blog / newsletter / educational
+    /// site where one topic is covered across multiple
+    /// articles. Renders as a typographic strip at top or
+    /// bottom of the article body.
+    ArticleSeries {
+        /// Series title (e.g. `"Investing for real people"`).
+        series_title: String,
+        /// Current part number (1-indexed).
+        part_number: u32,
+        /// Total parts in the series.
+        total_parts: u32,
+        /// Optional series-index page URL. Validated via
+        /// `is_safe_url`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        index_href: Option<String>,
+        /// Previous part link (`None` on the first part).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        previous: Option<ArticleSeriesLink>,
+        /// Next part link (`None` on the last part).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        next: Option<ArticleSeriesLink>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2956,7 +2989,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3110,22 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// One prev / next entry in a [`CmsSection::ArticleSeries`].
+///
+/// Typed pair (title + href) so the renderer can show the
+/// destination part's title in addition to the prev/next
+/// label. Safe-URL gated.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct ArticleSeriesLink {
+    /// Title of the destination part (link text).
+    pub title: String,
+    /// Target URL. Validated via `is_safe_url`; hostile
+    /// schemes render as a plain span with
+    /// `data-blocked-href="true"`.
+    pub href: String,
 }
 
 /// One comparison row.
@@ -5578,6 +5627,70 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 blockquote class="loom-epigraph__body" { (body) }
                 @if let Some(a) = attribution {
                     figcaption class="loom-epigraph__attribution" { "— " (a) }
+                }
+            }
+        },
+        CmsSection::ArticleSeries {
+            series_title,
+            part_number,
+            total_parts,
+            index_href,
+            previous,
+            next,
+        } => {
+            let render_link = |link: &ArticleSeriesLink, slot: &'static str, eyebrow: &'static str| -> Markup {
+                let safe = is_safe_url(&link.href);
+                html! {
+                    li class={ "loom-article-series__nav-item loom-article-series__nav-item--" (slot) }
+                       data-slot=(slot)
+                    {
+                        @if safe {
+                            a class="loom-article-series__nav-link" href=(link.href) {
+                                span class="loom-article-series__nav-eyebrow" { (eyebrow) }
+                                span class="loom-article-series__nav-title" { (link.title) }
+                            }
+                        } @else {
+                            span class="loom-article-series__nav-link"
+                                 data-blocked-href="true"
+                            {
+                                span class="loom-article-series__nav-eyebrow" { (eyebrow) }
+                                span class="loom-article-series__nav-title" { (link.title) }
+                            }
+                        }
+                    }
+                }
+            };
+            html! {
+                aside class="loom-article-series"
+                      aria-label="Series navigation"
+                      data-loom-reveal
+                {
+                    p class="loom-article-series__status" {
+                        "Part "
+                        span class="loom-article-series__part-number" { (part_number.to_string()) }
+                        " of "
+                        span class="loom-article-series__total-parts" { (total_parts.to_string()) }
+                        " in "
+                        @if let Some(href) = index_href {
+                            @if is_safe_url(href) {
+                                a class="loom-article-series__index-link" href=(href) {
+                                    cite class="loom-article-series__series-title" { (series_title) }
+                                }
+                            } @else {
+                                cite class="loom-article-series__series-title"
+                                     data-blocked-href="true"
+                                { (series_title) }
+                            }
+                        } @else {
+                            cite class="loom-article-series__series-title" { (series_title) }
+                        }
+                    }
+                    @if previous.is_some() || next.is_some() {
+                        ul class="loom-article-series__nav" {
+                            @if let Some(p) = previous { (render_link(p, "previous", "Previous")) }
+                            @if let Some(n) = next { (render_link(n, "next", "Next")) }
+                        }
+                    }
                 }
             }
         },
@@ -9946,6 +10059,136 @@ mod tests {
         let page: CmsPage = serde_json::from_str(json).expect("page parses");
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    // #104 (2026-05-21) — ArticleSeries multi-part series nav.
+
+    #[test]
+    fn article_series_renders_status_with_part_x_of_y_in_series() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "article_series",
+                "series_title": "Investing for real people",
+                "part_number": 3,
+                "total_parts": 5
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<aside class="loom-article-series""#));
+        assert!(html.contains(r#"aria-label="Series navigation""#));
+        assert!(html.contains(r#"class="loom-article-series__status""#));
+        // Part X of Y framing visible.
+        assert!(html.contains(">3<"));
+        assert!(html.contains(">5<"));
+        assert!(html.contains(r#"<cite class="loom-article-series__series-title""#));
+        assert!(html.contains(">Investing for real people<"));
+        // No nav row when prev + next both None.
+        assert!(!html.contains("loom-article-series__nav"));
+    }
+
+    #[test]
+    fn article_series_renders_prev_next_with_index_link() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "article_series",
+                "series_title": "Risk before return",
+                "part_number": 2,
+                "total_parts": 4,
+                "index_href": "/series/risk-before-return/",
+                "previous": {"title": "Why insurance is the foundation", "href": "/part-1/"},
+                "next":     {"title": "Sizing term life",                 "href": "/part-3/"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // Index link wraps the series title.
+        assert!(html.contains(r#"<a class="loom-article-series__index-link" href="/series/risk-before-return/""#));
+        // Nav row with prev + next.
+        assert!(html.contains(r#"class="loom-article-series__nav""#));
+        assert!(html.contains("loom-article-series__nav-item--previous"));
+        assert!(html.contains("loom-article-series__nav-item--next"));
+        assert!(html.contains(r#"href="/part-1/""#));
+        assert!(html.contains(r#"href="/part-3/""#));
+        assert!(html.contains(">Previous<"));
+        assert!(html.contains(">Next<"));
+        assert!(html.contains(">Why insurance is the foundation<"));
+        assert!(html.contains(">Sizing term life<"));
+    }
+
+    #[test]
+    fn article_series_unsafe_href_falls_back_to_span() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "article_series",
+                "series_title": "X",
+                "part_number": 1,
+                "total_parts": 2,
+                "next": {"title": "Bad", "href": "javascript:alert(1)"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"data-blocked-href="true""#));
+        assert!(!html.contains("javascript:alert(1)"));
+        // Visible label still surfaces.
+        assert!(html.contains(">Bad<"));
+    }
+
+    #[test]
+    fn article_series_first_part_no_previous_only_next() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "article_series",
+                "series_title": "X",
+                "part_number": 1,
+                "total_parts": 3,
+                "next": {"title": "Part 2", "href": "/2/"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-article-series__nav-item--next"));
+        assert!(!html.contains("loom-article-series__nav-item--previous"));
+    }
+
+    #[test]
+    fn article_series_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "article_series",
+                "series_title": "<script>s</script>",
+                "part_number": 1,
+                "total_parts": 2,
+                "previous": {"title": "<script>p</script>", "href": "/p/"},
+                "next":     {"title": "<script>n</script>", "href": "/n/"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>s</script>",
+            "<script>p</script>",
+            "<script>n</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
         assert!(html.contains("&lt;script&gt;"));
     }
 
