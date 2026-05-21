@@ -752,6 +752,37 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Open-letter / petition / addressed-statement format.
+    /// Distinct from [`CmsSection::PullQuote`] (single
+    /// passage), from [`CmsSection::Paragraph`] (generic body
+    /// text), and from [`CmsSection::Testimonial`] (review
+    /// card): OpenLetter carries the formal-letter structure
+    /// — salutation, multi-paragraph body, signature line,
+    /// optional dateline + co-signers.
+    ///
+    /// Editorial intent: editorial board statements, open
+    /// letters to a politician / regulator / industry,
+    /// petitions, manifestos. Anti-SaaS: not a CTA card; a
+    /// semantic `<article>` with typographic letter chrome.
+    OpenLetter {
+        /// Salutation line (`"Dear Editor"`,
+        /// `"To Whom It May Concern"`).
+        salutation: String,
+        /// Body — multi-paragraph splits on `\n\n`.
+        body: String,
+        /// Signature line (sender name + role,
+        /// e.g. `"Jane Doe, Editor in Chief"`).
+        signature: String,
+        /// Optional dateline rendered above the salutation
+        /// (RFC 3339 preferred for machine-readable
+        /// `datetime`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dateline: Option<String>,
+        /// Optional list of additional co-signers rendered
+        /// below the primary signature.
+        #[serde(default)]
+        cosigners: Vec<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2956,7 +2987,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5578,6 +5609,36 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 blockquote class="loom-epigraph__body" { (body) }
                 @if let Some(a) = attribution {
                     figcaption class="loom-epigraph__attribution" { "— " (a) }
+                }
+            }
+        },
+        CmsSection::OpenLetter {
+            salutation,
+            body,
+            signature,
+            dateline,
+            cosigners,
+        } => html! {
+            article class="loom-open-letter"
+                    aria-label="Open letter"
+                    data-loom-reveal
+            {
+                @if let Some(d) = dateline {
+                    p class="loom-open-letter__dateline" {
+                        time datetime=(d) { (d) }
+                    }
+                }
+                p class="loom-open-letter__salutation" { (salutation) }
+                div class="loom-open-letter__body" {
+                    @for para in body.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
+                        p { (para) }
+                    }
+                }
+                p class="loom-open-letter__signature" { (signature) }
+                @if !cosigners.is_empty() {
+                    ul class="loom-open-letter__cosigners" aria-label="Co-signers" {
+                        @for c in cosigners { li { (c) } }
+                    }
                 }
             }
         },
@@ -9946,6 +10007,118 @@ mod tests {
         let page: CmsPage = serde_json::from_str(json).expect("page parses");
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    // #104 (2026-05-21) — OpenLetter addressed-letter format.
+
+    #[test]
+    fn open_letter_renders_article_with_required_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "open_letter",
+                "salutation": "Dear Editor",
+                "body": "We write to register our objection.\n\nThe proposed policy will harm small publishers.",
+                "signature": "Jane Doe, Editor in Chief"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<article class="loom-open-letter""#));
+        assert!(html.contains(r#"aria-label="Open letter""#));
+        assert!(html.contains(r#"class="loom-open-letter__salutation""#));
+        assert!(html.contains(">Dear Editor<"));
+        // Body has two paragraphs.
+        let body_open = html.find("loom-open-letter__body").expect("body");
+        let body_close = html[body_open..].find("</div>").expect("/div") + body_open;
+        let body_slice = &html[body_open..body_close];
+        assert_eq!(body_slice.matches("<p>").count(), 2);
+        assert!(html.contains(r#"class="loom-open-letter__signature""#));
+        assert!(html.contains(">Jane Doe, Editor in Chief<"));
+        // No optional chrome present.
+        assert!(!html.contains("loom-open-letter__dateline"));
+        assert!(!html.contains("loom-open-letter__cosigners"));
+    }
+
+    #[test]
+    fn open_letter_renders_dateline_and_cosigners() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "open_letter",
+                "salutation": "To Whom It May Concern",
+                "body": "We the undersigned…",
+                "signature": "Jane Doe",
+                "dateline": "2026-03-05",
+                "cosigners": ["Alex Park", "Maria Garcia", "Sam Lee"]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"class="loom-open-letter__dateline""#));
+        assert!(html.contains(r#"<time datetime="2026-03-05""#));
+        assert!(html.contains(r#"<ul class="loom-open-letter__cosigners""#));
+        assert!(html.contains(r#"aria-label="Co-signers""#));
+        // Three cosigner <li> entries.
+        let ul_open = html.find("loom-open-letter__cosigners").expect("ul");
+        let ul_close = html[ul_open..].find("</ul>").expect("/ul") + ul_open;
+        let ul_slice = &html[ul_open..ul_close];
+        assert_eq!(ul_slice.matches("<li>").count(), 3);
+        assert!(html.contains(">Alex Park<"));
+        assert!(html.contains(">Maria Garcia<"));
+        assert!(html.contains(">Sam Lee<"));
+    }
+
+    #[test]
+    fn open_letter_empty_cosigners_vec_elides_list() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "open_letter",
+                "salutation": "X",
+                "body": "Y",
+                "signature": "Z",
+                "cosigners": []
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("loom-open-letter__cosigners"));
+    }
+
+    #[test]
+    fn open_letter_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "open_letter",
+                "salutation": "<script>s</script>",
+                "body": "<script>b</script>",
+                "signature": "<script>sig</script>",
+                "dateline": "<script>d</script>",
+                "cosigners": ["<script>c</script>"]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>s</script>",
+            "<script>b</script>",
+            "<script>sig</script>",
+            "<script>d</script>",
+            "<script>c</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
         assert!(html.contains("&lt;script&gt;"));
     }
 
