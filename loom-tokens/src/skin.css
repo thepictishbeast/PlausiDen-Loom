@@ -11161,3 +11161,54 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
   outline: 2px solid var(--loom-color-focus, var(--loom-color-accent, #3a7afe));
   outline-offset: 2px;
 }
+
+/* === CmsBlock::Stepper ============================================= */
+/* Multi-step process indicator. Semantic <ol> with one <li> per step;
+   per-step data-state drives color + checkmark / number rendering. */
+.loom-block-stepper {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.loom-block-stepper__step {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: background-color 150ms ease;
+}
+.loom-block-stepper__index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: currentColor;
+  color: var(--loom-color-bg, #fff);
+  flex-shrink: 0;
+}
+.loom-block-stepper__label {
+  white-space: nowrap;
+}
+.loom-block-stepper__step[data-state="done"] {
+  color: var(--loom-color-stepper-done, var(--loom-color-badge-success-text, #16a34a));
+  background: var(--loom-color-stepper-done-bg, color-mix(in oklab, var(--loom-color-stepper-done, #16a34a) 12%, transparent));
+}
+.loom-block-stepper__step[data-state="current"] {
+  color: var(--loom-color-stepper-current, var(--loom-color-accent, var(--loom-color-primary, #3a7afe)));
+  background: var(--loom-color-stepper-current-bg, color-mix(in oklab, var(--loom-color-stepper-current, #3a7afe) 14%, transparent));
+}
+.loom-block-stepper__step[data-state="upcoming"] {
+  color: var(--loom-color-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 50%, transparent));
+  background: transparent;
+}
