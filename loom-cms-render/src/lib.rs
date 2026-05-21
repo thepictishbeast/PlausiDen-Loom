@@ -752,7 +752,50 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed waitlist signup with position context. Distinct
+    /// from [`CmsSection::NewsletterSignup`] (generic email
+    /// capture for content updates) and from
+    /// [`CmsSection::Form`] (general typed form): WaitlistSignup
+    /// is the structured shape product / service waitlists ship
+    /// — heading + lede + email capture + optional position-in-
+    /// queue + optional estimated availability.
+    ///
+    /// The position-context slots (current position, total
+    /// waiting, estimated date) are optional because they apply
+    /// only to logged-in or invited surfaces; the initial-
+    /// signup pass renders without them.
+    WaitlistSignup {
+        /// Heading ("Join the waitlist", "You're on the list").
+        heading: String,
+        /// Optional lede explanation. Multi-paragraph splits on
+        /// `\n\n`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lede: Option<String>,
+        /// Email-input placeholder.
+        placeholder: String,
+        /// Submit-button label.
+        submit_label: String,
+        /// Optional current position in the queue (rendered as
+        /// "#1,234 in queue" when present). Surfaced as
+        /// `data-loom-waitlist-position` for downstream
+        /// observability + crawler audit.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        position: Option<u64>,
+        /// Optional total people on the waitlist
+        /// ("of 12,394 waiting"). Surfaced as
+        /// `data-loom-waitlist-total`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total_waiting: Option<u64>,
+        /// Optional estimated availability label
+        /// ("Expected Q3 2026" — free-form so different
+        /// publishers can format to taste).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        estimated_label: Option<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +2999,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5581,6 +5624,84 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::WaitlistSignup {
+            heading,
+            lede,
+            placeholder,
+            submit_label,
+            position,
+            total_waiting,
+            estimated_label,
+        } => {
+            let position_str = position.map(|p| p.to_string());
+            let total_str = total_waiting.map(|t| t.to_string());
+            html! {
+                section class="loom-waitlist-signup"
+                    data-loom-waitlist-position=[position_str.as_deref()]
+                    data-loom-waitlist-total=[total_str.as_deref()]
+                    data-loom-reveal {
+                    header class="loom-waitlist-signup__header" {
+                        h2 class="loom-waitlist-signup__heading" { (heading) }
+                        @if let Some(l) = lede {
+                            div class="loom-waitlist-signup__lede" {
+                                @for p in l.split("\n\n") {
+                                    p class="loom-waitlist-signup__lede-para" { (p) }
+                                }
+                            }
+                        }
+                    }
+                    @if position.is_some() || total_waiting.is_some() || estimated_label.is_some() {
+                        div class="loom-waitlist-signup__status"
+                            role="status" aria-live="polite" {
+                            @if let Some(p) = position {
+                                p class="loom-waitlist-signup__position" {
+                                    span class="loom-waitlist-signup__position-label" {
+                                        "Position: "
+                                    }
+                                    span class="loom-waitlist-signup__position-value" {
+                                        "#" (p)
+                                    }
+                                    @if let Some(t) = total_waiting {
+                                        span class="loom-waitlist-signup__position-total" {
+                                            " of " (t)
+                                        }
+                                    }
+                                }
+                            }
+                            @if position.is_none() {
+                                @if let Some(t) = total_waiting {
+                                    p class="loom-waitlist-signup__total" {
+                                        (t) " on the waitlist"
+                                    }
+                                }
+                            }
+                            @if let Some(e) = estimated_label {
+                                p class="loom-waitlist-signup__estimated" {
+                                    span class="loom-waitlist-signup__estimated-label" {
+                                        "Estimated: "
+                                    }
+                                    span class="loom-waitlist-signup__estimated-value" { (e) }
+                                }
+                            }
+                        }
+                    }
+                    form class="loom-waitlist-signup__form" {
+                        label class="loom-waitlist-signup__label"
+                            for="loom-waitlist-signup__email" {
+                            "Email address"
+                        }
+                        input class="loom-waitlist-signup__input"
+                            id="loom-waitlist-signup__email"
+                            type="email"
+                            name="email"
+                            placeholder=(placeholder)
+                            required;
+                        button class="loom-waitlist-signup__submit"
+                            type="submit" { (submit_label) }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10068,146 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn waitlist_signup_minimal_renders_form_no_status() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "waitlist_signup",
+                "heading": "Join the waitlist",
+                "placeholder": "you@example.com",
+                "submit_label": "Get on the list"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-waitlist-signup"));
+        assert!(html.contains("loom-waitlist-signup__heading"));
+        assert!(html.contains("Join the waitlist"));
+        // Form chrome present.
+        assert!(html.contains("loom-waitlist-signup__form"));
+        assert!(html.contains("type=\"email\""));
+        assert!(html.contains("required"));
+        assert!(html.contains("placeholder=\"you@example.com\""));
+        assert!(html.contains("Get on the list"));
+        // Optional chrome absent.
+        assert!(!html.contains("loom-waitlist-signup__lede"));
+        assert!(!html.contains("loom-waitlist-signup__status"));
+        assert!(!html.contains("loom-waitlist-signup__position"));
+        assert!(!html.contains("loom-waitlist-signup__total"));
+        assert!(!html.contains("loom-waitlist-signup__estimated"));
+        assert!(!html.contains("data-loom-waitlist-position"));
+    }
+
+    #[test]
+    fn waitlist_signup_with_position_renders_status() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "waitlist_signup",
+                "heading": "Welcome back",
+                "placeholder": "you@example.com",
+                "submit_label": "Submit",
+                "position": 1234,
+                "total_waiting": 12394,
+                "estimated_label": "Expected Q3 2026"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-waitlist-signup__status"));
+        assert!(html.contains("role=\"status\""));
+        assert!(html.contains("aria-live=\"polite\""));
+        // Position rendered.
+        assert!(html.contains("loom-waitlist-signup__position"));
+        assert!(html.contains("#1234"));
+        // Total rendered alongside position.
+        assert!(html.contains("of 12394"));
+        // Estimated rendered.
+        assert!(html.contains("loom-waitlist-signup__estimated"));
+        assert!(html.contains("Expected Q3 2026"));
+        // Data attrs.
+        assert!(html.contains("data-loom-waitlist-position=\"1234\""));
+        assert!(html.contains("data-loom-waitlist-total=\"12394\""));
+    }
+
+    #[test]
+    fn waitlist_signup_total_without_position_renders_total_phrase() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "waitlist_signup",
+                "heading": "Get early access",
+                "placeholder": "you@example.com",
+                "submit_label": "Join",
+                "total_waiting": 5421
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // No position; total rendered as standalone phrase.
+        assert!(html.contains("loom-waitlist-signup__total"));
+        assert!(html.contains("5421 on the waitlist"));
+        // Position partial absent.
+        assert!(!html.contains("loom-waitlist-signup__position"));
+        // Data attrs: total set, position empty.
+        assert!(html.contains("data-loom-waitlist-total=\"5421\""));
+        assert!(!html.contains("data-loom-waitlist-position="));
+    }
+
+    #[test]
+    fn waitlist_signup_with_multi_paragraph_lede() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "waitlist_signup",
+                "heading": "Beta access",
+                "lede": "Para one.\n\nPara two.",
+                "placeholder": "you@example.com",
+                "submit_label": "Join"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-waitlist-signup__lede"));
+        let para_count = html.matches("loom-waitlist-signup__lede-para").count();
+        assert_eq!(para_count, 2, "expected 2 lede paragraphs, got {para_count}");
+    }
+
+    #[test]
+    fn waitlist_signup_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "waitlist_signup",
+                "heading": "<script>alert('h')</script>",
+                "lede": "<script>alert('l')</script>",
+                "placeholder": "<script>alert('p')</script>",
+                "submit_label": "<script>alert('s')</script>",
+                "estimated_label": "<script>alert('e')</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        // heading + lede + placeholder + submit_label + estimated
+        assert!(
+            entity_hits >= 5,
+            "expected >= 5 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
