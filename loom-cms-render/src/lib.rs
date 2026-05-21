@@ -752,6 +752,37 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed fact-check verdict block — verdict + claim +
+    /// finding + optional date + sources. Distinct from
+    /// [`CmsSection::Disclaimer`] (paid-relationship
+    /// declarations), from [`CmsSection::Errata`] (post-
+    /// publication corrections), and from
+    /// [`CmsSection::SourceList`] (generic bibliography):
+    /// FactCheck specifically encodes a journalism fact-
+    /// checker's verdict on a single claim.
+    ///
+    /// Editorial intent: news / journalism / financial-
+    /// education / health-information surfaces where the
+    /// publication checks claims. Pairs with the structured
+    /// schema.org `ClaimReview` vocabulary (which the
+    /// renderer doesn't emit but consumers can derive).
+    FactCheck {
+        /// Verdict for the claim.
+        verdict: FactCheckVerdict,
+        /// The claim being checked (one or two sentences).
+        claim: String,
+        /// The fact-checker's finding — full explanation of
+        /// the verdict. Multi-paragraph splits on `\n\n`.
+        finding: String,
+        /// Optional date of the check (RFC 3339 preferred
+        /// for the rendered `<time datetime="…">`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        checked_date: Option<String>,
+        /// Optional sources (URLs or descriptive names).
+        /// Rendered as a list below the finding.
+        #[serde(default)]
+        sources: Vec<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2738,6 +2769,62 @@ pub enum PullQuoteTone {
     Amoled,
 }
 
+/// Verdict tier for [`CmsSection::FactCheck`]. Mirrors the
+/// canonical fact-checker rubric used by Snopes / PolitiFact /
+/// AP Fact Check / Reuters Fact Check. Drives the modifier
+/// class + visible label on the rendered block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FactCheckVerdict {
+    /// Claim is accurate.
+    True,
+    /// Claim is mostly accurate; minor caveats.
+    MostlyTrue,
+    /// Some accuracy, but important context is missing or
+    /// reversed.
+    Mixed,
+    /// Claim is mostly inaccurate; some grain of truth.
+    MostlyFalse,
+    /// Claim is inaccurate.
+    False,
+    /// Claim cannot be verified with available evidence.
+    Unverified,
+    /// Claim is technically defensible but the framing
+    /// misleads — selective context, false equivalence, etc.
+    Misleading,
+}
+
+impl FactCheckVerdict {
+    /// Stable kebab-case modifier slug. The
+    /// `.loom-fact-check--<modifier>` cascade targets these.
+    #[must_use]
+    pub const fn modifier(self) -> &'static str {
+        match self {
+            Self::True => "true",
+            Self::MostlyTrue => "mostly-true",
+            Self::Mixed => "mixed",
+            Self::MostlyFalse => "mostly-false",
+            Self::False => "false",
+            Self::Unverified => "unverified",
+            Self::Misleading => "misleading",
+        }
+    }
+
+    /// Visible label rendered as the verdict badge.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::True => "True",
+            Self::MostlyTrue => "Mostly true",
+            Self::Mixed => "Mixed",
+            Self::MostlyFalse => "Mostly false",
+            Self::False => "False",
+            Self::Unverified => "Unverified",
+            Self::Misleading => "Misleading",
+        }
+    }
+}
+
 /// Layout density for [`CmsSection::KvPair`]. Mirrors
 /// `loom_components::card::KvPairDensity`. Affects vertical rhythm
 /// inside each item; horizontal sizing is the grid's job.
@@ -2956,7 +3043,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5578,6 +5665,53 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 blockquote class="loom-epigraph__body" { (body) }
                 @if let Some(a) = attribution {
                     figcaption class="loom-epigraph__attribution" { "— " (a) }
+                }
+            }
+        },
+        CmsSection::FactCheck {
+            verdict,
+            claim,
+            finding,
+            checked_date,
+            sources,
+        } => {
+            let verdict_mod = verdict.modifier();
+            let verdict_label = verdict.label();
+            html! {
+                aside class={ "loom-fact-check loom-fact-check--" (verdict_mod) }
+                      role="note"
+                      aria-label="Fact check"
+                      data-verdict=(verdict_mod)
+                      data-loom-reveal
+                {
+                    p class="loom-fact-check__eyebrow" { "Fact check" }
+                    p class={ "loom-fact-check__verdict loom-fact-check__verdict--" (verdict_mod) } {
+                        (verdict_label)
+                    }
+                    @if let Some(d) = checked_date {
+                        p class="loom-fact-check__date" {
+                            "Checked: "
+                            time datetime=(d) { (d) }
+                        }
+                    }
+                    div class="loom-fact-check__claim" {
+                        p class="loom-fact-check__claim-label" { "Claim" }
+                        p class="loom-fact-check__claim-text" { (claim) }
+                    }
+                    div class="loom-fact-check__finding" {
+                        p class="loom-fact-check__finding-label" { "Finding" }
+                        @for para in finding.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
+                            p { (para) }
+                        }
+                    }
+                    @if !sources.is_empty() {
+                        div class="loom-fact-check__sources" {
+                            p class="loom-fact-check__sources-label" { "Sources" }
+                            ul {
+                                @for s in sources { li { (s) } }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -9946,6 +10080,132 @@ mod tests {
         let page: CmsPage = serde_json::from_str(json).expect("page parses");
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    // #104 (2026-05-21) — FactCheck typed verdict block.
+
+    #[test]
+    fn fact_check_renders_aside_with_required_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "fact_check",
+                "verdict": "false",
+                "claim": "Compound interest doubles your money every 7 years.",
+                "finding": "The 'rule of 72' approximates doubling time, but assumes a 10.3% return — far above the historical real average."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<aside class="loom-fact-check loom-fact-check--false""#));
+        assert!(html.contains(r#"role="note""#));
+        assert!(html.contains(r#"aria-label="Fact check""#));
+        assert!(html.contains(r#"data-verdict="false""#));
+        // Eyebrow + verdict badge + claim + finding.
+        assert!(html.contains(">Fact check<"));
+        assert!(html.contains("loom-fact-check__verdict--false"));
+        assert!(html.contains(">False<"));
+        assert!(html.contains(">Claim<"));
+        assert!(html.contains(">Compound interest doubles your money every 7 years.<"));
+        assert!(html.contains(">Finding<"));
+        assert!(html.contains("'rule of 72'") || html.contains("rule of 72"));
+        // No optional chrome.
+        assert!(!html.contains("loom-fact-check__date"));
+        assert!(!html.contains("loom-fact-check__sources"));
+    }
+
+    #[test]
+    fn fact_check_full_fields_with_date_and_sources() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "fact_check",
+                "verdict": "mostly_true",
+                "claim": "The S&P 500 averages 10% returns historically.",
+                "finding": "Nominal average is close to 10%; real (inflation-adjusted) is ~7%.",
+                "checked_date": "2026-03-05",
+                "sources": ["NYU Stern dataset", "https://example.org/data"]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-fact-check--mostly-true"));
+        assert!(html.contains(">Mostly true<"));
+        assert!(html.contains(r#"class="loom-fact-check__date""#));
+        assert!(html.contains(r#"<time datetime="2026-03-05""#));
+        assert!(html.contains(r#"class="loom-fact-check__sources""#));
+        assert!(html.contains(">NYU Stern dataset<"));
+        assert!(html.contains(">https://example.org/data<"));
+    }
+
+    #[test]
+    fn fact_check_verdict_modifier_and_label_stable_per_variant() {
+        for (v, modifier, label) in [
+            (FactCheckVerdict::True, "true", "True"),
+            (FactCheckVerdict::MostlyTrue, "mostly-true", "Mostly true"),
+            (FactCheckVerdict::Mixed, "mixed", "Mixed"),
+            (FactCheckVerdict::MostlyFalse, "mostly-false", "Mostly false"),
+            (FactCheckVerdict::False, "false", "False"),
+            (FactCheckVerdict::Unverified, "unverified", "Unverified"),
+            (FactCheckVerdict::Misleading, "misleading", "Misleading"),
+        ] {
+            assert_eq!(v.modifier(), modifier);
+            assert_eq!(v.label(), label);
+        }
+    }
+
+    #[test]
+    fn fact_check_finding_splits_on_blank_lines() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "fact_check",
+                "verdict": "mixed",
+                "claim": "X",
+                "finding": "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        let f_open = html.find("loom-fact-check__finding").expect("finding");
+        let f_close = html[f_open..].find("</div>").expect("/div") + f_open;
+        let f_slice = &html[f_open..f_close];
+        // 3 body paragraphs + 1 label paragraph = 4 <p> opens in finding div.
+        assert!(f_slice.matches("<p>").count() >= 3);
+    }
+
+    #[test]
+    fn fact_check_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "fact_check",
+                "verdict": "false",
+                "claim": "<script>c</script>",
+                "finding": "<script>f</script>",
+                "checked_date": "<script>d</script>",
+                "sources": ["<script>s</script>"]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>c</script>",
+            "<script>f</script>",
+            "<script>d</script>",
+            "<script>s</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
         assert!(html.contains("&lt;script&gt;"));
     }
 
