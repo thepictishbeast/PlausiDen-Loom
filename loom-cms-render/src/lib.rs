@@ -752,6 +752,44 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Long-form excerpt block — typed showcase for a passage
+    /// from a longer work (book, article, chapter, essay) with
+    /// source attribution + optional "read in full" link.
+    /// Distinct from [`CmsSection::PullQuote`] (single
+    /// typographic moment quoting body text on the same page),
+    /// from [`CmsSection::Epigraph`] (literary opening quote
+    /// before the article body), and from
+    /// [`CmsSection::Testimonial`] (single review card with
+    /// avatar): ProseExcerpt is a multi-paragraph passage
+    /// presented as its own work, with the source named.
+    ///
+    /// Editorial intent: book site / literary journal / press
+    /// release sample-chapter surface where the publisher
+    /// wants to give readers a real taste of the work, not a
+    /// one-line marketing pull quote.
+    ProseExcerpt {
+        /// Optional eyebrow above the source title
+        /// (`"Excerpt from"`, `"Chapter 2 sample"`,
+        /// `"Featured passage"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow: Option<String>,
+        /// Source title (book / article / chapter name).
+        source_title: String,
+        /// Optional author attribution.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        author: Option<String>,
+        /// Excerpt body — multi-paragraph splits on `\n\n`.
+        body: String,
+        /// Optional "read in full" link URL. Validated via
+        /// `is_safe_url`; hostile schemes render as a plain
+        /// span (no anchor).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        read_more_href: Option<String>,
+        /// Optional label override for the read-more link.
+        /// Defaults to `"Read in full →"` when href is set.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        read_more_label: Option<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2956,7 +2994,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5578,6 +5616,46 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 blockquote class="loom-epigraph__body" { (body) }
                 @if let Some(a) = attribution {
                     figcaption class="loom-epigraph__attribution" { "— " (a) }
+                }
+            }
+        },
+        CmsSection::ProseExcerpt {
+            eyebrow,
+            source_title,
+            author,
+            body,
+            read_more_href,
+            read_more_label,
+        } => html! {
+            article class="loom-prose-excerpt"
+                    aria-label="Excerpt"
+                    data-loom-reveal
+            {
+                header class="loom-prose-excerpt__header" {
+                    @if let Some(e) = eyebrow {
+                        p class="loom-prose-excerpt__eyebrow" { (e) }
+                    }
+                    h3 class="loom-prose-excerpt__source" { (source_title) }
+                    @if let Some(a) = author {
+                        p class="loom-prose-excerpt__author" { (a) }
+                    }
+                }
+                div class="loom-prose-excerpt__body" {
+                    @for para in body.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
+                        p { (para) }
+                    }
+                }
+                @if let Some(href) = read_more_href {
+                    @let label = read_more_label
+                        .as_deref()
+                        .unwrap_or("Read in full →");
+                    @if is_safe_url(href) {
+                        a class="loom-prose-excerpt__read-more" href=(href) { (label) }
+                    } @else {
+                        span class="loom-prose-excerpt__read-more"
+                             data-blocked-href="true"
+                        { (label) }
+                    }
                 }
             }
         },
@@ -9946,6 +10024,136 @@ mod tests {
         let page: CmsPage = serde_json::from_str(json).expect("page parses");
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    // #104 (2026-05-21) — ProseExcerpt long-form excerpt block.
+
+    #[test]
+    fn prose_excerpt_renders_article_with_all_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "prose_excerpt",
+                "eyebrow": "Excerpt from",
+                "source_title": "The Theory of Moral Sentiments",
+                "author": "Adam Smith",
+                "body": "How selfish soever man may be supposed, there are evidently some principles in his nature.\n\nWhich interest him in the fortune of others.",
+                "read_more_href": "/sample-chapter/",
+                "read_more_label": "Read chapter 1 →"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<article class="loom-prose-excerpt""#));
+        assert!(html.contains(r#"aria-label="Excerpt""#));
+        assert!(html.contains(r#"class="loom-prose-excerpt__eyebrow""#));
+        assert!(html.contains(">Excerpt from<"));
+        assert!(html.contains(r#"<h3 class="loom-prose-excerpt__source""#));
+        assert!(html.contains(">The Theory of Moral Sentiments<"));
+        assert!(html.contains(r#"class="loom-prose-excerpt__author""#));
+        assert!(html.contains(">Adam Smith<"));
+        // Body paragraphs.
+        let body_open = html.find("loom-prose-excerpt__body").expect("body");
+        let body_close = html[body_open..].find("</div>").expect("/div") + body_open;
+        let body_slice = &html[body_open..body_close];
+        assert_eq!(body_slice.matches("<p>").count(), 2);
+        // Read-more anchor + custom label.
+        assert!(html.contains(r#"<a class="loom-prose-excerpt__read-more" href="/sample-chapter/""#));
+        assert!(html.contains(">Read chapter 1 →<"));
+    }
+
+    #[test]
+    fn prose_excerpt_minimal_fields_only_source_and_body() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "prose_excerpt",
+                "source_title": "X",
+                "body": "Single paragraph excerpt."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(">X<"));
+        assert!(html.contains(">Single paragraph excerpt.<"));
+        // No optional chrome.
+        assert!(!html.contains("loom-prose-excerpt__eyebrow"));
+        assert!(!html.contains("loom-prose-excerpt__author"));
+        assert!(!html.contains("loom-prose-excerpt__read-more"));
+    }
+
+    #[test]
+    fn prose_excerpt_default_read_more_label_when_href_set() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "prose_excerpt",
+                "source_title": "X",
+                "body": "Y",
+                "read_more_href": "/x/"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"href="/x/""#));
+        assert!(html.contains(">Read in full →<"));
+    }
+
+    #[test]
+    fn prose_excerpt_unsafe_href_falls_back_to_span() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "prose_excerpt",
+                "source_title": "X",
+                "body": "Y",
+                "read_more_href": "javascript:alert(1)"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"data-blocked-href="true""#));
+        assert!(!html.contains("javascript:alert(1)"));
+        assert!(!html.contains(r#"<a class="loom-prose-excerpt__read-more" href="javascript:"#));
+        // Label still surfaces.
+        assert!(html.contains(">Read in full →<"));
+    }
+
+    #[test]
+    fn prose_excerpt_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "prose_excerpt",
+                "eyebrow": "<script>e</script>",
+                "source_title": "<script>s</script>",
+                "author": "<script>a</script>",
+                "body": "<script>b</script>",
+                "read_more_label": "<script>l</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>e</script>",
+            "<script>s</script>",
+            "<script>a</script>",
+            "<script>b</script>",
+            "<script>l</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
         assert!(html.contains("&lt;script&gt;"));
     }
 
