@@ -752,6 +752,35 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed verse / poetry / song-lyric layout — preserves
+    /// line breaks and per-line indent levels exactly. Distinct
+    /// from [`CmsSection::Paragraph`] (auto-wraps; collapses
+    /// whitespace) and from [`CmsSection::CodeShell`] /
+    /// [`CmsSection::Code`] (monospace + syntax-coloured): a
+    /// PoetryStanza renders each line as its own paragraph
+    /// with semantic markup screen readers can navigate
+    /// line-by-line.
+    ///
+    /// Editorial intent: literary publication / song-lyric
+    /// surface / essay quoting verse where line breaks ARE the
+    /// meaning. Anti-SaaS: not a code block, not a quote card;
+    /// a `<figure>` with named line classes for typography.
+    PoetryStanza {
+        /// Optional stanza label / number / heading
+        /// (`"I"`, `"Stanza 2"`, `"Refrain"`, `"Verse"`).
+        /// Rendered as a `<figcaption>` above the verse body.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        /// Lines in display order. Each line carries optional
+        /// indent (0..=4). An empty `lines` vec renders the
+        /// stanza chrome but no body — useful as a structural
+        /// placeholder during draft authoring.
+        lines: Vec<PoetryLine>,
+        /// Optional source attribution rendered beneath the
+        /// stanza (e.g. `"— Rilke, Duino Elegies"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        attribution: Option<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2956,7 +2985,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3106,28 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// One line in a [`CmsSection::PoetryStanza`].
+///
+/// Each line carries its own indent level so verse layouts
+/// (E. E. Cummings-style stagger, song-lyric refrain
+/// indentation, traditional dactyl indent) render exactly.
+/// Indent is a discrete level (0..=4) not a CSS px value —
+/// the theme cascade defines how wide each level renders.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct PoetryLine {
+    /// Line text. Empty string renders as an intentional
+    /// blank line (caesura / stanza-internal break); the
+    /// renderer never collapses it.
+    pub text: String,
+    /// Indent level — 0 flush-left, 1 ≈ 1ch right, 2 ≈ 2ch,
+    /// 3 ≈ 3ch, 4 ≈ 4ch. Values above 4 are clamped at the
+    /// renderer to keep typography sane; the wire type accepts
+    /// u8 but the visible class is `data-indent="0..4"`.
+    #[serde(default)]
+    pub indent: u8,
 }
 
 /// One comparison row.
@@ -5578,6 +5629,39 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 blockquote class="loom-epigraph__body" { (body) }
                 @if let Some(a) = attribution {
                     figcaption class="loom-epigraph__attribution" { "— " (a) }
+                }
+            }
+        },
+        CmsSection::PoetryStanza {
+            label,
+            lines,
+            attribution,
+        } => html! {
+            figure class="loom-poetry" data-loom-reveal aria-label="Poetry stanza" {
+                @if let Some(l) = label {
+                    figcaption class="loom-poetry__label" { (l) }
+                }
+                div class="loom-poetry__verse" {
+                    @for line in lines {
+                        @let indent_level = if line.indent > 4 { 4 } else { line.indent };
+                        p class="loom-poetry__line"
+                          data-indent=(indent_level.to_string())
+                        {
+                            @if line.text.is_empty() {
+                                // Intentional blank line / caesura — keep
+                                // the <p> wrapper so screen readers
+                                // announce the pause, but emit a non-
+                                // breaking space so vertical rhythm is
+                                // preserved by the cascade.
+                                (maud::PreEscaped("&nbsp;"))
+                            } @else {
+                                (line.text)
+                            }
+                        }
+                    }
+                }
+                @if let Some(a) = attribution {
+                    figcaption class="loom-poetry__attribution" { "— " (a) }
                 }
             }
         },
@@ -9946,6 +10030,163 @@ mod tests {
         let page: CmsPage = serde_json::from_str(json).expect("page parses");
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    // #104 (2026-05-21) — PoetryStanza typed verse layout.
+
+    #[test]
+    fn poetry_stanza_renders_figure_with_label_lines_and_attribution() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "poetry_stanza",
+                "label": "I",
+                "lines": [
+                    {"text": "Whose woods these are I think I know.", "indent": 0},
+                    {"text": "His house is in the village though;",   "indent": 1},
+                    {"text": "He will not see me stopping here",      "indent": 0}
+                ],
+                "attribution": "Frost, Stopping by Woods"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<figure class="loom-poetry""#));
+        assert!(html.contains(r#"aria-label="Poetry stanza""#));
+        assert!(html.contains(r#"class="loom-poetry__label""#));
+        assert!(html.contains(">I<"));
+        assert!(html.contains(r#"<div class="loom-poetry__verse""#));
+        // Three <p class="loom-poetry__line"> with the right data-indent values.
+        assert_eq!(html.matches(r#"class="loom-poetry__line""#).count(), 3);
+        assert!(html.contains(r#"data-indent="0""#));
+        assert!(html.contains(r#"data-indent="1""#));
+        assert!(html.contains(">Whose woods these are I think I know.<"));
+        assert!(html.contains(">His house is in the village though;<"));
+        assert!(html.contains(r#"class="loom-poetry__attribution""#));
+        assert!(html.contains(">— Frost, Stopping by Woods<"));
+    }
+
+    #[test]
+    fn poetry_stanza_omits_optional_chrome_when_absent() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "poetry_stanza",
+                "lines": [{"text": "Bare line."}]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<figure class="loom-poetry""#));
+        assert!(html.contains(">Bare line.<"));
+        // Label + attribution chrome elided.
+        assert!(!html.contains("loom-poetry__label"));
+        assert!(!html.contains("loom-poetry__attribution"));
+        // Default indent = 0.
+        assert!(html.contains(r#"data-indent="0""#));
+    }
+
+    #[test]
+    fn poetry_stanza_clamps_indent_above_four() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "poetry_stanza",
+                "lines": [
+                    {"text": "Way deep.",      "indent": 9},
+                    {"text": "Exactly four.",   "indent": 4},
+                    {"text": "Above four too.", "indent": 200}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // All three lines emit data-indent="4" (clamp).
+        assert_eq!(html.matches(r#"data-indent="4""#).count(), 3);
+        // No data-indent="9" / "200" leaks.
+        assert!(!html.contains(r#"data-indent="9""#));
+        assert!(!html.contains(r#"data-indent="200""#));
+    }
+
+    #[test]
+    fn poetry_stanza_empty_line_renders_nbsp() {
+        // A blank line between verses is intentional caesura; the
+        // renderer keeps the <p> wrapper so vertical rhythm + screen-
+        // reader pause both work.
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "poetry_stanza",
+                "lines": [
+                    {"text": "Line one."},
+                    {"text": ""},
+                    {"text": "Line three."}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert_eq!(html.matches(r#"class="loom-poetry__line""#).count(), 3);
+        // Non-breaking space marker visible (raw unescaped &nbsp;).
+        assert!(html.contains("&nbsp;"));
+    }
+
+    #[test]
+    fn poetry_stanza_empty_lines_vec_still_emits_chrome() {
+        // A label + attribution stanza with no lines is a valid
+        // structural placeholder during draft authoring.
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "poetry_stanza",
+                "label": "Refrain (TBD)",
+                "lines": [],
+                "attribution": "X"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-poetry__label"));
+        assert!(html.contains("loom-poetry__verse"));
+        assert!(html.contains("loom-poetry__attribution"));
+        assert!(!html.contains("loom-poetry__line"));
+    }
+
+    #[test]
+    fn poetry_stanza_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "poetry_stanza",
+                "label": "<script>l</script>",
+                "lines": [
+                    {"text": "<script>line</script>"}
+                ],
+                "attribution": "<script>a</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>l</script>",
+            "<script>line</script>",
+            "<script>a</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
         assert!(html.contains("&lt;script&gt;"));
     }
 
