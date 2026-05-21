@@ -752,6 +752,46 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Editorial / opinion-piece / op-ed marker — typed
+    /// wrapper that explicitly tags content as opinion
+    /// rather than news / reporting. Distinct from
+    /// [`CmsSection::Article`] (generic body), from
+    /// [`CmsSection::Disclaimer`] (paid-relationship
+    /// declarations), and from [`CmsSection::OpenLetter`]
+    /// (addressed correspondence): OpinionPiece is the
+    /// publication's own opinion content with editorial-
+    /// stance attribution.
+    ///
+    /// Editorial intent: news / journalism surfaces where
+    /// clarity-about-genre matters for reader trust.
+    /// Anti-SaaS: not a marketing block; semantic
+    /// `<article>` with explicit "Editorial" / "Opinion" /
+    /// "Op-Ed" eyebrow + structured signature.
+    OpinionPiece {
+        /// Optional eyebrow label override. `None` renders
+        /// the default `"Editorial"`. Common overrides:
+        /// `"Opinion"`, `"Op-Ed"`, `"From the editorial
+        /// board"`, `"Commentary"`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow: Option<String>,
+        /// Title of the editorial / op-ed.
+        title: String,
+        /// Optional dek / subtitle below the title.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dek: Option<String>,
+        /// Body — multi-paragraph splits on `\n\n`.
+        body: String,
+        /// Optional stance disclosure rendered above the
+        /// signature (e.g. `"The editorial board represents
+        /// the institutional voice of the publication, not
+        /// individual reporters."`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stance_disclosure: Option<String>,
+        /// Optional signature (editorial board name or
+        /// author + role).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2956,7 +2996,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5578,6 +5618,41 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 blockquote class="loom-epigraph__body" { (body) }
                 @if let Some(a) = attribution {
                     figcaption class="loom-epigraph__attribution" { "— " (a) }
+                }
+            }
+        },
+        CmsSection::OpinionPiece {
+            eyebrow,
+            title,
+            dek,
+            body,
+            stance_disclosure,
+            signature,
+        } => {
+            let eyebrow_text: &str = eyebrow.as_deref().unwrap_or("Editorial");
+            html! {
+                article class="loom-opinion-piece"
+                        aria-label="Editorial"
+                        data-loom-reveal
+                {
+                    header class="loom-opinion-piece__header" {
+                        p class="loom-opinion-piece__eyebrow" { (eyebrow_text) }
+                        h2 class="loom-opinion-piece__title" { (title) }
+                        @if let Some(d) = dek {
+                            p class="loom-opinion-piece__dek" { (d) }
+                        }
+                    }
+                    div class="loom-opinion-piece__body" {
+                        @for para in body.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
+                            p { (para) }
+                        }
+                    }
+                    @if let Some(s) = stance_disclosure {
+                        p class="loom-opinion-piece__stance" { (s) }
+                    }
+                    @if let Some(sig) = signature {
+                        p class="loom-opinion-piece__signature" { (sig) }
+                    }
                 }
             }
         },
@@ -9946,6 +10021,98 @@ mod tests {
         let page: CmsPage = serde_json::from_str(json).expect("page parses");
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    // #104 (2026-05-21) — OpinionPiece editorial / op-ed marker.
+
+    #[test]
+    fn opinion_piece_default_eyebrow_is_editorial() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "opinion_piece",
+                "title": "On the proposed merger",
+                "body": "We the editorial board oppose this merger."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<article class="loom-opinion-piece""#));
+        assert!(html.contains(r#"aria-label="Editorial""#));
+        assert!(html.contains(r#"class="loom-opinion-piece__eyebrow""#));
+        assert!(html.contains(">Editorial<"));
+        assert!(html.contains(r#"<h2 class="loom-opinion-piece__title""#));
+        assert!(html.contains(">On the proposed merger<"));
+        // No optional chrome.
+        assert!(!html.contains("loom-opinion-piece__dek"));
+        assert!(!html.contains("loom-opinion-piece__stance"));
+        assert!(!html.contains("loom-opinion-piece__signature"));
+    }
+
+    #[test]
+    fn opinion_piece_custom_eyebrow_with_full_chrome() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "opinion_piece",
+                "eyebrow": "Op-Ed",
+                "title": "The case for shorter weeks",
+                "dek": "Productivity research from 200 organizations.",
+                "body": "Lead paragraph.\n\nSecond paragraph.",
+                "stance_disclosure": "The author is the executive director of XYZ Institute.",
+                "signature": "— Jane Doe"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(">Op-Ed<"));
+        assert!(!html.contains(">Editorial<"));
+        assert!(html.contains(r#"class="loom-opinion-piece__dek""#));
+        assert!(html.contains(">Productivity research from 200 organizations.<"));
+        // Body 2 paragraphs.
+        let body_open = html.find("loom-opinion-piece__body").expect("body");
+        let body_close = html[body_open..].find("</div>").expect("/div") + body_open;
+        let body_slice = &html[body_open..body_close];
+        assert_eq!(body_slice.matches("<p>").count(), 2);
+        assert!(html.contains(r#"class="loom-opinion-piece__stance""#));
+        assert!(html.contains("XYZ Institute"));
+        assert!(html.contains(r#"class="loom-opinion-piece__signature""#));
+        assert!(html.contains(">— Jane Doe<"));
+    }
+
+    #[test]
+    fn opinion_piece_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "opinion_piece",
+                "eyebrow": "<script>e</script>",
+                "title": "<script>t</script>",
+                "dek": "<script>d</script>",
+                "body": "<script>b</script>",
+                "stance_disclosure": "<script>s</script>",
+                "signature": "<script>sig</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>e</script>",
+            "<script>t</script>",
+            "<script>d</script>",
+            "<script>b</script>",
+            "<script>s</script>",
+            "<script>sig</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
         assert!(html.contains("&lt;script&gt;"));
     }
 
