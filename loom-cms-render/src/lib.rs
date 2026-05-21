@@ -9853,6 +9853,7 @@ mod tests {
     fn crucible_challenge_renders_mount_and_script() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9890,6 +9891,7 @@ mod tests {
     fn crucible_challenge_honors_custom_base_path() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
