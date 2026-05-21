@@ -752,6 +752,33 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed "on this day" historical callout — date +
+    /// headline + body context. Distinct from
+    /// [`CmsSection::Dateline`] (article reporting
+    /// location+date), from [`CmsSection::Errata`] (post-
+    /// publication corrections), and from
+    /// [`CmsSection::Epigraph`] (literary opening quote):
+    /// OnThisDay anchors a present-day article to a past
+    /// historical event with structured date metadata.
+    ///
+    /// Editorial intent: newsletter / blog / financial-
+    /// history / market-anniversary surfaces where today's
+    /// content benefits from a historical anchor ("On this
+    /// day in 1929, the market crashed…").
+    OnThisDay {
+        /// Date being commemorated. RFC 3339 preferred for
+        /// the rendered `<time datetime="…">`; human form
+        /// also accepted (renders verbatim).
+        date: String,
+        /// Optional eyebrow override. `None` renders the
+        /// default `"On this day"`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow: Option<String>,
+        /// Event headline (one short sentence).
+        headline: String,
+        /// Body — multi-paragraph context. Splits on `\n\n`.
+        body: String,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2956,7 +2983,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5578,6 +5605,29 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 blockquote class="loom-epigraph__body" { (body) }
                 @if let Some(a) = attribution {
                     figcaption class="loom-epigraph__attribution" { "— " (a) }
+                }
+            }
+        },
+        CmsSection::OnThisDay {
+            date,
+            eyebrow,
+            headline,
+            body,
+        } => {
+            let eyebrow_text: &str = eyebrow.as_deref().unwrap_or("On this day");
+            html! {
+                aside class="loom-on-this-day"
+                      aria-label="On this day"
+                      data-loom-reveal
+                {
+                    p class="loom-on-this-day__eyebrow" { (eyebrow_text) }
+                    time class="loom-on-this-day__date" datetime=(date) { (date) }
+                    p class="loom-on-this-day__headline" { (headline) }
+                    div class="loom-on-this-day__body" {
+                        @for para in body.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
+                            p { (para) }
+                        }
+                    }
                 }
             }
         },
@@ -9946,6 +9996,103 @@ mod tests {
         let page: CmsPage = serde_json::from_str(json).expect("page parses");
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    // #104 (2026-05-21) — OnThisDay historical-date callout.
+
+    #[test]
+    fn on_this_day_default_eyebrow_with_date_headline_body() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "on_this_day",
+                "date": "1929-10-29",
+                "headline": "Black Tuesday — the New York stock market crashed.",
+                "body": "Dow Jones lost 12% on a single trading day, kicking off the Great Depression."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<aside class="loom-on-this-day""#));
+        assert!(html.contains(r#"aria-label="On this day""#));
+        assert!(html.contains(r#"class="loom-on-this-day__eyebrow""#));
+        assert!(html.contains(">On this day<"));
+        assert!(html.contains(r#"<time class="loom-on-this-day__date" datetime="1929-10-29""#));
+        assert!(html.contains(">1929-10-29<"));
+        assert!(html.contains(r#"class="loom-on-this-day__headline""#));
+        assert!(html.contains(">Black Tuesday — the New York stock market crashed.<"));
+        assert!(html.contains(r#"class="loom-on-this-day__body""#));
+        assert!(html.contains("Dow Jones lost 12%"));
+    }
+
+    #[test]
+    fn on_this_day_custom_eyebrow_overrides_default() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "on_this_day",
+                "date": "1985",
+                "eyebrow": "Forty years ago",
+                "headline": "X",
+                "body": "Y"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(">Forty years ago<"));
+        assert!(!html.contains(">On this day<"));
+    }
+
+    #[test]
+    fn on_this_day_body_splits_on_blank_lines() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "on_this_day",
+                "date": "1929-10-29",
+                "headline": "X",
+                "body": "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        let open = html.find("loom-on-this-day__body").expect("body");
+        let close = html[open..].find("</div>").expect("/div") + open;
+        let slice = &html[open..close];
+        assert_eq!(slice.matches("<p>").count(), 3);
+    }
+
+    #[test]
+    fn on_this_day_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "on_this_day",
+                "date": "<script>d</script>",
+                "eyebrow": "<script>e</script>",
+                "headline": "<script>h</script>",
+                "body": "<script>b</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>d</script>",
+            "<script>e</script>",
+            "<script>h</script>",
+            "<script>b</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
         assert!(html.contains("&lt;script&gt;"));
     }
 
