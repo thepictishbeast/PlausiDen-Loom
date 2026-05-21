@@ -470,6 +470,24 @@ pub enum CmsBlock {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         language: Option<String>,
     },
+    /// CSS-grid layout container. Distinct from [`CmsBlock::Row`] /
+    /// [`CmsBlock::Column`] (flexbox primitives): `Grid` projects a
+    /// `display: grid` surface with an explicit column count. At
+    /// narrow viewports the cascade collapses to a single column
+    /// per the tenant's responsive density config.
+    ///
+    /// `columns` is clamped to 1..=12 at render. Authors composing
+    /// a 3-up feature row or 4-up logo bar use `Grid` instead of
+    /// stacking `Row { children: Column { ... }, ... }` chains.
+    Grid {
+        /// Column count, clamped at render to 1..=12.
+        columns: u8,
+        /// Gap between cells. Token-scale step.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gap: Option<BlockSpacing>,
+        /// Child blocks. Each block becomes one grid cell.
+        children: Vec<CmsBlock>,
+    },
     /// Disclosure list — collapsible summary + content panels.
     /// Behavioral contract mirrors Radix UI's `Accordion`
     /// primitive (slot composition: each item carries a
@@ -6121,6 +6139,21 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                             li class="loom-block-list__item" { (item) }
                         }
                     },
+                }
+            }
+        }
+        CmsBlock::Grid {
+            columns,
+            gap,
+            children,
+        } => {
+            let cols = (*columns).clamp(1, 12);
+            let g = gap.map(block_spacing_slug);
+            html! {
+                div class="loom-block-grid" data-columns=(cols) data-gap=[g] {
+                    @for child in children {
+                        (render_block(child))
+                    }
                 }
             }
         }
@@ -13190,6 +13223,43 @@ mod tests {
         assert!(html.contains("<ol"));
         assert!(html.contains(r#"data-style="ordered""#));
         assert!(html.contains(">one<"));
+    }
+
+    #[test]
+    fn cms_block_grid_emits_data_columns_and_gap() {
+        let g = CmsBlock::Grid {
+            columns: 3,
+            gap: Some(BlockSpacing::Md),
+            children: vec![
+                CmsBlock::Text { text: "a".into() },
+                CmsBlock::Text { text: "b".into() },
+                CmsBlock::Text { text: "c".into() },
+            ],
+        };
+        let html = render_block(&g).into_string();
+        assert!(html.contains("loom-block-grid"));
+        assert!(html.contains(r#"data-columns="3""#));
+        assert!(html.contains(r#"data-gap="md""#));
+        assert!(html.contains(">a</p>"));
+        assert!(html.contains(">c</p>"));
+    }
+
+    #[test]
+    fn cms_block_grid_clamps_columns_to_one_through_twelve() {
+        let zero = CmsBlock::Grid {
+            columns: 0,
+            gap: None,
+            children: vec![],
+        };
+        let html = render_block(&zero).into_string();
+        assert!(html.contains(r#"data-columns="1""#));
+        let huge = CmsBlock::Grid {
+            columns: 99,
+            gap: None,
+            children: vec![],
+        };
+        let html = render_block(&huge).into_string();
+        assert!(html.contains(r#"data-columns="12""#));
     }
 
     #[test]
