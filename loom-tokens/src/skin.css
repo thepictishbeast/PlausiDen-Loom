@@ -9670,3 +9670,63 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
 .loom-block-number-field__input:invalid:not(:focus) {
   border-color: var(--loom-color-danger, #b91c1c);
 }
+
+/* === CmsBlock::DatePicker / TimeField / ColorPicker ================ *
+ * Shared form-field cascade — labels + input chrome track the
+ * NumberField + Combobox treatment for consistent visual rhythm
+ * across all form primitives. */
+.loom-block-date-picker,
+.loom-block-time-field,
+.loom-block-color-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.loom-block-date-picker__label,
+.loom-block-time-field__label,
+.loom-block-color-picker__label {
+  font-size: 0.92rem;
+  color: var(--loom-color-ink, var(--loom-fg));
+  font-weight: 500;
+}
+.loom-block-date-picker__input,
+.loom-block-time-field__input {
+  appearance: textfield;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid color-mix(in oklab, var(--loom-color-border, var(--loom-border)) 70%, transparent);
+  border-radius: var(--loom-radius-sm, 6px);
+  background: var(--loom-color-surface, var(--loom-bg, #fff));
+  color: var(--loom-color-ink, var(--loom-fg));
+  font: inherit;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  transition: border-color var(--loom-motion-fast, 120ms) var(--loom-ease-out, ease),
+              box-shadow var(--loom-motion-fast, 120ms) var(--loom-ease-out, ease);
+}
+.loom-block-date-picker__input:focus-visible,
+.loom-block-time-field__input:focus-visible,
+.loom-block-color-picker__input:focus-visible {
+  outline: none;
+  border-color: var(--loom-color-primary, var(--loom-accent));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--loom-color-primary, var(--loom-accent)) 20%, transparent);
+}
+.loom-block-color-picker__input {
+  appearance: none;
+  border: 1px solid color-mix(in oklab, var(--loom-color-border, var(--loom-border)) 70%, transparent);
+  border-radius: var(--loom-radius-sm, 6px);
+  width: 3.5rem;
+  height: 2.5rem;
+  padding: 0.25rem;
+  background: var(--loom-color-surface, var(--loom-bg, #fff));
+  cursor: pointer;
+}
+.loom-block-date-picker__input:disabled,
+.loom-block-time-field__input:disabled,
+.loom-block-color-picker__input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.loom-block-date-picker__input:invalid:not(:focus),
+.loom-block-time-field__input:invalid:not(:focus) {
+  border-color: var(--loom-color-danger, #b91c1c);
+}
