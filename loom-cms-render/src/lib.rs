@@ -752,7 +752,60 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed product / safety recall notice. Distinct from
+    /// [`CmsSection::Errata`] (corrections to a published
+    /// piece), from [`CmsSection::Disclaimer`] (legal /
+    /// sponsored / affiliate disclosure), and from
+    /// [`CmsSection::ContentWarning`] (reader advisory about
+    /// distressing content).
+    ///
+    /// RecallNotice is the typed primitive for the
+    /// transparency contract a publisher owes the public when
+    /// a product or service is recalled: a severity-tagged,
+    /// product-identified, action-imperative disclosure.
+    /// Common on regulatory / public-health sites (FDA, CPSC,
+    /// USDA recall pages), on product company /support pages,
+    /// and on civic warning surfaces.
+    ///
+    /// `severity` carries the FDA-style class signal so
+    /// downstream feed crawlers and emergency-alert pipelines
+    /// can prioritise. The substrate audits across an entire
+    /// surface so operators can't quietly downgrade a Class I
+    /// (life-threatening) recall to "informational".
+    RecallNotice {
+        /// Severity classification. Surfaced as
+        /// `data-loom-recall-severity` so feed crawlers can
+        /// filter / prioritise.
+        severity: RecallSeverity,
+        /// Headline ("Voluntary recall: PowerBar 16oz",
+        /// "Class I recall: brake actuator").
+        title: String,
+        /// Affected products / identifiers. Each entry is a
+        /// product name + identifier (SKU, lot number, model
+        /// number). Empty Vec is valid (e.g. broad regional
+        /// recall by serial range that doesn't enumerate).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        affected: Vec<RecallAffectedItem>,
+        /// Reason / hazard description. Multi-paragraph splits
+        /// on `\n\n`.
+        reason: String,
+        /// Required customer action ("Stop use immediately and
+        /// return to point of purchase for full refund"). Plain
+        /// text; rendered inside its own labelled section so AT
+        /// reaches it directly.
+        action_required: String,
+        /// Optional contact line ("Questions? recalls@…",
+        /// "Call 1-800-…").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        contact: Option<String>,
+        /// Optional issued-on label (free-form editorial date).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        issued_label: Option<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +3009,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3130,44 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// Severity classification for [`CmsSection::RecallNotice`].
+/// The variant set mirrors the FDA's three-class scheme, which
+/// CPSC + USDA + EU rapid-alert pipelines all consume as a
+/// shared vocabulary. Adding a variant is a doctrine change —
+/// operators MUST NOT introduce custom severities to silently
+/// downgrade a hazard.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RecallSeverity {
+    /// FDA Class I — reasonable probability of serious adverse
+    /// health consequences or death.
+    ClassI,
+    /// FDA Class II — temporary or medically reversible
+    /// consequences; remote probability of serious harm.
+    #[serde(rename = "class_ii")]
+    ClassIi,
+    /// FDA Class III — unlikely to cause adverse health
+    /// consequences but in violation of regulations.
+    #[serde(rename = "class_iii")]
+    ClassIii,
+    /// Voluntary / advisory recall — not yet classified or
+    /// outside the FDA scheme (consumer product, software,
+    /// service).
+    Voluntary,
+}
+
+/// One affected-product entry in
+/// [`CmsSection::RecallNotice::affected`]. Name + identifier pair
+/// lets feed crawlers extract the SKU / lot / serial range
+/// without parsing free text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
+pub struct RecallAffectedItem {
+    pub product: String,
+    pub identifier: String,
 }
 
 /// One comparison row.
@@ -5581,6 +5672,81 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::RecallNotice {
+            severity,
+            title,
+            affected,
+            reason,
+            action_required,
+            contact,
+            issued_label,
+        } => {
+            let (severity_slug, severity_label) = match severity {
+                RecallSeverity::ClassI => ("class-i", "Class I recall"),
+                RecallSeverity::ClassIi => ("class-ii", "Class II recall"),
+                RecallSeverity::ClassIii => ("class-iii", "Class III recall"),
+                RecallSeverity::Voluntary => ("voluntary", "Voluntary recall"),
+            };
+            let reason_paras: Vec<&str> = reason.split("\n\n").collect();
+            html! {
+                aside class="loom-recall-notice"
+                    role="alert"
+                    aria-labelledby="loom-recall-notice__title"
+                    data-loom-recall-severity=(severity_slug)
+                    data-loom-reveal {
+                    header class="loom-recall-notice__header" {
+                        span class="loom-recall-notice__severity" { (severity_label) }
+                        h2 id="loom-recall-notice__title"
+                            class="loom-recall-notice__title" { (title) }
+                    }
+                    @if !affected.is_empty() {
+                        section class="loom-recall-notice__section loom-recall-notice__section--affected"
+                            aria-labelledby="loom-recall-notice__h-affected" {
+                            h3 id="loom-recall-notice__h-affected"
+                                class="loom-recall-notice__h" { "Affected products" }
+                            ul class="loom-recall-notice__affected-list" {
+                                @for item in affected {
+                                    li class="loom-recall-notice__affected-item" {
+                                        span class="loom-recall-notice__product" { (item.product) }
+                                        span class="loom-recall-notice__separator"
+                                            aria-hidden="true" { " · " }
+                                        code class="loom-recall-notice__identifier" {
+                                            (item.identifier)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    section class="loom-recall-notice__section loom-recall-notice__section--reason"
+                        aria-labelledby="loom-recall-notice__h-reason" {
+                        h3 id="loom-recall-notice__h-reason"
+                            class="loom-recall-notice__h" { "Reason" }
+                        div class="loom-recall-notice__body" {
+                            @for p in &reason_paras {
+                                p class="loom-recall-notice__para" { (p) }
+                            }
+                        }
+                    }
+                    section class="loom-recall-notice__section loom-recall-notice__section--action"
+                        aria-labelledby="loom-recall-notice__h-action" {
+                        h3 id="loom-recall-notice__h-action"
+                            class="loom-recall-notice__h" { "What to do" }
+                        p class="loom-recall-notice__action" { (action_required) }
+                    }
+                    @if contact.is_some() || issued_label.is_some() {
+                        footer class="loom-recall-notice__footer" {
+                            @if let Some(d) = issued_label {
+                                p class="loom-recall-notice__issued" { "Issued: " (d) }
+                            }
+                            @if let Some(c) = contact {
+                                p class="loom-recall-notice__contact" { (c) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10113,143 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn recall_notice_class_i_renders_alert_role_and_severity() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "recall_notice",
+                "severity": "class_i",
+                "title": "Class I recall: brake actuator",
+                "reason": "Brake actuator may fail at highway speed.",
+                "action_required": "Stop driving immediately and contact dealer."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-recall-notice"));
+        assert!(html.contains("role=\"alert\""));
+        assert!(html.contains("aria-labelledby=\"loom-recall-notice__title\""));
+        assert!(html.contains("data-loom-recall-severity=\"class-i\""));
+        assert!(html.contains(">Class I recall<"));
+        assert!(html.contains("brake actuator"));
+        // Required sections rendered.
+        assert!(html.contains("loom-recall-notice__h-reason"));
+        assert!(html.contains("Brake actuator may fail"));
+        assert!(html.contains("loom-recall-notice__h-action"));
+        assert!(html.contains("Stop driving immediately"));
+        // Affected products section absent (empty vec).
+        assert!(!html.contains("loom-recall-notice__h-affected"));
+        // Footer absent (no contact, no issued_label).
+        assert!(!html.contains("loom-recall-notice__footer"));
+    }
+
+    #[test]
+    fn recall_notice_each_severity_renders_distinct_label() {
+        let cases: &[(&str, &str, &str)] = &[
+            ("class_ii", "class-ii", "Class II recall"),
+            ("class_iii", "class-iii", "Class III recall"),
+            ("voluntary", "voluntary", "Voluntary recall"),
+        ];
+        for (json_sev, slug, label) in cases {
+            let json = format!(
+                r#"{{
+                "brand": null, "theme": null, "chrome": null, "content_width": null,
+                "nav_actions": [], "title": "t", "description": "d",
+                "path": "/p", "nav_links": [], "dev_devtools": false,
+                "sections": [{{
+                    "kind": "recall_notice",
+                    "severity": "{json_sev}",
+                    "title": "T",
+                    "reason": "R",
+                    "action_required": "A"
+                }}]
+            }}"#
+            );
+            let page: CmsPage =
+                serde_json::from_str(&json).unwrap_or_else(|_| panic!("severity={json_sev}"));
+            let html = render_to_string(&page);
+            assert!(
+                html.contains(&format!("data-loom-recall-severity=\"{slug}\"")),
+                "severity={json_sev} missing data attr {slug}"
+            );
+            assert!(
+                html.contains(&format!(">{label}<")),
+                "severity={json_sev} missing visible label '{label}'"
+            );
+        }
+    }
+
+    #[test]
+    fn recall_notice_with_affected_products_and_footer() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "recall_notice",
+                "severity": "class_ii",
+                "title": "Recall: PowerBar 16oz",
+                "affected": [
+                    {"product": "PowerBar Original", "identifier": "Lot 2026-052"},
+                    {"product": "PowerBar Chocolate", "identifier": "Lot 2026-053"}
+                ],
+                "reason": "Para one.\n\nPara two.",
+                "action_required": "Return to point of purchase.",
+                "contact": "recalls@example.com",
+                "issued_label": "May 18, 2026"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // Affected products section rendered.
+        assert!(html.contains("loom-recall-notice__h-affected"));
+        assert!(html.contains(">Affected products<"));
+        let item_count = html.matches("loom-recall-notice__affected-item").count();
+        assert_eq!(item_count, 2, "expected 2 affected items, got {item_count}");
+        assert!(html.contains("PowerBar Original"));
+        assert!(html.contains("Lot 2026-052"));
+        // Multi-paragraph reason.
+        let para_count = html.matches("loom-recall-notice__para\"").count();
+        assert_eq!(para_count, 2, "expected 2 reason paragraphs, got {para_count}");
+        // Footer rendered with both contact + issued.
+        assert!(html.contains("loom-recall-notice__footer"));
+        assert!(html.contains("recalls@example.com"));
+        assert!(html.contains("May 18, 2026"));
+    }
+
+    #[test]
+    fn recall_notice_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "recall_notice",
+                "severity": "voluntary",
+                "title": "<script>alert('t')</script>",
+                "affected": [
+                    {"product": "<script>alert('p')</script>",
+                     "identifier": "<script>alert('i')</script>"}
+                ],
+                "reason": "<script>alert('r')</script>",
+                "action_required": "<script>alert('a')</script>",
+                "contact": "<script>alert('c')</script>",
+                "issued_label": "<script>alert('d')</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        assert!(
+            entity_hits >= 7,
+            "expected >= 7 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
