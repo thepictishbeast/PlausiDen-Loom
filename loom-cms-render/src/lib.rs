@@ -752,7 +752,53 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed open-source contributor card — name + role +
+    /// contribution count + optional profile link. Distinct
+    /// from [`CmsSection::AuthorBio`] (article footer author
+    /// block), [`CmsSection::ProfileCard`] (general profile),
+    /// and [`CmsSection::Testimonial`] (third-party quote).
+    ///
+    /// OpenSourceContributor is the typed primitive for the
+    /// contributor card open-source project pages (CHANGELOG /
+    /// CONTRIBUTORS / acknowledgements surfaces) use to credit
+    /// individual contributors. The contribution_kind enum
+    /// labels the kind of contribution so the substrate can
+    /// audit + filter (operators can't quietly relabel a
+    /// "documentation" contributor as "code" without it being
+    /// visible).
+    OpenSourceContributor {
+        /// Contributor display name.
+        name: String,
+        /// Optional handle ("@octocat", "@psf"). Surfaced as
+        /// a `data-loom-os-handle` attribute for crawler /
+        /// SBOM extraction.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        handle: Option<String>,
+        /// Role ("Maintainer", "Lead author", "Reviewer").
+        role: String,
+        /// Optional plain-language contribution summary.
+        /// Multi-paragraph splits on `\n\n`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        contribution_summary: Option<String>,
+        /// Kind of contribution (code / docs / design / etc.).
+        /// Surfaced as `data-loom-os-contribution-kind`.
+        contribution_kind: ContributionKind,
+        /// Optional contribution count (`commits`,
+        /// `reviews`, `tickets`). Surfaced as
+        /// `data-loom-os-contribution-count`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        contribution_count: Option<u32>,
+        /// Optional link to the contributor's profile / GitHub
+        /// / personal site. Validated via `is_safe_url`;
+        /// hostile schemes fall back to a non-interactive
+        /// span.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        profile_link: Option<OsContributorProfileLink>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +3002,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3123,47 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// Kind of contribution tag for
+/// [`CmsSection::OpenSourceContributor`]. Mirrors the
+/// `all-contributors` taxonomy that most CONTRIBUTORS surfaces
+/// have aligned on. Adding a variant is a doctrine change so
+/// the substrate can audit + filter consistently.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ContributionKind {
+    /// Code commits / patches.
+    Code,
+    /// Documentation writing / corrections.
+    Docs,
+    /// Design / visual design / UX.
+    Design,
+    /// Bug reports / issue triage.
+    BugTriage,
+    /// Code review / pull request review.
+    Review,
+    /// Testing / QA / test infrastructure.
+    Test,
+    /// Translation / localisation.
+    Translation,
+    /// Funding / financial sponsorship.
+    Funding,
+    /// Catch-all for contributions outside the canonical
+    /// taxonomy. Use sparingly — invent a new variant before
+    /// using `Other` repeatedly.
+    Other,
+}
+
+/// Profile link surfaced by [`CmsSection::OpenSourceContributor`].
+/// `href` is validated via `is_safe_url`; hostile schemes fall
+/// back to a non-interactive span.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
+pub struct OsContributorProfileLink {
+    pub label: String,
+    pub href: String,
 }
 
 /// One comparison row.
@@ -5581,6 +5668,75 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::OpenSourceContributor {
+            name,
+            handle,
+            role,
+            contribution_summary,
+            contribution_kind,
+            contribution_count,
+            profile_link,
+        } => {
+            let (kind_slug, kind_label) = match contribution_kind {
+                ContributionKind::Code => ("code", "Code"),
+                ContributionKind::Docs => ("docs", "Documentation"),
+                ContributionKind::Design => ("design", "Design"),
+                ContributionKind::BugTriage => ("bug-triage", "Bug triage"),
+                ContributionKind::Review => ("review", "Review"),
+                ContributionKind::Test => ("test", "Test"),
+                ContributionKind::Translation => ("translation", "Translation"),
+                ContributionKind::Funding => ("funding", "Funding"),
+                ContributionKind::Other => ("other", "Other"),
+            };
+            let count_str = contribution_count.map(|c| c.to_string());
+            let aria_label = format!("Contributor: {name} ({kind_label})");
+            html! {
+                article class="loom-os-contributor"
+                    aria-label=(aria_label)
+                    data-loom-os-contribution-kind=(kind_slug)
+                    data-loom-os-contribution-count=[count_str.as_deref()]
+                    data-loom-os-handle=[handle.as_deref()]
+                    data-loom-reveal {
+                    header class="loom-os-contributor__header" {
+                        h3 class="loom-os-contributor__name" { (name) }
+                        @if let Some(h) = handle {
+                            p class="loom-os-contributor__handle" { (h) }
+                        }
+                        p class="loom-os-contributor__meta" {
+                            span class="loom-os-contributor__role" { (role) }
+                            span class="loom-os-contributor__separator"
+                                aria-hidden="true" { " · " }
+                            span class="loom-os-contributor__kind" { (kind_label) }
+                            @if let Some(c) = contribution_count {
+                                span class="loom-os-contributor__separator"
+                                    aria-hidden="true" { " · " }
+                                span class="loom-os-contributor__count" {
+                                    (c) " contributions"
+                                }
+                            }
+                        }
+                    }
+                    @if let Some(s) = contribution_summary {
+                        div class="loom-os-contributor__summary" {
+                            @for p in s.split("\n\n") {
+                                p class="loom-os-contributor__summary-para" { (p) }
+                            }
+                        }
+                    }
+                    @if let Some(link) = profile_link {
+                        @let href_safe = loom_components::composer::is_safe_url(&link.href);
+                        @if href_safe {
+                            a class="loom-os-contributor__profile-link"
+                                href=(link.href)
+                                rel="external noopener" { (link.label) }
+                        } @else {
+                            span class="loom-os-contributor__profile-link"
+                                data-blocked-href="true" { (link.label) }
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10103,164 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn os_contributor_minimal_renders_required_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "open_source_contributor",
+                "name": "Octavia Nguyen",
+                "role": "Maintainer",
+                "contribution_kind": "code"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-os-contributor"));
+        assert!(html.contains("aria-label=\"Contributor: Octavia Nguyen (Code)\""));
+        assert!(html.contains("data-loom-os-contribution-kind=\"code\""));
+        assert!(html.contains("Octavia Nguyen"));
+        assert!(html.contains("Maintainer"));
+        assert!(html.contains(">Code<"));
+        // Optional chrome absent.
+        assert!(!html.contains("loom-os-contributor__handle"));
+        assert!(!html.contains("loom-os-contributor__summary"));
+        assert!(!html.contains("loom-os-contributor__profile-link"));
+        assert!(!html.contains("loom-os-contributor__count"));
+        assert!(!html.contains("data-loom-os-handle"));
+        assert!(!html.contains("data-loom-os-contribution-count"));
+    }
+
+    #[test]
+    fn os_contributor_each_kind_renders_distinct_slug() {
+        let cases: &[(&str, &str, &str)] = &[
+            ("docs", "docs", "Documentation"),
+            ("design", "design", "Design"),
+            ("bug_triage", "bug-triage", "Bug triage"),
+            ("review", "review", "Review"),
+            ("test", "test", "Test"),
+            ("translation", "translation", "Translation"),
+            ("funding", "funding", "Funding"),
+            ("other", "other", "Other"),
+        ];
+        for (json_kind, slug, label) in cases {
+            let json = format!(
+                r#"{{
+                "brand": null, "theme": null, "chrome": null, "content_width": null,
+                "nav_actions": [], "title": "t", "description": "d",
+                "path": "/p", "nav_links": [], "dev_devtools": false,
+                "sections": [{{
+                    "kind": "open_source_contributor",
+                    "name": "X",
+                    "role": "R",
+                    "contribution_kind": "{json_kind}"
+                }}]
+            }}"#
+            );
+            let page: CmsPage = serde_json::from_str(&json)
+                .unwrap_or_else(|_| panic!("kind={json_kind}"));
+            let html = render_to_string(&page);
+            assert!(
+                html.contains(&format!("data-loom-os-contribution-kind=\"{slug}\"")),
+                "kind={json_kind} missing data attr"
+            );
+            assert!(
+                html.contains(&format!(">{label}<")),
+                "kind={json_kind} missing visible label"
+            );
+        }
+    }
+
+    #[test]
+    fn os_contributor_with_full_chrome() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "open_source_contributor",
+                "name": "Alex Park",
+                "handle": "@apark",
+                "role": "Lead author",
+                "contribution_summary": "Wrote the substrate-traits design doc.\n\nReviewed 200+ trait PRs.",
+                "contribution_kind": "code",
+                "contribution_count": 247,
+                "profile_link": {"label": "View on GitHub",
+                                 "href": "https://github.com/apark"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-os-contributor__handle"));
+        assert!(html.contains("@apark"));
+        assert!(html.contains("data-loom-os-handle=\"@apark\""));
+        // Contribution count rendered.
+        assert!(html.contains("data-loom-os-contribution-count=\"247\""));
+        assert!(html.contains("247 contributions"));
+        // Multi-paragraph summary.
+        let para_count = html.matches("loom-os-contributor__summary-para").count();
+        assert_eq!(para_count, 2, "expected 2 summary paras, got {para_count}");
+        assert!(html.contains("substrate-traits design doc"));
+        // Profile link.
+        assert!(html.contains("loom-os-contributor__profile-link"));
+        assert!(html.contains("href=\"https://github.com/apark\""));
+        assert!(html.contains("rel=\"external noopener\""));
+        assert!(html.contains("View on GitHub"));
+    }
+
+    #[test]
+    fn os_contributor_unsafe_profile_href_falls_back_to_span() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "open_source_contributor",
+                "name": "X",
+                "role": "R",
+                "contribution_kind": "code",
+                "profile_link": {"label": "Visit",
+                                 "href": "javascript:alert(1)"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("href=\"javascript:"));
+        assert!(html.contains("data-blocked-href=\"true\""));
+    }
+
+    #[test]
+    fn os_contributor_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "open_source_contributor",
+                "name": "<script>alert('n')</script>",
+                "handle": "<script>alert('h')</script>",
+                "role": "<script>alert('r')</script>",
+                "contribution_summary": "<script>alert('s')</script>",
+                "contribution_kind": "code",
+                "profile_link": {"label": "<script>alert('l')</script>",
+                                 "href": "/safe"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        // name appears in aria-label + visible markup. Plus
+        // handle (appears in data attr + visible), role, summary,
+        // profile_link label.
+        assert!(
+            entity_hits >= 6,
+            "expected >= 6 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
