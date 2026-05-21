@@ -752,7 +752,57 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed donation card — heading + lede + suggested amount
+    /// presets + custom-amount slot + frequency toggle +
+    /// optional one-off donation goal/progress bar.
+    /// Distinct from [`CmsSection::CallToAction`] (generic
+    /// CTA), from [`CmsSection::Pricing`] (commerce / SaaS
+    /// plans), and from [`CmsSection::AwardBadges`] (vanity
+    /// metric strip).
+    ///
+    /// DonationCard is the typed primitive for non-profit /
+    /// civic / mutual-aid / public-goods donation surfaces.
+    /// The structured amount presets + frequency enum + goal
+    /// progress data let downstream feed crawlers and audit
+    /// pipelines extract the donation shape without parsing
+    /// rendered chrome.
+    DonationCard {
+        /// Heading ("Support PlausiDen", "Help us reach our
+        /// goal").
+        heading: String,
+        /// Optional lede explanation. Multi-paragraph splits
+        /// on `\n\n`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lede: Option<String>,
+        /// Currency code ("USD", "EUR", "GBP" — ISO 4217).
+        /// Free-form (not closed-world enum) so cutting-edge
+        /// currencies aren't blocked.
+        currency: String,
+        /// Suggested amount presets in minor units of the
+        /// currency (cents for USD/EUR/GBP, yen for JPY, etc.).
+        /// Renderer formats per-currency at render time using
+        /// the conventional decimal places for the currency.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        preset_amounts: Vec<u64>,
+        /// Frequency options the donor can choose from.
+        /// Surfaced as `data-loom-donation-frequencies`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        frequencies: Vec<DonationFrequency>,
+        /// Optional fundraising goal in minor units. When
+        /// present + `raised_to_date` also present, renderer
+        /// draws a progress bar with the ratio.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        goal_amount: Option<u64>,
+        /// Optional amount raised so far in minor units.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        raised_to_date: Option<u64>,
+        /// Submit-button label.
+        submit_label: String,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +3006,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3127,21 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// Donation frequency option for [`CmsSection::DonationCard`].
+/// The typed enum lets the substrate audit which surfaces offer
+/// recurring vs one-off contributions, which is meaningful for
+/// non-profit reporting and donor-flow analytics.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DonationFrequency {
+    /// Single-time contribution.
+    OneTime,
+    /// Recurring monthly.
+    Monthly,
+    /// Recurring annually.
+    Annually,
 }
 
 /// One comparison row.
@@ -5581,6 +5646,146 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::DonationCard {
+            heading,
+            lede,
+            currency,
+            preset_amounts,
+            frequencies,
+            goal_amount,
+            raised_to_date,
+            submit_label,
+        } => {
+            let freq_slugs: Vec<&str> = frequencies
+                .iter()
+                .map(|f| match f {
+                    DonationFrequency::OneTime => "one_time",
+                    DonationFrequency::Monthly => "monthly",
+                    DonationFrequency::Annually => "annually",
+                })
+                .collect();
+            let freq_attr = freq_slugs.join(",");
+            let progress_pct: Option<u8> = match (goal_amount, raised_to_date) {
+                (Some(g), Some(r)) if *g > 0 => {
+                    Some(((*r as f64 / *g as f64) * 100.0).min(100.0).round() as u8)
+                }
+                _ => None,
+            };
+            let progress_str = progress_pct.map(|p| p.to_string());
+            let format_amount = |minor: u64| -> String {
+                // Currencies with no minor unit (JPY, KRW).
+                let zero_minor = matches!(
+                    currency.to_ascii_uppercase().as_str(),
+                    "JPY" | "KRW" | "VND" | "ISK" | "CLP" | "UGX"
+                );
+                if zero_minor {
+                    format!("{minor}")
+                } else {
+                    let major = minor / 100;
+                    let frac = minor % 100;
+                    format!("{major}.{frac:02}")
+                }
+            };
+            html! {
+                section class="loom-donation-card"
+                    data-loom-donation-currency=(currency)
+                    data-loom-donation-frequencies=(freq_attr)
+                    data-loom-donation-progress-percent=[progress_str.as_deref()]
+                    data-loom-reveal {
+                    header class="loom-donation-card__header" {
+                        h2 class="loom-donation-card__heading" { (heading) }
+                        @if let Some(l) = lede {
+                            div class="loom-donation-card__lede" {
+                                @for p in l.split("\n\n") {
+                                    p class="loom-donation-card__lede-para" { (p) }
+                                }
+                            }
+                        }
+                    }
+                    @if goal_amount.is_some() || raised_to_date.is_some() {
+                        div class="loom-donation-card__progress"
+                            role="meter"
+                            aria-valuemin="0"
+                            aria-valuemax="100"
+                            aria-valuenow=[progress_str.as_deref()]
+                            aria-label="Donation progress" {
+                            @if let Some(r) = raised_to_date {
+                                p class="loom-donation-card__raised" {
+                                    span class="loom-donation-card__raised-label" {
+                                        "Raised: "
+                                    }
+                                    span class="loom-donation-card__raised-value" {
+                                        (currency) " " (format_amount(*r))
+                                    }
+                                    @if let Some(g) = goal_amount {
+                                        span class="loom-donation-card__goal" {
+                                            " of " (currency) " " (format_amount(*g))
+                                        }
+                                    }
+                                }
+                            }
+                            @if let Some(pct) = progress_pct {
+                                div class="loom-donation-card__bar" {
+                                    span class="loom-donation-card__bar-fill"
+                                        data-loom-progress-percent=(pct.to_string()) {}
+                                }
+                            }
+                        }
+                    }
+                    form class="loom-donation-card__form" {
+                        @if !preset_amounts.is_empty() {
+                            fieldset class="loom-donation-card__presets" {
+                                legend class="loom-donation-card__legend" {
+                                    "Amount"
+                                }
+                                @for amount in preset_amounts {
+                                    button class="loom-donation-card__preset"
+                                        type="button"
+                                        data-amount=(amount.to_string()) {
+                                        (currency) " " (format_amount(*amount))
+                                    }
+                                }
+                            }
+                        }
+                        label class="loom-donation-card__label"
+                            for="loom-donation-card__custom" {
+                            "Custom amount"
+                        }
+                        input class="loom-donation-card__input"
+                            id="loom-donation-card__custom"
+                            type="number"
+                            name="amount"
+                            min="1";
+                        @if !frequencies.is_empty() {
+                            fieldset class="loom-donation-card__frequencies" {
+                                legend class="loom-donation-card__legend" {
+                                    "Frequency"
+                                }
+                                @for (i, freq) in frequencies.iter().enumerate() {
+                                    @let (slug, label) = match freq {
+                                        DonationFrequency::OneTime => ("one_time", "One time"),
+                                        DonationFrequency::Monthly => ("monthly", "Monthly"),
+                                        DonationFrequency::Annually => ("annually", "Annually"),
+                                    };
+                                    @let input_id = format!("loom-donation-card__freq-{slug}");
+                                    label class="loom-donation-card__frequency"
+                                        for=(input_id) {
+                                        input type="radio"
+                                            id=(input_id)
+                                            name="frequency"
+                                            value=(slug)
+                                            checked[i == 0];
+                                        " " (label)
+                                    }
+                                }
+                            }
+                        }
+                        button class="loom-donation-card__submit"
+                            type="submit" { (submit_label) }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10152,188 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn donation_card_minimal_renders_form_no_progress() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "donation_card",
+                "heading": "Support our work",
+                "currency": "USD",
+                "submit_label": "Donate"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-donation-card"));
+        assert!(html.contains("data-loom-donation-currency=\"USD\""));
+        assert!(html.contains("Support our work"));
+        // Form rendered.
+        assert!(html.contains("loom-donation-card__form"));
+        // Optional chrome absent.
+        assert!(!html.contains("loom-donation-card__lede"));
+        assert!(!html.contains("loom-donation-card__progress"));
+        assert!(!html.contains("loom-donation-card__presets"));
+        assert!(!html.contains("loom-donation-card__frequencies"));
+        assert!(!html.contains("data-loom-donation-progress-percent"));
+    }
+
+    #[test]
+    fn donation_card_with_presets_formats_per_currency_decimals() {
+        // USD has minor units (cents); 2500 minor → 25.00 visible.
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "donation_card",
+                "heading": "Donate",
+                "currency": "USD",
+                "preset_amounts": [2500, 5000, 10000, 50000],
+                "submit_label": "Give"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-donation-card__presets"));
+        let preset_count = html.matches("loom-donation-card__preset\"").count();
+        assert_eq!(preset_count, 4, "expected 4 presets, got {preset_count}");
+        assert!(html.contains("USD 25.00"));
+        assert!(html.contains("USD 50.00"));
+        assert!(html.contains("USD 100.00"));
+        assert!(html.contains("USD 500.00"));
+    }
+
+    #[test]
+    fn donation_card_jpy_renders_no_minor_decimals() {
+        // JPY has no minor unit; 5000 minor → 5000 visible.
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "donation_card",
+                "heading": "ご寄付",
+                "currency": "JPY",
+                "preset_amounts": [1000, 5000, 10000],
+                "submit_label": "寄付する"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("data-loom-donation-currency=\"JPY\""));
+        assert!(html.contains("JPY 1000"));
+        assert!(html.contains("JPY 5000"));
+        assert!(!html.contains("JPY 50.00"), "JPY should not have decimals");
+    }
+
+    #[test]
+    fn donation_card_with_progress_renders_meter_role() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "donation_card",
+                "heading": "Reach our goal",
+                "currency": "USD",
+                "goal_amount": 1000000,
+                "raised_to_date": 250000,
+                "submit_label": "Donate"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-donation-card__progress"));
+        assert!(html.contains("role=\"meter\""));
+        assert!(html.contains("aria-valuemin=\"0\""));
+        assert!(html.contains("aria-valuemax=\"100\""));
+        // 250000 / 1000000 = 25%
+        assert!(html.contains("aria-valuenow=\"25\""));
+        assert!(html.contains("data-loom-donation-progress-percent=\"25\""));
+        // Raised / goal labels rendered with USD decimals.
+        assert!(html.contains("loom-donation-card__raised"));
+        assert!(html.contains("USD 2500.00"));
+        assert!(html.contains("USD 10000.00"));
+    }
+
+    #[test]
+    fn donation_card_frequencies_render_radio_set() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "donation_card",
+                "heading": "Pick a frequency",
+                "currency": "USD",
+                "frequencies": ["one_time", "monthly", "annually"],
+                "submit_label": "Donate"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-donation-card__frequencies"));
+        assert!(html.contains("data-loom-donation-frequencies=\"one_time,monthly,annually\""));
+        // Three radios rendered.
+        let radio_count = html.matches("type=\"radio\"").count();
+        assert_eq!(radio_count, 3, "expected 3 radios, got {radio_count}");
+        // First is checked.
+        assert!(html.contains("value=\"one_time\""));
+        assert!(html.contains("checked"));
+        assert!(html.contains(" One time"));
+        assert!(html.contains(" Monthly"));
+        assert!(html.contains(" Annually"));
+    }
+
+    #[test]
+    fn donation_card_progress_caps_at_100_when_over_goal() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "donation_card",
+                "heading": "Goal exceeded",
+                "currency": "USD",
+                "goal_amount": 100000,
+                "raised_to_date": 150000,
+                "submit_label": "Donate"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // Capped at 100 even though raised > goal.
+        assert!(html.contains("aria-valuenow=\"100\""));
+        assert!(html.contains("data-loom-donation-progress-percent=\"100\""));
+    }
+
+    #[test]
+    fn donation_card_escapes_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "donation_card",
+                "heading": "<script>alert('h')</script>",
+                "lede": "<script>alert('l')</script>",
+                "currency": "USD",
+                "submit_label": "<script>alert('s')</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        assert!(
+            entity_hits >= 3,
+            "expected >= 3 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
