@@ -752,7 +752,54 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed knowledge-base article card — title + summary +
+    /// last-updated date + read-time estimate + category
+    /// breadcrumb + tags. Distinct from
+    /// [`CmsSection::CardFeed`] (generic content card feed),
+    /// [`CmsSection::SearchResult`] (search-result row),
+    /// [`CmsSection::CaseStudy`] (editorial proof), and
+    /// [`CmsSection::RelatedReads`] (article-footer
+    /// cross-links).
+    ///
+    /// KbArticleCard is the typed primitive for help-center /
+    /// documentation / support-portal browse surfaces. The
+    /// structured `category_breadcrumb` + `tags` + `last_updated_label`
+    /// shape lets feed crawlers and SBOM-style support-content
+    /// inventories extract the article hierarchy without
+    /// parsing rendered chrome.
+    KbArticleCard {
+        /// Article title (links to target URL).
+        title: String,
+        /// Target URL. Validated via `is_safe_url`; hostile
+        /// schemes fall back to non-interactive `<span>`.
+        url: String,
+        /// Plain-language summary / excerpt. Multi-paragraph
+        /// splits on `\n\n`.
+        summary: String,
+        /// Optional breadcrumb of category labels from broadest
+        /// to narrowest (`["Getting started", "Forge", "Build"]`).
+        /// Renders as a `<nav aria-label="Article location">`
+        /// trail. Empty vec renders no breadcrumb chrome.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        category_breadcrumb: Vec<String>,
+        /// Optional tag list (free-form, lowercase by convention).
+        /// Surfaced inside `<ul aria-label="Tags">`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        tags: Vec<String>,
+        /// Optional last-updated label (free-form editorial
+        /// date — "Updated 2026-05-19", "3 days ago").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        last_updated_label: Option<String>,
+        /// Optional read-time estimate ("3 min read",
+        /// "12 min read"). Free-form so different publishers
+        /// can format to taste.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        read_time_label: Option<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +3003,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5581,6 +5628,75 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::KbArticleCard {
+            title,
+            url,
+            summary,
+            category_breadcrumb,
+            tags,
+            last_updated_label,
+            read_time_label,
+        } => {
+            let url_safe = loom_components::composer::is_safe_url(url);
+            let summary_paras: Vec<&str> = summary.split("\n\n").collect();
+            html! {
+                article class="loom-kb-article-card" data-loom-reveal {
+                    @if !category_breadcrumb.is_empty() {
+                        nav class="loom-kb-article-card__breadcrumb"
+                            aria-label="Article location" {
+                            ol class="loom-kb-article-card__crumbs" {
+                                @for (i, crumb) in category_breadcrumb.iter().enumerate() {
+                                    @let is_last = i == category_breadcrumb.len() - 1;
+                                    li class="loom-kb-article-card__crumb" {
+                                        (crumb)
+                                    }
+                                    @if !is_last {
+                                        li class="loom-kb-article-card__crumb-separator"
+                                            aria-hidden="true" { " › " }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    h3 class="loom-kb-article-card__title" {
+                        @if url_safe {
+                            a class="loom-kb-article-card__title-link"
+                                href=(url) { (title) }
+                        } @else {
+                            span class="loom-kb-article-card__title-link"
+                                data-blocked-href="true" { (title) }
+                        }
+                    }
+                    div class="loom-kb-article-card__summary" {
+                        @for p in &summary_paras {
+                            p class="loom-kb-article-card__para" { (p) }
+                        }
+                    }
+                    @if last_updated_label.is_some() || read_time_label.is_some() {
+                        p class="loom-kb-article-card__meta" {
+                            @if let Some(d) = last_updated_label {
+                                span class="loom-kb-article-card__updated" { (d) }
+                            }
+                            @if last_updated_label.is_some() && read_time_label.is_some() {
+                                span class="loom-kb-article-card__meta-separator"
+                                    aria-hidden="true" { " · " }
+                            }
+                            @if let Some(r) = read_time_label {
+                                span class="loom-kb-article-card__read-time" { (r) }
+                            }
+                        }
+                    }
+                    @if !tags.is_empty() {
+                        ul class="loom-kb-article-card__tags"
+                            aria-label="Tags" {
+                            @for tag in tags {
+                                li class="loom-kb-article-card__tag" { (tag) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10063,165 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn kb_article_card_minimal_renders_required_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "kb_article_card",
+                "title": "How to build a Forge site",
+                "url": "/docs/forge/build",
+                "summary": "Step-by-step guide for composing a site."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-kb-article-card"));
+        assert!(html.contains("loom-kb-article-card__title"));
+        assert!(html.contains("href=\"/docs/forge/build\""));
+        assert!(html.contains("How to build a Forge site"));
+        assert!(html.contains("loom-kb-article-card__summary"));
+        assert!(html.contains("Step-by-step guide"));
+        // Optional chrome absent.
+        assert!(!html.contains("loom-kb-article-card__breadcrumb"));
+        assert!(!html.contains("loom-kb-article-card__tags"));
+        assert!(!html.contains("loom-kb-article-card__meta"));
+    }
+
+    #[test]
+    fn kb_article_card_with_breadcrumb_renders_nav_landmark() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "kb_article_card",
+                "title": "Composing CMS sections",
+                "url": "/docs/forge/sections",
+                "summary": "Overview of all 200+ CmsSection variants.",
+                "category_breadcrumb": ["Getting started", "Forge", "Build"]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-kb-article-card__breadcrumb"));
+        assert!(html.contains("aria-label=\"Article location\""));
+        let crumb_count = html.matches("loom-kb-article-card__crumb\"").count();
+        assert_eq!(crumb_count, 3, "expected 3 crumbs, got {crumb_count}");
+        // 2 separators between 3 crumbs.
+        let sep_count = html.matches("loom-kb-article-card__crumb-separator").count();
+        assert_eq!(sep_count, 2, "expected 2 separators, got {sep_count}");
+        assert!(html.contains("Getting started"));
+        assert!(html.contains(">Forge<"));
+        assert!(html.contains(">Build<"));
+    }
+
+    #[test]
+    fn kb_article_card_with_full_chrome() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "kb_article_card",
+                "title": "API authentication",
+                "url": "/docs/api/auth",
+                "summary": "Para one.\n\nPara two.",
+                "category_breadcrumb": ["API"],
+                "tags": ["auth", "api-keys", "oauth"],
+                "last_updated_label": "Updated 2026-05-19",
+                "read_time_label": "3 min read"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // Tags rendered with aria-label.
+        assert!(html.contains("loom-kb-article-card__tags"));
+        assert!(html.contains("aria-label=\"Tags\""));
+        let tag_count = html.matches("loom-kb-article-card__tag\"").count();
+        assert_eq!(tag_count, 3, "expected 3 tags, got {tag_count}");
+        assert!(html.contains(">auth<"));
+        // Meta line with both updated + read-time + separator.
+        assert!(html.contains("loom-kb-article-card__meta"));
+        assert!(html.contains("Updated 2026-05-19"));
+        assert!(html.contains("3 min read"));
+        assert!(html.contains("loom-kb-article-card__meta-separator"));
+        // Multi-paragraph summary.
+        let para_count = html.matches("loom-kb-article-card__para\"").count();
+        assert_eq!(para_count, 2, "expected 2 paras, got {para_count}");
+    }
+
+    #[test]
+    fn kb_article_card_only_updated_no_read_time_omits_separator() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "kb_article_card",
+                "title": "T",
+                "url": "/x",
+                "summary": "S",
+                "last_updated_label": "Updated 2026-05-19"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-kb-article-card__updated"));
+        assert!(!html.contains("loom-kb-article-card__read-time"));
+        assert!(!html.contains("loom-kb-article-card__meta-separator"));
+    }
+
+    #[test]
+    fn kb_article_card_unsafe_url_falls_back_to_span() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "kb_article_card",
+                "title": "Hostile",
+                "url": "javascript:alert(1)",
+                "summary": "X"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("href=\"javascript:"));
+        assert!(html.contains("data-blocked-href=\"true\""));
+        assert!(html.contains("Hostile"));
+    }
+
+    #[test]
+    fn kb_article_card_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "kb_article_card",
+                "title": "<script>alert('t')</script>",
+                "url": "/safe",
+                "summary": "<script>alert('s')</script>",
+                "category_breadcrumb": ["<script>alert('c')</script>"],
+                "tags": ["<script>alert('g')</script>"],
+                "last_updated_label": "<script>alert('u')</script>",
+                "read_time_label": "<script>alert('r')</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        // title + summary + crumb + tag + updated + read_time = 6
+        assert!(
+            entity_hits >= 6,
+            "expected >= 6 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
