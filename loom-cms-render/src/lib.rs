@@ -752,6 +752,29 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed curated in-article jump-link navigation block.
+    /// Distinct from [`CmsSection::TocBlock`] (auto-derived
+    /// from headings via JS), from [`CmsSection::Steps`]
+    /// (in-page progress with numbered titles), and from
+    /// [`CmsSection::ChapterPager`] (cross-page prev/next):
+    /// AnchorIndex is operator-curated with explicit anchor +
+    /// label pairs, works without JS, and lets the author
+    /// select WHICH sections deserve a jump link (rather than
+    /// every heading).
+    ///
+    /// Editorial intent: long-form essay / research write-up
+    /// / annual report where the author wants reader-
+    /// controlled navigation to specific named sections — not
+    /// every h2 gets a link.
+    AnchorIndex {
+        /// Optional heading rendered above the index
+        /// (`"In this article"`, `"Jump to"`, `"Contents"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        heading: Option<String>,
+        /// Items in display order. Empty `items` renders the
+        /// empty-marker so audit phases can flag the gap.
+        items: Vec<AnchorIndexItem>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2956,7 +2979,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3100,22 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// One item in a [`CmsSection::AnchorIndex`].
+///
+/// `anchor` MUST start with `#` (same-page fragment). The
+/// renderer validates and falls back to a plain `<span>` for
+/// malformed anchors so cross-page links via this primitive
+/// fail safe rather than render as broken navigation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct AnchorIndexItem {
+    /// Same-page fragment anchor (e.g. `"#methodology"`).
+    /// Must start with `#`.
+    pub anchor: String,
+    /// Visible link text.
+    pub label: String,
 }
 
 /// One comparison row.
@@ -5578,6 +5617,33 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 blockquote class="loom-epigraph__body" { (body) }
                 @if let Some(a) = attribution {
                     figcaption class="loom-epigraph__attribution" { "— " (a) }
+                }
+            }
+        },
+        CmsSection::AnchorIndex { heading, items } => html! {
+            nav class="loom-anchor-index"
+                aria-label="In this article"
+                data-loom-reveal
+            {
+                @if let Some(h) = heading {
+                    h3 class="loom-anchor-index__heading" { (h) }
+                }
+                @if items.is_empty() {
+                    p class="loom-anchor-index__empty" { "No entries." }
+                } @else {
+                    ol class="loom-anchor-index__items" {
+                        @for it in items {
+                            li class="loom-anchor-index__item" {
+                                @if it.anchor.starts_with('#') && it.anchor.len() > 1 {
+                                    a class="loom-anchor-index__link" href=(it.anchor) { (it.label) }
+                                } @else {
+                                    span class="loom-anchor-index__link"
+                                         data-blocked-href="true"
+                                    { (it.label) }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -9946,6 +10012,130 @@ mod tests {
         let page: CmsPage = serde_json::from_str(json).expect("page parses");
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    // #104 (2026-05-21) — AnchorIndex curated jump-link nav.
+
+    #[test]
+    fn anchor_index_renders_nav_with_heading_and_items() {
+        let json = r##"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "anchor_index",
+                "heading": "Jump to",
+                "items": [
+                    {"anchor": "#methodology", "label": "Methodology"},
+                    {"anchor": "#findings",    "label": "Findings"},
+                    {"anchor": "#conclusion",  "label": "Conclusion"}
+                ]
+            }]
+        }"##;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<nav class="loom-anchor-index""#));
+        assert!(html.contains(r#"aria-label="In this article""#));
+        assert!(html.contains(r#"<h3 class="loom-anchor-index__heading""#));
+        assert!(html.contains(">Jump to<"));
+        assert!(html.contains(r#"<ol class="loom-anchor-index__items""#));
+        // 3 items with anchors.
+        assert_eq!(html.matches(r#"class="loom-anchor-index__item""#).count(), 3);
+        assert!(html.contains(r##"href="#methodology""##));
+        assert!(html.contains(r##"href="#findings""##));
+        assert!(html.contains(r##"href="#conclusion""##));
+        assert!(html.contains(">Methodology<"));
+        assert!(html.contains(">Findings<"));
+        assert!(html.contains(">Conclusion<"));
+    }
+
+    #[test]
+    fn anchor_index_heading_optional() {
+        let json = r##"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "anchor_index",
+                "items": [{"anchor": "#x", "label": "X"}]
+            }]
+        }"##;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("loom-anchor-index__heading"));
+        assert!(html.contains("loom-anchor-index__items"));
+    }
+
+    #[test]
+    fn anchor_index_empty_items_emits_empty_marker() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "anchor_index",
+                "heading": "Contents",
+                "items": []
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-anchor-index__empty"));
+        assert!(html.contains(">No entries.<"));
+        assert!(!html.contains("loom-anchor-index__items"));
+    }
+
+    #[test]
+    fn anchor_index_malformed_anchor_falls_back_to_span() {
+        // Anchors not starting with `#` (or just bare `#`)
+        // render as plain span with data-blocked-href.
+        let json = r##"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "anchor_index",
+                "items": [
+                    {"anchor": "https://example.com/", "label": "Cross-page"},
+                    {"anchor": "javascript:alert(1)",  "label": "JS"},
+                    {"anchor": "#",                    "label": "Empty fragment"},
+                    {"anchor": "#valid",               "label": "Valid"}
+                ]
+            }]
+        }"##;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // 3 invalid → 3 spans with data-blocked-href.
+        assert_eq!(html.matches(r#"data-blocked-href="true""#).count(), 3);
+        // Visible labels surface.
+        assert!(html.contains(">Cross-page<"));
+        assert!(html.contains(">JS<"));
+        assert!(html.contains(">Empty fragment<"));
+        // Valid anchor rendered as <a>.
+        assert!(html.contains(r##"href="#valid""##));
+        assert!(html.contains(">Valid<"));
+        // Hostile schemes never reach the href attribute.
+        assert!(!html.contains("javascript:alert"));
+        assert!(!html.contains(r#"href="https://example.com/""#));
+    }
+
+    #[test]
+    fn anchor_index_body_html_escaped() {
+        let json = r##"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "anchor_index",
+                "heading": "<script>h</script>",
+                "items": [{"anchor": "#x", "label": "<script>l</script>"}]
+            }]
+        }"##;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>h</script>"));
+        assert!(!html.contains("<script>l</script>"));
         assert!(html.contains("&lt;script&gt;"));
     }
 
