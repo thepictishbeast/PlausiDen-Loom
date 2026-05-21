@@ -108,11 +108,11 @@ impl Footer<'_> {
                     div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12" {
                         // Brand column
                         div class="space-y-6" {
-                            div class="flex items-center gap-2 text-white" {
+                            div class="flex items-center gap-3 text-white" {
                                 div class=(logo_class) {
                                     (PreEscaped(logo_svg))
                                 }
-                                span class="font-display font-bold text-xl tracking-tight" {
+                                span class="font-display font-bold text-xl tracking-tight whitespace-nowrap" {
                                     (self.brand_name) " "
                                     span class="text-primary" { (self.brand_accent) }
                                 }
@@ -171,14 +171,14 @@ fn item_li(item: &FooterItem<'_>) -> Markup {
         FooterItem::Link { href, label } => html! {
             li {
                 a href=(*href) {
-                    span class="text-sm hover:text-white transition-colors cursor-pointer" {
+                    span class="text-sm hover:text-white transition-colors cursor-pointer whitespace-nowrap" {
                         (*label)
                     }
                 }
             }
         },
         FooterItem::Text { text } => html! {
-            li class="text-sm" { (*text) }
+            li class="text-sm whitespace-nowrap" { (*text) }
         },
         FooterItem::Contact { icon, label, href } => {
             let svg = icon.render_with_class("w-5 h-5 text-primary shrink-0 mt-0.5");
