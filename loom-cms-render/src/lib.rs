@@ -336,8 +336,7 @@ pub enum CmsBlock {
         height: Option<u32>,
     },
     /// Inline hyperlink. Renders as `<a>` with prose styling.
-    /// For prominent call-to-action affordances use [`CmsBlock::Button`]
-    /// (not yet defined — file follow-up PR).
+    /// For prominent call-to-action affordances use [`CmsBlock::Button`].
     Link {
         /// Visible link text.
         label: String,
@@ -345,6 +344,24 @@ pub enum CmsBlock {
         href: String,
         /// Optional `data-backend` slug for the phantom-button
         /// gate.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        data_backend: Option<String>,
+    },
+    /// Call-to-action button. Distinct from [`CmsBlock::Link`] —
+    /// buttons carry a `variant` + `size` that the tenant's
+    /// `[style.button]` config maps to concrete fill / border /
+    /// shadow.
+    Button {
+        /// Visible label.
+        label: String,
+        /// Destination URL. Validated via `is_safe_url`.
+        href: String,
+        /// Style variant.
+        variant: ButtonVariant,
+        /// Token-scale size step.
+        #[serde(default)]
+        size: ButtonSize,
+        /// Optional `data-backend` slug.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         data_backend: Option<String>,
     },
@@ -420,6 +437,20 @@ pub enum BlockAlign {
     End,
     Stretch,
     Baseline,
+}
+
+/// Token-scale size step for a [`CmsBlock::Button`]. Resolved
+/// against the tenant's `[style.button.size]` config at render
+/// time. Reuses the existing [`ButtonVariant`] enum
+/// (Primary/Secondary/Ghost/Danger).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum ButtonSize {
+    Sm,
+    #[default]
+    Md,
+    Lg,
 }
 
 /// field's meaning is NOT obvious from `<name>: <type>` alone
@@ -4822,6 +4853,28 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::Button {
+            label,
+            href,
+            variant,
+            size,
+            data_backend,
+        } => {
+            let safe = loom_components::composer::is_safe_url(href);
+            let v = button_variant_slug(*variant);
+            let sz = button_size_slug(*size);
+            html! {
+                a class="loom-block-button"
+                    role="button"
+                    href=(if safe { href.as_str() } else { "#invalid-link" })
+                    data-variant=(v)
+                    data-size=(sz)
+                    data-backend=[data_backend.as_deref()]
+                    data-invalid=[(!safe).then_some("true")] {
+                    (label)
+                }
+            }
+        }
         CmsBlock::Spacer { size } => {
             let slug = block_spacing_slug(*size);
             html! {
@@ -4901,6 +4954,32 @@ pub const fn block_align_slug(a: BlockAlign) -> &'static str {
         BlockAlign::End => "end",
         BlockAlign::Stretch => "stretch",
         BlockAlign::Baseline => "baseline",
+    }
+}
+
+/// Kebab-case slug for a [`ButtonVariant`] when used by a
+/// [`CmsBlock::Button`]. Same enum the existing button
+/// primitives use; the slug is emitted as `data-variant` so
+/// the loom-skin.css cascade can apply per-variant styling
+/// under the tenant's `[style.button]` config.
+#[must_use]
+pub const fn button_variant_slug(v: ButtonVariant) -> &'static str {
+    match v {
+        ButtonVariant::Primary => "primary",
+        ButtonVariant::Secondary => "secondary",
+        ButtonVariant::Ghost => "ghost",
+        ButtonVariant::Danger => "danger",
+    }
+}
+
+/// Kebab-case slug for a [`ButtonSize`]. Emitted as `data-size`
+/// for per-tenant button sizing.
+#[must_use]
+pub const fn button_size_slug(s: ButtonSize) -> &'static str {
+    match s {
+        ButtonSize::Sm => "sm",
+        ButtonSize::Md => "md",
+        ButtonSize::Lg => "lg",
     }
 }
 
@@ -9117,6 +9196,65 @@ mod tests {
         match back {
             CmsBlock::Text { text } => assert_eq!(text, "Hello world"),
             _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn cms_block_button_renders_with_variant_and_size_attrs() {
+        let btn = CmsBlock::Button {
+            label: "Join Free".to_owned(),
+            href: "/membership/".to_owned(),
+            variant: ButtonVariant::Primary,
+            size: ButtonSize::Lg,
+            data_backend: Some("cta-join-free".to_owned()),
+        };
+        let html = render_block(&btn).into_string();
+        assert!(html.contains("loom-block-button"));
+        assert!(html.contains(r#"role="button""#));
+        assert!(html.contains(r#"data-variant="primary""#));
+        assert!(html.contains(r#"data-size="lg""#));
+        assert!(html.contains(r#"data-backend="cta-join-free""#));
+        assert!(html.contains(r#"href="/membership/""#));
+    }
+
+    #[test]
+    fn cms_block_button_unsafe_href_marks_invalid() {
+        let btn = CmsBlock::Button {
+            label: "X".to_owned(),
+            href: "javascript:alert(1)".to_owned(),
+            variant: ButtonVariant::Primary,
+            size: ButtonSize::Md,
+            data_backend: None,
+        };
+        let html = render_block(&btn).into_string();
+        assert!(html.contains(r##"href="#invalid-link""##));
+        assert!(html.contains(r#"data-invalid="true""#));
+    }
+
+    #[test]
+    fn button_size_default_is_md() {
+        let json = r#"{"kind":"button","label":"X","href":"/a","variant":"primary"}"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses without size");
+        match block {
+            CmsBlock::Button { size, .. } => assert!(matches!(size, ButtonSize::Md)),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn button_slug_helpers_are_lowercase() {
+        for v in [
+            ButtonVariant::Primary,
+            ButtonVariant::Secondary,
+            ButtonVariant::Ghost,
+            ButtonVariant::Danger,
+        ] {
+            assert!(button_variant_slug(v)
+                .chars()
+                .all(|c| c.is_ascii_lowercase()));
+        }
+        for s in [ButtonSize::Sm, ButtonSize::Md, ButtonSize::Lg] {
+            assert!(button_size_slug(s).chars().all(|c| c.is_ascii_lowercase()));
         }
     }
 
