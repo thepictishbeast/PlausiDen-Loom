@@ -85,11 +85,11 @@ pub struct CmsPage {
     /// render time; hostile schemes (`javascript:`, `data:`)
     /// suppress the `<img>` and fall back to text-only.
     ///
-    /// Added 2026-05-21 in response to paul's "all the sites
-    /// are so similar" / "no phoenix logo" observation on
-    /// dev.plausiden.com's prosperityclub.com reproduction.
-    /// Previously every Forge site had only a text wordmark
-    /// because no slot existed for a brand asset.
+    /// Absent → page brand renders as text only (the
+    /// pre-existing behaviour). Present + safe `src` → renders
+    /// `<img>` plus a visually-hidden `<span>` carrying the
+    /// `brand` text so screen readers still read the
+    /// accessible name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brand_logo: Option<BrandLogo>,
     /// Canonical URL path (e.g. `"/leaderboard"`). Required.
@@ -152,7 +152,7 @@ pub struct CmsPage {
     #[serde(default)]
     pub dev_devtools: bool,
     /// Optional fully-qualified site origin (e.g.
-    /// `"https://dev.plausiden.com"`). When set, the renderer
+    /// `"https://example.com"`). When set, the renderer
     /// prefixes `og:url` and `og:image` with this origin so
     /// social-card crawlers see fully-qualified URLs (the OG
     /// spec requires absolute URLs). When `None`, the renderer
@@ -10031,13 +10031,11 @@ mod tests {
 
     #[test]
     fn photo_overlay_default_is_none_so_photos_render_at_full_strength() {
-        // Regression lock: pre-2026-05-21 the default was Dark,
-        // which applied a 55-75% canvas-color gradient overlay to
-        // every photo-forward hero, washing out the operator's
-        // source material. Real-site pixel-reproduction comparisons
-        // (prosperityclub.com, sacred.vote) flagged this as a
-        // bug. The default is now `None` — operators who actually
-        // need legibility on a bright photo opt in to Light or Dark
+        // Regression lock: a `Dark` default applied a heavy
+        // canvas-color gradient overlay to every photo-forward
+        // hero, washing out the operator's source material. The
+        // default is now `None` — operators who actually need
+        // legibility on a bright photo opt in to Light or Dark
         // explicitly.
         assert_eq!(PhotoOverlay::default(), PhotoOverlay::None);
     }
@@ -10072,16 +10070,12 @@ mod tests {
 
     #[test]
     fn theme_toggle_js_preserves_named_themes() {
-        // Regression lock: pre-2026-05-21 the THEME_TOGGLE_JS init
-        // only accepted T=['light','dark','auto']; any
-        // server-emitted data-theme outside that set (warm /
-        // ocean / forest / rose / violet / sepia / press / hc-*)
-        // was overwritten to 'light' on first paint, collapsing
-        // every Forge site's theme to the indigo default. Paul
-        // flagged "all the sites are so similar" on 2026-05-21
-        // and the rendered dev.plausiden.com HTML showed
-        // data-theme="light" despite cms/index.json setting
-        // "theme": "warm".
+        // Regression lock: an earlier THEME_TOGGLE_JS init only
+        // accepted T=['light','dark','auto']; any server-emitted
+        // data-theme outside that set (warm / ocean / forest /
+        // rose / violet / sepia / press / hc-*) was overwritten
+        // to 'light' on first paint, collapsing every site's
+        // theme to the toggle-set default.
         //
         // The fixed JS preserves any server attribute and only
         // routes through T for the toggle CYCLE (click handler).
