@@ -448,6 +448,28 @@ pub enum CmsBlock {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cite_url: Option<String>,
     },
+    /// Pre-formatted code block. Renders as `<pre><code>` with the
+    /// language slug projected onto `<code class="language-xyz">`
+    /// per the conventional Markdown / Prism / highlight.js
+    /// attribute shape (interop with whatever syntax-highlighting
+    /// layer a tenant configures).
+    ///
+    /// The substrate emits NO syntax highlighting itself — that's a
+    /// tenant-style concern. The cascade selects monospace + scroll
+    /// affordances; highlighting plugs in over the same DOM.
+    ///
+    /// `language` is normalised to lowercase + alphanumeric only
+    /// at render to keep the class slug well-behaved (`rust`,
+    /// `bash`, `json`, etc.).
+    Code {
+        /// Code body. Escaped at render time — newlines + indent
+        /// preserved.
+        code: String,
+        /// Optional language slug (e.g., `"rust"`). When absent,
+        /// no `language-*` class is emitted.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
+    },
     /// Disclosure list — collapsible summary + content panels.
     /// Behavioral contract mirrors Radix UI's `Accordion`
     /// primitive (slot composition: each item carries a
@@ -6099,6 +6121,23 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                             li class="loom-block-list__item" { (item) }
                         }
                     },
+                }
+            }
+        }
+        CmsBlock::Code { code, language } => {
+            let lang_slug: Option<String> = language.as_deref().map(|l| {
+                l.chars()
+                    .filter(|c| c.is_ascii_alphanumeric())
+                    .collect::<String>()
+                    .to_ascii_lowercase()
+            });
+            let code_class = match lang_slug.as_deref() {
+                Some(l) if !l.is_empty() => format!("loom-block-code__code language-{l}"),
+                _ => "loom-block-code__code".to_owned(),
+            };
+            html! {
+                pre class="loom-block-code" data-language=[lang_slug.as_deref()] {
+                    code class=(code_class) { (code) }
                 }
             }
         }
@@ -13151,6 +13190,45 @@ mod tests {
         assert!(html.contains("<ol"));
         assert!(html.contains(r#"data-style="ordered""#));
         assert!(html.contains(">one<"));
+    }
+
+    #[test]
+    fn cms_block_code_renders_pre_code_with_language() {
+        let c = CmsBlock::Code {
+            code: "fn main() {\n    println!(\"hi\");\n}".into(),
+            language: Some("rust".into()),
+        };
+        let html = render_block(&c).into_string();
+        assert!(html.contains("<pre"));
+        assert!(html.contains("loom-block-code"));
+        assert!(html.contains(r#"data-language="rust""#));
+        assert!(html.contains("language-rust"));
+        assert!(html.contains("fn main"));
+        // Newlines + indent preserved (escaped as raw text inside <code>)
+        assert!(html.contains("println!"));
+    }
+
+    #[test]
+    fn cms_block_code_escapes_html_in_body() {
+        let c = CmsBlock::Code {
+            code: "<script>alert(1)</script>".into(),
+            language: None,
+        };
+        let html = render_block(&c).into_string();
+        assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn cms_block_code_normalises_language_slug() {
+        // Mixed case + punctuation drop; alphanumerics keep.
+        let c = CmsBlock::Code {
+            code: "x".into(),
+            language: Some("C++ 17".into()),
+        };
+        let html = render_block(&c).into_string();
+        assert!(html.contains("language-c17"));
+        assert!(html.contains(r#"data-language="c17""#));
     }
 
     #[test]
