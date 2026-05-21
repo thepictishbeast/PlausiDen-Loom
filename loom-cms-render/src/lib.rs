@@ -636,6 +636,19 @@ pub enum CmsBlock {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         trend: Option<StatTrend>,
     },
+    /// Sequential events display. Renders as a semantic `<ol>`
+    /// (ordered list — timelines are inherently sequential, so
+    /// the markup carries the ordering). Each item carries a
+    /// title, optional timestamp, and optional description body.
+    ///
+    /// Substrate asserts structure + `<time>` semantics; visual
+    /// register (vertical rail, node marker, spacing) flows from
+    /// tenant `[style]` config via the cascade.
+    Timeline {
+        /// The events, in chronological order (caller-defined
+        /// — substrate doesn't sort).
+        items: Vec<BlockTimelineItem>,
+    },
     /// Sandboxed `<iframe>` embed. Used for third-party widgets
     /// (YouTube / Vimeo / Maps / payment forms) without granting
     /// them ambient access to the parent document. Substrate
@@ -1815,6 +1828,30 @@ impl IframeSandbox {
         }
         tokens.join(" ")
     }
+}
+
+/// One event in a [`CmsBlock::Timeline`]. Optional timestamp
+/// renders inside `<time>` so screen readers + RSS extractors
+/// pick it up; the string is opaque to the substrate (tenants
+/// pass ISO 8601, human-readable dates, version tags — anything
+/// the cascade can format).
+///
+/// Block-level name distinct from the existing section-level
+/// [`TimelineItem`] (which has `when: String, title, body:
+/// String` and a different optionality posture).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockTimelineItem {
+    /// Title — short summary rendered as `<h3>` inside the
+    /// timeline entry.
+    pub title: String,
+    /// Optional timestamp string. Rendered inside `<time>` when
+    /// present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<String>,
+    /// Optional body prose elaborating on the event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// Direction + label for a [`CmsBlock::Stat`] trend
@@ -6530,6 +6567,24 @@ pub fn render_block(block: &CmsBlock) -> Markup {
         }
         CmsBlock::Badge { text, tone } => html! {
             span class="loom-block-badge" data-tone=(tone.slug()) { (text) }
+        },
+        CmsBlock::Timeline { items } => html! {
+            ol class="loom-block-timeline" {
+                @for item in items {
+                    li class="loom-block-timeline__item" {
+                        span class="loom-block-timeline__marker" aria-hidden="true" {}
+                        div class="loom-block-timeline__body" {
+                            @if let Some(when) = &item.when {
+                                time class="loom-block-timeline__when" datetime=(when) { (when) }
+                            }
+                            h3 class="loom-block-timeline__title" { (item.title) }
+                            @if let Some(desc) = &item.description {
+                                p class="loom-block-timeline__desc" { (desc) }
+                            }
+                        }
+                    }
+                }
+            }
         },
         CmsBlock::Stat { value, label, trend } => html! {
             dl class="loom-block-stat" {
@@ -13896,6 +13951,62 @@ mod tests {
         let html = render_block(&s).into_string();
         assert!(html.contains(">Substrate A<"));
         assert!(html.contains(">Substrate B<"));
+    }
+
+    #[test]
+    fn cms_block_timeline_renders_semantic_ol_with_time_tags() {
+        let t = CmsBlock::Timeline {
+            items: vec![
+                BlockTimelineItem {
+                    title: "Project kickoff".into(),
+                    when: Some("2026-01-15".into()),
+                    description: Some("Scope locked, team assembled.".into()),
+                },
+                BlockTimelineItem {
+                    title: "First release".into(),
+                    when: Some("2026-03-02".into()),
+                    description: None,
+                },
+            ],
+        };
+        let html = render_block(&t).into_string();
+        assert!(html.contains("<ol"));
+        assert!(html.contains("loom-block-timeline"));
+        assert!(html.contains("<time"));
+        assert!(html.contains(r#"datetime="2026-01-15""#));
+        assert!(html.contains(r#"datetime="2026-03-02""#));
+        assert!(html.contains(">Project kickoff<"));
+        assert!(html.contains(">First release<"));
+        assert!(html.contains("Scope locked"));
+    }
+
+    #[test]
+    fn cms_block_timeline_omits_time_when_no_timestamp() {
+        let t = CmsBlock::Timeline {
+            items: vec![BlockTimelineItem {
+                title: "Untimed event".into(),
+                when: None,
+                description: None,
+            }],
+        };
+        let html = render_block(&t).into_string();
+        assert!(html.contains(">Untimed event<"));
+        assert!(!html.contains("<time"));
+    }
+
+    #[test]
+    fn cms_block_timeline_escapes_html_in_fields() {
+        let t = CmsBlock::Timeline {
+            items: vec![BlockTimelineItem {
+                title: "<script>".into(),
+                when: Some("<img>".into()),
+                description: Some("<svg/onload=x>".into()),
+            }],
+        };
+        let html = render_block(&t).into_string();
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<svg/onload"));
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
