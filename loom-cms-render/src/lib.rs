@@ -752,7 +752,35 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed cookie inventory — per-cookie disclosure table
+    /// (name + purpose + duration + party + category). Distinct
+    /// from [`CmsSection::CookieNotice`] (consent banner that
+    /// pops on first visit), from [`CmsSection::Disclaimer`]
+    /// (legal/sponsored disclosure), and from
+    /// [`CmsSection::LegalDoc`] (full legal-document chrome).
+    ///
+    /// LegalCookieList is the typed primitive for the privacy-
+    /// policy / cookie-policy disclosure page that regulations
+    /// like GDPR, ePrivacy, and CCPA require operators publish.
+    /// The structured per-cookie shape (name + purpose +
+    /// duration + first/third-party + category) lets feed
+    /// crawlers and compliance auditors extract the cookie
+    /// surface without parsing rendered chrome.
+    LegalCookieList {
+        /// Section heading ("Cookies we use", "Cookie
+        /// policy").
+        heading: String,
+        /// Optional lede explanation. Multi-paragraph splits
+        /// on `\n\n`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lede: Option<String>,
+        /// Cookie entries.
+        cookies: Vec<CookieDisclosure>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +2984,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3105,48 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// One cookie row in [`CmsSection::LegalCookieList`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
+pub struct CookieDisclosure {
+    pub name: String,
+    pub purpose: String,
+    pub duration: String,
+    pub party: CookieParty,
+    pub category: CookieCategory,
+}
+
+/// Whether the cookie is set by the publisher or a third party.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CookieParty {
+    /// Publisher-set cookie.
+    First,
+    /// Third-party cookie (analytics, ads, CDN, etc.).
+    Third,
+}
+
+/// Functional category of the cookie. The variant set mirrors
+/// the GDPR / ePrivacy / IAB-TCF cookie-classification scheme
+/// that most consent-management platforms have aligned on.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CookieCategory {
+    /// Strictly necessary (session, CSRF, auth) — no consent
+    /// required under GDPR.
+    Necessary,
+    /// User-preference / personalisation cookies.
+    Preferences,
+    /// Analytics / measurement.
+    Analytics,
+    /// Marketing / advertising.
+    Marketing,
+    /// Other (use sparingly — invent a new variant before
+    /// using `Other` repeatedly).
+    Other,
 }
 
 /// One comparison row.
@@ -5578,6 +5648,77 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 blockquote class="loom-epigraph__body" { (body) }
                 @if let Some(a) = attribution {
                     figcaption class="loom-epigraph__attribution" { "— " (a) }
+                }
+            }
+        },
+        CmsSection::LegalCookieList {
+            heading,
+            lede,
+            cookies,
+        } => html! {
+            section class="loom-legal-cookie-list"
+                aria-labelledby="loom-legal-cookie-list__heading"
+                data-loom-reveal {
+                header class="loom-legal-cookie-list__header" {
+                    h2 id="loom-legal-cookie-list__heading"
+                        class="loom-legal-cookie-list__heading" { (heading) }
+                    @if let Some(l) = lede {
+                        div class="loom-legal-cookie-list__lede" {
+                            @for p in l.split("\n\n") {
+                                p class="loom-legal-cookie-list__lede-para" { (p) }
+                            }
+                        }
+                    }
+                }
+                table class="loom-legal-cookie-list__table" {
+                    caption class="loom-legal-cookie-list__caption" {
+                        "Cookie inventory"
+                    }
+                    thead {
+                        tr {
+                            th scope="col" { "Name" }
+                            th scope="col" { "Purpose" }
+                            th scope="col" { "Duration" }
+                            th scope="col" { "Party" }
+                            th scope="col" { "Category" }
+                        }
+                    }
+                    tbody {
+                        @for c in cookies {
+                            @let (party_slug, party_label) = match c.party {
+                                CookieParty::First => ("first", "First-party"),
+                                CookieParty::Third => ("third", "Third-party"),
+                            };
+                            @let (cat_slug, cat_label) = match c.category {
+                                CookieCategory::Necessary => ("necessary", "Necessary"),
+                                CookieCategory::Preferences => ("preferences", "Preferences"),
+                                CookieCategory::Analytics => ("analytics", "Analytics"),
+                                CookieCategory::Marketing => ("marketing", "Marketing"),
+                                CookieCategory::Other => ("other", "Other"),
+                            };
+                            tr class="loom-legal-cookie-list__row"
+                                data-loom-cookie-party=(party_slug)
+                                data-loom-cookie-category=(cat_slug) {
+                                td {
+                                    code class="loom-legal-cookie-list__name" {
+                                        (c.name)
+                                    }
+                                }
+                                td class="loom-legal-cookie-list__purpose" {
+                                    (c.purpose)
+                                }
+                                td class="loom-legal-cookie-list__duration" {
+                                    (c.duration)
+                                }
+                                td class="loom-legal-cookie-list__party" {
+                                    (party_label)
+                                }
+                                td class="loom-legal-cookie-list__category" {
+                                    (cat_label)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -9947,6 +10088,138 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn legal_cookie_list_renders_table_with_per_cookie_attrs() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "legal_cookie_list",
+                "heading": "Cookies we use",
+                "cookies": [
+                    {"name": "session_id", "purpose": "Session continuity",
+                     "duration": "Session", "party": "first",
+                     "category": "necessary"},
+                    {"name": "_ga", "purpose": "Google Analytics tracking",
+                     "duration": "2 years", "party": "third",
+                     "category": "analytics"}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-legal-cookie-list"));
+        assert!(html.contains("aria-labelledby=\"loom-legal-cookie-list__heading\""));
+        assert!(html.contains("Cookies we use"));
+        // Table + caption + headers.
+        assert!(html.contains("<table"));
+        assert!(html.contains("Cookie inventory"));
+        assert!(html.contains("scope=\"col\""));
+        // Two rows with per-cookie data attrs.
+        let row_count = html.matches("loom-legal-cookie-list__row").count();
+        assert_eq!(row_count, 2, "expected 2 rows, got {row_count}");
+        assert!(html.contains("data-loom-cookie-party=\"first\""));
+        assert!(html.contains("data-loom-cookie-party=\"third\""));
+        assert!(html.contains("data-loom-cookie-category=\"necessary\""));
+        assert!(html.contains("data-loom-cookie-category=\"analytics\""));
+        // Visible labels.
+        assert!(html.contains("session_id"));
+        assert!(html.contains("_ga"));
+        assert!(html.contains(">First-party<"));
+        assert!(html.contains(">Third-party<"));
+        assert!(html.contains(">Necessary<"));
+        assert!(html.contains(">Analytics<"));
+    }
+
+    #[test]
+    fn legal_cookie_list_each_category_renders_distinct_slug() {
+        let cases: &[(&str, &str, &str)] = &[
+            ("preferences", "preferences", "Preferences"),
+            ("marketing", "marketing", "Marketing"),
+            ("other", "other", "Other"),
+        ];
+        for (json_cat, slug, label) in cases {
+            let json = format!(
+                r#"{{
+                "brand": null, "theme": null, "chrome": null, "content_width": null,
+                "nav_actions": [], "title": "t", "description": "d",
+                "path": "/p", "nav_links": [], "dev_devtools": false,
+                "sections": [{{
+                    "kind": "legal_cookie_list",
+                    "heading": "H",
+                    "cookies": [
+                        {{"name": "n", "purpose": "p", "duration": "d",
+                          "party": "first", "category": "{json_cat}"}}
+                    ]
+                }}]
+            }}"#
+            );
+            let page: CmsPage = serde_json::from_str(&json)
+                .unwrap_or_else(|_| panic!("category={json_cat}"));
+            let html = render_to_string(&page);
+            assert!(
+                html.contains(&format!("data-loom-cookie-category=\"{slug}\"")),
+                "category={json_cat} missing data attr"
+            );
+            assert!(
+                html.contains(&format!(">{label}<")),
+                "category={json_cat} missing label"
+            );
+        }
+    }
+
+    #[test]
+    fn legal_cookie_list_with_multi_paragraph_lede() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "legal_cookie_list",
+                "heading": "Cookies",
+                "lede": "Para one.\n\nPara two.",
+                "cookies": []
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-legal-cookie-list__lede"));
+        let para_count = html.matches("loom-legal-cookie-list__lede-para").count();
+        assert_eq!(para_count, 2, "expected 2 lede paras, got {para_count}");
+        // Table still rendered (empty <tbody>).
+        assert!(html.contains("<table"));
+    }
+
+    #[test]
+    fn legal_cookie_list_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "legal_cookie_list",
+                "heading": "<script>alert('h')</script>",
+                "lede": "<script>alert('l')</script>",
+                "cookies": [
+                    {"name": "<script>alert('n')</script>",
+                     "purpose": "<script>alert('p')</script>",
+                     "duration": "<script>alert('d')</script>",
+                     "party": "first", "category": "necessary"}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        // heading + lede + name + purpose + duration = 5
+        assert!(
+            entity_hits >= 5,
+            "expected >= 5 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
