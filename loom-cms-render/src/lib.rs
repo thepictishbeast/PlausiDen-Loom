@@ -752,6 +752,41 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed redacted-document block for investigative-
+    /// journalism, FOIA-style document quotes, or privacy-
+    /// preserving testimony excerpts. Distinct from
+    /// [`CmsSection::PullQuote`] (single quote), from
+    /// [`CmsSection::Disclaimer`] (publisher relationships),
+    /// and from [`CmsSection::Code`] (monospace + syntax):
+    /// RedactedBlock encodes the "we're showing you the
+    /// document with names removed at the source's request"
+    /// pattern with visible black-bar redaction marks.
+    ///
+    /// Operator marks redactions inline with the literal
+    /// substring `[[REDACTED]]`. The renderer replaces each
+    /// occurrence with a black-bar `<span>` carrying
+    /// `aria-label="redacted"` so screen readers announce
+    /// the gap explicitly.
+    ///
+    /// Editorial intent: investigative reporting, government-
+    /// document republication, anonymous-source testimony
+    /// where the audience needs to know that text was
+    /// removed (not just summarized).
+    RedactedBlock {
+        /// Body text — `[[REDACTED]]` substrings render as
+        /// visual redaction. Multi-paragraph splits on `\n\n`.
+        body: String,
+        /// Optional context note rendered above the body
+        /// (`"Names redacted at the source's request."`,
+        /// `"Identifying details redacted by the
+        /// publication."`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context_note: Option<String>,
+        /// Optional source citation rendered below the body
+        /// (`"Source: FOIA Document #2024-1234"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        citation: Option<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2956,7 +2991,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5578,6 +5613,47 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 blockquote class="loom-epigraph__body" { (body) }
                 @if let Some(a) = attribution {
                     figcaption class="loom-epigraph__attribution" { "— " (a) }
+                }
+            }
+        },
+        CmsSection::RedactedBlock {
+            body,
+            context_note,
+            citation,
+        } => {
+            // Per-paragraph render: split on \n\n for paras,
+            // then split each para on [[REDACTED]] markers and
+            // interleave text spans with redaction spans so
+            // the operator's marker becomes a visible black-
+            // bar with an aria-label.
+            const MARKER: &str = "[[REDACTED]]";
+            html! {
+                aside class="loom-redacted-block"
+                      aria-label="Document with redactions"
+                      data-loom-reveal
+                {
+                    @if let Some(n) = context_note {
+                        p class="loom-redacted-block__context" { (n) }
+                    }
+                    div class="loom-redacted-block__body" {
+                        @for para in body.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
+                            p class="loom-redacted-block__para" {
+                                @for (i, segment) in para.split(MARKER).enumerate() {
+                                    @if i > 0 {
+                                        span class="loom-redacted-block__redaction"
+                                             aria-label="redacted"
+                                        { "▮▮▮▮" }
+                                    }
+                                    @if !segment.is_empty() {
+                                        span class="loom-redacted-block__text" { (segment) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    @if let Some(c) = citation {
+                        p class="loom-redacted-block__citation" { (c) }
+                    }
                 }
             }
         },
@@ -9947,6 +10023,131 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    // #104 (2026-05-21) — RedactedBlock investigative-doc
+    // redaction primitive.
+
+    #[test]
+    fn redacted_block_renders_redaction_spans_for_markers() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "redacted_block",
+                "body": "The witness, [[REDACTED]], told investigators that [[REDACTED]] knew about the leak."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<aside class="loom-redacted-block""#));
+        assert!(html.contains(r#"aria-label="Document with redactions""#));
+        // 2 markers → 2 redaction spans.
+        assert_eq!(html.matches(r#"class="loom-redacted-block__redaction""#).count(), 2);
+        assert_eq!(html.matches(r#"aria-label="redacted""#).count(), 2);
+        // Visible black-bar character.
+        assert!(html.contains("▮▮▮▮"));
+        // Surrounding text rendered.
+        assert!(html.contains(">The witness, <") || html.contains("The witness,"));
+        assert!(html.contains("told investigators that"));
+        assert!(html.contains("knew about the leak."));
+    }
+
+    #[test]
+    fn redacted_block_renders_context_and_citation_when_present() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "redacted_block",
+                "body": "Plain body.",
+                "context_note": "Names redacted at the source's request.",
+                "citation": "Source: FOIA Document #2024-1234"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"class="loom-redacted-block__context""#));
+        assert!(html.contains("Names redacted"));
+        assert!(html.contains(r#"class="loom-redacted-block__citation""#));
+        assert!(html.contains("FOIA Document"));
+    }
+
+    #[test]
+    fn redacted_block_body_only_omits_context_and_citation() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "redacted_block",
+                "body": "Just the body."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("loom-redacted-block__context"));
+        assert!(!html.contains("loom-redacted-block__citation"));
+    }
+
+    #[test]
+    fn redacted_block_body_splits_on_blank_lines() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "redacted_block",
+                "body": "First paragraph.\n\nSecond paragraph with [[REDACTED]].\n\nThird paragraph."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert_eq!(html.matches(r#"class="loom-redacted-block__para""#).count(), 3);
+        assert_eq!(html.matches(r#"class="loom-redacted-block__redaction""#).count(), 1);
+    }
+
+    #[test]
+    fn redacted_block_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "redacted_block",
+                "body": "<script>b</script> [[REDACTED]] <script>c</script>",
+                "context_note": "<script>n</script>",
+                "citation": "<script>c</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>b</script>"));
+        assert!(!html.contains("<script>n</script>"));
+        assert!(html.contains("&lt;script&gt;"));
+        // Redaction still emitted between escaped sides.
+        assert!(html.contains("loom-redacted-block__redaction"));
+    }
+
+    #[test]
+    fn redacted_block_marker_at_start_or_end_handled() {
+        // Marker at very start: empty leading segment skipped,
+        // redaction span first.
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "redacted_block",
+                "body": "[[REDACTED]] said the source."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert_eq!(html.matches(r#"class="loom-redacted-block__redaction""#).count(), 1);
+        assert!(html.contains("said the source."));
     }
 
     #[test]
