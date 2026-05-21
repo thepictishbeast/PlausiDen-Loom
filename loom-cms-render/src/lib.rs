@@ -72,6 +72,26 @@ pub struct CmsPage {
     /// segment of `title` before " — " / " · " / "—" / " - " separators.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brand: Option<String>,
+    /// Optional brand logo asset rendered inside the
+    /// `loom-page-brand` link. When set, the renderer emits
+    /// `<img src=… alt=… width=… height=…>` followed by the
+    /// `brand` text inside an `.loom-page-brand__name`
+    /// visually-hidden span — preserving the AT-accessible
+    /// brand name while showing the logo image visually.
+    /// When unset, the brand renders as text only (the
+    /// previous behavior).
+    ///
+    /// `src` is validated via `composer::is_safe_url` at
+    /// render time; hostile schemes (`javascript:`, `data:`)
+    /// suppress the `<img>` and fall back to text-only.
+    ///
+    /// Added 2026-05-21 in response to paul's "all the sites
+    /// are so similar" / "no phoenix logo" observation on
+    /// dev.plausiden.com's prosperityclub.com reproduction.
+    /// Previously every Forge site had only a text wordmark
+    /// because no slot existed for a brand asset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brand_logo: Option<BrandLogo>,
     /// Canonical URL path (e.g. `"/leaderboard"`). Required.
     /// Used by the layout shell to emit `<link rel="canonical">`.
     pub path: String,
@@ -154,6 +174,31 @@ pub struct CmsPage {
     /// links.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub footer: Option<CmsFooter>,
+}
+
+/// Brand logo asset surfaced inside the page-shell brand
+/// anchor. See `CmsPage::brand_logo` for the contract.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BrandLogo {
+    /// Source URL of the logo image. Validated via
+    /// `composer::is_safe_url` at render time; hostile
+    /// schemes suppress the `<img>` entirely (text-only
+    /// fallback).
+    pub src: String,
+    /// Accessible name. Should describe the brand the logo
+    /// represents (e.g. `"Prosperity Club"`), not a visual
+    /// description of the image. Maud auto-escapes.
+    pub alt: String,
+    /// Intrinsic width in CSS pixels. Optional but
+    /// recommended — prevents layout shift (Cumulative
+    /// Layout Shift) while the image loads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    /// Intrinsic height in CSS pixels. Optional but
+    /// recommended — see `width`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
 }
 
 /// Typed page footer.
@@ -8636,6 +8681,7 @@ mod tests {
         // to avoid nested <main> tags in the composed output.
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -8664,6 +8710,7 @@ mod tests {
     fn paragraph_renders_loom_prose() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -8690,6 +8737,7 @@ mod tests {
     fn paragraph_html_is_escaped() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -8717,6 +8765,7 @@ mod tests {
     fn heading_level_2_renders_h2() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -8755,6 +8804,7 @@ mod tests {
         ] {
             let p = CmsPage {
                 brand: None,
+            brand_logo: None,
                 theme: None,
                 chrome: None,
                 content_width: None,
@@ -8853,6 +8903,7 @@ mod tests {
     fn composer_section_renders_loom_composer() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -8886,6 +8937,7 @@ mod tests {
     fn picture_section_renders_loom_picture() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9001,6 +9053,7 @@ mod tests {
     fn hero_renders_required_title_only() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9033,6 +9086,7 @@ mod tests {
     fn hero_renders_all_optional_slots() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9070,6 +9124,7 @@ mod tests {
     fn hero_editorial_renders_required_fields() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9108,6 +9163,7 @@ mod tests {
     fn hero_editorial_renders_all_optional_slots() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9195,6 +9251,7 @@ mod tests {
     fn hero_editorial_invalid_cta_href_substitutes_placeholder() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9231,6 +9288,7 @@ mod tests {
     fn pull_quote_renders_body_only() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9267,6 +9325,7 @@ mod tests {
     fn pull_quote_renders_attribution_and_cite() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9300,6 +9359,7 @@ mod tests {
     fn pull_quote_splits_paragraphs_on_blank_lines() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9389,6 +9449,7 @@ mod tests {
         // is the editorial sibling.
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9421,6 +9482,7 @@ mod tests {
     fn code_shell_renders_typed_lines() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9482,6 +9544,7 @@ mod tests {
     fn code_shell_custom_prompt_replaces_default() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9515,6 +9578,7 @@ mod tests {
     fn code_shell_header_chrome_renders_title() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9549,6 +9613,7 @@ mod tests {
     fn code_shell_minimal_chrome_omits_header_even_with_title() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9579,6 +9644,7 @@ mod tests {
     fn code_shell_amoled_tone_attribute() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9660,6 +9726,7 @@ mod tests {
         // no gradient header bar, no copy-button decoration.
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9695,6 +9762,7 @@ mod tests {
     fn hero_invalid_cta_href_substitutes_placeholder() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -9729,6 +9797,7 @@ mod tests {
     fn hero_text_is_escaped() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10039,6 +10108,112 @@ mod tests {
     }
 
     #[test]
+    fn brand_logo_with_safe_src_renders_img_plus_visually_hidden_name() {
+        let json = r#"{
+            "brand": "Prosperity Club",
+            "brand_logo": {
+                "src": "/assets/phoenix.svg",
+                "alt": "Prosperity Club phoenix mark",
+                "width": 160,
+                "height": 40
+            },
+            "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/", "nav_links": [], "dev_devtools": false,
+            "sections": []
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = page_shell(&page, "/loom-skin.css", "", None);
+        assert!(html.contains("loom-page-brand__logo"));
+        assert!(html.contains("src=\"/assets/phoenix.svg\""));
+        assert!(html.contains("alt=\"Prosperity Club phoenix mark\""));
+        assert!(html.contains("width=\"160\""));
+        assert!(html.contains("height=\"40\""));
+        assert!(html.contains("decoding=\"async\""));
+        assert!(html.contains("loom-page-brand__name"));
+        assert!(html.contains("loom-visually-hidden"));
+        assert!(html.contains(">Prosperity Club</span>"));
+    }
+
+    #[test]
+    fn brand_logo_unsafe_src_falls_back_to_text_only_brand() {
+        let json = r#"{
+            "brand": "Hostile",
+            "brand_logo": {
+                "src": "javascript:alert(1)",
+                "alt": "x"
+            },
+            "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/", "nav_links": [], "dev_devtools": false,
+            "sections": []
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = page_shell(&page, "/loom-skin.css", "", None);
+        assert!(!html.contains("loom-page-brand__logo"));
+        assert!(!html.contains("src=\"javascript:"));
+        assert!(html.contains("loom-page-brand"));
+        assert!(html.contains(">Hostile</a>"));
+    }
+
+    #[test]
+    fn brand_logo_absent_preserves_text_only_behavior() {
+        let json = r#"{
+            "brand": "Example Foundation",
+            "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/", "nav_links": [], "dev_devtools": false,
+            "sections": []
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = page_shell(&page, "/loom-skin.css", "", None);
+        assert!(!html.contains("loom-page-brand__logo"));
+        assert!(!html.contains("loom-page-brand__name"));
+        assert!(html.contains("loom-page-brand"));
+        assert!(html.contains(">Example Foundation</a>"));
+    }
+
+    #[test]
+    fn brand_logo_width_height_optional() {
+        let json = r#"{
+            "brand": "X",
+            "brand_logo": {
+                "src": "/logo.svg",
+                "alt": "X logo"
+            },
+            "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/", "nav_links": [], "dev_devtools": false,
+            "sections": []
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = page_shell(&page, "/loom-skin.css", "", None);
+        assert!(html.contains("loom-page-brand__logo"));
+        assert!(html.contains("src=\"/logo.svg\""));
+        assert!(!html.contains(" width=\""));
+        assert!(!html.contains(" height=\""));
+    }
+
+    #[test]
+    fn brand_logo_alt_escaped_into_attribute() {
+        let json = r#"{
+            "brand": "X",
+            "brand_logo": {
+                "src": "/logo.svg",
+                "alt": "<script>alert('a')</script>"
+            },
+            "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/", "nav_links": [], "dev_devtools": false,
+            "sections": []
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = page_shell(&page, "/loom-skin.css", "", None);
+        assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
     fn testimonial_default_decoration_is_decorated() {
         let json = r#"{
             "brand": null, "theme": null, "chrome": null, "content_width": null,
@@ -10270,6 +10445,7 @@ mod tests {
     fn group_renders_title_and_multiple_body_paragraphs() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10301,6 +10477,7 @@ mod tests {
     fn group_with_empty_body_renders_just_title() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10352,6 +10529,7 @@ mod tests {
     fn page_with_card(c: CmsCard) -> CmsPage {
         CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10473,6 +10651,7 @@ mod tests {
     fn card_feed_renders_each_item() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10504,6 +10683,7 @@ mod tests {
     fn card_feed_no_heading_omits_h2() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10531,6 +10711,7 @@ mod tests {
     fn card_emits_stats_grid_when_present() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10563,6 +10744,7 @@ mod tests {
         c.stats.clear();
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10591,6 +10773,7 @@ mod tests {
         c.tag = None;
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10622,6 +10805,7 @@ mod tests {
         c.tag = Some("<x>".to_owned());
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10656,6 +10840,7 @@ mod tests {
         };
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10683,6 +10868,7 @@ mod tests {
     fn card_feed_empty_items_emits_only_section_wrapper() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10711,6 +10897,7 @@ mod tests {
     fn sidebar_renders_aside_with_aria_label() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10737,6 +10924,7 @@ mod tests {
     fn sidebar_default_label_is_side_panels() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10763,6 +10951,7 @@ mod tests {
     fn panel_with_list_body_renders_each_row() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10812,6 +11001,7 @@ mod tests {
     fn panel_with_text_body_renders_each_paragraph() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10845,6 +11035,7 @@ mod tests {
     fn panel_list_invalid_href_falls_back_to_span() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10882,6 +11073,7 @@ mod tests {
     fn panel_text_body_is_escaped() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -10951,6 +11143,7 @@ mod tests {
     fn form_page() -> CmsPage {
         CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -11010,6 +11203,7 @@ mod tests {
     fn form_select_field() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -11105,6 +11299,7 @@ mod tests {
         // Reuse the select test's CmsPage with required=true.
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -11156,6 +11351,7 @@ mod tests {
         // textarea has required=false).
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -11204,6 +11400,7 @@ mod tests {
     fn form_readonly_field_is_readonly() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -11247,6 +11444,7 @@ mod tests {
     fn form_invalid_action_substitutes_placeholder() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -11282,6 +11480,7 @@ mod tests {
     fn form_field_text_is_escaped() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -11334,6 +11533,7 @@ mod tests {
     ) -> CmsPage {
         CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -11460,6 +11660,7 @@ mod tests {
     fn code_page(lang: &str, body: &str, caption: Option<&str>, terminal: bool) -> CmsPage {
         CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -11559,6 +11760,7 @@ mod tests {
     fn quote_page(body: &str, attribution: &str, role: Option<&str>) -> CmsPage {
         CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -11660,6 +11862,7 @@ mod tests {
     fn logo_page(items: Vec<CmsLogoItem>, heading: Option<&str>) -> CmsPage {
         CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -11768,6 +11971,7 @@ mod tests {
     fn kv_page(items: Vec<CmsKvItem>, heading: Option<&str>) -> CmsPage {
         CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -11819,6 +12023,7 @@ mod tests {
         }];
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -11848,6 +12053,7 @@ mod tests {
     fn kv_pair_density_spacious_surfaces_attribute() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -11876,6 +12082,7 @@ mod tests {
     fn kv_pair_amoled_tone_surfaces_attribute() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -12605,7 +12812,29 @@ pub fn page_shell_themed(
         }
         t.to_owned()
     });
-    let brand = escape_html_text(&brand_raw);
+    let brand_text_escaped = escape_html_text(&brand_raw);
+    // When `brand_logo` is set AND `src` is safe, render the
+    // logo image visually + a visually-hidden span for AT
+    // (which announces the brand name). When unset or hostile
+    // src, render text-only (previous behavior).
+    let brand: std::borrow::Cow<'_, str> = match &page.brand_logo {
+        Some(logo) if loom_components::composer::is_safe_url(&logo.src) => {
+            let src = escape_html_attr(&logo.src);
+            let alt = escape_html_attr(&logo.alt);
+            let width_attr = logo
+                .width
+                .map(|w| format!(" width=\"{w}\""))
+                .unwrap_or_default();
+            let height_attr = logo
+                .height
+                .map(|h| format!(" height=\"{h}\""))
+                .unwrap_or_default();
+            std::borrow::Cow::Owned(format!(
+                "<img class=\"loom-page-brand__logo\" src=\"{src}\" alt=\"{alt}\"{width_attr}{height_attr} decoding=\"async\"><span class=\"loom-page-brand__name loom-visually-hidden\">{brand_text_escaped}</span>"
+            ))
+        }
+        _ => std::borrow::Cow::Owned(brand_text_escaped.to_string()),
+    };
     // Suppress the auto-emitted <h1 class="loom-page-title"> when
     // the first section is hero-class — heroes carry their own
     // display title, duplicating it as a header banner reads as
@@ -13104,6 +13333,7 @@ mod page_shell_tests {
     fn empty_page() -> CmsPage {
         CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -13446,6 +13676,7 @@ mod page_shell_tests {
     fn page_shell_with_rendered_body_produces_exactly_one_main() {
         let p = CmsPage {
             brand: None,
+            brand_logo: None,
             theme: None,
             chrome: None,
             content_width: None,
