@@ -752,7 +752,42 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed per-component service-status row — name + status
+    /// + optional last-incident reference. Distinct from
+    /// [`CmsSection::IncidentReport`] (post-mortem document
+    /// after an incident has resolved), from
+    /// [`CmsSection::LiveUpdateLog`] (running update list
+    /// during an incident), and from
+    /// [`CmsSection::AnnouncementBar`] (site-wide ribbon).
+    ///
+    /// ServiceStatus is the typed primitive for status-page
+    /// component rows — the per-component table on
+    /// status.example.com surfaces. Each row carries a typed
+    /// `state` enum (operational / degraded / partial / major /
+    /// maintenance) so the substrate can audit + roll up
+    /// across an entire status page without parsing rendered
+    /// chrome.
+    ///
+    /// Rendered with `role="status"` so AT users hear the
+    /// state on page load.
+    ServiceStatus {
+        /// Component name ("API", "Web app", "Edge CDN").
+        name: String,
+        /// Typed status enum.
+        state: ServiceState,
+        /// Optional human-readable last-state-change label
+        /// ("Updated 5 minutes ago", "Stable since June 14").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        last_updated_label: Option<String>,
+        /// Optional context message ("Returning 5xx for ~3% of
+        /// requests"). Multi-paragraph splits on `\n\n`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +2991,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3112,25 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// Service state tag for [`CmsSection::ServiceStatus`]. Mirrors
+/// the canonical status-page vocabulary that PagerDuty / Atlassian
+/// Statuspage / Better-Stack all expose. Adding a variant is a
+/// doctrine change so the substrate can roll up consistently.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ServiceState {
+    /// Fully operational, no known issues.
+    Operational,
+    /// Degraded performance (slow but functional).
+    Degraded,
+    /// Partial outage (some users / endpoints affected).
+    PartialOutage,
+    /// Major outage (most or all users affected).
+    MajorOutage,
+    /// Scheduled maintenance window.
+    Maintenance,
 }
 
 /// One comparison row.
@@ -5581,6 +5635,46 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::ServiceStatus {
+            name,
+            state,
+            last_updated_label,
+            message,
+        } => {
+            let (state_slug, state_label) = match state {
+                ServiceState::Operational => ("operational", "Operational"),
+                ServiceState::Degraded => ("degraded", "Degraded performance"),
+                ServiceState::PartialOutage => ("partial-outage", "Partial outage"),
+                ServiceState::MajorOutage => ("major-outage", "Major outage"),
+                ServiceState::Maintenance => ("maintenance", "Under maintenance"),
+            };
+            let aria_label = format!("{name}: {state_label}");
+            html! {
+                article class="loom-service-status"
+                    role="status"
+                    aria-label=(aria_label)
+                    data-loom-service-state=(state_slug)
+                    data-loom-reveal {
+                    div class="loom-service-status__header" {
+                        h3 class="loom-service-status__name" { (name) }
+                        span class={
+                            "loom-service-status__state "
+                            "loom-service-status__state--" (state_slug)
+                        } { (state_label) }
+                    }
+                    @if let Some(d) = last_updated_label {
+                        p class="loom-service-status__updated" { (d) }
+                    }
+                    @if let Some(m) = message {
+                        div class="loom-service-status__message" {
+                            @for p in m.split("\n\n") {
+                                p class="loom-service-status__message-para" { (p) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10041,120 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn service_status_operational_renders_role_status() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "service_status",
+                "name": "API",
+                "state": "operational"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-service-status"));
+        assert!(html.contains("role=\"status\""));
+        assert!(html.contains("aria-label=\"API: Operational\""));
+        assert!(html.contains("data-loom-service-state=\"operational\""));
+        assert!(html.contains("loom-service-status__state--operational"));
+        assert!(html.contains(">API<"));
+        assert!(html.contains(">Operational<"));
+        // Optional chrome absent.
+        assert!(!html.contains("loom-service-status__updated"));
+        assert!(!html.contains("loom-service-status__message"));
+    }
+
+    #[test]
+    fn service_status_each_state_renders_distinct_slug() {
+        let cases: &[(&str, &str, &str)] = &[
+            ("degraded", "degraded", "Degraded performance"),
+            ("partial_outage", "partial-outage", "Partial outage"),
+            ("major_outage", "major-outage", "Major outage"),
+            ("maintenance", "maintenance", "Under maintenance"),
+        ];
+        for (json_state, slug, label) in cases {
+            let json = format!(
+                r#"{{
+                "brand": null, "theme": null, "chrome": null, "content_width": null,
+                "nav_actions": [], "title": "t", "description": "d",
+                "path": "/p", "nav_links": [], "dev_devtools": false,
+                "sections": [{{
+                    "kind": "service_status",
+                    "name": "API",
+                    "state": "{json_state}"
+                }}]
+            }}"#
+            );
+            let page: CmsPage = serde_json::from_str(&json)
+                .unwrap_or_else(|_| panic!("state={json_state}"));
+            let html = render_to_string(&page);
+            assert!(
+                html.contains(&format!("data-loom-service-state=\"{slug}\"")),
+                "state={json_state} missing data attr"
+            );
+            assert!(
+                html.contains(&format!("loom-service-status__state--{slug}")),
+                "state={json_state} missing modifier class"
+            );
+            assert!(
+                html.contains(&format!(">{label}<")),
+                "state={json_state} missing visible label"
+            );
+        }
+    }
+
+    #[test]
+    fn service_status_with_last_updated_and_message() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "service_status",
+                "name": "Edge CDN",
+                "state": "degraded",
+                "last_updated_label": "Updated 5 minutes ago",
+                "message": "Returning 5xx for ~3% of requests.\n\nInvestigating root cause."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-service-status__updated"));
+        assert!(html.contains("Updated 5 minutes ago"));
+        // Multi-paragraph message.
+        let para_count = html.matches("loom-service-status__message-para").count();
+        assert_eq!(para_count, 2, "expected 2 message paras, got {para_count}");
+        assert!(html.contains("Returning 5xx"));
+    }
+
+    #[test]
+    fn service_status_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "service_status",
+                "name": "<script>alert('n')</script>",
+                "state": "operational",
+                "last_updated_label": "<script>alert('u')</script>",
+                "message": "<script>alert('m')</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        // name appears in aria-label + visible.
+        assert!(
+            entity_hits >= 4,
+            "expected >= 4 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
