@@ -9206,3 +9206,37 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
   color: var(--loom-color-ink, var(--loom-fg));
   font-size: 0.95rem;
 }
+
+/* === CmsBlock::Slider ============================================== */
+.loom-block-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.loom-block-slider__label {
+  font-size: 0.95rem;
+  color: var(--loom-color-ink, var(--loom-fg));
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+}
+.loom-block-slider__value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--loom-color-primary, var(--loom-accent));
+}
+.loom-block-slider__input {
+  width: 100%;
+  accent-color: var(--loom-color-primary, var(--loom-accent));
+  cursor: pointer;
+}
+.loom-block-slider__input:focus-visible {
+  outline: 2px solid var(--loom-color-primary, var(--loom-accent));
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+.loom-block-slider__input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
