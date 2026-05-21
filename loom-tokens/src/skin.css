@@ -11302,3 +11302,41 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
     display: none;
   }
 }
+
+/* === CmsBlock::Carousel ============================================ */
+/* Slide gallery via CSS scroll-snap. Native swipe + keyboard arrow
+   navigation; no JS required. Screen readers navigate slide-by-slide
+   via the per-slide aria-label="N of total". */
+.loom-block-carousel {
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--loom-radius-carousel, var(--loom-radius-md, 0.75rem));
+}
+.loom-block-carousel__track {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  /* Track shows native scrollbar on hover for keyboard discoverability */
+  scrollbar-width: thin;
+}
+.loom-block-carousel__slide {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  padding: 1rem;
+  min-height: var(--loom-carousel-slide-min-height, 12rem);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .loom-block-carousel__track {
+    scroll-behavior: auto;
+  }
+}
