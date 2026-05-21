@@ -10828,3 +10828,60 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
   line-height: 1;
   letter-spacing: 0.02em;
 }
+
+/* === CmsBlock::Alert =============================================== */
+/* Block-level banner notification. Reuses the Badge tone palette
+   (--loom-color-badge-<tone>-{bg,text,border}) so a tenant's
+   [style] config drives both inline pills and block banners
+   through the same six semantic tokens.
+
+   role=alert/status set by the renderer per WAI-ARIA Authoring
+   Practices: alert for Danger/Warning (urgent), status for the
+   informational tones. */
+.loom-block-alert {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid transparent;
+  border-radius: var(--loom-radius-alert, var(--loom-radius-md, 0.5rem));
+  margin: 0;
+}
+.loom-block-alert__title {
+  font-weight: 700;
+  line-height: 1.3;
+}
+.loom-block-alert__body {
+  margin: 0;
+  line-height: 1.55;
+}
+.loom-block-alert[data-tone="neutral"] {
+  background: var(--loom-color-badge-neutral-bg, color-mix(in oklab, var(--loom-color-text, currentColor) 6%, transparent));
+  color: var(--loom-color-badge-neutral-text, var(--loom-color-text, inherit));
+  border-color: var(--loom-color-badge-neutral-border, color-mix(in oklab, var(--loom-color-text, currentColor) 16%, transparent));
+}
+.loom-block-alert[data-tone="info"] {
+  background: var(--loom-color-badge-info-bg, #e0f2fe);
+  color: var(--loom-color-badge-info-text, #075985);
+  border-color: var(--loom-color-badge-info-border, #7dd3fc);
+}
+.loom-block-alert[data-tone="success"] {
+  background: var(--loom-color-badge-success-bg, #dcfce7);
+  color: var(--loom-color-badge-success-text, #166534);
+  border-color: var(--loom-color-badge-success-border, #86efac);
+}
+.loom-block-alert[data-tone="warning"] {
+  background: var(--loom-color-badge-warning-bg, #fef3c7);
+  color: var(--loom-color-badge-warning-text, #92400e);
+  border-color: var(--loom-color-badge-warning-border, #fcd34d);
+}
+.loom-block-alert[data-tone="danger"] {
+  background: var(--loom-color-badge-danger-bg, #fee2e2);
+  color: var(--loom-color-badge-danger-text, #991b1b);
+  border-color: var(--loom-color-badge-danger-border, #fca5a5);
+}
+.loom-block-alert[data-tone="accent"] {
+  background: var(--loom-color-badge-accent-bg, color-mix(in oklab, var(--loom-color-accent, var(--loom-color-primary, #3a7afe)) 14%, transparent));
+  color: var(--loom-color-badge-accent-text, var(--loom-color-accent, var(--loom-color-primary, #3a7afe)));
+  border-color: var(--loom-color-badge-accent-border, color-mix(in oklab, var(--loom-color-accent, var(--loom-color-primary, #3a7afe)) 30%, transparent));
+}
