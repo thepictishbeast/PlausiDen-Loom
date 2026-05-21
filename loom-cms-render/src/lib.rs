@@ -430,6 +430,79 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Boolean checkbox. Distinct from [`CmsBlock::Switch`] —
+    /// checkbox is "select / deselect from a set of independent
+    /// options"; switch is "toggle a single setting on/off".
+    /// Renders as the native `<input type="checkbox">`.
+    Checkbox {
+        /// Unique HTML `id`.
+        id: String,
+        /// Visible label text.
+        label: String,
+        /// Optional form-field `name` attribute.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Optional `value` submitted when checked (defaults to
+        /// `"on"` per HTML spec).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
+        /// Initial state.
+        #[serde(default)]
+        checked: bool,
+        /// When true, the field is required for submission.
+        #[serde(default)]
+        required: bool,
+        /// When true, render as disabled.
+        #[serde(default)]
+        disabled: bool,
+    },
+    /// Mutually-exclusive radio set. Renders as a `<fieldset>` +
+    /// `<legend>` with `<input type="radio">` per item — native
+    /// HTML grouping, arrow-key navigation, ARIA built-in.
+    ///
+    /// Behavioral contract mirrors Radix UI's `RadioGroup`
+    /// primitive. Upstream spec:
+    /// <https://www.radix-ui.com/primitives/docs/components/radio-group>
+    /// (MIT). No source copied.
+    RadioGroup {
+        /// Group label, rendered as `<legend>`.
+        legend: String,
+        /// Shared `name` attribute across all radio inputs — what
+        /// makes them mutually exclusive.
+        name: String,
+        /// Radio options in order.
+        items: Vec<BlockRadioItem>,
+        /// When true, the entire group is disabled.
+        #[serde(default)]
+        disabled: bool,
+        /// When true, the group is required for submission (at
+        /// least one item must be checked).
+        #[serde(default)]
+        required: bool,
+    },
+    /// Single-choice dropdown. Renders as the native `<select>` +
+    /// `<option>` — full keyboard + screen-reader support, no JS
+    /// required.
+    Select {
+        /// Unique HTML `id`.
+        id: String,
+        /// Visible label text.
+        label: String,
+        /// Form-field `name` attribute.
+        name: String,
+        /// Option list.
+        options: Vec<BlockSelectOption>,
+        /// Optional initial value — must match one of the
+        /// `options[].value`s.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
+        /// When true, the field is required for submission.
+        #[serde(default)]
+        required: bool,
+        /// When true, render as disabled.
+        #[serde(default)]
+        disabled: bool,
+    },
     /// Date picker. Renders as the native `<input type="date">` —
     /// browser provides the calendar UI, validation, locale-
     /// aware formatting. No JS required. ISO 8601 wire format
@@ -807,6 +880,38 @@ pub enum CmsBlock {
         #[serde(default)]
         disabled: bool,
     },
+}
+
+/// One radio inside a [`CmsBlock::RadioGroup`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockRadioItem {
+    /// Unique HTML `id` for the radio input.
+    pub id: String,
+    /// Visible label text.
+    pub label: String,
+    /// Submission value when this item is the selected one.
+    pub value: String,
+    /// When true, this item is checked on first render.
+    #[serde(default)]
+    pub checked: bool,
+    /// When true, this individual item is disabled (group-wide
+    /// disable lives on the parent `RadioGroup`).
+    #[serde(default)]
+    pub disabled: bool,
+}
+
+/// One option inside a [`CmsBlock::Select`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockSelectOption {
+    /// Submission value.
+    pub value: String,
+    /// Visible label.
+    pub label: String,
+    /// When true, render as disabled.
+    #[serde(default)]
+    pub disabled: bool,
 }
 
 /// One autocomplete option inside a [`CmsBlock::Combobox`].
@@ -5453,6 +5558,114 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::Checkbox {
+            id,
+            label,
+            name,
+            value,
+            checked,
+            required,
+            disabled,
+        } => html! {
+            label
+                class="loom-block-checkbox"
+                data-loom-slot="checkbox"
+                for=(id)
+            {
+                input
+                    type="checkbox"
+                    class="loom-block-checkbox__input"
+                    data-loom-slot="checkbox-input"
+                    id=(id)
+                    name=[name.as_deref()]
+                    value=[value.as_deref()]
+                    checked[*checked]
+                    required[*required]
+                    disabled[*disabled];
+                span class="loom-block-checkbox__label" data-loom-slot="checkbox-label" {
+                    (label)
+                }
+            }
+        },
+        CmsBlock::RadioGroup {
+            legend,
+            name,
+            items,
+            disabled,
+            required,
+        } => html! {
+            fieldset
+                class="loom-block-radio-group"
+                data-loom-slot="radio-group"
+                role="radiogroup"
+                disabled[*disabled]
+                aria-required=(if *required { "true" } else { "false" })
+            {
+                legend class="loom-block-radio-group__legend" data-loom-slot="radio-group-legend" {
+                    (legend)
+                }
+                @for item in items {
+                    label
+                        class="loom-block-radio-group__item"
+                        data-loom-slot="radio-group-item"
+                        for=(item.id)
+                    {
+                        input
+                            type="radio"
+                            class="loom-block-radio-group__input"
+                            data-loom-slot="radio-group-input"
+                            id=(item.id)
+                            name=(name)
+                            value=(item.value)
+                            checked[item.checked]
+                            disabled[item.disabled]
+                            required[*required];
+                        span class="loom-block-radio-group__label" data-loom-slot="radio-group-label" {
+                            (item.label)
+                        }
+                    }
+                }
+            }
+        },
+        CmsBlock::Select {
+            id,
+            label,
+            name,
+            options,
+            value,
+            required,
+            disabled,
+        } => html! {
+            div class="loom-block-select" data-loom-slot="select" {
+                label
+                    class="loom-block-select__label"
+                    data-loom-slot="select-label"
+                    for=(id)
+                {
+                    (label)
+                }
+                select
+                    class="loom-block-select__input"
+                    data-loom-slot="select-input"
+                    id=(id)
+                    name=(name)
+                    required[*required]
+                    disabled[*disabled]
+                    aria-label=(label)
+                {
+                    @for opt in options {
+                        @let is_selected = value.as_deref() == Some(opt.value.as_str());
+                        option
+                            value=(opt.value)
+                            selected[is_selected]
+                            disabled[opt.disabled]
+                        {
+                            (opt.label)
+                        }
+                    }
+                }
+            }
+        },
         CmsBlock::DatePicker {
             id,
             label,
@@ -10305,6 +10518,84 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_checkbox_renders_native_checkbox_input() {
+        let json = r#"{
+            "kind": "checkbox",
+            "id": "tos",
+            "label": "I accept the terms",
+            "name": "accept_tos",
+            "value": "yes",
+            "checked": true,
+            "required": true
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-loom-slot="checkbox""#));
+        assert!(html.contains(r#"type="checkbox""#));
+        assert!(html.contains(r#"id="tos""#));
+        assert!(html.contains(r#"name="accept_tos""#));
+        assert!(html.contains(r#"value="yes""#));
+        assert!(html.contains(" checked"));
+        assert!(html.contains(" required"));
+        assert!(html.contains(">I accept the terms</span>"));
+    }
+
+    #[test]
+    fn cms_block_radio_group_renders_fieldset_with_legend() {
+        let json = r#"{
+            "kind": "radio_group",
+            "legend": "Notification frequency",
+            "name": "freq",
+            "items": [
+                {"id":"f-d","label":"Daily","value":"daily"},
+                {"id":"f-w","label":"Weekly","value":"weekly","checked":true},
+                {"id":"f-m","label":"Monthly","value":"monthly","disabled":true}
+            ]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"<fieldset"#));
+        assert!(html.contains(r#"role="radiogroup""#));
+        assert!(html.contains(r#"<legend"#));
+        assert!(html.contains(">Notification frequency</legend>"));
+        // All radios share the group name.
+        assert_eq!(html.matches(r#"name="freq""#).count(), 3);
+        // The default-checked one has `checked`.
+        assert!(html.contains(r#"value="weekly""#));
+        assert!(html.contains(" checked"));
+        // Disabled item has the `disabled` attr.
+        assert!(html.contains(r#"value="monthly""#));
+    }
+
+    #[test]
+    fn cms_block_select_renders_native_select_with_options() {
+        let json = r#"{
+            "kind": "select",
+            "id": "country",
+            "label": "Country",
+            "name": "country",
+            "value": "ca",
+            "options": [
+                {"value":"us","label":"United States"},
+                {"value":"ca","label":"Canada"},
+                {"value":"mx","label":"Mexico","disabled":true}
+            ]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-loom-slot="select""#));
+        assert!(html.contains(r#"<select"#));
+        assert!(html.contains(r#"id="country""#));
+        assert!(html.contains(r#"name="country""#));
+        // Selected option carries `selected` attr.
+        assert!(html.contains(r#"<option value="ca" selected"#));
+        assert!(html.contains(">Canada</option>"));
+        // Disabled option carries `disabled`.
+        assert!(html.contains(r#"<option value="mx""#));
+        assert!(html.contains("Mexico"));
     }
 
     #[test]
