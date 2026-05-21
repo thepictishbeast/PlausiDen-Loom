@@ -554,6 +554,28 @@ pub enum CmsBlock {
         #[serde(default)]
         size: AvatarSize,
     },
+    /// Block-level banner notification. Distinct from
+    /// [`CmsBlock::Badge`] (inline pill, single short label):
+    /// `Alert` is a full-width banner with optional title +
+    /// required body prose. Renders as `<div role="alert">`
+    /// when `tone` is `Danger` / `Warning`, otherwise
+    /// `role="status"` (matches WAI-ARIA Authoring Practices for
+    /// urgent vs informational notifications).
+    ///
+    /// `tone` reuses the [`BadgeTone`] palette so a tenant's
+    /// `[style]` config drives both inline pills and block
+    /// banners through the same six semantic tokens.
+    Alert {
+        /// Optional title rendered as `<strong>`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        /// Body prose. Required — an alert with no body is just
+        /// a tone-colored bar with no message.
+        body: String,
+        /// Semantic tone — reuses the Badge palette.
+        #[serde(default)]
+        tone: BadgeTone,
+    },
     /// Sandboxed `<iframe>` embed. Used for third-party widgets
     /// (YouTube / Vimeo / Maps / payment forms) without granting
     /// them ambient access to the parent document. Substrate
@@ -6398,6 +6420,20 @@ pub fn render_block(block: &CmsBlock) -> Markup {
         CmsBlock::Badge { text, tone } => html! {
             span class="loom-block-badge" data-tone=(tone.slug()) { (text) }
         },
+        CmsBlock::Alert { title, body, tone } => {
+            let role = match tone {
+                BadgeTone::Danger | BadgeTone::Warning => "alert",
+                _ => "status",
+            };
+            html! {
+                div class="loom-block-alert" role=(role) data-tone=(tone.slug()) {
+                    @if let Some(t) = title {
+                        strong class="loom-block-alert__title" { (t) }
+                    }
+                    p class="loom-block-alert__body" { (body) }
+                }
+            }
+        }
         CmsBlock::Avatar {
             name,
             image_url,
@@ -13699,6 +13735,51 @@ mod tests {
         let html = render_block(&s).into_string();
         assert!(html.contains(">Substrate A<"));
         assert!(html.contains(">Substrate B<"));
+    }
+
+    #[test]
+    fn cms_block_alert_emits_role_alert_for_danger() {
+        let a = CmsBlock::Alert {
+            title: Some("Database offline".into()),
+            body: "Reads will fail until failover completes.".into(),
+            tone: BadgeTone::Danger,
+        };
+        let html = render_block(&a).into_string();
+        assert!(html.contains("loom-block-alert"));
+        assert!(html.contains(r#"role="alert""#));
+        assert!(html.contains(r#"data-tone="danger""#));
+        assert!(html.contains("Database offline"));
+        assert!(html.contains("failover"));
+    }
+
+    #[test]
+    fn cms_block_alert_emits_role_status_for_info() {
+        let a = CmsBlock::Alert {
+            title: None,
+            body: "Scheduled maintenance Sunday 02:00 UTC.".into(),
+            tone: BadgeTone::Info,
+        };
+        let html = render_block(&a).into_string();
+        assert!(html.contains(r#"role="status""#));
+        assert!(html.contains(r#"data-tone="info""#));
+        // No title → no <strong>
+        assert!(!html.contains("<strong"));
+    }
+
+    #[test]
+    fn cms_block_alert_escapes_html_in_body() {
+        let a = CmsBlock::Alert {
+            title: Some("<script>alert(1)</script>".into()),
+            body: "<img src=x onerror=alert(1)>".into(),
+            tone: BadgeTone::Warning,
+        };
+        let html = render_block(&a).into_string();
+        // Escaped: angle brackets become entities so no real
+        // <script> or <img> tag enters the rendered DOM.
+        assert!(!html.contains("<script>alert"));
+        assert!(!html.contains("<img src=x"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("&lt;img"));
     }
 
     #[test]
