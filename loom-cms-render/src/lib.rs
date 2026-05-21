@@ -752,7 +752,47 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Editorial endorsement card — the typed shape a
+    /// publication uses when explicitly endorsing a candidate,
+    /// ballot measure, policy, or product. Distinct from
+    /// [`CmsSection::Testimonial`] (third-party praise of the
+    /// publisher) and from [`CmsSection::PullQuote`] (an
+    /// extracted body quote): Endorsement is the publication's
+    /// own first-person editorial position, deliberately
+    /// labelled.
+    ///
+    /// Civic context (election guides, ballot recommendation
+    /// pages) is the most common use; the primitive is generic
+    /// across product / policy / candidate endorsements.
+    ///
+    /// `verdict` is the headline ("We endorse Smith for
+    /// Mayor", "Vote No on Measure 3", "Recommended"). `subject`
+    /// is the entity being endorsed (candidate name, measure
+    /// number, product name). The structured pair surfaces the
+    /// endorsement intent to feed crawlers and AT independently
+    /// of the rendered chrome.
+    Endorsement {
+        /// Endorsement strength tag. Renders an explicit
+        /// machine-readable label so the substrate can audit
+        /// across an entire election guide.
+        stance: EndorsementStance,
+        /// Subject of the endorsement (candidate name, measure
+        /// id, product, position).
+        subject: String,
+        /// Headline verdict ("We endorse Smith for Mayor", "Vote
+        /// No on Measure 3"). Body of the endorsement card.
+        verdict: String,
+        /// Explanation. Multi-paragraph splits on `\n\n`.
+        rationale: String,
+        /// Optional date the endorsement was issued (free-form
+        /// editorial label — caller-side locale + format).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        issued_label: Option<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +2996,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3117,26 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// Endorsement strength tag for [`CmsSection::Endorsement`]. The
+/// stance controls the rendered eyebrow and the
+/// `data-loom-endorsement-stance` attribute that feed crawlers /
+/// election-guide aggregators consume, so the variant set is
+/// part of the substrate contract.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EndorsementStance {
+    /// "Endorse" / "Recommend" / "Yes vote".
+    Endorse,
+    /// "Recommend with reservations" — endorsement narrowly
+    /// favoured, with caveats inline.
+    QualifiedEndorse,
+    /// "Oppose" / "Vote No" / "Do not buy".
+    Oppose,
+    /// "No endorsement" — the publication explicitly declines
+    /// to take a side.
+    Neutral,
 }
 
 /// One comparison row.
@@ -5581,6 +5641,46 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::Endorsement {
+            stance,
+            subject,
+            verdict,
+            rationale,
+            issued_label,
+        } => {
+            let (stance_slug, stance_label) = match stance {
+                EndorsementStance::Endorse => ("endorse", "Endorsed"),
+                EndorsementStance::QualifiedEndorse => {
+                    ("qualified-endorse", "Qualified endorsement")
+                }
+                EndorsementStance::Oppose => ("oppose", "Opposed"),
+                EndorsementStance::Neutral => ("neutral", "No endorsement"),
+            };
+            let aria_label = format!("{stance_label}: {subject}");
+            let rationale_paras: Vec<&str> = rationale.split("\n\n").collect();
+            html! {
+                section class={ "loom-endorsement loom-endorsement--" (stance_slug) }
+                    data-loom-endorsement-stance=(stance_slug)
+                    aria-label=(aria_label)
+                    data-loom-reveal {
+                    header class="loom-endorsement__header" {
+                        span class="loom-endorsement__stance" { (stance_label) }
+                        p class="loom-endorsement__subject" { (subject) }
+                        h2 class="loom-endorsement__verdict" { (verdict) }
+                    }
+                    div class="loom-endorsement__rationale" {
+                        @for p in &rationale_paras {
+                            p class="loom-endorsement__para" { (p) }
+                        }
+                    }
+                    @if let Some(d) = issued_label {
+                        footer class="loom-endorsement__footer" {
+                            p class="loom-endorsement__issued" { "Issued: " (d) }
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10047,126 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn endorsement_endorse_renders_chrome_and_data_attrs() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "endorsement",
+                "stance": "endorse",
+                "subject": "Jordan Smith for Mayor",
+                "verdict": "We endorse Smith for Mayor",
+                "rationale": "Smith has the strongest record on housing policy."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-endorsement"));
+        assert!(html.contains("loom-endorsement--endorse"));
+        assert!(html.contains("data-loom-endorsement-stance=\"endorse\""));
+        assert!(html.contains("aria-label=\"Endorsed: Jordan Smith for Mayor\""));
+        assert!(html.contains(">Endorsed<"));
+        assert!(html.contains("Jordan Smith"));
+        assert!(html.contains("We endorse Smith"));
+        assert!(html.contains("strongest record on housing"));
+        // Optional chrome absent.
+        assert!(!html.contains("loom-endorsement__footer"));
+    }
+
+    #[test]
+    fn endorsement_each_stance_renders_distinct_label() {
+        let cases: &[(&str, &str, &str)] = &[
+            ("qualified_endorse", "qualified-endorse", "Qualified endorsement"),
+            ("oppose", "oppose", "Opposed"),
+            ("neutral", "neutral", "No endorsement"),
+        ];
+        for (json_stance, slug, label) in cases {
+            let json = format!(
+                r#"{{
+                "brand": null, "theme": null, "chrome": null, "content_width": null,
+                "nav_actions": [], "title": "t", "description": "d",
+                "path": "/p", "nav_links": [], "dev_devtools": false,
+                "sections": [{{
+                    "kind": "endorsement",
+                    "stance": "{json_stance}",
+                    "subject": "Measure 3",
+                    "verdict": "V",
+                    "rationale": "R"
+                }}]
+            }}"#
+            );
+            let page: CmsPage =
+                serde_json::from_str(&json).unwrap_or_else(|_| panic!("stance={json_stance}"));
+            let html = render_to_string(&page);
+            assert!(
+                html.contains(&format!("loom-endorsement--{slug}")),
+                "stance={json_stance} missing class --{slug}"
+            );
+            assert!(
+                html.contains(&format!("data-loom-endorsement-stance=\"{slug}\"")),
+                "stance={json_stance} missing data attr"
+            );
+            assert!(
+                html.contains(&format!(">{label}<")),
+                "stance={json_stance} missing visible label '{label}'"
+            );
+        }
+    }
+
+    #[test]
+    fn endorsement_with_issued_label_renders_footer() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "endorsement",
+                "stance": "endorse",
+                "subject": "Yes on Measure 2",
+                "verdict": "Vote Yes",
+                "rationale": "Para one.\n\nPara two.",
+                "issued_label": "October 20, 2026"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-endorsement__footer"));
+        assert!(html.contains("October 20, 2026"));
+        // Multi-paragraph rationale.
+        let para_count = html.matches("loom-endorsement__para\"").count();
+        assert_eq!(para_count, 2, "expected 2 paragraphs, got {para_count}");
+    }
+
+    #[test]
+    fn endorsement_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "endorsement",
+                "stance": "endorse",
+                "subject": "<script>alert('s')</script>",
+                "verdict": "<script>alert('v')</script>",
+                "rationale": "<script>alert('r')</script>",
+                "issued_label": "<script>alert('i')</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        // subject appears in BOTH aria-label and visible markup,
+        // so the count is >= 5 (subject x2 + verdict + rationale
+        // + issued).
+        assert!(
+            entity_hits >= 5,
+            "expected >= 5 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
