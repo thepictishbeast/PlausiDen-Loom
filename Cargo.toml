@@ -19,6 +19,12 @@ members = [
     # #121: CmsPage → egui Ui draws. Pure renderer; binary that
     # drives eframe / glow / wgpu / winit is a follow-up.
     "loom-egui",
+    # #322 (paul 2026-05-21): loom-variables — per-tenant
+    # `{{ VAR }}` / `@asset-slug` substitution layer. Tenants
+    # ship variables.json + palette.json + assets-map.json; the
+    # substrate's CMS authoring layer carries placeholders that
+    # this crate resolves at render time.
+    "loom-variables",
 ]
 exclude = [
     # loom-audit will land in a follow-up; reserved here so the
