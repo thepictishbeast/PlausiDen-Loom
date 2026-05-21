@@ -752,6 +752,41 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed post-submit confirmation block — title + body +
+    /// optional reference identifier + optional next-step link.
+    /// Distinct from [`CmsSection::CallToAction`] (forward
+    /// marketing CTA), from [`CmsSection::AnnouncementBar`] (site-
+    /// wide ribbon), and from generic asides: this is the
+    /// structured confirmation screen rendered AFTER a signup /
+    /// contact / order form submits.
+    ///
+    /// Renders with `role="status"` and `aria-live="polite"` so
+    /// screen readers announce the confirmation when the page
+    /// loads. Editorial intent: contact-form, signup-flow, and
+    /// order-receipt surfaces.
+    FormSuccessConfirm {
+        /// Optional status eyebrow above the title
+        /// (`"Confirmed"`, `"Sent"`, `"Subscribed"`,
+        /// `"Order placed"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow: Option<String>,
+        /// Title of the confirmation
+        /// (`"Thanks — we'll be in touch"`).
+        title: String,
+        /// Body explaining what happens next. Multi-paragraph
+        /// splits on `\n\n`.
+        body: String,
+        /// Optional reference identifier (order number, ticket
+        /// ID) surfaced for users to reference later.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reference: Option<String>,
+        /// Optional follow-up link
+        /// (`"Return to home"`, `"View receipt"`,
+        /// `"Check your inbox"`). Validated via `is_safe_url`;
+        /// hostile schemes fall back to a non-interactive span.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        next_step: Option<FormSuccessNextStep>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2956,7 +2991,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3112,19 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// Follow-up link surfaced by [`CmsSection::FormSuccessConfirm`]
+/// after a successful form submit. `href` is validated via
+/// `is_safe_url` at render time; hostile schemes fall back to a
+/// non-interactive span so the confirmation block never emits an
+/// `<a href="javascript:…">`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
+pub struct FormSuccessNextStep {
+    pub label: String,
+    pub href: String,
 }
 
 /// One comparison row.
@@ -5581,6 +5629,50 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::FormSuccessConfirm {
+            eyebrow,
+            title,
+            body,
+            reference,
+            next_step,
+        } => {
+            let paragraphs: Vec<&str> = body.split("\n\n").collect();
+            html! {
+                section class="loom-form-success" role="status" aria-live="polite"
+                    data-loom-reveal {
+                    div class="loom-form-success__inner" {
+                        @if let Some(e) = eyebrow {
+                            span class="loom-form-success__eyebrow" { (e) }
+                        }
+                        h2 class="loom-form-success__title" { (title) }
+                        div class="loom-form-success__body" {
+                            @for para in &paragraphs {
+                                p class="loom-form-success__para" { (para) }
+                            }
+                        }
+                        @if let Some(r) = reference {
+                            p class="loom-form-success__reference" {
+                                span class="loom-form-success__reference-label" {
+                                    "Reference: "
+                                }
+                                code class="loom-form-success__reference-value" { (r) }
+                            }
+                        }
+                        @if let Some(step) = next_step {
+                            @let href_safe = loom_components::composer::is_safe_url(&step.href);
+                            @if href_safe {
+                                a class="loom-form-success__next-step" href=(step.href) {
+                                    (step.label)
+                                }
+                            } @else {
+                                span class="loom-form-success__next-step"
+                                    data-blocked-href="true" { (step.label) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10039,116 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn form_success_confirm_renders_required_fields_only() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "form_success_confirm",
+                "title": "Thanks — we'll be in touch",
+                "body": "Our team will respond within one business day."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-form-success"));
+        assert!(html.contains("role=\"status\""));
+        assert!(html.contains("aria-live=\"polite\""));
+        assert!(html.contains("loom-form-success__title"));
+        assert!(html.contains("Thanks"));
+        assert!(html.contains("loom-form-success__para"));
+        assert!(html.contains("business day"));
+        // Optional chrome absent.
+        assert!(!html.contains("loom-form-success__eyebrow"));
+        assert!(!html.contains("loom-form-success__reference"));
+        assert!(!html.contains("loom-form-success__next-step"));
+    }
+
+    #[test]
+    fn form_success_confirm_full_chrome_with_reference_and_cta() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "form_success_confirm",
+                "eyebrow": "Order placed",
+                "title": "Your order is confirmed",
+                "body": "We sent a receipt to your inbox.\n\nShipping updates follow when the carrier scans the parcel.",
+                "reference": "PD-2026-051923",
+                "next_step": {"label": "View receipt", "href": "/account/orders/PD-2026-051923"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-form-success__eyebrow"));
+        assert!(html.contains("Order placed"));
+        assert!(html.contains("Your order is confirmed"));
+        // Multi-paragraph body splits on \n\n.
+        let para_count = html.matches("loom-form-success__para").count();
+        assert_eq!(para_count, 2, "two paragraphs expected, got {para_count}");
+        assert!(html.contains("Shipping updates"));
+        assert!(html.contains("loom-form-success__reference"));
+        assert!(html.contains("PD-2026-051923"));
+        assert!(html.contains("loom-form-success__next-step"));
+        assert!(html.contains("href=\"/account/orders/PD-2026-051923\""));
+        assert!(html.contains("View receipt"));
+        assert!(!html.contains("data-blocked-href"));
+    }
+
+    #[test]
+    fn form_success_confirm_unsafe_href_falls_back_to_span() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "form_success_confirm",
+                "title": "Submitted",
+                "body": "Done.",
+                "next_step": {"label": "Visit",
+                              "href": "javascript:alert(1)"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // No anchor tag rendered for hostile scheme.
+        assert!(
+            !html.contains("href=\"javascript:"),
+            "hostile scheme leaked into href"
+        );
+        // Fallback span rendered with sentinel attribute.
+        assert!(html.contains("data-blocked-href=\"true\""));
+        assert!(html.contains("Visit"));
+    }
+
+    #[test]
+    fn form_success_confirm_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "form_success_confirm",
+                "eyebrow": "<i>Confirmed</i>",
+                "title": "<script>alert('t')</script>",
+                "body": "<script>alert('b')</script>",
+                "reference": "<script>alert('r')</script>",
+                "next_step": {"label": "<script>alert('l')</script>",
+                              "href": "/safe"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // None of the raw <script> sequences survive.
+        assert!(!html.contains("<script>alert"));
+        // Confirmed entity-encoded variants for each field.
+        assert!(html.contains("&lt;i&gt;Confirmed&lt;/i&gt;"));
+        assert!(html.matches("&lt;script&gt;alert").count() >= 4);
     }
 
     #[test]
