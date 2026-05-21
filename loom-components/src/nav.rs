@@ -69,6 +69,16 @@ pub enum NavStyle {
     Standard,
     /// No-animation editorial chrome.
     Editorial,
+    /// Brand centred between two halves of the nav links. Used
+    /// for editorial / publication / studio sites where the
+    /// brand is the focal point and links read symmetrically.
+    /// Cascade splits the link cluster into a left half + right
+    /// half via `:nth-child` distribution.
+    Centered,
+    /// Compact dense chrome. Smaller padding, smaller font,
+    /// tighter gap. Used for app-style admin / dashboard sites
+    /// that prioritise content over chrome.
+    Compact,
 }
 
 /// The full top nav.
@@ -106,10 +116,14 @@ impl Nav<'_> {
                 "bg-primary p-1.5 rounded-lg group-hover:scale-105 transition-transform duration-300"
             }
             NavStyle::Editorial => "bg-primary p-1.5 rounded-none",
+            NavStyle::Centered => "bg-primary p-1.5 rounded-full",
+            NavStyle::Compact => "bg-primary p-1 rounded",
         };
         let nav_style_attr = match self.style {
             NavStyle::Standard => "standard",
             NavStyle::Editorial => "editorial",
+            NavStyle::Centered => "centered",
+            NavStyle::Compact => "compact",
         };
 
         html! {
@@ -163,20 +177,30 @@ fn render_desktop_link(link: &NavLink<'_>, current: &str, style: NavStyle) -> Ma
     // bar is either fully visible (active) or fully absent (inactive),
     // no `w-0 group-hover:w-full` transition.
     let bar_class = match (style, is_active) {
-        (NavStyle::Standard, true) => {
+        // Animated: Standard + Compact (compact still uses
+        // the same underline animation, just smaller surrounding
+        // padding from the cascade).
+        (NavStyle::Standard | NavStyle::Compact, true) => {
             "absolute -bottom-1 left-0 h-0.5 bg-primary transition-all duration-300 w-full"
         }
-        (NavStyle::Standard, false) => {
+        (NavStyle::Standard | NavStyle::Compact, false) => {
             "absolute -bottom-1 left-0 h-0.5 bg-primary transition-all duration-300 w-0 group-hover:w-full"
         }
-        (NavStyle::Editorial, true) => "absolute -bottom-1 left-0 h-0.5 bg-primary w-full",
-        (NavStyle::Editorial, false) => "absolute -bottom-1 left-0 h-0.5 bg-primary w-0",
+        // Static: Editorial + Centered share the no-animation
+        // posture (Centered is the publication / studio register
+        // which also reads as still rather than animated).
+        (NavStyle::Editorial | NavStyle::Centered, true) => {
+            "absolute -bottom-1 left-0 h-0.5 bg-primary w-full"
+        }
+        (NavStyle::Editorial | NavStyle::Centered, false) => {
+            "absolute -bottom-1 left-0 h-0.5 bg-primary w-0"
+        }
     };
-    // Editorial drops the hover:text-primary transition too — the
-    // link state is the link state, not a hover affordance.
+    // Editorial + Centered drop the hover:text-primary transition
+    // — the link state is the link state, not a hover affordance.
     let transition_classes = match style {
-        NavStyle::Standard => "transition-colors hover:text-primary",
-        NavStyle::Editorial => "",
+        NavStyle::Standard | NavStyle::Compact => "transition-colors hover:text-primary",
+        NavStyle::Editorial | NavStyle::Centered => "",
     };
     let span_class = format!(
         "text-sm font-medium {transition_classes} cursor-pointer relative group whitespace-nowrap {text_class}"
@@ -430,5 +454,49 @@ mod tests {
     #[test]
     fn nav_style_default_is_standard() {
         assert!(matches!(NavStyle::default(), NavStyle::Standard));
+    }
+
+    #[test]
+    fn centered_style_emits_rounded_full_logo_badge_and_data_attr() {
+        let n = Nav {
+            style: NavStyle::Centered,
+            ..fixture()
+        };
+        let s = n.render().into_string();
+        assert!(s.contains(r#"data-loom-nav-style="centered""#));
+        assert!(s.contains("bg-primary p-1.5 rounded-full"));
+    }
+
+    #[test]
+    fn compact_style_emits_p1_rounded_logo_badge_and_data_attr() {
+        let n = Nav {
+            style: NavStyle::Compact,
+            ..fixture()
+        };
+        let s = n.render().into_string();
+        assert!(s.contains(r#"data-loom-nav-style="compact""#));
+        assert!(s.contains("bg-primary p-1 rounded\""));
+    }
+
+    #[test]
+    fn all_four_nav_styles_emit_distinct_data_attrs() {
+        let styles = [
+            NavStyle::Standard,
+            NavStyle::Editorial,
+            NavStyle::Centered,
+            NavStyle::Compact,
+        ];
+        let mut seen = std::collections::BTreeSet::new();
+        for style in styles {
+            let n = Nav { style, ..fixture() };
+            let s = n.render().into_string();
+            // Extract the data-loom-nav-style="…" value
+            let needle = "data-loom-nav-style=\"";
+            let start = s.find(needle).expect("attr present") + needle.len();
+            let end = s[start..].find('"').expect("attr closed");
+            let value = s[start..start + end].to_owned();
+            assert!(seen.insert(value.clone()), "duplicate data-loom-nav-style: {value}");
+        }
+        assert_eq!(seen.len(), 4);
     }
 }
