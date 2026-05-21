@@ -430,6 +430,43 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Free-text tag input. User types text, presses Enter or
+    /// comma to commit a tag; existing tags can be removed via
+    /// per-tag close buttons.
+    ///
+    /// Static substrate renders the existing tag chips +
+    /// committed `<input type="hidden">` values for form
+    /// submission + an empty `<input type="text">` for adding
+    /// new tags. The Loom JS runtime adds the commit / remove
+    /// behaviours; without JS the form submits the initial tag
+    /// set exactly and additions are deferred to a re-render.
+    ///
+    /// Behavioral contract mirrors Radix UI's `TagsInput`
+    /// (community) + React Aria's `TagGroup` primitives.
+    /// Upstream specs:
+    /// <https://react-spectrum.adobe.com/react-aria/TagGroup.html>
+    /// (Apache-2.0). No source copied.
+    TagInput {
+        /// Unique HTML `id` for the text input.
+        id: String,
+        /// Visible label text.
+        label: String,
+        /// Form-field `name` attribute — each committed tag is
+        /// submitted as `<input type="hidden" name={name}[]>`.
+        name: String,
+        /// Tags already committed at render time.
+        #[serde(default)]
+        tags: Vec<String>,
+        /// Optional placeholder for the empty input.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placeholder: Option<String>,
+        /// Maximum tag count. `0` = unlimited.
+        #[serde(default)]
+        max_tags: u32,
+        /// When true, render as disabled.
+        #[serde(default)]
+        disabled: bool,
+    },
     /// Boolean checkbox. Distinct from [`CmsBlock::Switch`] —
     /// checkbox is "select / deselect from a set of independent
     /// options"; switch is "toggle a single setting on/off".
@@ -5558,6 +5595,68 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::TagInput {
+            id,
+            label,
+            name,
+            tags,
+            placeholder,
+            max_tags,
+            disabled,
+        } => {
+            let submit_name = format!("{name}[]");
+            html! {
+                div
+                    class="loom-block-tag-input"
+                    data-loom-slot="tag-input"
+                    data-max-tags=[(*max_tags > 0).then(|| max_tags.to_string())]
+                {
+                    label
+                        class="loom-block-tag-input__label"
+                        data-loom-slot="tag-input-label"
+                        for=(id)
+                    {
+                        (label)
+                    }
+                    div
+                        class="loom-block-tag-input__chips"
+                        data-loom-slot="tag-input-chips"
+                        role="list"
+                    {
+                        @for tag in tags {
+                            span
+                                class="loom-block-tag-input__chip"
+                                data-loom-slot="tag-input-chip"
+                                role="listitem"
+                            {
+                                span class="loom-block-tag-input__chip-label" { (tag) }
+                                button
+                                    type="button"
+                                    class="loom-block-tag-input__chip-remove"
+                                    data-loom-slot="tag-input-chip-remove"
+                                    aria-label={ "Remove tag " (tag) }
+                                    disabled[*disabled]
+                                {
+                                    "×"
+                                }
+                                input
+                                    type="hidden"
+                                    name=(submit_name)
+                                    value=(tag);
+                            }
+                        }
+                        input
+                            type="text"
+                            class="loom-block-tag-input__input"
+                            data-loom-slot="tag-input-input"
+                            id=(id)
+                            placeholder=[placeholder.as_deref()]
+                            disabled[*disabled]
+                            aria-label=(label);
+                    }
+                }
+            }
+        }
         CmsBlock::Checkbox {
             id,
             label,
@@ -10518,6 +10617,51 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_tag_input_renders_chips_and_hidden_inputs() {
+        let json = r#"{
+            "kind": "tag_input",
+            "id": "labels",
+            "label": "Labels",
+            "name": "labels",
+            "tags": ["urgent", "needs-review", "blocked"],
+            "placeholder": "Add a label…",
+            "max_tags": 10
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-loom-slot="tag-input""#));
+        assert!(html.contains(r#"data-max-tags="10""#));
+        // Three chips, one per tag.
+        assert_eq!(html.matches(r#"data-loom-slot="tag-input-chip""#).count(), 3);
+        assert!(html.contains(">urgent</span>"));
+        assert!(html.contains(">needs-review</span>"));
+        assert!(html.contains(">blocked</span>"));
+        // Three hidden inputs for submission with array-suffix name.
+        assert_eq!(html.matches(r#"name="labels[]""#).count(), 3);
+        // Each remove button has an aria-label describing the tag.
+        assert!(html.contains(r#"aria-label="Remove tag urgent""#));
+        // Text input for new entries.
+        assert!(html.contains(r#"type="text""#));
+        assert!(html.contains(r#"placeholder="Add a label…""#));
+        assert!(html.contains(r#"aria-label="Labels""#));
+    }
+
+    #[test]
+    fn cms_block_tag_input_empty_tags_renders_only_text_input() {
+        let json = r#"{
+            "kind":"tag_input","id":"x","label":"L","name":"x"
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        // No chips when tags list empty.
+        assert!(!html.contains(r#"data-loom-slot="tag-input-chip""#));
+        // No max-tags attr when default 0.
+        assert!(!html.contains(r#"data-max-tags="#));
+        // Text input still rendered.
+        assert!(html.contains(r#"type="text""#));
     }
 
     #[test]
