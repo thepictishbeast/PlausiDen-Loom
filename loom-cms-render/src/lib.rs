@@ -752,7 +752,52 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed press contact card — name + role + organisation +
+    /// email + optional phone + optional time-zone hint.
+    /// Distinct from [`CmsSection::AuthorBio`] (article footer
+    /// author block), [`CmsSection::ProfileCard`] (general
+    /// profile), [`CmsSection::ContactStrip`] (compact contact
+    /// channel row), and [`CmsSection::OpenSourceContributor`]
+    /// (OSS taxonomy card).
+    ///
+    /// PressContact is the typed primitive for the "press
+    /// inquiries" surface news rooms / non-profits / civic
+    /// orgs publish for journalists to reach a designated
+    /// spokesperson. The structured `email` slot routes
+    /// straight to the inbox; `tz_hint` lets a global press
+    /// pool see what hours apply.
+    PressContact {
+        /// Contact name ("Jordan Park").
+        name: String,
+        /// Contact role / title ("Director of Communications",
+        /// "Press Officer").
+        role: String,
+        /// Organisation name. Surfaced as
+        /// `data-loom-press-org` for crawler audit.
+        organisation: String,
+        /// Email address (rendered as `mailto:` link via the
+        /// safe-url-gated helper). Free-form so the substrate
+        /// doesn't second-guess the format.
+        email: String,
+        /// Optional phone display string ("+1 555 0110",
+        /// "+44 20 7946 0000"). Rendered alongside email when
+        /// present.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        phone: Option<String>,
+        /// Optional time-zone hint ("UTC-5 / EST",
+        /// "Pacific time", "open weekdays 9-5 UTC"). Free-form.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tz_hint: Option<String>,
+        /// Optional response-time SLA ("Replies within 24
+        /// hours on weekdays", "Out-of-band: see signal
+        /// fingerprint at press@…/key").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sla_note: Option<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +3001,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5581,6 +5626,71 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::PressContact {
+            name,
+            role,
+            organisation,
+            email,
+            phone,
+            tz_hint,
+            sla_note,
+        } => {
+            // Local mailto-safety check: we deliberately do NOT
+            // route through composer::is_safe_url because that
+            // helper enforces https-or-root-relative; mailto:
+            // is a different scheme with different threat model.
+            // Permit mailto only when the email value contains
+            // no control characters, no ":" (no nested scheme),
+            // and contains exactly one "@".
+            let mailto_safe = !email.is_empty()
+                && email.matches('@').count() == 1
+                && !email.contains(':')
+                && !email.chars().any(|c| (c as u32) < 0x20);
+            let mailto = format!("mailto:{email}");
+            let aria_label = format!("Press contact: {name}, {role}, {organisation}");
+            html! {
+                article class="loom-press-contact"
+                    aria-label=(aria_label)
+                    data-loom-press-org=(organisation)
+                    data-loom-reveal {
+                    header class="loom-press-contact__header" {
+                        h3 class="loom-press-contact__name" { (name) }
+                        p class="loom-press-contact__role" {
+                            span class="loom-press-contact__role-title" { (role) }
+                            ", "
+                            span class="loom-press-contact__org" { (organisation) }
+                        }
+                    }
+                    dl class="loom-press-contact__channels" {
+                        dt class="loom-press-contact__channel-key" { "Email" }
+                        dd class="loom-press-contact__channel-value" {
+                            @if mailto_safe {
+                                a class="loom-press-contact__email"
+                                    href=(mailto) { (email) }
+                            } @else {
+                                span class="loom-press-contact__email"
+                                    data-blocked-href="true" { (email) }
+                            }
+                        }
+                        @if let Some(p) = phone {
+                            dt class="loom-press-contact__channel-key" { "Phone" }
+                            dd class="loom-press-contact__channel-value" {
+                                span class="loom-press-contact__phone" { (p) }
+                            }
+                        }
+                        @if let Some(tz) = tz_hint {
+                            dt class="loom-press-contact__channel-key" { "Hours" }
+                            dd class="loom-press-contact__channel-value" {
+                                span class="loom-press-contact__tz" { (tz) }
+                            }
+                        }
+                    }
+                    @if let Some(s) = sla_note {
+                        p class="loom-press-contact__sla" { (s) }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10057,101 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn press_contact_renders_required_fields_with_mailto() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "press_contact",
+                "name": "Jordan Park",
+                "role": "Director of Communications",
+                "organisation": "Example Foundation",
+                "email": "press@example.org"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-press-contact"));
+        assert!(html.contains("aria-label=\"Press contact: Jordan Park, Director of Communications, Example Foundation\""));
+        assert!(html.contains("data-loom-press-org=\"Example Foundation\""));
+        assert!(html.contains(">Jordan Park<"));
+        assert!(html.contains("Director of Communications"));
+        assert!(html.contains("Example Foundation"));
+        // mailto link.
+        assert!(html.contains("href=\"mailto:press@example.org\""));
+        assert!(html.contains(">press@example.org<"));
+        // Optional chrome absent.
+        assert!(!html.contains("loom-press-contact__phone"));
+        assert!(!html.contains("loom-press-contact__tz"));
+        assert!(!html.contains("loom-press-contact__sla"));
+    }
+
+    #[test]
+    fn press_contact_with_full_chrome() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "press_contact",
+                "name": "Alex Chen",
+                "role": "Press Officer",
+                "organisation": "Sacred.Vote",
+                "email": "press@sacred.vote",
+                "phone": "+1 555 0110",
+                "tz_hint": "UTC-5 / EST · weekdays 9-5",
+                "sla_note": "Replies within 24 hours on business days."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // Phone row.
+        assert!(html.contains("loom-press-contact__phone"));
+        assert!(html.contains("+1 555 0110"));
+        // Time-zone row.
+        assert!(html.contains("loom-press-contact__tz"));
+        assert!(html.contains("UTC-5 / EST"));
+        // SLA paragraph.
+        assert!(html.contains("loom-press-contact__sla"));
+        assert!(html.contains("24 hours on business days"));
+        // <dl><dt>Email</dt> ... <dt>Phone</dt> ... <dt>Hours</dt> ...
+        assert!(html.contains(">Email<"));
+        assert!(html.contains(">Phone<"));
+        assert!(html.contains(">Hours<"));
+    }
+
+    #[test]
+    fn press_contact_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "press_contact",
+                "name": "<script>alert('n')</script>",
+                "role": "<script>alert('r')</script>",
+                "organisation": "<script>alert('o')</script>",
+                "email": "press@example.org",
+                "phone": "<script>alert('p')</script>",
+                "tz_hint": "<script>alert('tz')</script>",
+                "sla_note": "<script>alert('s')</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        // name in aria-label + visible (2), role in aria-label +
+        // visible (2), org in aria-label + visible + data attr
+        // (3), phone, tz, sla.
+        assert!(
+            entity_hits >= 9,
+            "expected >= 9 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
