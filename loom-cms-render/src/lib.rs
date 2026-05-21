@@ -752,6 +752,34 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed newsletter back-issue archive — numbered list
+    /// of past issues with title + date + optional dek.
+    /// Distinct from [`CmsSection::RelatedReads`] (semantic
+    /// "you may also like" cross-articles), from
+    /// [`CmsSection::ArticleSeries`] (numbered parts of one
+    /// series), and from [`CmsSection::Pagination`] (page-
+    /// of-N nav for current view): NewsletterArchive is the
+    /// "all back issues" surface, typically on an /archive/
+    /// page.
+    ///
+    /// Editorial intent: newsletter / blog index surface
+    /// where the publication wants to show its publication
+    /// history with chronological access. Substack-style
+    /// archive pattern.
+    NewsletterArchive {
+        /// Optional heading (`"Past issues"`, `"Archive"`,
+        /// `"All editions"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        heading: Option<String>,
+        /// Optional total-issues count surfaced in the
+        /// heading area ("47 issues to date"). When `None`
+        /// the count is omitted from chrome.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total_issues: Option<u32>,
+        /// Issues in display order (operator chooses — most
+        /// commonly most-recent-first).
+        items: Vec<NewsletterArchiveItem>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
@@ -2956,7 +2984,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3105,28 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// One issue entry in a [`CmsSection::NewsletterArchive`].
+///
+/// Each issue carries issue number, title, link, date, and
+/// optional dek. Safe-URL gated; hostile schemes render as
+/// labeled span.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct NewsletterArchiveItem {
+    /// Issue number (e.g. `47`).
+    pub issue_number: u32,
+    /// Issue title.
+    pub title: String,
+    /// Target URL. Validated via `is_safe_url`.
+    pub href: String,
+    /// Publication date (RFC 3339 preferred for
+    /// machine-readable `<time datetime>`).
+    pub date: String,
+    /// Optional one-line dek.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dek: Option<String>,
 }
 
 /// One comparison row.
@@ -5578,6 +5628,56 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 blockquote class="loom-epigraph__body" { (body) }
                 @if let Some(a) = attribution {
                     figcaption class="loom-epigraph__attribution" { "— " (a) }
+                }
+            }
+        },
+        CmsSection::NewsletterArchive {
+            heading,
+            total_issues,
+            items,
+        } => html! {
+            aside class="loom-newsletter-archive"
+                  aria-label="Newsletter archive"
+                  data-loom-reveal
+            {
+                @if heading.is_some() || total_issues.is_some() {
+                    div class="loom-newsletter-archive__header" {
+                        @if let Some(h) = heading {
+                            h3 class="loom-newsletter-archive__heading" { (h) }
+                        }
+                        @if let Some(n) = total_issues {
+                            p class="loom-newsletter-archive__total" {
+                                (n.to_string())
+                                " issue"
+                                @if *n != 1 { "s" }
+                                " to date"
+                            }
+                        }
+                    }
+                }
+                @if items.is_empty() {
+                    p class="loom-newsletter-archive__empty" { "No issues yet." }
+                } @else {
+                    ol class="loom-newsletter-archive__items" {
+                        @for it in items {
+                            li class="loom-newsletter-archive__item" {
+                                span class="loom-newsletter-archive__issue-number" {
+                                    "#" (it.issue_number.to_string())
+                                }
+                                @if is_safe_url(&it.href) {
+                                    a class="loom-newsletter-archive__title" href=(it.href) { (it.title) }
+                                } @else {
+                                    span class="loom-newsletter-archive__title"
+                                         data-blocked-href="true"
+                                    { (it.title) }
+                                }
+                                time class="loom-newsletter-archive__date" datetime=(it.date) { (it.date) }
+                                @if let Some(d) = &it.dek {
+                                    p class="loom-newsletter-archive__dek" { (d) }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -9946,6 +10046,152 @@ mod tests {
         let page: CmsPage = serde_json::from_str(json).expect("page parses");
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    // #104 (2026-05-21) — NewsletterArchive back-issue list.
+
+    #[test]
+    fn newsletter_archive_renders_aside_with_items() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "newsletter_archive",
+                "heading": "Past issues",
+                "total_issues": 47,
+                "items": [
+                    {"issue_number": 47, "title": "The compounding fallacy", "href": "/47/", "date": "2026-03-05"},
+                    {"issue_number": 46, "title": "When to refinance",        "href": "/46/", "date": "2026-02-26", "dek": "Rates, points, breakeven math."}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<aside class="loom-newsletter-archive""#));
+        assert!(html.contains(r#"aria-label="Newsletter archive""#));
+        assert!(html.contains(r#"class="loom-newsletter-archive__header""#));
+        assert!(html.contains(r#"class="loom-newsletter-archive__heading""#));
+        assert!(html.contains(">Past issues<"));
+        assert!(html.contains(r#"class="loom-newsletter-archive__total""#));
+        assert!(html.contains("47 issues to date"));
+        // 2 items.
+        assert_eq!(html.matches(r#"class="loom-newsletter-archive__item""#).count(), 2);
+        assert!(html.contains(">#47<"));
+        assert!(html.contains(">#46<"));
+        assert!(html.contains(r#"href="/47/""#));
+        assert!(html.contains(r#"href="/46/""#));
+        assert!(html.contains(">The compounding fallacy<"));
+        assert!(html.contains(r#"<time class="loom-newsletter-archive__date" datetime="2026-03-05""#));
+        // Dek only on issue 46.
+        assert_eq!(html.matches(r#"class="loom-newsletter-archive__dek""#).count(), 1);
+        assert!(html.contains(">Rates, points, breakeven math.<"));
+    }
+
+    #[test]
+    fn newsletter_archive_singular_issue_uses_singular() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "newsletter_archive",
+                "total_issues": 1,
+                "items": [{"issue_number": 1, "title": "Hello", "href": "/1/", "date": "2026-01-01"}]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("1 issue to date"));
+        assert!(!html.contains("1 issues to date"));
+    }
+
+    #[test]
+    fn newsletter_archive_header_elided_when_both_optional_none() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "newsletter_archive",
+                "items": [{"issue_number": 1, "title": "X", "href": "/x/", "date": "2026-01-01"}]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("loom-newsletter-archive__header"));
+        assert!(!html.contains("loom-newsletter-archive__heading"));
+        assert!(!html.contains("loom-newsletter-archive__total"));
+        assert!(html.contains("loom-newsletter-archive__items"));
+    }
+
+    #[test]
+    fn newsletter_archive_empty_items_emits_empty_marker() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "newsletter_archive",
+                "heading": "Archive",
+                "items": []
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-newsletter-archive__empty"));
+        assert!(html.contains(">No issues yet.<"));
+        assert!(!html.contains("loom-newsletter-archive__items"));
+    }
+
+    #[test]
+    fn newsletter_archive_unsafe_href_falls_back_to_span() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "newsletter_archive",
+                "items": [{"issue_number": 1, "title": "Bad", "href": "javascript:alert(1)", "date": "2026-01-01"}]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"data-blocked-href="true""#));
+        assert!(!html.contains("javascript:alert(1)"));
+        // Title still surfaces.
+        assert!(html.contains(">Bad<"));
+    }
+
+    #[test]
+    fn newsletter_archive_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "newsletter_archive",
+                "heading": "<script>h</script>",
+                "items": [{
+                    "issue_number": 1,
+                    "title": "<script>t</script>",
+                    "href": "/x/",
+                    "date": "<script>d</script>",
+                    "dek": "<script>k</script>"
+                }]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>h</script>",
+            "<script>t</script>",
+            "<script>d</script>",
+            "<script>k</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
         assert!(html.contains("&lt;script&gt;"));
     }
 
