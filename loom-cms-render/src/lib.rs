@@ -649,6 +649,30 @@ pub enum CmsBlock {
         /// — substrate doesn't sort).
         items: Vec<BlockTimelineItem>,
     },
+    /// Determinate progress bar. Uses the native HTML
+    /// `<progress>` element so browsers + screen readers
+    /// announce the value natively without custom ARIA. Distinct
+    /// from [`CmsBlock::Slider`] (which is an interactive input):
+    /// `ProgressBar` is read-only display of a known value.
+    ///
+    /// `tone` reuses the [`BadgeTone`] palette so a tenant's
+    /// `[style]` config drives the fill color via the same six
+    /// semantic tokens (success-green for completion, danger-red
+    /// for overrun, etc.).
+    ProgressBar {
+        /// Current progress value, clamped to 0..=max at render.
+        value: u32,
+        /// Maximum possible value. Defaults to 100 via the
+        /// renderer when not specified (typical percentage).
+        #[serde(default = "progress_default_max")]
+        max: u32,
+        /// Optional label rendered above the bar.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        /// Semantic tone — reuses the Badge palette.
+        #[serde(default)]
+        tone: BadgeTone,
+    },
     /// Sandboxed `<iframe>` embed. Used for third-party widgets
     /// (YouTube / Vimeo / Maps / payment forms) without granting
     /// them ambient access to the parent document. Substrate
@@ -1828,6 +1852,12 @@ impl IframeSandbox {
         }
         tokens.join(" ")
     }
+}
+
+/// Default max for [`CmsBlock::ProgressBar`] when serde omits
+/// the field. 100 matches typical percentage usage.
+const fn progress_default_max() -> u32 {
+    100
 }
 
 /// One event in a [`CmsBlock::Timeline`]. Optional timestamp
@@ -6568,6 +6598,31 @@ pub fn render_block(block: &CmsBlock) -> Markup {
         CmsBlock::Badge { text, tone } => html! {
             span class="loom-block-badge" data-tone=(tone.slug()) { (text) }
         },
+        CmsBlock::ProgressBar {
+            value,
+            max,
+            label,
+            tone,
+        } => {
+            let clamped = (*value).min(*max);
+            let max_safe = (*max).max(1);
+            let pct = (u64::from(clamped) * 100 / u64::from(max_safe)) as u32;
+            html! {
+                div class="loom-block-progress" data-tone=(tone.slug()) {
+                    @if let Some(l) = label {
+                        span class="loom-block-progress__label" { (l) }
+                    }
+                    progress
+                        class="loom-block-progress__bar"
+                        max=(max_safe)
+                        value=(clamped)
+                        aria-label=[label.as_deref()] {}
+                    span class="loom-block-progress__value" aria-hidden="true" {
+                        (pct) "%"
+                    }
+                }
+            }
+        }
         CmsBlock::Timeline { items } => html! {
             ol class="loom-block-timeline" {
                 @for item in items {
@@ -13951,6 +14006,68 @@ mod tests {
         let html = render_block(&s).into_string();
         assert!(html.contains(">Substrate A<"));
         assert!(html.contains(">Substrate B<"));
+    }
+
+    #[test]
+    fn cms_block_progress_uses_native_progress_element() {
+        let p = CmsBlock::ProgressBar {
+            value: 47,
+            max: 100,
+            label: Some("Disk usage".into()),
+            tone: BadgeTone::Warning,
+        };
+        let html = render_block(&p).into_string();
+        assert!(html.contains("<progress"));
+        assert!(html.contains("loom-block-progress"));
+        assert!(html.contains(r#"max="100""#));
+        assert!(html.contains(r#"value="47""#));
+        assert!(html.contains(r#"data-tone="warning""#));
+        assert!(html.contains(r#"aria-label="Disk usage""#));
+        assert!(html.contains(">Disk usage<"));
+        assert!(html.contains(">47%<"));
+    }
+
+    #[test]
+    fn cms_block_progress_clamps_value_to_max() {
+        let p = CmsBlock::ProgressBar {
+            value: 200,
+            max: 100,
+            label: None,
+            tone: BadgeTone::Success,
+        };
+        let html = render_block(&p).into_string();
+        assert!(html.contains(r#"value="100""#));
+        assert!(html.contains(">100%<"));
+        // No label → no <span class="loom-block-progress__label">
+        assert!(!html.contains("loom-block-progress__label"));
+    }
+
+    #[test]
+    fn cms_block_progress_zero_max_does_not_panic() {
+        // Edge case: max of 0 would div-by-zero a percent calc.
+        // Renderer must guard against it.
+        let p = CmsBlock::ProgressBar {
+            value: 0,
+            max: 0,
+            label: None,
+            tone: BadgeTone::Neutral,
+        };
+        let html = render_block(&p).into_string();
+        // Cleanly renders with max bumped to 1.
+        assert!(html.contains("<progress"));
+        assert!(html.contains(">0%<"));
+    }
+
+    #[test]
+    fn cms_block_progress_defaults_max_to_100_via_serde() {
+        let p: CmsBlock = serde_json::from_str(
+            r#"{"kind":"progress_bar","value":33,"tone":"info"}"#,
+        )
+        .expect("parses with omitted max");
+        let html = render_block(&p).into_string();
+        assert!(html.contains(r#"max="100""#));
+        assert!(html.contains(r#"value="33""#));
+        assert!(html.contains(">33%<"));
     }
 
     #[test]

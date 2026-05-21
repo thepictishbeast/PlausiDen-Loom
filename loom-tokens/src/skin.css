@@ -11051,3 +11051,62 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
   line-height: 1.55;
   color: var(--loom-color-text, inherit);
 }
+
+/* === CmsBlock::ProgressBar ========================================= */
+/* Native HTML <progress> with tenant-tone styling. The base
+   <progress> element ships with browser-default chrome; the cascade
+   normalises and tones it via :: pseudo-elements (WebKit + Firefox
+   selectors). */
+.loom-block-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.loom-block-progress__label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--loom-color-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 65%, transparent));
+}
+.loom-block-progress__bar {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 0.5rem;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--loom-color-progress-track, color-mix(in oklab, var(--loom-color-text, currentColor) 10%, transparent));
+  overflow: hidden;
+}
+/* WebKit / Blink */
+.loom-block-progress__bar::-webkit-progress-bar {
+  background: var(--loom-color-progress-track, color-mix(in oklab, var(--loom-color-text, currentColor) 10%, transparent));
+  border-radius: 9999px;
+}
+.loom-block-progress__bar::-webkit-progress-value {
+  border-radius: 9999px;
+  transition: width 220ms ease;
+}
+/* Firefox */
+.loom-block-progress__bar::-moz-progress-bar {
+  border-radius: 9999px;
+  transition: width 220ms ease;
+}
+.loom-block-progress__value {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--loom-color-text, inherit);
+  align-self: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+.loom-block-progress[data-tone="neutral"]  .loom-block-progress__bar::-webkit-progress-value { background: var(--loom-color-badge-neutral-text, currentColor); }
+.loom-block-progress[data-tone="neutral"]  .loom-block-progress__bar::-moz-progress-bar      { background: var(--loom-color-badge-neutral-text, currentColor); }
+.loom-block-progress[data-tone="info"]     .loom-block-progress__bar::-webkit-progress-value { background: var(--loom-color-badge-info-text, #0284c7); }
+.loom-block-progress[data-tone="info"]     .loom-block-progress__bar::-moz-progress-bar      { background: var(--loom-color-badge-info-text, #0284c7); }
+.loom-block-progress[data-tone="success"]  .loom-block-progress__bar::-webkit-progress-value { background: var(--loom-color-badge-success-text, #16a34a); }
+.loom-block-progress[data-tone="success"]  .loom-block-progress__bar::-moz-progress-bar      { background: var(--loom-color-badge-success-text, #16a34a); }
+.loom-block-progress[data-tone="warning"]  .loom-block-progress__bar::-webkit-progress-value { background: var(--loom-color-badge-warning-text, #ca8a04); }
+.loom-block-progress[data-tone="warning"]  .loom-block-progress__bar::-moz-progress-bar      { background: var(--loom-color-badge-warning-text, #ca8a04); }
+.loom-block-progress[data-tone="danger"]   .loom-block-progress__bar::-webkit-progress-value { background: var(--loom-color-badge-danger-text, #dc2626); }
+.loom-block-progress[data-tone="danger"]   .loom-block-progress__bar::-moz-progress-bar      { background: var(--loom-color-badge-danger-text, #dc2626); }
+.loom-block-progress[data-tone="accent"]   .loom-block-progress__bar::-webkit-progress-value { background: var(--loom-color-accent, var(--loom-color-primary, #3a7afe)); }
+.loom-block-progress[data-tone="accent"]   .loom-block-progress__bar::-moz-progress-bar      { background: var(--loom-color-accent, var(--loom-color-primary, #3a7afe)); }
