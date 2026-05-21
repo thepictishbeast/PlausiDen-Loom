@@ -917,6 +917,30 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reading_time: Option<String>,
     },
+    /// Editorial postscript — the "P.S." block placed AFTER the
+    /// main body of a piece. Distinct from
+    /// [`CmsSection::Endnote`] (which is a numbered grouped
+    /// annotation), from [`CmsSection::CallToAction`] (which is
+    /// a marketing-style closing block), and from
+    /// [`CmsSection::AsideNote`] (mid-flow generic callout):
+    /// Postscript is a single trailing personal-voice block
+    /// that often carries an afterthought, a confession of
+    /// missed scope, or a forward-looking gesture.
+    ///
+    /// Editorial intent: blog / newsletter / long-form essay
+    /// where the author closes with a personal note. The label
+    /// defaults to `"P.S."` but operator can supply alternates
+    /// ("Postscript", "Note", "Update").
+    Postscript {
+        /// Optional label override. `None` renders the
+        /// default `"P.S."` eyebrow; operator-supplied values
+        /// keep brand voice flexible.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        /// Body text — multi-paragraph splits on `\n\n` into
+        /// separate `<p>` tags.
+        body: String,
+    },
     /// End-of-document footnote. Renders as a numbered entry at
     /// the bottom of a long-form piece. Distinct from
     /// [`CmsSection::Footnote`] (which is inline / mid-flow); use
@@ -2956,7 +2980,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5702,6 +5726,23 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::Postscript { label, body } => {
+            let label_text: &str = label.as_deref().unwrap_or("P.S.");
+            html! {
+                aside class="loom-postscript"
+                      role="note"
+                      aria-label="Postscript"
+                      data-loom-reveal
+                {
+                    p class="loom-postscript__label" { (label_text) }
+                    div class="loom-postscript__body" {
+                        @for para in body.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
+                            p { (para) }
+                        }
+                    }
+                }
+            }
+        }
         CmsSection::Endnote { number, text } => html! {
             aside class="loom-endnote" id={ "endnote-" (number.to_string()) } {
                 span class="loom-endnote__num" { (number.to_string()) "." } " " (text)
@@ -10162,6 +10203,85 @@ mod tests {
         assert!(html.contains("loom-endnote"));
         assert!(html.contains(r#"id="endnote-1""#));
         assert!(html.contains("Source: foo."));
+    }
+
+    // #104 (2026-05-21) — Postscript editorial trailing block.
+
+    #[test]
+    fn postscript_default_label_is_ps() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "postscript",
+                "body": "Thanks for reading."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<aside class="loom-postscript""#));
+        assert!(html.contains(r#"role="note""#));
+        assert!(html.contains(r#"aria-label="Postscript""#));
+        assert!(html.contains(r#"class="loom-postscript__label""#));
+        assert!(html.contains(">P.S.<"));
+        assert!(html.contains(">Thanks for reading.<"));
+    }
+
+    #[test]
+    fn postscript_custom_label_overrides_default() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "postscript",
+                "label": "Update",
+                "body": "Subscription tier renamed."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(">Update<"));
+        assert!(!html.contains(">P.S.<"));
+    }
+
+    #[test]
+    fn postscript_body_splits_on_blank_lines() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "postscript",
+                "body": "First afterthought.\n\nSecond afterthought."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        let open = html.find("loom-postscript__body").expect("body class");
+        let close = html[open..].find("</div>").expect("/div") + open;
+        let slice = &html[open..close];
+        assert_eq!(slice.matches("<p>").count(), 2);
+    }
+
+    #[test]
+    fn postscript_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "postscript",
+                "label": "<script>l</script>",
+                "body": "<script>b</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>l</script>"));
+        assert!(!html.contains("<script>b</script>"));
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
