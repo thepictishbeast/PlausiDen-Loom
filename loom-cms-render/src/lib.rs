@@ -430,6 +430,26 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Anchored content that opens on trigger click. Uses the
+    /// native HTML `popover` attribute (Chromium 114+, Safari
+    /// 17+, Firefox 125+) so the browser handles open/close +
+    /// light-dismiss + focus management without JS.
+    ///
+    /// Behavioral contract mirrors Radix UI's `Popover` primitive.
+    /// Upstream spec: <https://www.radix-ui.com/primitives/docs/components/popover>
+    /// (MIT). No source copied.
+    Popover {
+        /// Unique HTML `id` for the popover element. The trigger
+        /// references this via `popovertarget=`.
+        id: String,
+        /// Visible label on the trigger button.
+        trigger_label: String,
+        /// Block tree for the popover body.
+        content: Vec<CmsBlock>,
+        /// Placement relative to the trigger.
+        #[serde(default)]
+        placement: TooltipPlacement,
+    },
     /// Tabbed content panels. Renders ARIA-correct
     /// `role="tablist"` / `role="tab"` / `role="tabpanel"`
     /// markup. WITHOUT JS, only the first panel is visible —
@@ -5180,6 +5200,40 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::Popover {
+            id,
+            trigger_label,
+            content,
+            placement,
+        } => {
+            let place = tooltip_placement_slug(*placement);
+            html! {
+                div class="loom-block-popover" data-loom-slot="popover" {
+                    button
+                        type="button"
+                        class="loom-block-popover__trigger"
+                        data-loom-slot="popover-trigger"
+                        popovertarget=(id)
+                        aria-expanded="false"
+                        aria-controls=(id)
+                    {
+                        (trigger_label)
+                    }
+                    div
+                        popover="auto"
+                        id=(id)
+                        class="loom-block-popover__content"
+                        data-loom-slot="popover-content"
+                        data-placement=(place)
+                        role="dialog"
+                    {
+                        @for child in content {
+                            (render_block(child))
+                        }
+                    }
+                }
+            }
+        }
         CmsBlock::Tabs { items } => html! {
             div class="loom-block-tabs" data-loom-slot="tabs" {
                 div role="tablist" class="loom-block-tabs__list" data-loom-slot="tabs-list" {
@@ -9707,6 +9761,42 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_popover_uses_native_popover_attribute() {
+        let json = r#"{
+            "kind": "popover",
+            "id": "info",
+            "trigger_label": "More info",
+            "content": [{"kind":"text","text":"Hidden until opened"}],
+            "placement": "bottom"
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        // Trigger references popover via popovertarget.
+        assert!(html.contains(r#"popovertarget="info""#));
+        // Popover element uses native HTML popover attribute.
+        assert!(html.contains(r#"popover="auto""#));
+        assert!(html.contains(r#"id="info""#));
+        assert!(html.contains(r#"aria-controls="info""#));
+        // role=dialog so SR users get dialog semantics.
+        assert!(html.contains(r#"role="dialog""#));
+        // Placement attribute.
+        assert!(html.contains(r#"data-placement="bottom""#));
+        // Trigger label + body content rendered.
+        assert!(html.contains(">More info</button>"));
+        assert!(html.contains("Hidden until opened"));
+    }
+
+    #[test]
+    fn cms_block_popover_placement_defaults_to_top() {
+        let json = r#"{
+            "kind":"popover","id":"p","trigger_label":"X","content":[]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-placement="top""#));
     }
 
     #[test]
