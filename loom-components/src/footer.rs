@@ -67,6 +67,15 @@ pub enum FooterStyle {
     Standard,
     /// `rounded-none` logo badge — editorial flat register.
     Editorial,
+    /// Minimal — brand + tagline + legal-only. Cascade hides
+    /// column blocks via the `data-loom-footer-style="minimal"`
+    /// selector. For sites with limited footer surface (single-
+    /// page marketing, landing pages, admin app footers).
+    Minimal,
+    /// Dense — tighter padding, smaller font scale, more
+    /// columns packed in. For news / publication / catalog
+    /// sites with many footer sections.
+    Dense,
 }
 
 /// The full site footer.
@@ -97,10 +106,14 @@ impl Footer<'_> {
         let logo_class = match self.style {
             FooterStyle::Standard => "bg-primary p-1.5 rounded-lg",
             FooterStyle::Editorial => "bg-primary p-1.5 rounded-none",
+            FooterStyle::Minimal => "bg-primary p-1 rounded-full",
+            FooterStyle::Dense => "bg-primary p-1 rounded",
         };
         let style_attr = match self.style {
             FooterStyle::Standard => "standard",
             FooterStyle::Editorial => "editorial",
+            FooterStyle::Minimal => "minimal",
+            FooterStyle::Dense => "dense",
         };
         html! {
             footer class="bg-slate-900 text-slate-300 py-16" data-loom-footer-style=(style_attr) {
@@ -353,5 +366,54 @@ mod tests {
     #[test]
     fn footer_style_default_is_standard() {
         assert!(matches!(FooterStyle::default(), FooterStyle::Standard));
+    }
+
+    #[test]
+    fn minimal_style_emits_rounded_full_logo_badge_and_data_attr() {
+        let s = Footer {
+            style: FooterStyle::Minimal,
+            ..fixture()
+        }
+        .render()
+        .into_string();
+        assert!(s.contains(r#"data-loom-footer-style="minimal""#));
+        assert!(s.contains("bg-primary p-1 rounded-full"));
+    }
+
+    #[test]
+    fn dense_style_emits_p1_rounded_logo_badge_and_data_attr() {
+        let s = Footer {
+            style: FooterStyle::Dense,
+            ..fixture()
+        }
+        .render()
+        .into_string();
+        assert!(s.contains(r#"data-loom-footer-style="dense""#));
+        assert!(s.contains("bg-primary p-1 rounded\""));
+    }
+
+    #[test]
+    fn all_four_footer_styles_emit_distinct_data_attrs() {
+        let styles = [
+            FooterStyle::Standard,
+            FooterStyle::Editorial,
+            FooterStyle::Minimal,
+            FooterStyle::Dense,
+        ];
+        let mut seen = std::collections::BTreeSet::new();
+        for style in styles {
+            let s = Footer {
+                style,
+                ..fixture()
+            }
+            .render()
+            .into_string();
+            let needle = "data-loom-footer-style=\"";
+            let start = s.find(needle).expect("attr present") + needle.len();
+            let end = s[start..].find('"').expect("attr closed");
+            let value = s[start..start + end].to_owned();
+            assert!(seen.insert(value.clone()), "duplicate data-loom-footer-style: {value}");
+        }
+        assert_eq!(seen.len(), 4);
     }
 }

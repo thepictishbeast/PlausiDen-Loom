@@ -11340,3 +11340,61 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
     scroll-behavior: auto;
   }
 }
+
+/* === NavStyle / FooterStyle variants (#331) ======================== */
+/* Substrate ships four NavStyle + four FooterStyle variants. Cascade
+   keys off the `data-loom-nav-style` / `data-loom-footer-style`
+   attributes the renderer sets per the typed enum. Each variant
+   delivers a meaningfully different visual register — not just
+   color tweaks — so tenants composing identical CMS content render
+   distinctly when they pick different styles. */
+
+/* NavStyle::Centered — brand centred between two link halves. */
+nav[data-loom-nav-style="centered"] > div {
+  justify-content: space-between;
+}
+nav[data-loom-nav-style="centered"] > div > a:first-child {
+  order: 2;
+  margin: 0 auto;
+}
+nav[data-loom-nav-style="centered"] > div > div.hidden {
+  order: 1;
+  flex: 1;
+}
+
+/* NavStyle::Compact — tighter chrome. */
+nav[data-loom-nav-style="compact"] {
+  padding-top: 0.5rem !important;
+  padding-bottom: 0.5rem !important;
+}
+nav[data-loom-nav-style="compact"] span.font-display {
+  font-size: 1rem;
+}
+nav[data-loom-nav-style="compact"] > div {
+  gap: 1rem !important;
+}
+
+/* FooterStyle::Minimal — hide column blocks; keep brand + bottom band. */
+footer[data-loom-footer-style="minimal"] .grid {
+  display: block;
+}
+footer[data-loom-footer-style="minimal"] .grid > div + div {
+  display: none;
+}
+footer[data-loom-footer-style="minimal"] {
+  padding-top: 2.5rem;
+  padding-bottom: 2.5rem;
+}
+
+/* FooterStyle::Dense — tighter footer chrome. */
+footer[data-loom-footer-style="dense"] {
+  padding-top: 2rem;
+  padding-bottom: 2rem;
+  font-size: 0.875rem;
+}
+footer[data-loom-footer-style="dense"] .grid {
+  gap: 1.5rem;
+}
+footer[data-loom-footer-style="dense"] h3 {
+  font-size: 0.95rem;
+}
