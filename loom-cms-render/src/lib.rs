@@ -752,7 +752,60 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed incident post-mortem report. Distinct from
+    /// [`CmsSection::LiveUpdateLog`] (running update list
+    /// during an active incident), from
+    /// [`CmsSection::RecallNotice`] (product / safety recall),
+    /// and from [`CmsSection::Errata`] (corrections to an
+    /// already-published piece).
+    ///
+    /// IncidentReport is the typed primitive for the post-
+    /// mortem document a team publishes AFTER an incident has
+    /// resolved: status header (resolved / monitoring / under-
+    /// investigation), severity tag, scope summary, impact
+    /// statement, root-cause explanation, remediation, and
+    /// follow-up actions. The structured slots mean SREs,
+    /// auditors, and feed crawlers all consume the same shape
+    /// regardless of how the publisher styles it.
+    IncidentReport {
+        /// Status tag — surfaced as `data-loom-incident-status`.
+        status: IncidentStatus,
+        /// Severity tag — surfaced as
+        /// `data-loom-incident-severity`.
+        severity: IncidentSeverity,
+        /// Title ("Production database outage", "Auth service
+        /// degradation").
+        title: String,
+        /// Optional incident identifier ("INC-2026-0421",
+        /// "SEV2-payments-001") surfaced as plain text +
+        /// `data-loom-incident-id` for cross-system linking.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        incident_id: Option<String>,
+        /// Optional time-window label ("June 14, 14:23-15:01
+        /// UTC"). Free-form so different publishers can format
+        /// to taste.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        window_label: Option<String>,
+        /// Impact summary — what users / customers /
+        /// observers experienced. Multi-paragraph splits on
+        /// `\n\n`.
+        impact: String,
+        /// Root cause — technical explanation. Multi-paragraph
+        /// splits on `\n\n`.
+        root_cause: String,
+        /// Remediation — what was done to resolve. Multi-
+        /// paragraph splits on `\n\n`.
+        remediation: String,
+        /// Follow-up actions list — vector of stringified
+        /// commitments. Empty vec valid (e.g. when the team
+        /// chose not to publish follow-ups inline).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        follow_ups: Vec<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +3009,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3130,40 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// Status tag for [`CmsSection::IncidentReport`]. Tracks where
+/// the incident sits in the lifecycle — investigation → identified
+/// → mitigated → resolved (canonical PagerDuty / Atlassian
+/// vocabulary).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum IncidentStatus {
+    /// Cause unknown, team still investigating.
+    Investigating,
+    /// Cause identified, mitigation in progress.
+    Identified,
+    /// Mitigation deployed; monitoring for stability.
+    Monitoring,
+    /// Fully resolved.
+    Resolved,
+}
+
+/// Severity tag for [`CmsSection::IncidentReport`]. Surfaces
+/// the SEV-N signal that on-call rotations + downstream alert
+/// pipelines consume. Adding a variant is a doctrine change —
+/// operators MUST NOT introduce custom severities.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum IncidentSeverity {
+    /// SEV1 — total outage / data loss / safety risk.
+    Sev1,
+    /// SEV2 — major degradation; significant user impact.
+    Sev2,
+    /// SEV3 — partial degradation; limited user impact.
+    Sev3,
+    /// SEV4 — minor / cosmetic; no functional impact.
+    Sev4,
 }
 
 /// One comparison row.
@@ -5581,6 +5668,105 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::IncidentReport {
+            status,
+            severity,
+            title,
+            incident_id,
+            window_label,
+            impact,
+            root_cause,
+            remediation,
+            follow_ups,
+        } => {
+            let (status_slug, status_label) = match status {
+                IncidentStatus::Investigating => ("investigating", "Investigating"),
+                IncidentStatus::Identified => ("identified", "Identified"),
+                IncidentStatus::Monitoring => ("monitoring", "Monitoring"),
+                IncidentStatus::Resolved => ("resolved", "Resolved"),
+            };
+            let (severity_slug, severity_label) = match severity {
+                IncidentSeverity::Sev1 => ("sev1", "SEV1"),
+                IncidentSeverity::Sev2 => ("sev2", "SEV2"),
+                IncidentSeverity::Sev3 => ("sev3", "SEV3"),
+                IncidentSeverity::Sev4 => ("sev4", "SEV4"),
+            };
+            let split_paragraphs = |s: &str| -> Vec<String> {
+                s.split("\n\n").map(|p| p.to_owned()).collect()
+            };
+            let impact_paras = split_paragraphs(impact);
+            let rc_paras = split_paragraphs(root_cause);
+            let rem_paras = split_paragraphs(remediation);
+            html! {
+                article class="loom-incident-report"
+                    aria-labelledby="loom-incident-report__title"
+                    data-loom-incident-status=(status_slug)
+                    data-loom-incident-severity=(severity_slug)
+                    data-loom-incident-id=[incident_id.as_deref()]
+                    data-loom-reveal {
+                    header class="loom-incident-report__header" {
+                        div class="loom-incident-report__tags" {
+                            span class="loom-incident-report__status" { (status_label) }
+                            span class="loom-incident-report__separator"
+                                aria-hidden="true" { " · " }
+                            span class="loom-incident-report__severity" { (severity_label) }
+                            @if let Some(id) = incident_id {
+                                span class="loom-incident-report__separator"
+                                    aria-hidden="true" { " · " }
+                                code class="loom-incident-report__id" { (id) }
+                            }
+                        }
+                        h2 id="loom-incident-report__title"
+                            class="loom-incident-report__title" { (title) }
+                        @if let Some(w) = window_label {
+                            p class="loom-incident-report__window" { (w) }
+                        }
+                    }
+                    section class="loom-incident-report__section loom-incident-report__section--impact"
+                        aria-labelledby="loom-incident-report__h-impact" {
+                        h3 id="loom-incident-report__h-impact"
+                            class="loom-incident-report__h" { "Impact" }
+                        div class="loom-incident-report__body" {
+                            @for p in &impact_paras {
+                                p class="loom-incident-report__para" { (p) }
+                            }
+                        }
+                    }
+                    section class="loom-incident-report__section loom-incident-report__section--root-cause"
+                        aria-labelledby="loom-incident-report__h-root-cause" {
+                        h3 id="loom-incident-report__h-root-cause"
+                            class="loom-incident-report__h" { "Root cause" }
+                        div class="loom-incident-report__body" {
+                            @for p in &rc_paras {
+                                p class="loom-incident-report__para" { (p) }
+                            }
+                        }
+                    }
+                    section class="loom-incident-report__section loom-incident-report__section--remediation"
+                        aria-labelledby="loom-incident-report__h-remediation" {
+                        h3 id="loom-incident-report__h-remediation"
+                            class="loom-incident-report__h" { "Remediation" }
+                        div class="loom-incident-report__body" {
+                            @for p in &rem_paras {
+                                p class="loom-incident-report__para" { (p) }
+                            }
+                        }
+                    }
+                    @if !follow_ups.is_empty() {
+                        section class="loom-incident-report__section loom-incident-report__section--follow-ups"
+                            aria-labelledby="loom-incident-report__h-follow-ups" {
+                            h3 id="loom-incident-report__h-follow-ups"
+                                class="loom-incident-report__h" { "Follow-up actions" }
+                            ul class="loom-incident-report__follow-ups" {
+                                @for action in follow_ups {
+                                    li class="loom-incident-report__follow-up" { (action) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10133,191 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn incident_report_renders_required_sections() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "incident_report",
+                "status": "resolved",
+                "severity": "sev2",
+                "title": "Production database outage",
+                "impact": "All write traffic returned 503 for 38 minutes.",
+                "root_cause": "Bad index migration locked the primary.",
+                "remediation": "Rolled back the migration; reindexed online."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-incident-report"));
+        assert!(html.contains("aria-labelledby=\"loom-incident-report__title\""));
+        assert!(html.contains("data-loom-incident-status=\"resolved\""));
+        assert!(html.contains("data-loom-incident-severity=\"sev2\""));
+        assert!(html.contains(">Resolved<"));
+        assert!(html.contains(">SEV2<"));
+        assert!(html.contains("Production database outage"));
+        // Required sections rendered.
+        assert!(html.contains("loom-incident-report__h-impact"));
+        assert!(html.contains(">Impact<"));
+        assert!(html.contains("returned 503"));
+        assert!(html.contains("loom-incident-report__h-root-cause"));
+        assert!(html.contains(">Root cause<"));
+        assert!(html.contains("Bad index migration"));
+        assert!(html.contains("loom-incident-report__h-remediation"));
+        assert!(html.contains(">Remediation<"));
+        assert!(html.contains("Rolled back"));
+        // Optional chrome absent.
+        assert!(!html.contains("loom-incident-report__id"));
+        assert!(!html.contains("loom-incident-report__window"));
+        assert!(!html.contains("loom-incident-report__h-follow-ups"));
+    }
+
+    #[test]
+    fn incident_report_each_status_renders_distinct_slug() {
+        let cases: &[(&str, &str, &str)] = &[
+            ("investigating", "investigating", "Investigating"),
+            ("identified", "identified", "Identified"),
+            ("monitoring", "monitoring", "Monitoring"),
+        ];
+        for (json_status, slug, label) in cases {
+            let json = format!(
+                r#"{{
+                "brand": null, "theme": null, "chrome": null, "content_width": null,
+                "nav_actions": [], "title": "t", "description": "d",
+                "path": "/p", "nav_links": [], "dev_devtools": false,
+                "sections": [{{
+                    "kind": "incident_report",
+                    "status": "{json_status}",
+                    "severity": "sev1",
+                    "title": "T",
+                    "impact": "I", "root_cause": "R", "remediation": "M"
+                }}]
+            }}"#
+            );
+            let page: CmsPage =
+                serde_json::from_str(&json).unwrap_or_else(|_| panic!("status={json_status}"));
+            let html = render_to_string(&page);
+            assert!(
+                html.contains(&format!("data-loom-incident-status=\"{slug}\"")),
+                "status={json_status} missing data attr"
+            );
+            assert!(
+                html.contains(&format!(">{label}<")),
+                "status={json_status} missing visible label"
+            );
+        }
+    }
+
+    #[test]
+    fn incident_report_each_severity_renders_distinct_slug() {
+        let cases: &[(&str, &str, &str)] = &[
+            ("sev1", "sev1", "SEV1"),
+            ("sev3", "sev3", "SEV3"),
+            ("sev4", "sev4", "SEV4"),
+        ];
+        for (json_sev, slug, label) in cases {
+            let json = format!(
+                r#"{{
+                "brand": null, "theme": null, "chrome": null, "content_width": null,
+                "nav_actions": [], "title": "t", "description": "d",
+                "path": "/p", "nav_links": [], "dev_devtools": false,
+                "sections": [{{
+                    "kind": "incident_report",
+                    "status": "resolved",
+                    "severity": "{json_sev}",
+                    "title": "T",
+                    "impact": "I", "root_cause": "R", "remediation": "M"
+                }}]
+            }}"#
+            );
+            let page: CmsPage = serde_json::from_str(&json).unwrap_or_else(|_| panic!("sev={json_sev}"));
+            let html = render_to_string(&page);
+            assert!(
+                html.contains(&format!("data-loom-incident-severity=\"{slug}\"")),
+                "sev={json_sev} missing data attr"
+            );
+            assert!(
+                html.contains(&format!(">{label}<")),
+                "sev={json_sev} missing visible label"
+            );
+        }
+    }
+
+    #[test]
+    fn incident_report_full_chrome_with_id_window_followups() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "incident_report",
+                "status": "resolved",
+                "severity": "sev2",
+                "title": "Auth service degradation",
+                "incident_id": "INC-2026-0421",
+                "window_label": "June 14, 14:23-15:01 UTC",
+                "impact": "Para one.\n\nPara two.",
+                "root_cause": "RC.",
+                "remediation": "M.",
+                "follow_ups": [
+                    "Add canary deployment to auth service",
+                    "Improve rollback automation",
+                    "Add monitoring for the failure mode"
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // Incident id rendered + data attr.
+        assert!(html.contains("data-loom-incident-id=\"INC-2026-0421\""));
+        assert!(html.contains("<code class=\"loom-incident-report__id\">INC-2026-0421</code>"));
+        // Window label rendered.
+        assert!(html.contains("loom-incident-report__window"));
+        assert!(html.contains("June 14, 14:23-15:01 UTC"));
+        // Multi-paragraph impact.
+        let para_count = html.matches("loom-incident-report__para\"").count();
+        // Impact: 2 paras, root_cause: 1, remediation: 1 = 4.
+        assert_eq!(para_count, 4, "expected 4 paragraphs, got {para_count}");
+        // Follow-ups section.
+        assert!(html.contains("loom-incident-report__h-follow-ups"));
+        let action_count = html.matches("loom-incident-report__follow-up\"").count();
+        assert_eq!(action_count, 3, "expected 3 follow-up actions, got {action_count}");
+        assert!(html.contains("canary deployment"));
+    }
+
+    #[test]
+    fn incident_report_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "incident_report",
+                "status": "resolved",
+                "severity": "sev2",
+                "title": "<script>alert('t')</script>",
+                "incident_id": "<script>alert('id')</script>",
+                "window_label": "<script>alert('w')</script>",
+                "impact": "<script>alert('i')</script>",
+                "root_cause": "<script>alert('rc')</script>",
+                "remediation": "<script>alert('m')</script>",
+                "follow_ups": ["<script>alert('f')</script>"]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        // title + id + window + impact + root_cause + remediation
+        // + follow_up = 7
+        assert!(
+            entity_hits >= 7,
+            "expected >= 7 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
