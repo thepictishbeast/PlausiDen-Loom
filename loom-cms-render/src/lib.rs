@@ -673,6 +673,24 @@ pub enum CmsBlock {
         #[serde(default)]
         tone: BadgeTone,
     },
+    /// Typed empty-state pattern — what's rendered when a list
+    /// or dashboard has nothing to show. Required title +
+    /// supporting prose, optional CTA. The substrate's
+    /// canonical "no items yet" shape so tenants don't reinvent
+    /// it with five different ad-hoc compositions.
+    ///
+    /// Renders as `<div role="status">` so assistive tech reads
+    /// it as a status message, not a structural region.
+    EmptyState {
+        /// Required short heading (e.g., `"No projects yet"`).
+        title: String,
+        /// Supporting prose explaining what's missing or how to
+        /// add the first item.
+        body: String,
+        /// Optional call-to-action.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        action: Option<EmptyStateAction>,
+    },
     /// Sandboxed `<iframe>` embed. Used for third-party widgets
     /// (YouTube / Vimeo / Maps / payment forms) without granting
     /// them ambient access to the parent document. Substrate
@@ -1858,6 +1876,18 @@ impl IframeSandbox {
 /// the field. 100 matches typical percentage usage.
 const fn progress_default_max() -> u32 {
     100
+}
+
+/// Call-to-action attached to a [`CmsBlock::EmptyState`]. URL
+/// is validated via `is_safe_url`; hostile schemes drop the
+/// action entirely.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EmptyStateAction {
+    /// Button / link label.
+    pub label: String,
+    /// Destination URL.
+    pub href: String,
 }
 
 /// One event in a [`CmsBlock::Timeline`]. Optional timestamp
@@ -6598,6 +6628,18 @@ pub fn render_block(block: &CmsBlock) -> Markup {
         CmsBlock::Badge { text, tone } => html! {
             span class="loom-block-badge" data-tone=(tone.slug()) { (text) }
         },
+        CmsBlock::EmptyState { title, body, action } => {
+            let safe_action = action.as_ref().filter(|a| is_safe_url(&a.href));
+            html! {
+                div class="loom-block-empty" role="status" {
+                    h2 class="loom-block-empty__title" { (title) }
+                    p class="loom-block-empty__body" { (body) }
+                    @if let Some(a) = safe_action {
+                        a class="loom-block-empty__action" href=(a.href) { (a.label) }
+                    }
+                }
+            }
+        }
         CmsBlock::ProgressBar {
             value,
             max,
@@ -14006,6 +14048,51 @@ mod tests {
         let html = render_block(&s).into_string();
         assert!(html.contains(">Substrate A<"));
         assert!(html.contains(">Substrate B<"));
+    }
+
+    #[test]
+    fn cms_block_empty_state_emits_role_status_with_title_body() {
+        let e = CmsBlock::EmptyState {
+            title: "No projects yet".into(),
+            body: "Create your first project to get started.".into(),
+            action: Some(EmptyStateAction {
+                label: "Create project".into(),
+                href: "/projects/new".into(),
+            }),
+        };
+        let html = render_block(&e).into_string();
+        assert!(html.contains("loom-block-empty"));
+        assert!(html.contains(r#"role="status""#));
+        assert!(html.contains(">No projects yet<"));
+        assert!(html.contains("Create your first project"));
+        assert!(html.contains(r#"href="/projects/new""#));
+        assert!(html.contains(">Create project<"));
+    }
+
+    #[test]
+    fn cms_block_empty_state_drops_action_on_hostile_url() {
+        let e = CmsBlock::EmptyState {
+            title: "T".into(),
+            body: "B".into(),
+            action: Some(EmptyStateAction {
+                label: "x".into(),
+                href: "javascript:alert(1)".into(),
+            }),
+        };
+        let html = render_block(&e).into_string();
+        assert!(!html.contains("javascript:"));
+        assert!(!html.contains("loom-block-empty__action"));
+    }
+
+    #[test]
+    fn cms_block_empty_state_omits_action_when_none() {
+        let e = CmsBlock::EmptyState {
+            title: "T".into(),
+            body: "B".into(),
+            action: None,
+        };
+        let html = render_block(&e).into_string();
+        assert!(!html.contains("loom-block-empty__action"));
     }
 
     #[test]
