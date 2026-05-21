@@ -752,7 +752,38 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed onboarding checklist — list of get-started tasks
+    /// with per-task completed state. Distinct from
+    /// [`CmsSection::Steps`] (linear walkthrough),
+    /// [`CmsSection::Faq`] (Q+A list), and
+    /// [`CmsSection::Roadmap`] (product stages).
+    ///
+    /// OnboardingChecklist is the typed primitive for the
+    /// onboarding / get-started panel users see on first
+    /// login or as a sidebar progress indicator. Each task
+    /// carries its own completion state so the substrate can
+    /// audit / aggregate progress without parsing rendered
+    /// chrome.
+    ///
+    /// Renders with `role="region"` + `aria-label` so AT
+    /// users get a labelled landmark; the completion count
+    /// summary uses `role="status"` + `aria-live="polite"` so
+    /// progress updates announce on dynamic recomputation.
+    OnboardingChecklist {
+        /// Heading ("Welcome — let's get you set up",
+        /// "Get started").
+        heading: String,
+        /// Optional lede explanation. Multi-paragraph splits
+        /// on `\n\n`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lede: Option<String>,
+        /// Task entries in display order.
+        tasks: Vec<OnboardingTask>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +2987,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3108,33 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// One task in [`CmsSection::OnboardingChecklist`]. `completed`
+/// flips the rendered chrome to a checked state and surfaces as
+/// a `data-loom-onboarding-task-completed` attribute for
+/// progress audit. `cta` is the optional safe-url-gated link
+/// rendered when the task isn't yet complete.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
+pub struct OnboardingTask {
+    pub title: String,
+    pub description: String,
+    pub completed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cta: Option<OnboardingTaskCta>,
+}
+
+/// Call-to-action link for an [`OnboardingTask`]. `href` is
+/// validated via `is_safe_url`; hostile schemes fall back to a
+/// non-interactive span.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
+pub struct OnboardingTaskCta {
+    pub label: String,
+    pub href: String,
 }
 
 /// One comparison row.
@@ -5581,6 +5639,76 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::OnboardingChecklist {
+            heading,
+            lede,
+            tasks,
+        } => {
+            let total = tasks.len();
+            let done = tasks.iter().filter(|t| t.completed).count();
+            let done_str = done.to_string();
+            let total_str = total.to_string();
+            html! {
+                section class="loom-onboarding-checklist"
+                    role="region"
+                    aria-labelledby="loom-onboarding-checklist__heading"
+                    data-loom-onboarding-total=(total_str)
+                    data-loom-onboarding-completed=(done_str)
+                    data-loom-reveal {
+                    header class="loom-onboarding-checklist__header" {
+                        h2 id="loom-onboarding-checklist__heading"
+                            class="loom-onboarding-checklist__heading" { (heading) }
+                        @if let Some(l) = lede {
+                            div class="loom-onboarding-checklist__lede" {
+                                @for p in l.split("\n\n") {
+                                    p class="loom-onboarding-checklist__lede-para" { (p) }
+                                }
+                            }
+                        }
+                        p class="loom-onboarding-checklist__progress"
+                            role="status" aria-live="polite" {
+                            (done) " of " (total) " complete"
+                        }
+                    }
+                    ol class="loom-onboarding-checklist__tasks" {
+                        @for task in tasks {
+                            @let completed_attr = if task.completed { "true" } else { "false" };
+                            li class={
+                                "loom-onboarding-checklist__task "
+                                "loom-onboarding-checklist__task--"
+                                (if task.completed { "completed" } else { "pending" })
+                            }
+                                data-loom-onboarding-task-completed=(completed_attr) {
+                                div class="loom-onboarding-checklist__task-marker"
+                                    aria-hidden="true" {
+                                    @if task.completed { "✓" } @else { "○" }
+                                }
+                                div class="loom-onboarding-checklist__task-body" {
+                                    h3 class="loom-onboarding-checklist__task-title" {
+                                        (task.title)
+                                    }
+                                    p class="loom-onboarding-checklist__task-description" {
+                                        (task.description)
+                                    }
+                                    @if !task.completed {
+                                        @if let Some(cta) = &task.cta {
+                                            @let href_safe = loom_components::composer::is_safe_url(&cta.href);
+                                            @if href_safe {
+                                                a class="loom-onboarding-checklist__task-cta"
+                                                    href=(cta.href) { (cta.label) }
+                                            } @else {
+                                                span class="loom-onboarding-checklist__task-cta"
+                                                    data-blocked-href="true" { (cta.label) }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10075,155 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn onboarding_checklist_renders_progress_status() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "onboarding_checklist",
+                "heading": "Welcome — let's get you set up",
+                "tasks": [
+                    {"title": "Verify email", "description": "Confirm the link we sent.",
+                     "completed": true},
+                    {"title": "Add a payment method", "description": "Stripe / PayPal / wire.",
+                     "completed": false,
+                     "cta": {"label": "Add now", "href": "/account/billing"}},
+                    {"title": "Invite teammates", "description": "Up to 5 free seats.",
+                     "completed": false,
+                     "cta": {"label": "Invite", "href": "/team/invite"}}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-onboarding-checklist"));
+        assert!(html.contains("role=\"region\""));
+        assert!(html.contains("aria-labelledby=\"loom-onboarding-checklist__heading\""));
+        // Progress counts surfaced via data attrs.
+        assert!(html.contains("data-loom-onboarding-total=\"3\""));
+        assert!(html.contains("data-loom-onboarding-completed=\"1\""));
+        // Status line.
+        assert!(html.contains("loom-onboarding-checklist__progress"));
+        assert!(html.contains("role=\"status\""));
+        assert!(html.contains("aria-live=\"polite\""));
+        assert!(html.contains("1 of 3 complete"));
+        // Three tasks.
+        let task_count = html.matches("data-loom-onboarding-task-completed=").count();
+        assert_eq!(task_count, 3, "expected 3 tasks, got {task_count}");
+        // Completed + pending modifiers.
+        assert!(html.contains("loom-onboarding-checklist__task--completed"));
+        assert!(html.contains("loom-onboarding-checklist__task--pending"));
+        // Per-task data attrs.
+        assert!(html.contains("data-loom-onboarding-task-completed=\"true\""));
+        assert!(html.contains("data-loom-onboarding-task-completed=\"false\""));
+        // Completed task has check mark; pending has open circle.
+        assert!(html.contains("✓"));
+        assert!(html.contains("○"));
+        // CTAs only on pending tasks.
+        let cta_count = html.matches("loom-onboarding-checklist__task-cta").count();
+        assert_eq!(cta_count, 2, "expected 2 CTAs, got {cta_count}");
+        assert!(html.contains("href=\"/account/billing\""));
+        assert!(html.contains("href=\"/team/invite\""));
+    }
+
+    #[test]
+    fn onboarding_checklist_zero_completed_renders_0_of_n() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "onboarding_checklist",
+                "heading": "Get started",
+                "tasks": [
+                    {"title": "T1", "description": "D1", "completed": false},
+                    {"title": "T2", "description": "D2", "completed": false}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("0 of 2 complete"));
+        assert!(html.contains("data-loom-onboarding-completed=\"0\""));
+    }
+
+    #[test]
+    fn onboarding_checklist_all_completed_omits_ctas() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "onboarding_checklist",
+                "heading": "All done",
+                "tasks": [
+                    {"title": "T1", "description": "D1", "completed": true,
+                     "cta": {"label": "L", "href": "/a"}},
+                    {"title": "T2", "description": "D2", "completed": true,
+                     "cta": {"label": "L", "href": "/b"}}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // CTAs suppressed when completed (no point linking to a
+        // task that's done).
+        assert!(!html.contains("loom-onboarding-checklist__task-cta"));
+        assert!(html.contains("2 of 2 complete"));
+    }
+
+    #[test]
+    fn onboarding_checklist_unsafe_cta_href_falls_back_to_span() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "onboarding_checklist",
+                "heading": "H",
+                "tasks": [
+                    {"title": "T", "description": "D", "completed": false,
+                     "cta": {"label": "Visit", "href": "javascript:alert(1)"}}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("href=\"javascript:"));
+        assert!(html.contains("data-blocked-href=\"true\""));
+    }
+
+    #[test]
+    fn onboarding_checklist_escapes_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "onboarding_checklist",
+                "heading": "<script>alert('h')</script>",
+                "lede": "<script>alert('l')</script>",
+                "tasks": [
+                    {"title": "<script>alert('t')</script>",
+                     "description": "<script>alert('d')</script>",
+                     "completed": false,
+                     "cta": {"label": "<script>alert('c')</script>",
+                             "href": "/safe"}}
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        assert!(
+            entity_hits >= 5,
+            "expected >= 5 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
