@@ -430,6 +430,46 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Numeric text-input with spinner buttons. Renders as the
+    /// native `<input type="number">` — full keyboard support
+    /// (arrow keys ±step, scroll wheel ±step), browser-validated
+    /// numeric input, no JS required.
+    ///
+    /// Behavioral contract mirrors Radix UI's `NumberField` /
+    /// React Aria's `NumberField` primitive. Upstream specs:
+    /// <https://react-spectrum.adobe.com/react-aria/NumberField.html>
+    /// (Apache-2.0). No source copied.
+    NumberField {
+        /// Unique HTML `id`.
+        id: String,
+        /// Visible label text.
+        label: String,
+        /// Optional form-field `name` attribute.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Optional minimum value.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min: Option<f64>,
+        /// Optional maximum value.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<f64>,
+        /// Optional step granularity. When omitted, browser
+        /// defaults to 1 for integers and "any" for floats.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        step: Option<f64>,
+        /// Optional initial value.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<f64>,
+        /// Optional placeholder.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placeholder: Option<String>,
+        /// When true, the field is required for form submission.
+        #[serde(default)]
+        required: bool,
+        /// When true, render as disabled.
+        #[serde(default)]
+        disabled: bool,
+    },
     /// Transient notification banner. Renders with ARIA live-
     /// region semantics so screen readers announce the message
     /// as it appears. `role` + `aria-live` are derived from
@@ -5331,6 +5371,42 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::NumberField {
+            id,
+            label,
+            name,
+            min,
+            max,
+            step,
+            value,
+            placeholder,
+            required,
+            disabled,
+        } => html! {
+            div class="loom-block-number-field" data-loom-slot="number-field" {
+                label
+                    class="loom-block-number-field__label"
+                    data-loom-slot="number-field-label"
+                    for=(id)
+                {
+                    (label)
+                }
+                input
+                    type="number"
+                    class="loom-block-number-field__input"
+                    data-loom-slot="number-field-input"
+                    id=(id)
+                    name=[name.as_deref()]
+                    min=[min]
+                    max=[max]
+                    step=[step]
+                    value=[value]
+                    placeholder=[placeholder.as_deref()]
+                    required[*required]
+                    disabled[*disabled]
+                    aria-label=(label);
+            }
+        },
         CmsBlock::Toast {
             id,
             tone,
@@ -10055,6 +10131,66 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_number_field_renders_native_number_input() {
+        let json = r#"{
+            "kind": "number_field",
+            "id": "qty",
+            "label": "Quantity",
+            "name": "qty",
+            "min": 1.0,
+            "max": 999.0,
+            "step": 1.0,
+            "value": 12.0,
+            "placeholder": "0",
+            "required": true
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-loom-slot="number-field""#));
+        assert!(html.contains(r#"type="number""#));
+        assert!(html.contains(r#"id="qty""#));
+        assert!(html.contains(r#"name="qty""#));
+        assert!(html.contains(r#"min="1""#));
+        assert!(html.contains(r#"max="999""#));
+        assert!(html.contains(r#"step="1""#));
+        assert!(html.contains(r#"value="12""#));
+        assert!(html.contains(r#"placeholder="0""#));
+        assert!(html.contains(r#"required"#));
+        assert!(html.contains(r#"aria-label="Quantity""#));
+    }
+
+    #[test]
+    fn cms_block_number_field_optional_fields_omit_attrs() {
+        let json = r#"{
+            "kind":"number_field","id":"x","label":"L"
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        // No min/max/step/value/placeholder/name attrs emitted
+        // when the fields are absent.
+        assert!(!html.contains(r#" min=""#));
+        assert!(!html.contains(r#" max=""#));
+        assert!(!html.contains(r#" step=""#));
+        assert!(!html.contains(r#" value=""#));
+        assert!(!html.contains(r#" placeholder=""#));
+        assert!(!html.contains(r#" name=""#));
+        assert!(!html.contains(r#" required"#));
+        // But the input + aria-label + label survive.
+        assert!(html.contains(r#"type="number""#));
+        assert!(html.contains(r#"aria-label="L""#));
+    }
+
+    #[test]
+    fn cms_block_number_field_disabled_emits_disabled_attr() {
+        let json = r#"{
+            "kind":"number_field","id":"x","label":"L","disabled":true
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains("disabled"));
     }
 
     #[test]
