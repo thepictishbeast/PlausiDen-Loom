@@ -430,6 +430,47 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Form wrapper — groups field block children + a submit
+    /// button into a single `<form>` element with explicit
+    /// method + action + name=. Renders ARIA-correct semantics
+    /// out of the box; browsers handle the submission flow
+    /// without JS.
+    ///
+    /// Behavioral contract mirrors Radix UI's `Form` primitive
+    /// + the native HTML `<form>` element. Upstream:
+    /// <https://www.radix-ui.com/primitives/docs/components/form>
+    /// (MIT). No source copied — substrate uses the native HTML
+    /// form element rather than the Radix Field abstraction
+    /// because the form-field block primitives (TextInput,
+    /// Select, RadioGroup, etc.) already carry their own
+    /// labels + validation semantics.
+    Form {
+        /// Unique HTML `id`.
+        id: String,
+        /// Submit endpoint URL.
+        action: String,
+        /// HTTP method.
+        #[serde(default)]
+        method: FormMethod,
+        /// Optional encoding type (`application/x-www-form-
+        /// urlencoded` (default), `multipart/form-data` (file
+        /// uploads), `text/plain` (debug only)).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        enctype: Option<String>,
+        /// Submit-button label.
+        submit_label: String,
+        /// When true, the browser skips its own client-side
+        /// validation (`min`/`max`/`required`/`pattern`/etc.).
+        /// Use when the form has custom JS validation that
+        /// surfaces messages differently from the browser
+        /// default tooltip.
+        #[serde(default)]
+        novalidate: bool,
+        /// Child block tree — typically a sequence of form-
+        /// field primitives (TextInput / NumberField / Select /
+        /// RadioGroup / Checkbox / Switch / TagInput / etc.).
+        children: Vec<CmsBlock>,
+    },
     /// Off-canvas drawer — modal `<dialog>` styled to slide in
     /// from one edge (top / right / bottom / left). Same native
     /// HTML `<dialog>` machinery as [`CmsBlock::Dialog`] (#92)
@@ -1177,6 +1218,20 @@ pub enum CmsBlock {
         #[serde(default)]
         disabled: bool,
     },
+}
+
+/// HTTP method for a [`CmsBlock::Form`]. `Dialog` works inside a
+/// `<dialog>` element — the browser closes the dialog with the
+/// submitter's value when the form is submitted (no network
+/// round-trip).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum FormMethod {
+    #[default]
+    Post,
+    Get,
+    Dialog,
 }
 
 /// Edge a [`CmsBlock::Sheet`] docks against.
@@ -5999,6 +6054,47 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                                     (render_block(child))
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+        CmsBlock::Form {
+            id,
+            action,
+            method,
+            enctype,
+            submit_label,
+            novalidate,
+            children,
+        } => {
+            let safe_action = loom_components::composer::is_safe_url(action);
+            let m = match method {
+                FormMethod::Get => "get",
+                FormMethod::Post => "post",
+                FormMethod::Dialog => "dialog",
+            };
+            html! {
+                form
+                    id=(id)
+                    class="loom-block-form"
+                    data-loom-slot="form"
+                    action=(if safe_action { action.as_str() } else { "#invalid-action" })
+                    data-invalid=[(!safe_action).then_some("true")]
+                    method=(m)
+                    enctype=[enctype.as_deref()]
+                    novalidate[*novalidate]
+                {
+                    @for child in children {
+                        (render_block(child))
+                    }
+                    div class="loom-block-form__actions" data-loom-slot="form-actions" {
+                        button
+                            type="submit"
+                            class="loom-block-form__submit"
+                            data-loom-slot="form-submit"
+                        {
+                            (submit_label)
                         }
                     }
                 }
@@ -11634,6 +11730,79 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_form_renders_native_form_with_fields_and_submit() {
+        let json = r#"{
+            "kind": "form",
+            "id": "subscribe",
+            "action": "/api/subscribe",
+            "method": "post",
+            "submit_label": "Subscribe",
+            "children": [
+                {"kind":"text","text":"Your email"}
+            ]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"<form"#));
+        assert!(html.contains(r#"id="subscribe""#));
+        assert!(html.contains(r#"data-loom-slot="form""#));
+        assert!(html.contains(r#"action="/api/subscribe""#));
+        assert!(html.contains(r#"method="post""#));
+        // Submit button at the bottom.
+        assert!(html.contains(r#"data-loom-slot="form-actions""#));
+        assert!(html.contains(r#"data-loom-slot="form-submit""#));
+        assert!(html.contains(r#"type="submit""#));
+        assert!(html.contains(">Subscribe</button>"));
+        // Child block rendered.
+        assert!(html.contains("Your email"));
+    }
+
+    #[test]
+    fn cms_block_form_unsafe_action_marks_invalid() {
+        let json = r##"{
+            "kind":"form",
+            "id":"x",
+            "action":"javascript:alert(1)",
+            "method":"post",
+            "submit_label":"Go",
+            "children":[]
+        }"##;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r##"action="#invalid-action""##));
+        assert!(html.contains(r#"data-invalid="true""#));
+    }
+
+    #[test]
+    fn cms_block_form_dialog_method_supported() {
+        let json = r##"{
+            "kind":"form","id":"x","action":"#","method":"dialog","submit_label":"OK","children":[]
+        }"##;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"method="dialog""#));
+    }
+
+    #[test]
+    fn cms_block_form_default_method_is_post() {
+        let json = r#"{"kind":"form","id":"x","action":"/a","submit_label":"S","children":[]}"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"method="post""#));
+    }
+
+    #[test]
+    fn cms_block_form_novalidate_emits_attr() {
+        let json = r#"{
+            "kind":"form","id":"x","action":"/a","submit_label":"S",
+            "novalidate":true,"children":[]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains("novalidate"));
     }
 
     #[test]

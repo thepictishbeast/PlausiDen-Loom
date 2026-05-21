@@ -10524,3 +10524,45 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
 .loom-block-hover-card[data-placement="right"]:hover > .loom-block-hover-card__content,
 .loom-block-hover-card[data-placement="right"]:focus-visible > .loom-block-hover-card__content,
 .loom-block-hover-card[data-placement="right"]:focus-within  > .loom-block-hover-card__content { transform: translate(0, -50%); }
+
+/* === CmsBlock::Form ================================================ */
+.loom-block-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-width: 32rem;
+}
+.loom-block-form > * {
+  margin: 0;
+}
+.loom-block-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+.loom-block-form__submit {
+  appearance: none;
+  background: var(--loom-color-primary, var(--loom-accent));
+  color: var(--loom-color-on-primary, #fff);
+  border: 0;
+  border-radius: var(--loom-radius, 10px);
+  padding: 0.6rem 1.25rem;
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background var(--loom-motion-fast, 120ms) var(--loom-ease-out, ease);
+  min-height: var(--loom-tap-min, 44px);
+}
+.loom-block-form__submit:hover {
+  background: color-mix(in oklab, var(--loom-color-primary, var(--loom-accent)) 80%, black);
+}
+.loom-block-form__submit:focus-visible {
+  outline: 2px solid var(--loom-color-primary, var(--loom-accent));
+  outline-offset: 3px;
+}
+.loom-block-form[data-invalid="true"] {
+  outline: 2px dashed var(--loom-color-danger, #b91c1c);
+  outline-offset: 4px;
+}
