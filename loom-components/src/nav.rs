@@ -115,17 +115,17 @@ impl Nav<'_> {
         html! {
             nav id="site-nav" class="fixed top-0 left-0 right-0 z-50 transition-all duration-300 border-b bg-transparent border-transparent py-5" data-loom-nav-style=(nav_style_attr) {
                 div class="container mx-auto px-4 md:px-6 flex items-center justify-between" {
-                    a href="/" {
-                        div class="flex items-center gap-2 cursor-pointer group" {
+                    a href="/" class="shrink-0" {
+                        div class="flex items-center gap-3 cursor-pointer group" {
                             div class=(logo_class) {
                                 (PreEscaped(logo_svg))
                             }
-                            span class="font-display font-bold text-xl tracking-tight transition-colors text-slate-900" {
+                            span class="font-display font-bold text-xl tracking-tight transition-colors text-slate-900 whitespace-nowrap" {
                                 (self.brand_name) " " span class="text-primary" { (self.brand_accent) }
                             }
                         }
                     }
-                    div class="hidden md:flex items-center gap-6" {
+                    div class="hidden md:flex items-center gap-8" {
                         @for link in self.links {
                             (render_desktop_link(link, self.current, self.style))
                         }
@@ -179,7 +179,7 @@ fn render_desktop_link(link: &NavLink<'_>, current: &str, style: NavStyle) -> Ma
         NavStyle::Editorial => "",
     };
     let span_class = format!(
-        "text-sm font-medium {transition_classes} cursor-pointer relative group {text_class}"
+        "text-sm font-medium {transition_classes} cursor-pointer relative group whitespace-nowrap {text_class}"
     );
     html! {
         a href=(link.href) {
