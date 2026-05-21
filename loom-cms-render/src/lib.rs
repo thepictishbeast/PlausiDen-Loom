@@ -769,6 +769,39 @@ pub enum CmsSection {
         #[serde(default)]
         position: MarginaliaPosition,
     },
+    /// Mid-article author / editor commentary block — typed
+    /// "Author's note:" / "Editor's note:" / "Update:"
+    /// interjection placed inside the article body to set off
+    /// a personal-voice aside from the main narrative.
+    /// Distinct from [`CmsSection::AuthorBio`] (end-of-document
+    /// avatar + bio + links), [`CmsSection::Postscript`]
+    /// (P.S.-style trailing block after the body), and
+    /// [`CmsSection::Disclaimer`] (declarations of paid
+    /// relationships): AuthorNote is the in-flow personal
+    /// voice interjection, often dated, often by name.
+    ///
+    /// Editorial intent: blog / newsletter / journalism
+    /// surfaces where the writer (or the editor) wants to flag
+    /// an addition / clarification / context without
+    /// interrupting the original text flow.
+    AuthorNote {
+        /// Optional label override. `None` renders the
+        /// default `"Author's note"` eyebrow. Common overrides:
+        /// `"Editor's note"`, `"Update"`, `"Note"`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        /// Optional author name rendered next to the label
+        /// (separated by a bullet).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        author: Option<String>,
+        /// Optional dateline (RFC 3339 or human-readable).
+        /// Rendered in a `<time>` element when supplied.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dateline: Option<String>,
+        /// Body text — multi-paragraph splits on `\n\n` into
+        /// separate `<p>` tags.
+        body: String,
+    },
     /// Account-summary card — typed surface for a logged-in
     /// user's at-a-glance state. Renders avatar + display name +
     /// plan + member-since. Read-only; editing flows through
@@ -2956,7 +2989,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5292,6 +5325,38 @@ pub fn render_section(section: &CmsSection) -> Markup {
             html! {
                 aside class={ "loom-marginalia " (pos_class) } role="note" {
                     span class="loom-marginalia__body" { (body) }
+                }
+            }
+        }
+        CmsSection::AuthorNote {
+            label,
+            author,
+            dateline,
+            body,
+        } => {
+            let label_text: &str = label.as_deref().unwrap_or("Author's note");
+            html! {
+                aside class="loom-author-note"
+                      role="note"
+                      aria-label="Author's note"
+                      data-loom-reveal
+                {
+                    p class="loom-author-note__meta" {
+                        span class="loom-author-note__label" { (label_text) }
+                        @if let Some(a) = author {
+                            span class="loom-author-note__sep" aria-hidden="true" { " · " }
+                            span class="loom-author-note__author" { (a) }
+                        }
+                        @if let Some(d) = dateline {
+                            span class="loom-author-note__sep" aria-hidden="true" { " · " }
+                            time class="loom-author-note__dateline" datetime=(d) { (d) }
+                        }
+                    }
+                    div class="loom-author-note__body" {
+                        @for para in body.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
+                            p { (para) }
+                        }
+                    }
                 }
             }
         }
@@ -10147,6 +10212,129 @@ mod tests {
         assert!(html.contains("Solo"));
         assert!(!html.contains("loom-byline__role"));
         assert!(!html.contains("loom-byline__dateline"));
+    }
+
+    // #104 (2026-05-21) — AuthorNote mid-article commentary block.
+
+    #[test]
+    fn author_note_default_label_is_authors_note() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "author_note",
+                "body": "I've revised this position since publishing."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<aside class="loom-author-note""#));
+        assert!(html.contains(r#"role="note""#));
+        assert!(html.contains(r#"aria-label="Author's note""#));
+        assert!(html.contains(r#"class="loom-author-note__label""#));
+        // Apostrophe in "Author's note" is HTML-escaped by maud
+        // (e.g. `&#39;` or `&#x27;`); assert on substrings that
+        // bracket the apostrophe instead.
+        assert!(html.contains(">Author"));
+        assert!(html.contains("s note<"));
+        assert!(html.contains("revised this position since publishing."));
+        // No author + dateline chrome when both None.
+        assert!(!html.contains("loom-author-note__author"));
+        assert!(!html.contains("loom-author-note__dateline"));
+    }
+
+    #[test]
+    fn author_note_custom_label_with_author_and_dateline() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "author_note",
+                "label": "Editor's note",
+                "author": "Jane Doe",
+                "dateline": "2026-03-05",
+                "body": "The figure originally read 4%; corrected to 4.5%."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // Editor's note appears with the apostrophe HTML-escaped by maud.
+        assert!(html.contains(">Editor"));
+        assert!(html.contains("s note<"));
+        assert!(html.contains(">Jane Doe<"));
+        assert!(html.contains(r#"<time class="loom-author-note__dateline" datetime="2026-03-05""#));
+        assert!(html.contains(">2026-03-05<"));
+        // Bullet separators present.
+        assert!(html.contains(" · "));
+    }
+
+    #[test]
+    fn author_note_dateline_only_omits_author_separator() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "author_note",
+                "dateline": "2026-03-05",
+                "body": "Body."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains(r#"<time class="loom-author-note__dateline""#));
+        assert!(!html.contains("loom-author-note__author"));
+        // Exactly one separator (between label + dateline), not two.
+        let sep_count = html.matches(" · ").count();
+        assert_eq!(sep_count, 1);
+    }
+
+    #[test]
+    fn author_note_body_splits_on_blank_lines() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "author_note",
+                "body": "First clarification.\n\nSecond clarification."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        let open = html.find("loom-author-note__body").expect("body class");
+        let close = html[open..].find("</div>").expect("/div") + open;
+        let slice = &html[open..close];
+        assert_eq!(slice.matches("<p>").count(), 2);
+    }
+
+    #[test]
+    fn author_note_body_html_escaped() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "author_note",
+                "label": "<script>l</script>",
+                "author": "<script>a</script>",
+                "dateline": "<script>d</script>",
+                "body": "<script>b</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        for raw in [
+            "<script>l</script>",
+            "<script>a</script>",
+            "<script>d</script>",
+            "<script>b</script>",
+        ] {
+            assert!(!html.contains(raw), "leaked raw HTML for {raw}");
+        }
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
