@@ -10566,3 +10566,30 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
   outline: 2px dashed var(--loom-color-danger, #b91c1c);
   outline-offset: 4px;
 }
+
+/* === CmsBlock::List ================================================ */
+/* Semantic ul/ol primitive. Marker style + indent come from tenant
+   [style] config so visual register varies between tenants without
+   per-instance overrides. */
+.loom-block-list {
+  margin: 0;
+  padding-left: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  color: var(--loom-color-text, inherit);
+  font-size: var(--loom-font-body, 1rem);
+  line-height: var(--loom-leading-body, 1.6);
+}
+.loom-block-list[data-style="unordered"] {
+  list-style-type: var(--loom-list-bullet, disc);
+}
+.loom-block-list[data-style="ordered"] {
+  list-style-type: var(--loom-list-marker, decimal);
+}
+.loom-block-list__item {
+  padding-left: 0.25rem;
+}
+.loom-block-list__item::marker {
+  color: var(--loom-color-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 55%, transparent));
+}
