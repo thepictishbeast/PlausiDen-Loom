@@ -10740,3 +10740,50 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
   border-radius: var(--loom-radius-iframe, var(--loom-radius-md, 0.5rem));
   aspect-ratio: var(--loom-iframe-aspect, 16 / 9);
 }
+
+/* === CmsBlock::Badge =============================================== */
+/* Inline status pill. Substrate emits structure + tone data-attr;
+   visual register flows from tenant [style] config via the canonical
+   tone tokens. Non-interactive — distinct from CmsBlock::Button. */
+.loom-block-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25;
+  border-radius: var(--loom-radius-badge, 9999px);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.loom-block-badge[data-tone="neutral"] {
+  background: var(--loom-color-badge-neutral-bg, color-mix(in oklab, var(--loom-color-text, currentColor) 8%, transparent));
+  color: var(--loom-color-badge-neutral-text, var(--loom-color-text, inherit));
+  border-color: var(--loom-color-badge-neutral-border, color-mix(in oklab, var(--loom-color-text, currentColor) 18%, transparent));
+}
+.loom-block-badge[data-tone="info"] {
+  background: var(--loom-color-badge-info-bg, #e0f2fe);
+  color: var(--loom-color-badge-info-text, #075985);
+  border-color: var(--loom-color-badge-info-border, #7dd3fc);
+}
+.loom-block-badge[data-tone="success"] {
+  background: var(--loom-color-badge-success-bg, #dcfce7);
+  color: var(--loom-color-badge-success-text, #166534);
+  border-color: var(--loom-color-badge-success-border, #86efac);
+}
+.loom-block-badge[data-tone="warning"] {
+  background: var(--loom-color-badge-warning-bg, #fef3c7);
+  color: var(--loom-color-badge-warning-text, #92400e);
+  border-color: var(--loom-color-badge-warning-border, #fcd34d);
+}
+.loom-block-badge[data-tone="danger"] {
+  background: var(--loom-color-badge-danger-bg, #fee2e2);
+  color: var(--loom-color-badge-danger-text, #991b1b);
+  border-color: var(--loom-color-badge-danger-border, #fca5a5);
+}
+.loom-block-badge[data-tone="accent"] {
+  background: var(--loom-color-badge-accent-bg, color-mix(in oklab, var(--loom-color-accent, var(--loom-color-primary, #3a7afe)) 18%, transparent));
+  color: var(--loom-color-badge-accent-text, var(--loom-color-accent, var(--loom-color-primary, #3a7afe)));
+  border-color: var(--loom-color-badge-accent-border, color-mix(in oklab, var(--loom-color-accent, var(--loom-color-primary, #3a7afe)) 35%, transparent));
+}
