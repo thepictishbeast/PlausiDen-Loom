@@ -9143,3 +9143,66 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
 .loom-block-row[data-align="end"],      .loom-block-column[data-align="end"]      { align-items: flex-end; }
 .loom-block-row[data-align="stretch"],  .loom-block-column[data-align="stretch"]  { align-items: stretch; }
 .loom-block-row[data-align="baseline"], .loom-block-column[data-align="baseline"] { align-items: baseline; }
+
+/* === CmsBlock::Switch ============================================== */
+.loom-block-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  user-select: none;
+}
+.loom-block-switch__input {
+  /* Hidden but focusable + click-through to track. Visually-hidden
+   * technique so screen readers + keyboard users get the native
+   * <input type=checkbox role=switch> semantics. */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.loom-block-switch__track {
+  display: inline-flex;
+  align-items: center;
+  width: 2.5rem;
+  height: 1.4rem;
+  padding: 0.15rem;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--loom-color-ink, var(--loom-fg)) 25%, transparent);
+  transition: background var(--loom-motion-fast, 120ms) var(--loom-ease-out, ease);
+  flex-shrink: 0;
+}
+.loom-block-switch__thumb {
+  display: block;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 9999px;
+  background: var(--loom-color-bg, var(--loom-bg, #fff));
+  box-shadow: var(--loom-shadow-sm, 0 1px 2px rgba(0,0,0,0.1));
+  transition: transform var(--loom-motion-fast, 120ms) var(--loom-ease-out, ease);
+}
+.loom-block-switch__input:checked + .loom-block-switch__track {
+  background: var(--loom-color-primary, var(--loom-accent));
+}
+.loom-block-switch__input:checked + .loom-block-switch__track .loom-block-switch__thumb {
+  transform: translateX(1.1rem);
+}
+.loom-block-switch__input:focus-visible + .loom-block-switch__track {
+  outline: 2px solid var(--loom-color-primary, var(--loom-accent));
+  outline-offset: 3px;
+}
+.loom-block-switch__input:disabled ~ .loom-block-switch__track {
+  opacity: 0.5;
+}
+.loom-block-switch__input:disabled ~ * {
+  cursor: not-allowed;
+}
+.loom-block-switch__label {
+  color: var(--loom-color-ink, var(--loom-fg));
+  font-size: 0.95rem;
+}

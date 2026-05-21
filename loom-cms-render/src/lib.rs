@@ -430,6 +430,41 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Boolean toggle. Renders as an accessible
+    /// `<label><input type="checkbox" role="switch">…</label>`
+    /// — native form control, full keyboard + screen-reader
+    /// support, no JS required to operate. Form-mode opt-in
+    /// via the `name` field so the switch posts state along
+    /// with a surrounding `<form>`.
+    ///
+    /// Behavioral contract mirrors Radix UI's `Switch` primitive.
+    /// Upstream spec: <https://www.radix-ui.com/primitives/docs/components/switch>
+    /// (MIT). No source copied.
+    Switch {
+        /// Unique HTML `id` for the input. Required because the
+        /// `<label>` references it via the `for` attribute when
+        /// the label text is rendered separately, and external
+        /// labels (in tenant CMS pages that nest a Switch in a
+        /// custom-labelled row) bind via the same `id`.
+        id: String,
+        /// Visible label text. Rendered inside the wrapping
+        /// `<label>` so click + tap targets the input.
+        label: String,
+        /// Optional form-field `name` attribute. When set, the
+        /// switch participates in form submission with the
+        /// declared name (no submission when omitted — a
+        /// stand-alone UI affordance).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Initial state.
+        #[serde(default)]
+        checked: bool,
+        /// When true, the switch renders as disabled (greyed
+        /// out, non-interactive). Useful for showing state
+        /// without allowing user changes.
+        #[serde(default)]
+        disabled: bool,
+    },
 }
 
 /// One disclosure item inside a [`CmsBlock::Accordion`]. Distinct
@@ -4996,6 +5031,33 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::Switch {
+            id,
+            label,
+            name,
+            checked,
+            disabled,
+        } => html! {
+            label
+                class="loom-block-switch"
+                data-loom-slot="switch"
+                for=(id)
+            {
+                input
+                    type="checkbox"
+                    role="switch"
+                    class="loom-block-switch__input"
+                    id=(id)
+                    name=[name.as_deref()]
+                    checked[*checked]
+                    disabled[*disabled]
+                    aria-checked=(if *checked { "true" } else { "false" });
+                span class="loom-block-switch__track" aria-hidden="true" {
+                    span class="loom-block-switch__thumb" {}
+                }
+                span class="loom-block-switch__label" { (label) }
+            }
+        },
     }
 }
 
@@ -9314,6 +9376,54 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_switch_renders_as_native_input_with_aria_role() {
+        let json = r#"{
+            "kind": "switch",
+            "id": "notify",
+            "label": "Email notifications",
+            "name": "notify",
+            "checked": true
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains("loom-block-switch"));
+        assert!(html.contains(r#"data-loom-slot="switch""#));
+        assert!(html.contains(r#"role="switch""#));
+        assert!(html.contains(r#"type="checkbox""#));
+        assert!(html.contains(r#"id="notify""#));
+        assert!(html.contains(r#"name="notify""#));
+        assert!(html.contains("checked"));
+        assert!(html.contains(r#"aria-checked="true""#));
+        assert!(html.contains(">Email notifications</span>"));
+    }
+
+    #[test]
+    fn cms_block_switch_unchecked_emits_aria_false() {
+        let json = r#"{"kind":"switch","id":"x","label":"L"}"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"aria-checked="false""#));
+        assert!(!html.contains("checked "));
+    }
+
+    #[test]
+    fn cms_block_switch_disabled_omits_form_interactivity() {
+        let json = r#"{"kind":"switch","id":"x","label":"L","disabled":true}"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains("disabled"));
+    }
+
+    #[test]
+    fn cms_block_switch_no_name_omits_form_submission_attr() {
+        let json = r#"{"kind":"switch","id":"x","label":"L"}"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        // No `name=` attr emitted when the field is absent.
+        assert!(!html.contains(r#" name=""#));
     }
 
     #[test]
