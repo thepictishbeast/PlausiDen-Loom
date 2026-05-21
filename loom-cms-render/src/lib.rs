@@ -430,6 +430,26 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Tooltip — hover/focus-revealed annotation tied to a
+    /// trigger phrase. Renders entirely CSS-driven (no JS): the
+    /// tooltip body shows on `:hover` and `:focus-visible` of
+    /// the wrapping `<span>`. `aria-describedby` ties the
+    /// trigger to the tooltip body for screen-reader users; the
+    /// wrapper carries `tabindex="0"` so keyboard users can
+    /// focus the trigger.
+    ///
+    /// Behavioral contract mirrors Radix UI's `Tooltip` primitive.
+    /// Upstream spec: <https://www.radix-ui.com/primitives/docs/components/tooltip>
+    /// (MIT). No source copied.
+    Tooltip {
+        /// Visible trigger text.
+        label: String,
+        /// Tooltip body. Shown on hover + focus.
+        content: String,
+        /// Placement relative to the trigger.
+        #[serde(default)]
+        placement: TooltipPlacement,
+    },
     /// Numeric range picker. Renders as a labelled
     /// `<input type="range">` — native form control, full
     /// keyboard support (arrow keys ±step, Home/End for
@@ -542,6 +562,20 @@ pub enum BlockSpacing {
     Lg,
     Xl,
     Xxl,
+}
+
+/// Placement of a [`CmsBlock::Tooltip`] relative to its trigger.
+/// The slug is emitted as `data-placement` so the skin cascade
+/// can position the floating body via CSS without JS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum TooltipPlacement {
+    #[default]
+    Top,
+    Bottom,
+    Left,
+    Right,
 }
 
 /// Flexbox cross-axis alignment. Mirrors CSS `align-items` for
@@ -5076,6 +5110,39 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::Tooltip {
+            label,
+            content,
+            placement,
+        } => {
+            // Stable per-render id so aria-describedby resolves
+            // against the body span. Uses content hash (low
+            // collision risk in practice; substrate detector
+            // unique_id flags real duplicates).
+            let body_id = format!("loom-tip-{}", short_hash(content));
+            let place = tooltip_placement_slug(*placement);
+            html! {
+                span
+                    class="loom-block-tooltip"
+                    data-loom-slot="tooltip"
+                    data-placement=(place)
+                    tabindex="0"
+                    aria-describedby=(body_id)
+                {
+                    span class="loom-block-tooltip__trigger" data-loom-slot="tooltip-trigger" {
+                        (label)
+                    }
+                    span
+                        class="loom-block-tooltip__content"
+                        data-loom-slot="tooltip-content"
+                        role="tooltip"
+                        id=(body_id)
+                    {
+                        (content)
+                    }
+                }
+            }
+        }
         CmsBlock::Slider {
             id,
             label,
@@ -5164,6 +5231,31 @@ pub const fn block_spacing_slug(s: BlockSpacing) -> &'static str {
         BlockSpacing::Xl => "xl",
         BlockSpacing::Xxl => "xxl",
     }
+}
+
+/// Kebab-case slug for a [`TooltipPlacement`]. Emitted as
+/// `data-placement` on the tooltip wrapper so the skin cascade
+/// can position the floating content body via CSS only.
+#[must_use]
+pub const fn tooltip_placement_slug(p: TooltipPlacement) -> &'static str {
+    match p {
+        TooltipPlacement::Top => "top",
+        TooltipPlacement::Bottom => "bottom",
+        TooltipPlacement::Left => "left",
+        TooltipPlacement::Right => "right",
+    }
+}
+
+/// Short stable hash for use as an HTML id suffix. Deterministic
+/// across renders for the same input. Uses `std::hash::Hasher` —
+/// not cryptographic; collision risk is low for distinct tooltip
+/// contents and the substrate's `unique_id` detector flags real
+/// collisions.
+fn short_hash(s: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut h);
+    format!("{:x}", h.finish())
 }
 
 /// Kebab-case slug for a [`BlockAlign`] enum. Used as the value
@@ -9464,6 +9556,66 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_tooltip_renders_with_aria_describedby() {
+        let json = r#"{
+            "kind": "tooltip",
+            "label": "PPS",
+            "content": "Public Privacy Substrate — Plausi-Den's name for the always-encrypted-at-rest architecture."
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains("loom-block-tooltip"));
+        assert!(html.contains(r#"data-loom-slot="tooltip""#));
+        assert!(html.contains(r#"tabindex="0""#));
+        assert!(html.contains(r#"role="tooltip""#));
+        assert!(html.contains(r#"aria-describedby="loom-tip-"#));
+        assert!(html.contains(">PPS</span>"));
+        assert!(html.contains("Public Privacy Substrate"));
+    }
+
+    #[test]
+    fn cms_block_tooltip_aria_describedby_matches_content_id() {
+        let json = r#"{"kind":"tooltip","label":"X","content":"body"}"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        let aria_pos = html.find("aria-describedby=\"").unwrap();
+        let aria_val_start = aria_pos + "aria-describedby=\"".len();
+        let aria_val_end = aria_pos + "aria-describedby=\"".len()
+            + html[aria_val_start..].find('"').unwrap();
+        let aria_val = &html[aria_val_start..aria_val_end];
+        // The same id appears as the body span's id.
+        assert!(html.contains(&format!("id=\"{aria_val}\"")));
+    }
+
+    #[test]
+    fn cms_block_tooltip_placement_defaults_to_top() {
+        let json = r#"{"kind":"tooltip","label":"X","content":"y"}"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-placement="top""#));
+    }
+
+    #[test]
+    fn cms_block_tooltip_emits_placement_attr() {
+        for (variant, slug) in [
+            ("top", "top"),
+            ("bottom", "bottom"),
+            ("left", "left"),
+            ("right", "right"),
+        ] {
+            let json = format!(
+                r#"{{"kind":"tooltip","label":"X","content":"y","placement":"{variant}"}}"#
+            );
+            let block: CmsBlock = serde_json::from_str(&json).expect("parses");
+            let html = render_block(&block).into_string();
+            assert!(
+                html.contains(&format!(r#"data-placement="{slug}""#)),
+                "missing placement={slug} in: {html}"
+            );
+        }
     }
 
     #[test]
