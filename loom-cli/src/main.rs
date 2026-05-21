@@ -26,8 +26,11 @@ mod lint;
 mod new;
 mod report;
 mod state_matrix;
+#[cfg(test)]
+mod test_support;
 mod validate;
 mod version_admin;
+mod walk;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -2290,22 +2293,9 @@ fn walk_images(
     dir: &std::path::Path,
     out: &mut Vec<std::path::PathBuf>,
 ) -> Result<(), std::io::Error> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            walk_images(&path, out)?;
-            continue;
-        }
-        let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
-            continue;
-        };
-        let lower = ext.to_ascii_lowercase();
-        if matches!(lower.as_str(), "jpg" | "jpeg" | "png") {
-            out.push(path);
-        }
-    }
-    Ok(())
+    crate::walk::walk_paths_by_ext(dir, out, |e| {
+        matches!(e.to_ascii_lowercase().as_str(), "jpg" | "jpeg" | "png")
+    })
 }
 
 fn is_dest_fresh(src: &std::path::Path, dest: &std::path::Path) -> bool {
@@ -2698,12 +2688,7 @@ mod write_capability_tests {
     use super::*;
 
     fn unique(label: &str) -> std::path::PathBuf {
-        let pid = std::process::id();
-        let n = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        std::env::temp_dir().join(format!("loom-cap-{label}-{pid}-{n}"))
+        crate::test_support::unique_tmp("loom-cap", label)
     }
 
     #[test]
@@ -3148,11 +3133,7 @@ mod cmd_backend_stub_tests {
     use super::*;
 
     fn unique(label: &str) -> std::path::PathBuf {
-        let pid = std::process::id();
-        let n = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos());
-        std::env::temp_dir().join(format!("loom-backend-stub-{label}-{pid}-{n}"))
+        crate::test_support::unique_tmp("loom-backend-stub", label)
     }
 
     fn fixture() -> (std::path::PathBuf, std::path::PathBuf) {
@@ -9922,11 +9903,7 @@ mod cmd_backend_list_tests {
     use super::*;
 
     fn unique(label: &str) -> std::path::PathBuf {
-        let pid = std::process::id();
-        let n = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos());
-        std::env::temp_dir().join(format!("loom-backend-list-{label}-{pid}-{n}.toml"))
+        crate::test_support::unique_tmp("loom-backend-list", label).with_extension("toml")
     }
 
     #[test]

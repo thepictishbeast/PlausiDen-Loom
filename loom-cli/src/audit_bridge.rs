@@ -65,11 +65,7 @@ mod cmd_audit_bridge_tests {
     use super::*;
 
     fn unique(label: &str) -> std::path::PathBuf {
-        let pid = std::process::id();
-        let n = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos());
-        std::env::temp_dir().join(format!("loom-audit-bridge-{label}-{pid}-{n}.css"))
+        crate::test_support::unique_tmp("loom-audit-bridge", label).with_extension("css")
     }
 
     #[test]

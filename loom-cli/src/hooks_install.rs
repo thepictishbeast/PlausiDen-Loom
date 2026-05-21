@@ -91,11 +91,7 @@ mod cmd_hooks_install_tests {
     use super::*;
 
     fn unique(label: &str) -> std::path::PathBuf {
-        let pid = std::process::id();
-        let n = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos());
-        std::env::temp_dir().join(format!("loom-hooks-{label}-{pid}-{n}"))
+        crate::test_support::unique_tmp("loom-hooks", label)
     }
 
     fn fake_repo(label: &str) -> std::path::PathBuf {
