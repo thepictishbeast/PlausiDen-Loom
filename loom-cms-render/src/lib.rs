@@ -46,6 +46,11 @@ use loom_components::picture::{Picture, PictureFit, PictureLoading, PicturePrior
 /// downstream consumers (loom-cli's page-shell) can validate
 /// URLs without taking a direct dependency on loom-components.
 pub use loom_components::composer::is_safe_url;
+/// Re-export of `loom_variables::{TenantVariables, substitute}`
+/// so downstream consumers can apply tenant placeholder
+/// substitution without taking a direct dependency on
+/// `loom-variables`. Pairs with [`apply_variables`] below.
+pub use loom_variables::{substitute as substitute_text, TenantVariables};
 use maud::{Markup, html};
 use serde::{Deserialize, Serialize};
 
@@ -12036,6 +12041,71 @@ pub fn render_json(doc: &str) -> Result<Markup, serde_json::Error> {
     Ok(render_page(&page))
 }
 
+/// Apply per-tenant `{{ VAR }}` / `@asset-slug` substitution to
+/// every string field inside `value` and return the substituted
+/// copy. Works on any `Serialize + Deserialize` type — typical
+/// callers pass a [`CmsPage`] or [`CmsBlock`].
+///
+/// The traversal routes through `serde_json::Value` rather than
+/// hand-walking every variant of the CmsBlock / CmsSection enums.
+/// This trades a small per-render JSON round-trip for the
+/// guarantee that every new primitive added downstream picks up
+/// substitution for free — no per-variant maintenance.
+///
+/// Returns the unchanged `T` if the variables table is empty
+/// (fast path). Returns `Err` only on the rare case where the
+/// serde round-trip fails — typically a `Serialize` impl that
+/// doesn't survive a `serde_json::Value` traversal.
+///
+/// Per paul 2026-05-21 (#322).
+///
+/// # Errors
+///
+/// - When `value` does not survive a serde_json round-trip (rare;
+///   indicates a custom serializer that emits non-JSON values).
+pub fn apply_variables<T>(value: &T, vars: &TenantVariables) -> Result<T, serde_json::Error>
+where
+    T: Serialize + for<'de> Deserialize<'de>,
+{
+    if vars.is_empty() {
+        // Fast path — still pay the round-trip to keep the
+        // return signature uniform, but skip the walk.
+        let json = serde_json::to_value(value)?;
+        return serde_json::from_value(json);
+    }
+    let mut json = serde_json::to_value(value)?;
+    apply_variables_to_json(&mut json, vars);
+    serde_json::from_value(json)
+}
+
+/// Recursive in-place substitution on a `serde_json::Value`. The
+/// pass treats every string leaf as a candidate for substitution
+/// regardless of which field path it appears under; this is
+/// intentional — placeholder syntax is unambiguous enough that a
+/// false positive can only happen if a string already contains a
+/// literal `{{` or `@` matching the placeholder grammar.
+fn apply_variables_to_json(value: &mut serde_json::Value, vars: &TenantVariables) {
+    match value {
+        serde_json::Value::String(s) => {
+            let substituted = substitute_text(s, vars);
+            if substituted != *s {
+                *s = substituted;
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                apply_variables_to_json(v, vars);
+            }
+        }
+        serde_json::Value::Object(obj) => {
+            for v in obj.values_mut() {
+                apply_variables_to_json(v, vars);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -13428,6 +13498,66 @@ mod tests {
         assert!(html.contains("<ol"));
         assert!(html.contains(r#"data-style="ordered""#));
         assert!(html.contains(">one<"));
+    }
+
+    #[test]
+    fn apply_variables_substitutes_inside_block_text_fields() {
+        use std::collections::BTreeMap;
+        let mut variables = BTreeMap::new();
+        variables.insert("BRAND".into(), "PlausiDen".into());
+        let mut assets = BTreeMap::new();
+        assets.insert("hero".into(), "/static/hero.webp".into());
+        let vars = TenantVariables::from_parts(variables, BTreeMap::new(), assets);
+
+        let block = CmsBlock::Card {
+            header: vec![CmsBlock::Heading {
+                level: 2,
+                text: "Welcome to {{ BRAND }}".into(),
+            }],
+            body: vec![CmsBlock::Image {
+                src: "@hero".into(),
+                alt: "{{ BRAND }} hero".into(),
+                width: None,
+                height: None,
+            }],
+            footer: vec![],
+        };
+        let substituted = apply_variables(&block, &vars).expect("round-trip");
+        let html = render_block(&substituted).into_string();
+        assert!(html.contains("Welcome to PlausiDen"));
+        assert!(html.contains("PlausiDen hero"));
+        assert!(html.contains("/static/hero.webp"));
+        assert!(!html.contains("{{ BRAND }}"));
+        assert!(!html.contains("@hero"));
+    }
+
+    #[test]
+    fn apply_variables_preserves_unbound_references() {
+        let vars = TenantVariables::default();
+        let block = CmsBlock::Text {
+            text: "hi {{ UNBOUND }}".into(),
+        };
+        let s = apply_variables(&block, &vars).expect("round-trip");
+        match s {
+            CmsBlock::Text { text } => assert_eq!(text, "hi {{ UNBOUND }}"),
+            _ => panic!("unexpected variant"),
+        }
+    }
+
+    #[test]
+    fn apply_variables_recurses_into_list_items() {
+        use std::collections::BTreeMap;
+        let mut variables = BTreeMap::new();
+        variables.insert("THING".into(), "Substrate".into());
+        let vars = TenantVariables::from_parts(variables, BTreeMap::new(), BTreeMap::new());
+        let block = CmsBlock::List {
+            style: ListStyle::Unordered,
+            items: vec!["{{ THING }} A".into(), "{{ THING }} B".into()],
+        };
+        let s = apply_variables(&block, &vars).expect("round-trip");
+        let html = render_block(&s).into_string();
+        assert!(html.contains(">Substrate A<"));
+        assert!(html.contains(">Substrate B<"));
     }
 
     #[test]
