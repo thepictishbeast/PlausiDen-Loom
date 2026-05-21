@@ -508,6 +508,60 @@ pub enum CmsBlock {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         footer: Vec<CmsBlock>,
     },
+    /// Sandboxed `<iframe>` embed. Used for third-party widgets
+    /// (YouTube / Vimeo / Maps / payment forms) without granting
+    /// them ambient access to the parent document. Substrate
+    /// always emits a non-empty `sandbox` allowlist + a
+    /// `loading="lazy"` hint; tenants pick which capabilities to
+    /// permit via the typed [`IframeSandbox`] flags.
+    ///
+    /// `src` is URL-validated via `is_safe_url`; hostile schemes
+    /// drop the block entirely.
+    Iframe {
+        /// Iframe source URL. Validated.
+        src: String,
+        /// Accessible title (`<iframe title>` — WCAG 4.1.2).
+        title: String,
+        /// Sandbox capability flags. The substrate always emits
+        /// SOME `sandbox=` attribute; the value is the typed
+        /// flags' projection.
+        #[serde(default)]
+        sandbox: IframeSandbox,
+        /// Optional intrinsic width hint.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        width: Option<u32>,
+        /// Optional intrinsic height hint.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        height: Option<u32>,
+    },
+    /// Native HTML5 `<video>` embed. `src` is URL-validated via
+    /// `is_safe_url`; hostile schemes drop the entire block (the
+    /// rendered output is empty rather than emitting an unsafe
+    /// URL — same pattern as [`CmsBlock::Image`]).
+    ///
+    /// Substrate emits `<video controls>` with the supplied
+    /// `poster` and intrinsic `width` / `height` hints (CLS
+    /// prevention). No autoplay, no muted-autoplay, no inline-
+    /// scroll-trigger — those leak engagement intent into the
+    /// substrate layer. Tenants that need autoplay author their
+    /// own custom block via [`CmsSection::Compose`] (audited).
+    Video {
+        /// Video source URL. Validated; hostile schemes suppress
+        /// the block.
+        src: String,
+        /// Accessible description / caption text. Empty string
+        /// permitted ONLY for genuinely decorative video.
+        alt: String,
+        /// Optional poster frame URL. Validated.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        poster: Option<String>,
+        /// Optional intrinsic width hint (CLS prevention).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        width: Option<u32>,
+        /// Optional intrinsic height hint (CLS prevention).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        height: Option<u32>,
+    },
     /// Disclosure list — collapsible summary + content panels.
     /// Behavioral contract mirrors Radix UI's `Accordion`
     /// primitive (slot composition: each item carries a
@@ -1575,6 +1629,64 @@ pub struct BlockAccordionItem {
     /// (`<details open>`).
     #[serde(default)]
     pub default_open: bool,
+}
+
+/// Typed sandbox-capability flags for [`CmsBlock::Iframe`].
+/// Substrate refuses to emit `<iframe>` without a sandbox
+/// attribute; the value here is the projection. Every flag
+/// defaults to false — the safest possible posture is "no
+/// capabilities" and tenants opt into what they need.
+///
+/// Maps directly onto the HTML `iframe sandbox` token list per
+/// <https://html.spec.whatwg.org/#attr-iframe-sandbox>.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)]
+pub struct IframeSandbox {
+    /// `allow-scripts` — let the iframe run JS.
+    #[serde(default)]
+    pub allow_scripts: bool,
+    /// `allow-same-origin` — let the iframe see its real
+    /// origin. Combine with `allow_scripts` carefully — both
+    /// together is roughly "no sandbox at all" per the HTML spec.
+    #[serde(default)]
+    pub allow_same_origin: bool,
+    /// `allow-forms` — allow form submission.
+    #[serde(default)]
+    pub allow_forms: bool,
+    /// `allow-popups` — allow window.open / target=_blank.
+    #[serde(default)]
+    pub allow_popups: bool,
+    /// `allow-presentation` — Presentation API access.
+    #[serde(default)]
+    pub allow_presentation: bool,
+}
+
+impl IframeSandbox {
+    /// Project to the space-delimited token string the HTML
+    /// spec consumes. Empty result means "deny everything"
+    /// (the empty-string sandbox attribute is still safer than
+    /// no sandbox attribute at all per spec).
+    #[must_use]
+    pub fn to_attr(self) -> String {
+        let mut tokens: Vec<&'static str> = Vec::new();
+        if self.allow_scripts {
+            tokens.push("allow-scripts");
+        }
+        if self.allow_same_origin {
+            tokens.push("allow-same-origin");
+        }
+        if self.allow_forms {
+            tokens.push("allow-forms");
+        }
+        if self.allow_popups {
+            tokens.push("allow-popups");
+        }
+        if self.allow_presentation {
+            tokens.push("allow-presentation");
+        }
+        tokens.join(" ")
+    }
 }
 
 /// Bulleted-vs-numbered selector for [`CmsBlock::List`]. The
@@ -6159,6 +6271,52 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                             li class="loom-block-list__item" { (item) }
                         }
                     },
+                }
+            }
+        }
+        CmsBlock::Iframe {
+            src,
+            title,
+            sandbox,
+            width,
+            height,
+        } => {
+            if !is_safe_url(src) {
+                return html! {};
+            }
+            let sandbox_attr = sandbox.to_attr();
+            html! {
+                iframe class="loom-block-iframe"
+                    src=(src) title=(title) sandbox=(sandbox_attr)
+                    loading="lazy" referrerpolicy="no-referrer"
+                    width=[*width] height=[*height] {}
+            }
+        }
+        CmsBlock::Video {
+            src,
+            alt,
+            poster,
+            width,
+            height,
+        } => {
+            if !is_safe_url(src) {
+                return html! {};
+            }
+            let safe_poster = poster.as_deref().and_then(|p| {
+                if is_safe_url(p) {
+                    Some(p)
+                } else {
+                    None
+                }
+            });
+            html! {
+                video class="loom-block-video" controls preload="metadata"
+                    src=(src) poster=[safe_poster] width=[*width] height=[*height]
+                    aria-label=(alt) {
+                    p class="loom-block-video__fallback" {
+                        "Your browser does not support embedded video. "
+                        a href=(src) { "Open video" }
+                    }
                 }
             }
         }
@@ -13270,6 +13428,109 @@ mod tests {
         assert!(html.contains("<ol"));
         assert!(html.contains(r#"data-style="ordered""#));
         assert!(html.contains(">one<"));
+    }
+
+    #[test]
+    fn cms_block_iframe_emits_sandbox_and_lazy_load() {
+        let f = CmsBlock::Iframe {
+            src: "https://www.youtube.com/embed/abc".into(),
+            title: "Demo video".into(),
+            sandbox: IframeSandbox {
+                allow_scripts: true,
+                allow_same_origin: false,
+                allow_forms: false,
+                allow_popups: false,
+                allow_presentation: true,
+            },
+            width: Some(560),
+            height: Some(315),
+        };
+        let html = render_block(&f).into_string();
+        assert!(html.contains("<iframe"));
+        assert!(html.contains("loom-block-iframe"));
+        assert!(html.contains(r#"src="https://www.youtube.com/embed/abc""#));
+        assert!(html.contains(r#"title="Demo video""#));
+        assert!(html.contains(r#"loading="lazy""#));
+        assert!(html.contains(r#"referrerpolicy="no-referrer""#));
+        assert!(html.contains("allow-scripts"));
+        assert!(html.contains("allow-presentation"));
+        assert!(!html.contains("allow-same-origin"));
+    }
+
+    #[test]
+    fn cms_block_iframe_default_sandbox_is_empty_allowlist() {
+        let f = CmsBlock::Iframe {
+            src: "https://example.com/embed".into(),
+            title: "x".into(),
+            sandbox: IframeSandbox::default(),
+            width: None,
+            height: None,
+        };
+        let html = render_block(&f).into_string();
+        // Even with default (zero capabilities) the sandbox attr
+        // is still emitted — that's the "deny all" posture.
+        assert!(html.contains("sandbox=\"\""));
+    }
+
+    #[test]
+    fn cms_block_iframe_suppresses_on_hostile_src() {
+        let f = CmsBlock::Iframe {
+            src: "javascript:alert(1)".into(),
+            title: "x".into(),
+            sandbox: IframeSandbox::default(),
+            width: None,
+            height: None,
+        };
+        let html = render_block(&f).into_string();
+        assert_eq!(html, "");
+    }
+
+    #[test]
+    fn cms_block_video_emits_controls_with_safe_src() {
+        let v = CmsBlock::Video {
+            src: "/media/demo.mp4".into(),
+            alt: "Demo clip".into(),
+            poster: Some("/media/poster.jpg".into()),
+            width: Some(640),
+            height: Some(360),
+        };
+        let html = render_block(&v).into_string();
+        assert!(html.contains("<video"));
+        assert!(html.contains("loom-block-video"));
+        assert!(html.contains("controls"));
+        assert!(html.contains(r#"src="/media/demo.mp4""#));
+        assert!(html.contains(r#"poster="/media/poster.jpg""#));
+        assert!(html.contains(r#"aria-label="Demo clip""#));
+        assert!(html.contains(r#"width="640""#));
+        assert!(html.contains(r#"height="360""#));
+    }
+
+    #[test]
+    fn cms_block_video_suppresses_on_hostile_src() {
+        let v = CmsBlock::Video {
+            src: "javascript:alert(1)".into(),
+            alt: "x".into(),
+            poster: None,
+            width: None,
+            height: None,
+        };
+        let html = render_block(&v).into_string();
+        assert_eq!(html, "");
+    }
+
+    #[test]
+    fn cms_block_video_strips_hostile_poster_but_keeps_src() {
+        let v = CmsBlock::Video {
+            src: "/media/demo.mp4".into(),
+            alt: "x".into(),
+            poster: Some("javascript:alert(1)".into()),
+            width: None,
+            height: None,
+        };
+        let html = render_block(&v).into_string();
+        assert!(html.contains("<video"));
+        assert!(!html.contains("poster="));
+        assert!(!html.contains("javascript:"));
     }
 
     #[test]
