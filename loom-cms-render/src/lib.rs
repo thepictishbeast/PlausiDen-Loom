@@ -488,6 +488,26 @@ pub enum CmsBlock {
         /// Child blocks. Each block becomes one grid cell.
         children: Vec<CmsBlock>,
     },
+    /// Visual card surface with optional header / body / footer
+    /// slots. Behavioral contract mirrors Radix UI's Card pattern
+    /// (slot composition: each slot carries a child block tree;
+    /// absent slots emit nothing).
+    ///
+    /// Substrate emits the structural `<article data-loom-card>`
+    /// shape with `data-loom-slot` attributes on each region;
+    /// visual register (surface color, padding, radius, shadow,
+    /// border) flows from tenant `[style]` config rather than
+    /// per-instance overrides.
+    Card {
+        /// Optional header slot — typically a heading + eyebrow.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        header: Vec<CmsBlock>,
+        /// Body slot — the primary card contents.
+        body: Vec<CmsBlock>,
+        /// Optional footer slot — typically actions / metadata.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        footer: Vec<CmsBlock>,
+    },
     /// Disclosure list — collapsible summary + content panels.
     /// Behavioral contract mirrors Radix UI's `Accordion`
     /// primitive (slot composition: each item carries a
@@ -6142,6 +6162,33 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::Card {
+            header,
+            body,
+            footer,
+        } => html! {
+            article class="loom-block-card" data-loom-card="true" {
+                @if !header.is_empty() {
+                    header class="loom-block-card__header" data-loom-slot="header" {
+                        @for child in header {
+                            (render_block(child))
+                        }
+                    }
+                }
+                div class="loom-block-card__body" data-loom-slot="body" {
+                    @for child in body {
+                        (render_block(child))
+                    }
+                }
+                @if !footer.is_empty() {
+                    footer class="loom-block-card__footer" data-loom-slot="footer" {
+                        @for child in footer {
+                            (render_block(child))
+                        }
+                    }
+                }
+            }
+        },
         CmsBlock::Grid {
             columns,
             gap,
@@ -13223,6 +13270,50 @@ mod tests {
         assert!(html.contains("<ol"));
         assert!(html.contains(r#"data-style="ordered""#));
         assert!(html.contains(">one<"));
+    }
+
+    #[test]
+    fn cms_block_card_emits_three_slots_when_present() {
+        let card = CmsBlock::Card {
+            header: vec![CmsBlock::Heading {
+                level: 3,
+                text: "Title".into(),
+            }],
+            body: vec![CmsBlock::Text {
+                text: "Body prose".into(),
+            }],
+            footer: vec![CmsBlock::Link {
+                label: "Read more".into(),
+                href: "/x".into(),
+                data_backend: None,
+            }],
+        };
+        let html = render_block(&card).into_string();
+        assert!(html.contains("<article"));
+        assert!(html.contains(r#"data-loom-card="true""#));
+        assert!(html.contains(r#"data-loom-slot="header""#));
+        assert!(html.contains(r#"data-loom-slot="body""#));
+        assert!(html.contains(r#"data-loom-slot="footer""#));
+        assert!(html.contains("Title"));
+        assert!(html.contains("Body prose"));
+        assert!(html.contains("Read more"));
+    }
+
+    #[test]
+    fn cms_block_card_omits_empty_header_and_footer() {
+        let card = CmsBlock::Card {
+            header: vec![],
+            body: vec![CmsBlock::Text {
+                text: "Body only".into(),
+            }],
+            footer: vec![],
+        };
+        let html = render_block(&card).into_string();
+        assert!(html.contains(r#"data-loom-slot="body""#));
+        assert!(!html.contains(r#"data-loom-slot="header""#));
+        assert!(!html.contains(r#"data-loom-slot="footer""#));
+        assert!(!html.contains("<header"));
+        assert!(!html.contains("<footer"));
     }
 
     #[test]
