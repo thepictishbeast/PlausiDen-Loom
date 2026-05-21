@@ -430,6 +430,88 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Date picker. Renders as the native `<input type="date">` —
+    /// browser provides the calendar UI, validation, locale-
+    /// aware formatting. No JS required. ISO 8601 wire format
+    /// (`YYYY-MM-DD`).
+    ///
+    /// Behavioral contract mirrors Radix UI's `DatePicker` /
+    /// React Aria's `DateField`. Upstream specs:
+    /// <https://react-spectrum.adobe.com/react-aria/DateField.html>
+    /// (Apache-2.0). No source copied.
+    DatePicker {
+        /// Unique HTML `id`.
+        id: String,
+        /// Visible label text.
+        label: String,
+        /// Optional form-field `name` attribute.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Optional minimum date (ISO 8601 `YYYY-MM-DD`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min: Option<String>,
+        /// Optional maximum date (ISO 8601 `YYYY-MM-DD`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<String>,
+        /// Optional initial value (ISO 8601 `YYYY-MM-DD`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
+        /// When true, the field is required for form submission.
+        #[serde(default)]
+        required: bool,
+        /// When true, render as disabled.
+        #[serde(default)]
+        disabled: bool,
+    },
+    /// Time picker. Renders as the native `<input type="time">` —
+    /// browser provides the clock UI, locale-aware AM/PM vs 24h,
+    /// validation. No JS required. Wire format `HH:MM` or
+    /// `HH:MM:SS`.
+    TimeField {
+        /// Unique HTML `id`.
+        id: String,
+        /// Visible label text.
+        label: String,
+        /// Optional form-field `name` attribute.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Optional initial value (`HH:MM` or `HH:MM:SS`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
+        /// Optional minimum time.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min: Option<String>,
+        /// Optional maximum time.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<String>,
+        /// Step in seconds. Set to `60` for minute-precision (the
+        /// default), `1` to allow second-precision.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        step: Option<u32>,
+        /// When true, required for submission.
+        #[serde(default)]
+        required: bool,
+        /// When true, render as disabled.
+        #[serde(default)]
+        disabled: bool,
+    },
+    /// Color picker. Renders as the native `<input type="color">` —
+    /// browser provides the colour-swatch UI. Wire format `#RRGGBB`.
+    ColorPicker {
+        /// Unique HTML `id`.
+        id: String,
+        /// Visible label text.
+        label: String,
+        /// Optional form-field `name` attribute.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Optional initial value (`#RRGGBB`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
+        /// When true, render as disabled.
+        #[serde(default)]
+        disabled: bool,
+    },
     /// Numeric text-input with spinner buttons. Renders as the
     /// native `<input type="number">` — full keyboard support
     /// (arrow keys ±step, scroll wheel ±step), browser-validated
@@ -5371,6 +5453,98 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::DatePicker {
+            id,
+            label,
+            name,
+            min,
+            max,
+            value,
+            required,
+            disabled,
+        } => html! {
+            div class="loom-block-date-picker" data-loom-slot="date-picker" {
+                label
+                    class="loom-block-date-picker__label"
+                    data-loom-slot="date-picker-label"
+                    for=(id)
+                {
+                    (label)
+                }
+                input
+                    type="date"
+                    class="loom-block-date-picker__input"
+                    data-loom-slot="date-picker-input"
+                    id=(id)
+                    name=[name.as_deref()]
+                    min=[min.as_deref()]
+                    max=[max.as_deref()]
+                    value=[value.as_deref()]
+                    required[*required]
+                    disabled[*disabled]
+                    aria-label=(label);
+            }
+        },
+        CmsBlock::TimeField {
+            id,
+            label,
+            name,
+            value,
+            min,
+            max,
+            step,
+            required,
+            disabled,
+        } => html! {
+            div class="loom-block-time-field" data-loom-slot="time-field" {
+                label
+                    class="loom-block-time-field__label"
+                    data-loom-slot="time-field-label"
+                    for=(id)
+                {
+                    (label)
+                }
+                input
+                    type="time"
+                    class="loom-block-time-field__input"
+                    data-loom-slot="time-field-input"
+                    id=(id)
+                    name=[name.as_deref()]
+                    value=[value.as_deref()]
+                    min=[min.as_deref()]
+                    max=[max.as_deref()]
+                    step=[step]
+                    required[*required]
+                    disabled[*disabled]
+                    aria-label=(label);
+            }
+        },
+        CmsBlock::ColorPicker {
+            id,
+            label,
+            name,
+            value,
+            disabled,
+        } => html! {
+            div class="loom-block-color-picker" data-loom-slot="color-picker" {
+                label
+                    class="loom-block-color-picker__label"
+                    data-loom-slot="color-picker-label"
+                    for=(id)
+                {
+                    (label)
+                }
+                input
+                    type="color"
+                    class="loom-block-color-picker__input"
+                    data-loom-slot="color-picker-input"
+                    id=(id)
+                    name=[name.as_deref()]
+                    value=[value.as_deref()]
+                    disabled[*disabled]
+                    aria-label=(label);
+            }
+        },
         CmsBlock::NumberField {
             id,
             label,
@@ -10131,6 +10305,66 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_date_picker_renders_native_date_input() {
+        let json = r#"{
+            "kind": "date_picker",
+            "id": "birthday",
+            "label": "Birthday",
+            "name": "dob",
+            "min": "1900-01-01",
+            "max": "2026-12-31",
+            "value": "1990-04-12",
+            "required": true
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-loom-slot="date-picker""#));
+        assert!(html.contains(r#"type="date""#));
+        assert!(html.contains(r#"id="birthday""#));
+        assert!(html.contains(r#"name="dob""#));
+        assert!(html.contains(r#"min="1900-01-01""#));
+        assert!(html.contains(r#"max="2026-12-31""#));
+        assert!(html.contains(r#"value="1990-04-12""#));
+        assert!(html.contains(r#"required"#));
+        assert!(html.contains(r#"aria-label="Birthday""#));
+    }
+
+    #[test]
+    fn cms_block_time_field_renders_native_time_input() {
+        let json = r#"{
+            "kind": "time_field",
+            "id": "start",
+            "label": "Start time",
+            "name": "start",
+            "value": "09:30",
+            "step": 60
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-loom-slot="time-field""#));
+        assert!(html.contains(r#"type="time""#));
+        assert!(html.contains(r#"value="09:30""#));
+        assert!(html.contains(r#"step="60""#));
+    }
+
+    #[test]
+    fn cms_block_color_picker_renders_native_color_input() {
+        let json = r##"{
+            "kind": "color_picker",
+            "id": "accent",
+            "label": "Accent color",
+            "name": "color",
+            "value": "#733635"
+        }"##;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-loom-slot="color-picker""#));
+        assert!(html.contains(r#"type="color""#));
+        assert!(html.contains(r##"value="#733635""##));
+        assert!(html.contains(r#"aria-label="Accent color""#));
     }
 
     #[test]
