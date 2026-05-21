@@ -430,6 +430,48 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Numeric range picker. Renders as a labelled
+    /// `<input type="range">` — native form control, full
+    /// keyboard support (arrow keys ±step, Home/End for
+    /// min/max, PageUp/PageDown for ±10% of range), no JS
+    /// required.
+    ///
+    /// Behavioral contract mirrors Radix UI's `Slider` primitive.
+    /// Upstream spec: <https://www.radix-ui.com/primitives/docs/components/slider>
+    /// (MIT). No source copied.
+    ///
+    /// `min` / `max` / `step` follow the HTML5
+    /// `<input type="range">` semantics — `step` of `0.0` means
+    /// "any value" (the browser picks granularity).
+    Slider {
+        /// Unique HTML `id` for the input. Required for `<label>`
+        /// association.
+        id: String,
+        /// Visible label text.
+        label: String,
+        /// Optional form-field `name` attribute. When set, the
+        /// slider participates in form submission.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Minimum value.
+        min: f64,
+        /// Maximum value.
+        max: f64,
+        /// Step granularity. `0.0` means "any value".
+        #[serde(default = "default_slider_step")]
+        step: f64,
+        /// Current value.
+        value: f64,
+        /// When true, the slider renders as disabled.
+        #[serde(default)]
+        disabled: bool,
+        /// When true, the current value renders alongside the
+        /// slider as a live indicator. Useful for forms where
+        /// the user needs to see the numeric value without
+        /// reading from the input itself.
+        #[serde(default)]
+        show_value: bool,
+    },
     /// Boolean toggle. Renders as an accessible
     /// `<label><input type="checkbox" role="switch">…</label>`
     /// — native form control, full keyboard + screen-reader
@@ -3631,6 +3673,9 @@ fn default_columns_3() -> u8 {
 fn default_speed() -> u8 {
     5
 }
+fn default_slider_step() -> f64 {
+    1.0
+}
 
 /// Page-shell chrome kind. Picks the header + body-backdrop
 /// shape. Each variant is a complete chrome aesthetic, not a
@@ -5031,6 +5076,49 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::Slider {
+            id,
+            label,
+            name,
+            min,
+            max,
+            step,
+            value,
+            disabled,
+            show_value,
+        } => html! {
+            div class="loom-block-slider" data-loom-slot="slider" {
+                label
+                    class="loom-block-slider__label"
+                    data-loom-slot="slider-label"
+                    for=(id)
+                {
+                    (label)
+                    @if *show_value {
+                        " "
+                        output
+                            class="loom-block-slider__value"
+                            data-loom-slot="slider-value"
+                            for=(id)
+                        {
+                            (value)
+                        }
+                    }
+                }
+                input
+                    type="range"
+                    class="loom-block-slider__input"
+                    data-loom-slot="slider-input"
+                    id=(id)
+                    name=[name.as_deref()]
+                    min=(min)
+                    max=(max)
+                    step=(step)
+                    value=(value)
+                    disabled[*disabled]
+                    aria-label=(label);
+            }
+        },
         CmsBlock::Switch {
             id,
             label,
@@ -9376,6 +9464,71 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_slider_renders_as_native_range_input() {
+        let json = r#"{
+            "kind": "slider",
+            "id": "volume",
+            "label": "Volume",
+            "name": "vol",
+            "min": 0.0,
+            "max": 100.0,
+            "step": 5.0,
+            "value": 42.0
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains("loom-block-slider"));
+        assert!(html.contains(r#"data-loom-slot="slider""#));
+        assert!(html.contains(r#"type="range""#));
+        assert!(html.contains(r#"id="volume""#));
+        assert!(html.contains(r#"name="vol""#));
+        assert!(html.contains(r#"min="0""#));
+        assert!(html.contains(r#"max="100""#));
+        assert!(html.contains(r#"step="5""#));
+        assert!(html.contains(r#"value="42""#));
+        assert!(html.contains(r#"aria-label="Volume""#));
+    }
+
+    #[test]
+    fn cms_block_slider_show_value_emits_output_element() {
+        let json = r#"{
+            "kind": "slider",
+            "id": "x",
+            "label": "L",
+            "min": 0.0, "max": 1.0,
+            "value": 0.5,
+            "show_value": true
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"<output"#));
+        assert!(html.contains(r#"data-loom-slot="slider-value""#));
+        assert!(html.contains(">0.5</output>"));
+    }
+
+    #[test]
+    fn cms_block_slider_default_step_is_one() {
+        let json = r#"{
+            "kind":"slider","id":"x","label":"L",
+            "min": 0.0, "max": 10.0, "value": 5.0
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"step="1""#));
+    }
+
+    #[test]
+    fn cms_block_slider_disabled_emits_disabled_attr() {
+        let json = r#"{
+            "kind":"slider","id":"x","label":"L",
+            "min":0.0,"max":1.0,"value":0.0,"disabled":true
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains("disabled"));
     }
 
     #[test]
