@@ -752,7 +752,51 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed API endpoint reference card — HTTP method + path
+    /// + description + optional parameters list + optional
+    /// auth requirement. Distinct from
+    /// [`CmsSection::Code`] (free-form code block),
+    /// [`CmsSection::CodeShell`] (terminal command),
+    /// [`CmsSection::KbArticleCard`] (knowledge-base article
+    /// browse card), and [`CmsSection::Faq`] (Q+A list).
+    ///
+    /// ApiEndpointCard is the typed primitive for API
+    /// reference documentation: per-endpoint cards on REST /
+    /// HTTP docs, OpenAPI-style reference pages. The
+    /// structured method enum + path + parameters shape lets
+    /// feed crawlers and OpenAPI-comparators extract the
+    /// endpoint surface without parsing rendered chrome.
+    ApiEndpointCard {
+        /// HTTP method. Surfaced as
+        /// `data-loom-api-method` for crawler / OpenAPI-diff
+        /// audit.
+        method: ApiMethod,
+        /// URL path template ("/v1/users/{id}",
+        /// "/orders/{order_id}/items"). Path parameters
+        /// follow `{name}` convention.
+        path: String,
+        /// Plain-language summary. Multi-paragraph splits on
+        /// `\n\n`.
+        summary: String,
+        /// Optional parameter list.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        parameters: Vec<ApiParameter>,
+        /// Optional authentication requirement
+        /// ("Bearer token", "API key", "OAuth scope:
+        /// `read:users`", "None — public").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        auth_requirement: Option<String>,
+        /// Optional deprecation marker. When present, the card
+        /// renders a `data-loom-api-deprecated="true"` flag
+        /// for downstream filtering, and the rendered chrome
+        /// surfaces the message via `role="status"`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        deprecation_note: Option<String>,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +3000,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3121,59 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// HTTP method tag for [`CmsSection::ApiEndpointCard`]. Closed-
+/// world enum covering the methods RFC 9110 §9 defines plus the
+/// idempotent extensions widely supported by REST APIs.
+/// Operators on bespoke methods (`PROPFIND` / `MKCOL` /
+/// WebDAV) should use a separate primitive or extend the enum
+/// via a doctrine PR.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum ApiMethod {
+    /// `GET` — safe, idempotent retrieval.
+    Get,
+    /// `POST` — create / submit.
+    Post,
+    /// `PUT` — idempotent create-or-replace.
+    Put,
+    /// `PATCH` — partial update.
+    Patch,
+    /// `DELETE` — remove.
+    Delete,
+    /// `HEAD` — `GET` without response body.
+    Head,
+    /// `OPTIONS` — capability discovery / CORS preflight.
+    Options,
+}
+
+/// One parameter in [`CmsSection::ApiEndpointCard`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
+pub struct ApiParameter {
+    pub name: String,
+    pub location: ApiParameterLocation,
+    pub type_label: String,
+    pub required: bool,
+    pub description: String,
+}
+
+/// Where a parameter is passed.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiParameterLocation {
+    /// Path parameter (`{id}` in `/users/{id}`).
+    Path,
+    /// Query string parameter (`?limit=10`).
+    Query,
+    /// Request body (typically JSON).
+    Body,
+    /// Request header.
+    Header,
+    /// Cookie.
+    Cookie,
 }
 
 /// One comparison row.
@@ -5581,6 +5678,111 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::ApiEndpointCard {
+            method,
+            path,
+            summary,
+            parameters,
+            auth_requirement,
+            deprecation_note,
+        } => {
+            let (method_slug, method_label) = match method {
+                ApiMethod::Get => ("get", "GET"),
+                ApiMethod::Post => ("post", "POST"),
+                ApiMethod::Put => ("put", "PUT"),
+                ApiMethod::Patch => ("patch", "PATCH"),
+                ApiMethod::Delete => ("delete", "DELETE"),
+                ApiMethod::Head => ("head", "HEAD"),
+                ApiMethod::Options => ("options", "OPTIONS"),
+            };
+            let summary_paras: Vec<&str> = summary.split("\n\n").collect();
+            let aria_label = format!("{method_label} {path}");
+            let is_deprecated = deprecation_note.is_some();
+            let deprecated_attr = if is_deprecated { "true" } else { "false" };
+            html! {
+                article class="loom-api-endpoint-card"
+                    aria-label=(aria_label)
+                    data-loom-api-method=(method_slug)
+                    data-loom-api-deprecated=(deprecated_attr)
+                    data-loom-reveal {
+                    header class="loom-api-endpoint-card__header" {
+                        span class={
+                            "loom-api-endpoint-card__method "
+                            "loom-api-endpoint-card__method--" (method_slug)
+                        } { (method_label) }
+                        code class="loom-api-endpoint-card__path" { (path) }
+                    }
+                    @if let Some(d) = deprecation_note {
+                        p class="loom-api-endpoint-card__deprecation"
+                            role="status" { (d) }
+                    }
+                    div class="loom-api-endpoint-card__summary" {
+                        @for p in &summary_paras {
+                            p class="loom-api-endpoint-card__para" { (p) }
+                        }
+                    }
+                    @if let Some(a) = auth_requirement {
+                        p class="loom-api-endpoint-card__auth" {
+                            span class="loom-api-endpoint-card__auth-label" {
+                                "Auth: "
+                            }
+                            span class="loom-api-endpoint-card__auth-value" {
+                                (a)
+                            }
+                        }
+                    }
+                    @if !parameters.is_empty() {
+                        section class="loom-api-endpoint-card__parameters"
+                            aria-labelledby="loom-api-endpoint-card__h-parameters" {
+                            h3 id="loom-api-endpoint-card__h-parameters"
+                                class="loom-api-endpoint-card__h" { "Parameters" }
+                            table class="loom-api-endpoint-card__table" {
+                                thead {
+                                    tr {
+                                        th scope="col" { "Name" }
+                                        th scope="col" { "In" }
+                                        th scope="col" { "Type" }
+                                        th scope="col" { "Required" }
+                                        th scope="col" { "Description" }
+                                    }
+                                }
+                                tbody {
+                                    @for p in parameters {
+                                        @let loc_slug = match p.location {
+                                            ApiParameterLocation::Path => "path",
+                                            ApiParameterLocation::Query => "query",
+                                            ApiParameterLocation::Body => "body",
+                                            ApiParameterLocation::Header => "header",
+                                            ApiParameterLocation::Cookie => "cookie",
+                                        };
+                                        tr class="loom-api-endpoint-card__param-row" {
+                                            td {
+                                                code class="loom-api-endpoint-card__param-name" {
+                                                    (p.name)
+                                                }
+                                            }
+                                            td class="loom-api-endpoint-card__param-loc"
+                                                data-loom-api-param-in=(loc_slug) { (loc_slug) }
+                                            td {
+                                                code class="loom-api-endpoint-card__param-type" {
+                                                    (p.type_label)
+                                                }
+                                            }
+                                            td class="loom-api-endpoint-card__param-required" {
+                                                @if p.required { "Yes" } @else { "No" }
+                                            }
+                                            td class="loom-api-endpoint-card__param-desc" {
+                                                (p.description)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10149,171 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn api_endpoint_card_renders_method_path_and_summary() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "api_endpoint_card",
+                "method": "GET",
+                "path": "/v1/users/{id}",
+                "summary": "Fetch a user by id."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-api-endpoint-card"));
+        assert!(html.contains("aria-label=\"GET /v1/users/{id}\""));
+        assert!(html.contains("data-loom-api-method=\"get\""));
+        assert!(html.contains("data-loom-api-deprecated=\"false\""));
+        assert!(html.contains("loom-api-endpoint-card__method--get"));
+        assert!(html.contains(">GET<"));
+        assert!(html.contains("loom-api-endpoint-card__path"));
+        assert!(html.contains("/v1/users/{id}"));
+        assert!(html.contains("Fetch a user by id"));
+        // Optional chrome absent.
+        assert!(!html.contains("loom-api-endpoint-card__parameters"));
+        assert!(!html.contains("loom-api-endpoint-card__auth"));
+        assert!(!html.contains("loom-api-endpoint-card__deprecation"));
+    }
+
+    #[test]
+    fn api_endpoint_card_each_method_renders_distinct_slug() {
+        let cases: &[(&str, &str, &str)] = &[
+            ("POST", "post", "POST"),
+            ("PUT", "put", "PUT"),
+            ("PATCH", "patch", "PATCH"),
+            ("DELETE", "delete", "DELETE"),
+            ("HEAD", "head", "HEAD"),
+            ("OPTIONS", "options", "OPTIONS"),
+        ];
+        for (json_method, slug, label) in cases {
+            let json = format!(
+                r#"{{
+                "brand": null, "theme": null, "chrome": null, "content_width": null,
+                "nav_actions": [], "title": "t", "description": "d",
+                "path": "/p", "nav_links": [], "dev_devtools": false,
+                "sections": [{{
+                    "kind": "api_endpoint_card",
+                    "method": "{json_method}",
+                    "path": "/x",
+                    "summary": "X"
+                }}]
+            }}"#
+            );
+            let page: CmsPage = serde_json::from_str(&json)
+                .unwrap_or_else(|_| panic!("method={json_method}"));
+            let html = render_to_string(&page);
+            assert!(
+                html.contains(&format!("data-loom-api-method=\"{slug}\"")),
+                "method={json_method} missing data attr"
+            );
+            assert!(
+                html.contains(&format!(">{label}<")),
+                "method={json_method} missing label"
+            );
+        }
+    }
+
+    #[test]
+    fn api_endpoint_card_with_parameters_renders_table() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "api_endpoint_card",
+                "method": "POST",
+                "path": "/v1/orders",
+                "summary": "Create an order.",
+                "parameters": [
+                    {"name": "id", "location": "path",
+                     "type_label": "uuid", "required": true,
+                     "description": "Order identifier."},
+                    {"name": "limit", "location": "query",
+                     "type_label": "integer", "required": false,
+                     "description": "Page size."},
+                    {"name": "items", "location": "body",
+                     "type_label": "array", "required": true,
+                     "description": "Order items."}
+                ],
+                "auth_requirement": "Bearer token"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        // Parameters section + table.
+        assert!(html.contains("loom-api-endpoint-card__parameters"));
+        assert!(html.contains("loom-api-endpoint-card__h-parameters"));
+        assert!(html.contains("<table"));
+        assert!(html.contains("scope=\"col\""));
+        let row_count = html.matches("loom-api-endpoint-card__param-row").count();
+        assert_eq!(row_count, 3, "expected 3 rows, got {row_count}");
+        assert!(html.contains("data-loom-api-param-in=\"path\""));
+        assert!(html.contains("data-loom-api-param-in=\"query\""));
+        assert!(html.contains("data-loom-api-param-in=\"body\""));
+        // Auth row.
+        assert!(html.contains("loom-api-endpoint-card__auth"));
+        assert!(html.contains("Bearer token"));
+    }
+
+    #[test]
+    fn api_endpoint_card_deprecated_renders_status() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "api_endpoint_card",
+                "method": "DELETE",
+                "path": "/v1/legacy",
+                "summary": "Removed.",
+                "deprecation_note": "Removed in v2. Use /v2/legacy."
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("data-loom-api-deprecated=\"true\""));
+        assert!(html.contains("loom-api-endpoint-card__deprecation"));
+        assert!(html.contains("role=\"status\""));
+        assert!(html.contains("Removed in v2"));
+    }
+
+    #[test]
+    fn api_endpoint_card_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "api_endpoint_card",
+                "method": "GET",
+                "path": "/<script>alert('p')</script>",
+                "summary": "<script>alert('s')</script>",
+                "parameters": [
+                    {"name": "<script>alert('n')</script>",
+                     "location": "path",
+                     "type_label": "<script>alert('t')</script>",
+                     "required": true,
+                     "description": "<script>alert('d')</script>"}
+                ],
+                "auth_requirement": "<script>alert('a')</script>",
+                "deprecation_note": "<script>alert('dep')</script>"
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        // path appears in aria-label + visible + param fields.
+        assert!(
+            entity_hits >= 7,
+            "expected >= 7 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
