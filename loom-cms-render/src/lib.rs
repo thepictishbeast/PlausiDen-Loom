@@ -752,7 +752,52 @@ pub enum CmsSection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attribution: Option<String>,
     },
+    /// Typed job-listing card for a careers / hiring page.
+    /// Distinct from generic [`CmsSection::ProductCard`] (which
+    /// targets commerce) and from [`CmsSection::CaseStudy`]
+    /// (which is editorial proof-of-work): JobListing is the
+    /// structured shape recruiting pages use to surface an
+    /// individual open role.
+    ///
+    /// Renders as a `<article>` landmark with structured slots
+    /// for title, department, location, employment-type tag,
+    /// salary range (optional — many jurisdictions now require
+    /// disclosure but US states vary; the field is optional so
+    /// publishers in non-disclosure jurisdictions aren't forced
+    /// to fabricate), short description, and an apply link.
+    JobListing {
+        /// Job title ("Senior backend engineer").
+        title: String,
+        /// Department / team ("Platform", "Editorial",
+        /// "Operations").
+        department: String,
+        /// Location string ("Remote — North America",
+        /// "Austin, TX", "Hybrid · London").
+        location: String,
+        /// Employment-type tag ("Full-time", "Part-time",
+        /// "Contract", "Internship"). Typed enum so the
+        /// substrate can audit / filter.
+        employment_type: JobEmploymentType,
+        /// Short description / posting summary. Multi-paragraph
+        /// splits on `\n\n`.
+        description: String,
+        /// Optional salary disclosure (free-form so different
+        /// disclosure conventions — "USD 140k-180k",
+        /// "Band 3", "Competitive" — all express through the
+        /// same slot).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        salary: Option<String>,
+        /// Optional posted-on label (free-form editorial date).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        posted_label: Option<String>,
+        /// Apply link. Validated through `is_safe_url`; hostile
+        /// schemes fall back to a non-interactive span.
+        apply_link: JobApplyLink,
+    },
     /// Editorial sidenote — text that floats to the side at wide
+    /// viewports and renders inline as a small offset block at
+    /// narrow ones. Common in long-form essays (literary press,
+    /// academic publication, deep technical doc). Distinct from
     /// viewports and renders inline as a small offset block at
     /// narrow ones. Common in long-form essays (literary press,
     /// academic publication, deep technical doc). Distinct from
@@ -2956,7 +3001,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 160;
+    pub const PRIMITIVE_COUNT: u32 = 161;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -3077,6 +3122,38 @@ pub struct AccordionItem {
 pub struct DefListItem {
     pub term: String,
     pub definition: String,
+}
+
+/// Employment-type tag for [`CmsSection::JobListing`]. Surfaces
+/// the type to feed crawlers / careers-page aggregators
+/// independent of the visible label so the substrate can filter
+/// + audit across an entire listing page.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum JobEmploymentType {
+    /// Full-time, permanent role.
+    FullTime,
+    /// Part-time, permanent role.
+    PartTime,
+    /// Fixed-term contract.
+    Contract,
+    /// Internship / co-op placement.
+    Internship,
+    /// Temporary / seasonal role (catch-all for everything
+    /// that doesn't fit the four above).
+    Temporary,
+}
+
+/// Apply-link slot for [`CmsSection::JobListing`]. `href` is
+/// validated via `is_safe_url`; hostile schemes fall back to a
+/// non-interactive span so the listing block never emits an
+/// `<a href="javascript:…">`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)] // T660 catalogue: self-evident shapes; field names + variant docstring are the contract.
+pub struct JobApplyLink {
+    pub label: String,
+    pub href: String,
 }
 
 /// One comparison row.
@@ -5581,6 +5658,76 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 }
             }
         },
+        CmsSection::JobListing {
+            title,
+            department,
+            location,
+            employment_type,
+            description,
+            salary,
+            posted_label,
+            apply_link,
+        } => {
+            let (type_slug, type_label) = match employment_type {
+                JobEmploymentType::FullTime => ("full-time", "Full-time"),
+                JobEmploymentType::PartTime => ("part-time", "Part-time"),
+                JobEmploymentType::Contract => ("contract", "Contract"),
+                JobEmploymentType::Internship => ("internship", "Internship"),
+                JobEmploymentType::Temporary => ("temporary", "Temporary"),
+            };
+            let desc_paras: Vec<&str> = description.split("\n\n").collect();
+            let aria_label = format!("{title} — {department}, {location}");
+            html! {
+                article class="loom-job-listing"
+                    data-loom-job-employment-type=(type_slug)
+                    aria-label=(aria_label)
+                    data-loom-reveal {
+                    header class="loom-job-listing__header" {
+                        h2 class="loom-job-listing__title" { (title) }
+                        p class="loom-job-listing__meta" {
+                            span class="loom-job-listing__department" { (department) }
+                            span class="loom-job-listing__separator" aria-hidden="true" { " · " }
+                            span class="loom-job-listing__location" { (location) }
+                            span class="loom-job-listing__separator" aria-hidden="true" { " · " }
+                            span class="loom-job-listing__type" { (type_label) }
+                        }
+                    }
+                    div class="loom-job-listing__description" {
+                        @for p in &desc_paras {
+                            p class="loom-job-listing__para" { (p) }
+                        }
+                    }
+                    @if salary.is_some() || posted_label.is_some() {
+                        div class="loom-job-listing__details" {
+                            @if let Some(s) = salary {
+                                p class="loom-job-listing__salary" {
+                                    span class="loom-job-listing__salary-label" {
+                                        "Salary: "
+                                    }
+                                    span class="loom-job-listing__salary-value" { (s) }
+                                }
+                            }
+                            @if let Some(d) = posted_label {
+                                p class="loom-job-listing__posted" {
+                                    span class="loom-job-listing__posted-label" {
+                                        "Posted: "
+                                    }
+                                    span class="loom-job-listing__posted-value" { (d) }
+                                }
+                            }
+                        }
+                    }
+                    @let href_safe = loom_components::composer::is_safe_url(&apply_link.href);
+                    @if href_safe {
+                        a class="loom-job-listing__apply"
+                            href=(apply_link.href) { (apply_link.label) }
+                    } @else {
+                        span class="loom-job-listing__apply"
+                            data-blocked-href="true" { (apply_link.label) }
+                    }
+                }
+            }
+        }
         // ─── T660 P5 — catalogue expansion render arms ───
         CmsSection::Container {
             children_html,
@@ -9947,6 +10094,168 @@ mod tests {
         let html = render_to_string(&page);
         assert!(!html.contains("<script>alert"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn job_listing_renders_full_card_with_apply_link() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "job_listing",
+                "title": "Senior backend engineer",
+                "department": "Platform",
+                "location": "Remote — North America",
+                "employment_type": "full_time",
+                "description": "We're looking for someone to own the substrate.",
+                "apply_link": {"label": "Apply now",
+                               "href": "/careers/senior-backend"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-job-listing"));
+        assert!(html.contains("data-loom-job-employment-type=\"full-time\""));
+        assert!(html.contains("aria-label=\"Senior backend engineer — Platform, Remote — North America\""));
+        assert!(html.contains("loom-job-listing__title"));
+        assert!(html.contains("Senior backend engineer"));
+        assert!(html.contains("loom-job-listing__department"));
+        assert!(html.contains(">Platform<"));
+        assert!(html.contains("loom-job-listing__location"));
+        assert!(html.contains("Remote"));
+        assert!(html.contains("loom-job-listing__type"));
+        assert!(html.contains(">Full-time<"));
+        assert!(html.contains("loom-job-listing__description"));
+        assert!(html.contains("own the substrate"));
+        assert!(html.contains("href=\"/careers/senior-backend\""));
+        assert!(html.contains("Apply now"));
+        // Optional chrome absent.
+        assert!(!html.contains("loom-job-listing__details"));
+        assert!(!html.contains("loom-job-listing__salary"));
+        assert!(!html.contains("loom-job-listing__posted"));
+    }
+
+    #[test]
+    fn job_listing_each_employment_type_renders_distinct_slug() {
+        let cases: &[(&str, &str, &str)] = &[
+            ("full_time", "full-time", "Full-time"),
+            ("part_time", "part-time", "Part-time"),
+            ("contract", "contract", "Contract"),
+            ("internship", "internship", "Internship"),
+            ("temporary", "temporary", "Temporary"),
+        ];
+        for (json_type, slug, label) in cases {
+            let json = format!(
+                r#"{{
+                "brand": null, "theme": null, "chrome": null, "content_width": null,
+                "nav_actions": [], "title": "t", "description": "d",
+                "path": "/p", "nav_links": [], "dev_devtools": false,
+                "sections": [{{
+                    "kind": "job_listing",
+                    "title": "T", "department": "D", "location": "L",
+                    "employment_type": "{json_type}",
+                    "description": "X",
+                    "apply_link": {{"label": "Apply", "href": "/a"}}
+                }}]
+            }}"#
+            );
+            let page: CmsPage =
+                serde_json::from_str(&json).unwrap_or_else(|_| panic!("type={json_type}"));
+            let html = render_to_string(&page);
+            assert!(
+                html.contains(&format!("data-loom-job-employment-type=\"{slug}\"")),
+                "type={json_type} missing data attr {slug}"
+            );
+            assert!(
+                html.contains(&format!(">{label}<")),
+                "type={json_type} missing visible label {label}"
+            );
+        }
+    }
+
+    #[test]
+    fn job_listing_with_salary_and_posted_renders_details() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "job_listing",
+                "title": "T", "department": "D", "location": "L",
+                "employment_type": "full_time",
+                "description": "Para one.\n\nPara two.",
+                "salary": "USD 140k-180k",
+                "posted_label": "May 18, 2026",
+                "apply_link": {"label": "Apply", "href": "/a"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-job-listing__details"));
+        assert!(html.contains("loom-job-listing__salary"));
+        assert!(html.contains("USD 140k-180k"));
+        assert!(html.contains("loom-job-listing__posted"));
+        assert!(html.contains("May 18, 2026"));
+        // Multi-paragraph description.
+        let para_count = html.matches("loom-job-listing__para\"").count();
+        assert_eq!(para_count, 2, "expected 2 description paragraphs, got {para_count}");
+    }
+
+    #[test]
+    fn job_listing_unsafe_apply_href_falls_back_to_span() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "job_listing",
+                "title": "T", "department": "D", "location": "L",
+                "employment_type": "full_time",
+                "description": "X",
+                "apply_link": {"label": "Visit",
+                               "href": "javascript:alert(1)"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(
+            !html.contains("href=\"javascript:"),
+            "hostile scheme leaked"
+        );
+        assert!(html.contains("data-blocked-href=\"true\""));
+        assert!(html.contains("Visit"));
+    }
+
+    #[test]
+    fn job_listing_escapes_all_text_fields() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "job_listing",
+                "title": "<script>alert('t')</script>",
+                "department": "<script>alert('d')</script>",
+                "location": "<script>alert('loc')</script>",
+                "employment_type": "full_time",
+                "description": "<script>alert('desc')</script>",
+                "salary": "<script>alert('sal')</script>",
+                "posted_label": "<script>alert('p')</script>",
+                "apply_link": {"label": "<script>alert('a')</script>",
+                               "href": "/safe"}
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(!html.contains("<script>alert"));
+        let entity_hits = html.matches("&lt;script&gt;alert").count();
+        // title + dept + loc each appear in aria-label AND visible
+        // markup. Plus description, salary, posted, apply label.
+        assert!(
+            entity_hits >= 7,
+            "expected >= 7 escaped script tokens, got {entity_hits}"
+        );
     }
 
     #[test]
