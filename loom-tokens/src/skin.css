@@ -10681,3 +10681,30 @@ body[data-chrome="minimal"] main#content { padding-top: 2rem; }
     grid-template-columns: 1fr;
   }
 }
+
+/* === CmsBlock::Card ================================================ */
+/* Visual card surface with header / body / footer slots. Substrate
+   asserts structure + slot data-attrs; visual register (surface
+   color, radius, shadow, border) flows from tenant [style] config. */
+.loom-block-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--loom-color-surface, color-mix(in oklab, var(--loom-color-text, currentColor) 3%, transparent));
+  color: var(--loom-color-text, inherit);
+  border: 1px solid var(--loom-color-border, color-mix(in oklab, var(--loom-color-text, currentColor) 12%, transparent));
+  border-radius: var(--loom-radius-card, var(--loom-radius-md, 0.5rem));
+  box-shadow: var(--loom-shadow-card, 0 1px 2px rgb(0 0 0 / 0.04));
+  overflow: hidden;
+}
+.loom-block-card__header,
+.loom-block-card__body,
+.loom-block-card__footer {
+  padding: var(--loom-card-padding, 1rem 1.25rem);
+}
+.loom-block-card__header {
+  border-bottom: 1px solid var(--loom-color-border, color-mix(in oklab, var(--loom-color-text, currentColor) 10%, transparent));
+}
+.loom-block-card__footer {
+  border-top: 1px solid var(--loom-color-border, color-mix(in oklab, var(--loom-color-text, currentColor) 10%, transparent));
+  background: var(--loom-color-surface-muted, color-mix(in oklab, var(--loom-color-text, currentColor) 1.5%, transparent));
+}
