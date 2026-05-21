@@ -408,6 +408,23 @@ pub enum CmsBlock {
         /// Block children.
         children: Vec<CmsBlock>,
     },
+    /// Semantic list. Renders as `<ul>` or `<ol>` per [`ListStyle`].
+    /// Each item is plain text — escaped at render time. Rich list
+    /// items (a list of cards, a list of compose trees) get a
+    /// dedicated variant when the need is real; v1 covers the 95%
+    /// case of bulleted / numbered text lists.
+    ///
+    /// REGRESSION-GUARD: tenants were previously faking lists with
+    /// Column + Text + Spacer chains, which leaks structural intent
+    /// out of the accessibility tree (screen readers don't announce
+    /// "list with N items"). Adding the semantic primitive closes
+    /// that gap.
+    List {
+        /// Bulleted vs numbered.
+        style: ListStyle,
+        /// Item labels. Plain strings, escaped at render.
+        items: Vec<String>,
+    },
     /// Disclosure list — collapsible summary + content panels.
     /// Behavioral contract mirrors Radix UI's `Accordion`
     /// primitive (slot composition: each item carries a
@@ -1475,6 +1492,20 @@ pub struct BlockAccordionItem {
     /// (`<details open>`).
     #[serde(default)]
     pub default_open: bool,
+}
+
+/// Bulleted-vs-numbered selector for [`CmsBlock::List`]. The
+/// substrate ships the two canonical semantic flavours; visual
+/// register (marker style, indent) flows from the tenant's
+/// `[style]` config rather than per-instance overrides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ListStyle {
+    /// `<ul>` — disc / circle / square marker per tenant style.
+    #[default]
+    Unordered,
+    /// `<ol>` — decimal / latin / roman marker per tenant style.
+    Ordered,
 }
 
 /// Token-scale spacing step. Resolves to actual pixel / rem at
@@ -6025,6 +6056,26 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                     @for child in children {
                         (render_block(child))
                     }
+                }
+            }
+        }
+        CmsBlock::List { style, items } => {
+            let style_slug = match style {
+                ListStyle::Unordered => "unordered",
+                ListStyle::Ordered => "ordered",
+            };
+            html! {
+                @match style {
+                    ListStyle::Unordered => ul class="loom-block-list" data-style=(style_slug) {
+                        @for item in items {
+                            li class="loom-block-list__item" { (item) }
+                        }
+                    },
+                    ListStyle::Ordered => ol class="loom-block-list" data-style=(style_slug) {
+                        @for item in items {
+                            li class="loom-block-list__item" { (item) }
+                        }
+                    },
                 }
             }
         }
@@ -13034,6 +13085,39 @@ mod tests {
         assert!(html.contains(r#"data-align="center""#));
         assert!(html.contains(">A</p>"));
         assert!(html.contains(">B</p>"));
+    }
+
+    #[test]
+    fn cms_block_list_renders_semantic_ul_ol() {
+        let ul = CmsBlock::List {
+            style: ListStyle::Unordered,
+            items: vec!["alpha".into(), "beta".into(), "gamma".into()],
+        };
+        let html = render_block(&ul).into_string();
+        assert!(html.contains("<ul"));
+        assert!(html.contains(r#"data-style="unordered""#));
+        assert!(html.contains("loom-block-list"));
+        assert!(html.contains(">alpha<"));
+        assert!(html.contains(">gamma<"));
+        let ol = CmsBlock::List {
+            style: ListStyle::Ordered,
+            items: vec!["one".into(), "two".into()],
+        };
+        let html = render_block(&ol).into_string();
+        assert!(html.contains("<ol"));
+        assert!(html.contains(r#"data-style="ordered""#));
+        assert!(html.contains(">one<"));
+    }
+
+    #[test]
+    fn cms_block_list_escapes_html_in_items() {
+        let ul = CmsBlock::List {
+            style: ListStyle::Unordered,
+            items: vec!["<script>alert(1)</script>".into()],
+        };
+        let html = render_block(&ul).into_string();
+        assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
