@@ -430,6 +430,69 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Breadcrumb trail. Renders semantic
+    /// `<nav aria-label="Breadcrumb"><ol>…</ol></nav>` with each
+    /// link separated by an `aria-hidden` glyph and the current
+    /// page marked `aria-current="page"`.
+    ///
+    /// Behavioral contract mirrors Radix UI's community
+    /// Breadcrumb pattern + React Aria's `Breadcrumbs`.
+    /// Upstream: <https://react-spectrum.adobe.com/react-aria/Breadcrumbs.html>
+    /// (Apache-2.0). No source copied.
+    Breadcrumb {
+        /// Trail items in left-to-right order. The last item
+        /// (rendered with `aria-current="page"`) is non-linked.
+        items: Vec<BlockBreadcrumbItem>,
+        /// Glyph used between items. Defaults to `"/"`. Common
+        /// alternatives: `"›"`, `"»"`, `">"`.
+        #[serde(default = "default_breadcrumb_separator")]
+        separator: String,
+    },
+    /// Pagination control — numbered page links + prev/next.
+    /// Static substrate emits `<nav aria-label="Pagination">`
+    /// with explicit page-link anchors so server-rendered
+    /// listings work without JS.
+    Pagination {
+        /// 1-indexed current page.
+        current: u32,
+        /// Total page count. `0` hides the control entirely.
+        total: u32,
+        /// URL template — `{page}` is replaced with the page
+        /// number. e.g. `"/posts?page={page}"`.
+        href_template: String,
+        /// Optional `aria-label` override. Defaults to
+        /// `"Pagination"`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        aria_label: Option<String>,
+        /// Show prev / next buttons. Defaults to `true`.
+        #[serde(default = "default_true")]
+        show_prev_next: bool,
+        /// Maximum middle-page link count before truncating with
+        /// ellipsis. `0` = no truncation.
+        #[serde(default)]
+        max_middle: u32,
+    },
+    /// Scrollable container. Renders as a `<div>` with
+    /// `overflow: auto` (CSS), explicit max-height controlled by
+    /// the operator. Browser-native scrollbars + focus-on-scroll
+    /// semantics, no JS required.
+    ///
+    /// Behavioral contract mirrors Radix UI's `ScrollArea`
+    /// primitive. Upstream:
+    /// <https://www.radix-ui.com/primitives/docs/components/scroll-area>
+    /// (MIT). No source copied — substrate uses native
+    /// browser scrollbars rather than the Radix custom-scrollbar
+    /// chrome (touch + screen-reader compatibility wins).
+    ScrollArea {
+        /// Child block tree.
+        children: Vec<CmsBlock>,
+        /// Maximum height. Token-scale step.
+        #[serde(default)]
+        max_height: BlockSpacing,
+        /// Scroll-axis: `Both` (default), `Vertical`, `Horizontal`.
+        #[serde(default)]
+        axis: ScrollAxis,
+    },
     /// Free-text tag input. User types text, presses Enter or
     /// comma to commit a tag; existing tags can be removed via
     /// per-tag close buttons.
@@ -919,6 +982,34 @@ pub enum CmsBlock {
     },
 }
 
+/// One breadcrumb step inside a [`CmsBlock::Breadcrumb`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockBreadcrumbItem {
+    /// Visible label.
+    pub label: String,
+    /// Optional href. The current page (last item) typically
+    /// omits href.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub href: Option<String>,
+    /// When true, mark this item as the current page (`aria-current="page"`).
+    /// The renderer also auto-marks the LAST item as current
+    /// when no item explicitly carries this flag.
+    #[serde(default)]
+    pub current: bool,
+}
+
+/// Scroll axis for a [`CmsBlock::ScrollArea`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum ScrollAxis {
+    #[default]
+    Both,
+    Vertical,
+    Horizontal,
+}
+
 /// One radio inside a [`CmsBlock::RadioGroup`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1023,13 +1114,14 @@ pub struct BlockAccordionItem {
 /// Token-scale spacing step. Resolves to actual pixel / rem at
 /// render time via the tenant's `[style.spacing]` config. The
 /// substrate ships sensible defaults; tenants override.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)]
 pub enum BlockSpacing {
     None,
     Xs,
     Sm,
+    #[default]
     Md,
     Lg,
     Xl,
@@ -4195,6 +4287,9 @@ fn default_speed() -> u8 {
 fn default_slider_step() -> f64 {
     1.0
 }
+fn default_breadcrumb_separator() -> String {
+    "/".to_owned()
+}
 
 /// Page-shell chrome kind. Picks the header + body-backdrop
 /// shape. Each variant is a complete chrome aesthetic, not a
@@ -5595,6 +5690,165 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::Breadcrumb { items, separator } => {
+            let last_idx = items.len().saturating_sub(1);
+            let any_current = items.iter().any(|i| i.current);
+            html! {
+                nav class="loom-block-breadcrumb" data-loom-slot="breadcrumb" aria-label="Breadcrumb" {
+                    ol class="loom-block-breadcrumb__list" data-loom-slot="breadcrumb-list" {
+                        @for (i, item) in items.iter().enumerate() {
+                            li class="loom-block-breadcrumb__item" data-loom-slot="breadcrumb-item" {
+                                @let is_current = item.current || (!any_current && i == last_idx);
+                                @match &item.href {
+                                    Some(href) if !is_current => {
+                                        @let safe = loom_components::composer::is_safe_url(href);
+                                        a
+                                            class="loom-block-breadcrumb__link"
+                                            data-loom-slot="breadcrumb-link"
+                                            href=(if safe { href.as_str() } else { "#invalid-link" })
+                                            data-invalid=[(!safe).then_some("true")]
+                                        {
+                                            (item.label)
+                                        }
+                                    }
+                                    _ => {
+                                        span
+                                            class="loom-block-breadcrumb__current"
+                                            data-loom-slot="breadcrumb-current"
+                                            aria-current=(if is_current { "page" } else { "false" })
+                                        {
+                                            (item.label)
+                                        }
+                                    }
+                                }
+                                @if i < last_idx {
+                                    span class="loom-block-breadcrumb__separator" aria-hidden="true" {
+                                        (separator)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        CmsBlock::Pagination {
+            current,
+            total,
+            href_template,
+            aria_label,
+            show_prev_next,
+            max_middle,
+        } => {
+            if *total == 0 {
+                html! {}
+            } else {
+                let label = aria_label.as_deref().unwrap_or("Pagination");
+                let pages = pagination_window(*current, *total, *max_middle);
+                let prev = (*current).saturating_sub(1).max(1);
+                let next = (current + 1).min(*total);
+                let make_href = |page: u32| href_template.replace("{page}", &page.to_string());
+                html! {
+                    nav class="loom-block-pagination" data-loom-slot="pagination" aria-label=(label) {
+                        ul class="loom-block-pagination__list" data-loom-slot="pagination-list" {
+                            @if *show_prev_next {
+                                li class="loom-block-pagination__item" {
+                                    @if *current > 1 {
+                                        a
+                                            class="loom-block-pagination__link loom-block-pagination__link--prev"
+                                            data-loom-slot="pagination-prev"
+                                            href=(make_href(prev))
+                                            rel="prev"
+                                            aria-label="Previous page"
+                                        {
+                                            "‹ Prev"
+                                        }
+                                    } @else {
+                                        span class="loom-block-pagination__link loom-block-pagination__link--prev" aria-disabled="true" {
+                                            "‹ Prev"
+                                        }
+                                    }
+                                }
+                            }
+                            @for entry in &pages {
+                                li class="loom-block-pagination__item" {
+                                    @match entry {
+                                        PaginationEntry::Page(p) => {
+                                            @let is_current = *p == *current;
+                                            @if is_current {
+                                                span
+                                                    class="loom-block-pagination__link loom-block-pagination__link--current"
+                                                    data-loom-slot="pagination-current"
+                                                    aria-current="page"
+                                                {
+                                                    (p)
+                                                }
+                                            } @else {
+                                                a
+                                                    class="loom-block-pagination__link"
+                                                    data-loom-slot="pagination-link"
+                                                    href=(make_href(*p))
+                                                {
+                                                    (p)
+                                                }
+                                            }
+                                        }
+                                        PaginationEntry::Ellipsis => {
+                                            span class="loom-block-pagination__ellipsis" aria-hidden="true" {
+                                                "…"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            @if *show_prev_next {
+                                li class="loom-block-pagination__item" {
+                                    @if *current < *total {
+                                        a
+                                            class="loom-block-pagination__link loom-block-pagination__link--next"
+                                            data-loom-slot="pagination-next"
+                                            href=(make_href(next))
+                                            rel="next"
+                                            aria-label="Next page"
+                                        {
+                                            "Next ›"
+                                        }
+                                    } @else {
+                                        span class="loom-block-pagination__link loom-block-pagination__link--next" aria-disabled="true" {
+                                            "Next ›"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        CmsBlock::ScrollArea {
+            children,
+            max_height,
+            axis,
+        } => {
+            let mh = block_spacing_slug(*max_height);
+            let ax = match axis {
+                ScrollAxis::Both => "both",
+                ScrollAxis::Vertical => "vertical",
+                ScrollAxis::Horizontal => "horizontal",
+            };
+            html! {
+                div
+                    class="loom-block-scroll-area"
+                    data-loom-slot="scroll-area"
+                    data-max-height=(mh)
+                    data-axis=(ax)
+                {
+                    @for child in children {
+                        (render_block(child))
+                    }
+                }
+            }
+        }
         CmsBlock::TagInput {
             id,
             label,
@@ -6280,6 +6534,54 @@ pub const fn block_spacing_slug(s: BlockSpacing) -> &'static str {
         BlockSpacing::Xl => "xl",
         BlockSpacing::Xxl => "xxl",
     }
+}
+
+/// One entry in a pagination window — either a numbered page
+/// link or an ellipsis placeholder for elided pages.
+enum PaginationEntry {
+    Page(u32),
+    Ellipsis,
+}
+
+/// Build the visible pagination window from current page, total
+/// count, and an optional truncation cap. `max_middle = 0`
+/// returns every page from 1..=total. Larger windows keep first
+/// + last + a `max_middle`-sized band around `current`, replacing
+/// gaps with [`PaginationEntry::Ellipsis`].
+fn pagination_window(current: u32, total: u32, max_middle: u32) -> Vec<PaginationEntry> {
+    if total == 0 {
+        return Vec::new();
+    }
+    if max_middle == 0 || total <= max_middle + 4 {
+        return (1..=total).map(PaginationEntry::Page).collect();
+    }
+    let half = max_middle / 2;
+    let mut start = current.saturating_sub(half);
+    let mut end = current.saturating_add(half);
+    if start < 2 {
+        start = 2;
+        end = (max_middle + 1).min(total - 1);
+    }
+    if end > total - 1 {
+        end = total - 1;
+        start = total.saturating_sub(max_middle);
+        if start < 2 {
+            start = 2;
+        }
+    }
+    let mut out: Vec<PaginationEntry> = Vec::new();
+    out.push(PaginationEntry::Page(1));
+    if start > 2 {
+        out.push(PaginationEntry::Ellipsis);
+    }
+    for p in start..=end {
+        out.push(PaginationEntry::Page(p));
+    }
+    if end < total - 1 {
+        out.push(PaginationEntry::Ellipsis);
+    }
+    out.push(PaginationEntry::Page(total));
+    out
 }
 
 /// Kebab-case slug for a [`ToastTone`]. Emitted as `data-tone`
@@ -10617,6 +10919,107 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_breadcrumb_marks_last_item_as_current() {
+        let json = r#"{
+            "kind": "breadcrumb",
+            "items": [
+                {"label":"Home","href":"/"},
+                {"label":"Docs","href":"/docs"},
+                {"label":"Substrate"}
+            ]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"<nav"#));
+        assert!(html.contains(r#"aria-label="Breadcrumb""#));
+        assert!(html.contains(r#"<ol"#));
+        // First + second items render as <a>; last renders as <span> with aria-current=page.
+        assert!(html.contains(r#"href="/""#));
+        assert!(html.contains(r#"href="/docs""#));
+        assert!(html.contains(r#"aria-current="page""#));
+        assert!(html.contains(">Substrate</span>"));
+        // Separator default "/" with aria-hidden.
+        assert!(html.contains(r#"aria-hidden="true""#));
+    }
+
+    #[test]
+    fn cms_block_breadcrumb_custom_separator() {
+        let json = r#"{
+            "kind":"breadcrumb","separator":"›",
+            "items":[{"label":"A","href":"/a"},{"label":"B"}]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains("›"));
+    }
+
+    #[test]
+    fn cms_block_pagination_renders_links_with_current_marker() {
+        let json = r#"{
+            "kind": "pagination",
+            "current": 3,
+            "total": 7,
+            "href_template": "/posts?page={page}"
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"aria-label="Pagination""#));
+        // Prev / Next links rendered.
+        assert!(html.contains(r#"href="/posts?page=2""#));
+        assert!(html.contains(r#"href="/posts?page=4""#));
+        // Current page marked with aria-current.
+        assert!(html.contains(r#"aria-current="page""#));
+        // Total pages link out.
+        assert!(html.contains(r#"href="/posts?page=1""#));
+        assert!(html.contains(r#"href="/posts?page=7""#));
+    }
+
+    #[test]
+    fn cms_block_pagination_total_zero_renders_nothing() {
+        let json = r#"{"kind":"pagination","current":1,"total":0,"href_template":"/p={page}"}"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.is_empty());
+    }
+
+    #[test]
+    fn pagination_window_truncates_with_ellipsis_around_current() {
+        let entries = pagination_window(15, 30, 5);
+        let pages: Vec<u32> = entries
+            .iter()
+            .filter_map(|e| match e {
+                PaginationEntry::Page(p) => Some(*p),
+                _ => None,
+            })
+            .collect();
+        assert!(pages.contains(&1));
+        assert!(pages.contains(&30));
+        assert!(pages.contains(&15));
+        // Two ellipses (one on each side of current).
+        let ellipsis_count = entries
+            .iter()
+            .filter(|e| matches!(e, PaginationEntry::Ellipsis))
+            .count();
+        assert_eq!(ellipsis_count, 2);
+    }
+
+    #[test]
+    fn cms_block_scroll_area_emits_axis_and_max_height() {
+        let json = r#"{
+            "kind":"scroll_area",
+            "max_height":"lg",
+            "axis":"vertical",
+            "children":[{"kind":"text","text":"long content"}]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"data-loom-slot="scroll-area""#));
+        assert!(html.contains(r#"data-max-height="lg""#));
+        assert!(html.contains(r#"data-axis="vertical""#));
+        assert!(html.contains("long content"));
     }
 
     #[test]
