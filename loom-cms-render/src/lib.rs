@@ -279,6 +279,149 @@ pub struct CmsNavLink {
 /// variant are self-documenting via their type signature + the
 /// JSON-schema name (e.g., `children_html: String` on `Container`
 /// is exactly what it says) — per-field docs are only added when a
+/// Atomic content block — the building blocks a Visual-Studio-
+/// style builder manipulates. Compose into `Vec<CmsBlock>` and
+/// wrap in [`CmsSection::Compose`] for arbitrary layout shapes
+/// that aren't bound to a section-level premade.
+///
+/// Section primitives (Hero / FeatureSpotlight / StatBand / etc.)
+/// bundle composition + content + style; that pattern produces
+/// homogeneous sites because every tenant draws from the same
+/// fixed pool of section shapes. The atomic primitives invert
+/// that: a tenant composes from small reusable pieces (text,
+/// heading, image, link, container, row, column, spacer,
+/// divider) and the visual differentiation comes from the
+/// tenant's `[style]` config (palette, fonts, density) rather
+/// than a section-level decoration enum.
+///
+/// Block-level primitives are intentionally orthogonal to section
+/// primitives — both coexist for the migration window. Operators
+/// who already author with section primitives keep working; new
+/// operators (and the eventual visual builder) use blocks.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[allow(missing_docs)]
+pub enum CmsBlock {
+    /// Body-prose paragraph. Renders as `<p>` with prose token
+    /// styling. Use for editorial copy, captions, supporting
+    /// text.
+    Text {
+        /// Paragraph contents. Escaped at render time.
+        text: String,
+    },
+    /// Hierarchical heading. `level` clamps to 1..=6 with 2 as
+    /// the default in-section heading (the page-level `<h1>` is
+    /// usually a separate hero / page-title slot).
+    Heading {
+        /// HTML heading level. Clamped at render to 1..=6.
+        level: u8,
+        /// Heading text.
+        text: String,
+    },
+    /// Image with required `alt`. `src` is validated via
+    /// `composer::is_safe_url` at render time; hostile schemes
+    /// suppress the `<img>` entirely (block becomes invisible
+    /// rather than emitting an unsafe URL).
+    Image {
+        /// Image URL.
+        src: String,
+        /// Accessible name. Empty string permitted ONLY for
+        /// genuinely decorative images.
+        alt: String,
+        /// Optional intrinsic width hint (CLS prevention).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        width: Option<u32>,
+        /// Optional intrinsic height hint (CLS prevention).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        height: Option<u32>,
+    },
+    /// Inline hyperlink. Renders as `<a>` with prose styling.
+    /// For prominent call-to-action affordances use [`CmsBlock::Button`]
+    /// (not yet defined — file follow-up PR).
+    Link {
+        /// Visible link text.
+        label: String,
+        /// Destination URL. Validated via `is_safe_url`.
+        href: String,
+        /// Optional `data-backend` slug for the phantom-button
+        /// gate.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        data_backend: Option<String>,
+    },
+    /// Vertical whitespace. `size` is a token-scale step
+    /// (`Sm`/`Md`/`Lg`/`Xl`) so spacing decisions inherit from
+    /// the tenant's `[style]` density config rather than carrying
+    /// raw pixel values.
+    Spacer {
+        /// Spacing step.
+        size: BlockSpacing,
+    },
+    /// Horizontal rule. Decorative — does NOT participate in the
+    /// accessibility tree (renderer emits `aria-hidden="true"`).
+    Divider,
+    /// Generic container — wraps children in a `<div>` with
+    /// optional padding step.
+    Container {
+        /// Optional padding step.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        padding: Option<BlockSpacing>,
+        /// Block children. Flat — no implicit ordering.
+        children: Vec<CmsBlock>,
+    },
+    /// Horizontal flexbox row. Children flow left-to-right;
+    /// wraps at small viewports per the tenant's density config.
+    Row {
+        /// Gap between children. Token-scale step.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gap: Option<BlockSpacing>,
+        /// Cross-axis alignment.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        align: Option<BlockAlign>,
+        /// Block children.
+        children: Vec<CmsBlock>,
+    },
+    /// Vertical flexbox column. Children flow top-to-bottom.
+    Column {
+        /// Gap between children. Token-scale step.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gap: Option<BlockSpacing>,
+        /// Cross-axis alignment.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        align: Option<BlockAlign>,
+        /// Block children.
+        children: Vec<CmsBlock>,
+    },
+}
+
+/// Token-scale spacing step. Resolves to actual pixel / rem at
+/// render time via the tenant's `[style.spacing]` config. The
+/// substrate ships sensible defaults; tenants override.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum BlockSpacing {
+    None,
+    Xs,
+    Sm,
+    Md,
+    Lg,
+    Xl,
+    Xxl,
+}
+
+/// Flexbox cross-axis alignment. Mirrors CSS `align-items` for
+/// `Row` and `Column` blocks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum BlockAlign {
+    Start,
+    Center,
+    End,
+    Stretch,
+    Baseline,
+}
+
 /// field's meaning is NOT obvious from `<name>: <type>` alone
 /// (constraints, units, encoding format). The blanket
 /// `#[allow(missing_docs)]` below avoids the maintenance tax of
@@ -289,6 +432,25 @@ pub struct CmsNavLink {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 #[allow(missing_docs)]
 pub enum CmsSection {
+    /// Compositional section — holds a `Vec<CmsBlock>` of atomic
+    /// primitives (text / heading / image / link / spacer /
+    /// divider / container / row / column). Use this when the
+    /// section-level premades (Hero / FeatureSpotlight / etc.)
+    /// don't match the intended composition.
+    ///
+    /// Visual differentiation lives in the tenant's `[style]`
+    /// config (palette, fonts, density), NOT in this section's
+    /// shape. Two tenants using `Compose` with identical block
+    /// trees will still render distinctly because their style
+    /// configs differ.
+    Compose {
+        /// Optional section heading rendered above the block
+        /// tree as `<h2>`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        heading: Option<String>,
+        /// Atomic block tree.
+        blocks: Vec<CmsBlock>,
+    },
     /// Top-of-page hero. Optional eyebrow pill, required title,
     /// optional lede, optional primary CTA. Loom-namespaced
     /// (no Tailwind dependency) so it composes cleanly with the
@@ -4567,11 +4729,164 @@ pub fn render_page(page: &CmsPage) -> Markup {
     }
 }
 
+/// Render one atomic [`CmsBlock`] to Loom markup. Recursive —
+/// `Container` / `Row` / `Column` blocks call back into
+/// `render_block` for each child.
+///
+/// Token-scale spacing + alignment are emitted as `data-*`
+/// attributes; the loom-skin.css cascade resolves them to actual
+/// padding / gap / align-items per the tenant's `[style]`
+/// config.
+#[must_use]
+pub fn render_block(block: &CmsBlock) -> Markup {
+    match block {
+        CmsBlock::Text { text } => html! {
+            p class="loom-block-text" { (text) }
+        },
+        CmsBlock::Heading { level, text } => {
+            let lvl = (*level).clamp(1, 6);
+            html! {
+                @match lvl {
+                    1 => h1 class="loom-block-heading" data-level="1" { (text) },
+                    2 => h2 class="loom-block-heading" data-level="2" { (text) },
+                    3 => h3 class="loom-block-heading" data-level="3" { (text) },
+                    4 => h4 class="loom-block-heading" data-level="4" { (text) },
+                    5 => h5 class="loom-block-heading" data-level="5" { (text) },
+                    _ => h6 class="loom-block-heading" data-level="6" { (text) },
+                }
+            }
+        }
+        CmsBlock::Image {
+            src,
+            alt,
+            width,
+            height,
+        } => {
+            if loom_components::composer::is_safe_url(src) {
+                html! {
+                    img class="loom-block-image"
+                        src=(src) alt=(alt)
+                        width=[width] height=[height]
+                        decoding="async" loading="lazy";
+                }
+            } else {
+                html! {}
+            }
+        }
+        CmsBlock::Link {
+            label,
+            href,
+            data_backend,
+        } => {
+            let safe = loom_components::composer::is_safe_url(href);
+            html! {
+                a class="loom-block-link"
+                    href=(if safe { href.as_str() } else { "#invalid-link" })
+                    data-backend=[data_backend.as_deref()]
+                    data-invalid=[(!safe).then_some("true")] {
+                    (label)
+                }
+            }
+        }
+        CmsBlock::Spacer { size } => {
+            let slug = block_spacing_slug(*size);
+            html! {
+                div class="loom-block-spacer" data-size=(slug) aria-hidden="true" {}
+            }
+        }
+        CmsBlock::Divider => html! {
+            hr class="loom-block-divider" aria-hidden="true";
+        },
+        CmsBlock::Container { padding, children } => {
+            let pad = padding.map(block_spacing_slug);
+            html! {
+                div class="loom-block-container" data-padding=[pad] {
+                    @for child in children {
+                        (render_block(child))
+                    }
+                }
+            }
+        }
+        CmsBlock::Row {
+            gap,
+            align,
+            children,
+        } => {
+            let g = gap.map(block_spacing_slug);
+            let a = align.map(block_align_slug);
+            html! {
+                div class="loom-block-row" data-gap=[g] data-align=[a] {
+                    @for child in children {
+                        (render_block(child))
+                    }
+                }
+            }
+        }
+        CmsBlock::Column {
+            gap,
+            align,
+            children,
+        } => {
+            let g = gap.map(block_spacing_slug);
+            let a = align.map(block_align_slug);
+            html! {
+                div class="loom-block-column" data-gap=[g] data-align=[a] {
+                    @for child in children {
+                        (render_block(child))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Kebab-case slug for a [`BlockSpacing`] step. Used as the
+/// value of `data-padding` / `data-gap` attributes so the
+/// loom-skin.css cascade can resolve them to per-tenant pixel
+/// values.
+#[must_use]
+pub const fn block_spacing_slug(s: BlockSpacing) -> &'static str {
+    match s {
+        BlockSpacing::None => "none",
+        BlockSpacing::Xs => "xs",
+        BlockSpacing::Sm => "sm",
+        BlockSpacing::Md => "md",
+        BlockSpacing::Lg => "lg",
+        BlockSpacing::Xl => "xl",
+        BlockSpacing::Xxl => "xxl",
+    }
+}
+
+/// Kebab-case slug for a [`BlockAlign`] enum. Used as the value
+/// of `data-align` attributes.
+#[must_use]
+pub const fn block_align_slug(a: BlockAlign) -> &'static str {
+    match a {
+        BlockAlign::Start => "start",
+        BlockAlign::Center => "center",
+        BlockAlign::End => "end",
+        BlockAlign::Stretch => "stretch",
+        BlockAlign::Baseline => "baseline",
+    }
+}
+
 /// Render one CMS section to Loom markup.
 #[must_use]
 #[allow(clippy::too_many_lines)] // single match over every CmsSection variant.
 pub fn render_section(section: &CmsSection) -> Markup {
     match section {
+        CmsSection::Compose { heading, blocks } => html! {
+            section class="loom-compose" data-loom-compose data-loom-reveal {
+                @if let Some(h) = heading {
+                    h2 class="loom-compose__heading" { (h) }
+                }
+                div class="loom-compose__tree" {
+                    @for block in blocks {
+                        (render_block(block))
+                    }
+                }
+            }
+        },
         CmsSection::Hero {
             eyebrow,
             title,
@@ -8716,6 +9031,140 @@ mod tests {
 
     fn render_to_string(p: &CmsPage) -> String {
         render_page(p).into_string()
+    }
+
+    #[test]
+    fn cms_block_text_round_trips_through_serde() {
+        let block = CmsBlock::Text {
+            text: "Hello world".to_owned(),
+        };
+        let json = serde_json::to_string(&block).expect("ser");
+        assert!(json.contains(r#""kind":"text""#));
+        assert!(json.contains("Hello world"));
+        let back: CmsBlock = serde_json::from_str(&json).expect("de");
+        match back {
+            CmsBlock::Text { text } => assert_eq!(text, "Hello world"),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn cms_block_renders_atomic_primitives() {
+        // Text block
+        let m = render_block(&CmsBlock::Text {
+            text: "Body".to_owned(),
+        });
+        assert!(m.into_string().contains("loom-block-text"));
+        // Heading clamps level to 1..=6
+        let m = render_block(&CmsBlock::Heading {
+            level: 99,
+            text: "Big".to_owned(),
+        });
+        let s = m.into_string();
+        assert!(s.contains("loom-block-heading"));
+        assert!(s.contains("<h6"));
+        // Image with safe url emits <img>
+        let m = render_block(&CmsBlock::Image {
+            src: "/logo.svg".to_owned(),
+            alt: "L".to_owned(),
+            width: None,
+            height: None,
+        });
+        assert!(m.into_string().contains("loom-block-image"));
+        // Image with hostile src suppresses entirely
+        let m = render_block(&CmsBlock::Image {
+            src: "javascript:alert(1)".to_owned(),
+            alt: "x".to_owned(),
+            width: None,
+            height: None,
+        });
+        assert_eq!(m.into_string(), "");
+        // Divider emits aria-hidden hr
+        let m = render_block(&CmsBlock::Divider).into_string();
+        assert!(m.contains("loom-block-divider"));
+        assert!(m.contains("aria-hidden"));
+    }
+
+    #[test]
+    fn cms_block_row_and_column_nest_children() {
+        let row = CmsBlock::Row {
+            gap: Some(BlockSpacing::Md),
+            align: Some(BlockAlign::Center),
+            children: vec![
+                CmsBlock::Text {
+                    text: "A".to_owned(),
+                },
+                CmsBlock::Text {
+                    text: "B".to_owned(),
+                },
+            ],
+        };
+        let html = render_block(&row).into_string();
+        assert!(html.contains("loom-block-row"));
+        assert!(html.contains(r#"data-gap="md""#));
+        assert!(html.contains(r#"data-align="center""#));
+        assert!(html.contains(">A</p>"));
+        assert!(html.contains(">B</p>"));
+    }
+
+    #[test]
+    fn cms_section_compose_renders_block_tree() {
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind": "compose",
+                "heading": "Atomic demo",
+                "blocks": [
+                    { "kind": "heading", "level": 2, "text": "Section title" },
+                    { "kind": "text", "text": "A paragraph." },
+                    { "kind": "spacer", "size": "lg" },
+                    { "kind": "divider" }
+                ]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("page parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("loom-compose"));
+        assert!(html.contains("Atomic demo"));
+        assert!(html.contains("loom-block-heading"));
+        assert!(html.contains("Section title"));
+        assert!(html.contains("loom-block-text"));
+        assert!(html.contains(r#"loom-block-spacer" data-size="lg""#));
+        assert!(html.contains("loom-block-divider"));
+    }
+
+    #[test]
+    fn block_spacing_slug_round_trips() {
+        for s in [
+            BlockSpacing::None,
+            BlockSpacing::Xs,
+            BlockSpacing::Sm,
+            BlockSpacing::Md,
+            BlockSpacing::Lg,
+            BlockSpacing::Xl,
+            BlockSpacing::Xxl,
+        ] {
+            let slug = block_spacing_slug(s);
+            assert!(!slug.is_empty());
+            assert!(slug.chars().all(|c| c.is_ascii_lowercase()));
+        }
+    }
+
+    #[test]
+    fn block_align_slug_round_trips() {
+        for a in [
+            BlockAlign::Start,
+            BlockAlign::Center,
+            BlockAlign::End,
+            BlockAlign::Stretch,
+            BlockAlign::Baseline,
+        ] {
+            let slug = block_align_slug(a);
+            assert!(!slug.is_empty());
+            assert!(slug.chars().all(|c| c.is_ascii_lowercase()));
+        }
     }
 
     #[test]
