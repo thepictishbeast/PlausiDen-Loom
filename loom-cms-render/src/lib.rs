@@ -430,6 +430,24 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Hierarchical navigation menu — top-level horizontal bar
+    /// with optional dropdown submenus per item. Static substrate
+    /// renders submenus as native `<details>/<summary>` pairs so
+    /// the menu works without JS; a future Loom JS runtime can
+    /// replace this with the WAI-ARIA Disclosure Navigation
+    /// pattern (hover + Esc + arrow-key nav).
+    ///
+    /// Behavioral contract mirrors Radix UI's `NavigationMenu`
+    /// primitive. Upstream spec:
+    /// <https://www.radix-ui.com/primitives/docs/components/navigation-menu>
+    /// (MIT). No source copied.
+    NavigationMenu {
+        /// Top-level items in left-to-right order.
+        items: Vec<BlockNavMenuItem>,
+        /// Optional `aria-label` override.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        aria_label: Option<String>,
+    },
     /// Breadcrumb trail. Renders semantic
     /// `<nav aria-label="Breadcrumb"><ol>…</ol></nav>` with each
     /// link separated by an `aria-hidden` glyph and the current
@@ -980,6 +998,33 @@ pub enum CmsBlock {
         #[serde(default)]
         disabled: bool,
     },
+}
+
+/// One item inside a [`CmsBlock::NavigationMenu`]. An item can
+/// be either a leaf link (when `children` is empty) or a
+/// disclosure-style submenu container.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockNavMenuItem {
+    /// Visible label.
+    pub label: String,
+    /// Optional href. When `children` is empty, the item renders
+    /// as a leaf link; when both are set the label is the
+    /// disclosure trigger AND a link (the trigger wraps the
+    /// link).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub href: Option<String>,
+    /// Optional `data-backend` slug for the phantom-button gate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_backend: Option<String>,
+    /// Submenu items. Empty = leaf link; non-empty = disclosure
+    /// container.
+    #[serde(default)]
+    pub children: Vec<BlockNavMenuItem>,
+    /// When true, this is the current page (renders with
+    /// `aria-current="page"`).
+    #[serde(default)]
+    pub current: bool,
 }
 
 /// One breadcrumb step inside a [`CmsBlock::Breadcrumb`].
@@ -5690,6 +5735,18 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::NavigationMenu { items, aria_label } => {
+            let label = aria_label.as_deref().unwrap_or("Primary navigation");
+            html! {
+                nav class="loom-block-nav-menu" data-loom-slot="nav-menu" aria-label=(label) {
+                    ul class="loom-block-nav-menu__list" data-loom-slot="nav-menu-list" role="menubar" {
+                        @for item in items {
+                            (render_nav_menu_item(item, true))
+                        }
+                    }
+                }
+            }
+        }
         CmsBlock::Breadcrumb { items, separator } => {
             let last_idx = items.len().saturating_sub(1);
             let any_current = items.iter().any(|i| i.current);
@@ -6533,6 +6590,66 @@ pub const fn block_spacing_slug(s: BlockSpacing) -> &'static str {
         BlockSpacing::Lg => "lg",
         BlockSpacing::Xl => "xl",
         BlockSpacing::Xxl => "xxl",
+    }
+}
+
+/// Recursive renderer for a [`BlockNavMenuItem`]. `top_level`
+/// flags the top row (`role="menuitem"` direct children of
+/// `role="menubar"`) so nested items can downgrade to plain
+/// menu-item semantics inside disclosure submenus.
+fn render_nav_menu_item(item: &BlockNavMenuItem, top_level: bool) -> Markup {
+    let role = if top_level { "menuitem" } else { "menuitem" };
+    let aria_current = if item.current { Some("page") } else { None };
+    html! {
+        li class="loom-block-nav-menu__item" data-loom-slot="nav-menu-item" role="none" {
+            @if item.children.is_empty() {
+                @match &item.href {
+                    Some(href) => {
+                        @let safe = loom_components::composer::is_safe_url(href);
+                        a
+                            class="loom-block-nav-menu__link"
+                            data-loom-slot="nav-menu-link"
+                            role=(role)
+                            href=(if safe { href.as_str() } else { "#invalid-link" })
+                            data-backend=[item.data_backend.as_deref()]
+                            data-invalid=[(!safe).then_some("true")]
+                            aria-current=[aria_current]
+                        {
+                            (item.label)
+                        }
+                    }
+                    None => {
+                        span
+                            class="loom-block-nav-menu__link"
+                            data-loom-slot="nav-menu-text"
+                            role=(role)
+                            aria-current=[aria_current]
+                        {
+                            (item.label)
+                        }
+                    }
+                }
+            } @else {
+                details
+                    class="loom-block-nav-menu__submenu"
+                    data-loom-slot="nav-menu-submenu"
+                {
+                    summary
+                        class="loom-block-nav-menu__trigger"
+                        data-loom-slot="nav-menu-trigger"
+                        role=(role)
+                        aria-haspopup="menu"
+                    {
+                        (item.label)
+                    }
+                    ul class="loom-block-nav-menu__sublist" data-loom-slot="nav-menu-sublist" role="menu" {
+                        @for child in &item.children {
+                            (render_nav_menu_item(child, false))
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -10919,6 +11036,63 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_navigation_menu_renders_menubar_with_links_and_submenus() {
+        let json = r#"{
+            "kind": "navigation_menu",
+            "items": [
+                {"label":"Home","href":"/","current":true},
+                {"label":"Solutions","children":[
+                    {"label":"Legal","href":"/solutions/legal"},
+                    {"label":"Healthcare","href":"/solutions/healthcare"}
+                ]},
+                {"label":"Contact","href":"/contact","data_backend":"contact-form"}
+            ]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"<nav"#));
+        assert!(html.contains(r#"aria-label="Primary navigation""#));
+        assert!(html.contains(r#"role="menubar""#));
+        // Three top-level items.
+        assert_eq!(html.matches(r#"data-loom-slot="nav-menu-item""#).count(), 5);
+        // Home → aria-current=page.
+        assert!(html.contains(r#"aria-current="page""#));
+        // Solutions → submenu via <details>.
+        assert!(html.contains(r#"<details"#));
+        assert!(html.contains(r#"aria-haspopup="menu""#));
+        assert!(html.contains(r#"role="menu""#));
+        // Sub-links rendered.
+        assert!(html.contains(r#"href="/solutions/legal""#));
+        assert!(html.contains(r#"href="/solutions/healthcare""#));
+        // data-backend on Contact.
+        assert!(html.contains(r#"data-backend="contact-form""#));
+    }
+
+    #[test]
+    fn cms_block_navigation_menu_custom_aria_label() {
+        let json = r#"{
+            "kind":"navigation_menu",
+            "aria_label":"Footer",
+            "items":[{"label":"X","href":"/x"}]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"aria-label="Footer""#));
+    }
+
+    #[test]
+    fn cms_block_navigation_menu_unsafe_href_marks_invalid() {
+        let json = r##"{
+            "kind":"navigation_menu",
+            "items":[{"label":"Hostile","href":"javascript:alert(1)"}]
+        }"##;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r##"href="#invalid-link""##));
+        assert!(html.contains(r#"data-invalid="true""#));
     }
 
     #[test]
