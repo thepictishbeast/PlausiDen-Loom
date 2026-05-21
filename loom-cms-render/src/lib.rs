@@ -430,6 +430,23 @@ pub enum CmsBlock {
         #[serde(default)]
         single_expand: bool,
     },
+    /// Tabbed content panels. Renders ARIA-correct
+    /// `role="tablist"` / `role="tab"` / `role="tabpanel"`
+    /// markup. WITHOUT JS, only the first panel is visible —
+    /// substrate doctrine is static-first + progressive
+    /// enhancement; a future Loom JS runtime adds click +
+    /// keyboard-arrow switching by toggling `aria-selected`
+    /// and the `hidden` attribute on panels.
+    ///
+    /// Behavioral contract mirrors Radix UI's `Tabs` primitive.
+    /// Upstream spec: <https://www.radix-ui.com/primitives/docs/components/tabs>
+    /// (MIT). No source copied.
+    Tabs {
+        /// Tab items in order. The first item is the default-
+        /// visible panel; future items are rendered with
+        /// `hidden` so a no-JS reader sees only the first.
+        items: Vec<BlockTabsItem>,
+    },
     /// Modal / non-modal dialog. Renders as the native HTML
     /// `<dialog>` element — universally supported (Chromium 37+,
     /// Safari 15.4+, Firefox 98+). Includes a default close
@@ -566,6 +583,20 @@ pub enum CmsBlock {
         #[serde(default)]
         disabled: bool,
     },
+}
+
+/// One tab item inside a [`CmsBlock::Tabs`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlockTabsItem {
+    /// Trigger label rendered inside the `<button role="tab">`.
+    pub label: String,
+    /// Stable kebab-case slug used to construct the trigger id
+    /// (`tab-{slug}`) and the panel id (`panel-{slug}`). Must
+    /// be unique within a Tabs block.
+    pub slug: String,
+    /// Panel content as a block tree.
+    pub content: Vec<CmsBlock>,
 }
 
 /// One disclosure item inside a [`CmsBlock::Accordion`]. Distinct
@@ -5149,6 +5180,47 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         }
+        CmsBlock::Tabs { items } => html! {
+            div class="loom-block-tabs" data-loom-slot="tabs" {
+                div role="tablist" class="loom-block-tabs__list" data-loom-slot="tabs-list" {
+                    @for (i, item) in items.iter().enumerate() {
+                        @let trig_id = format!("tab-{}", item.slug);
+                        @let panel_id = format!("panel-{}", item.slug);
+                        @let is_first = i == 0;
+                        button
+                            type="button"
+                            role="tab"
+                            class="loom-block-tabs__trigger"
+                            data-loom-slot="tabs-trigger"
+                            id=(trig_id)
+                            aria-controls=(panel_id)
+                            aria-selected=(if is_first { "true" } else { "false" })
+                            tabindex=(if is_first { "0" } else { "-1" })
+                        {
+                            (item.label)
+                        }
+                    }
+                }
+                @for (i, item) in items.iter().enumerate() {
+                    @let trig_id = format!("tab-{}", item.slug);
+                    @let panel_id = format!("panel-{}", item.slug);
+                    @let is_first = i == 0;
+                    div
+                        role="tabpanel"
+                        class="loom-block-tabs__panel"
+                        data-loom-slot="tabs-panel"
+                        id=(panel_id)
+                        aria-labelledby=(trig_id)
+                        hidden[!is_first]
+                        tabindex="0"
+                    {
+                        @for child in &item.content {
+                            (render_block(child))
+                        }
+                    }
+                }
+            }
+        },
         CmsBlock::Dialog {
             id,
             title,
@@ -9635,6 +9707,49 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="accordion-item""#));
         assert!(html.contains(r#"data-loom-slot="accordion-trigger""#));
         assert!(html.contains(r#"data-loom-slot="accordion-content""#));
+    }
+
+    #[test]
+    fn cms_block_tabs_renders_aria_correct_tablist() {
+        let json = r#"{
+            "kind": "tabs",
+            "items": [
+                {"label":"Overview","slug":"overview","content":[{"kind":"text","text":"A"}]},
+                {"label":"Details","slug":"details","content":[{"kind":"text","text":"B"}]}
+            ]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        assert!(html.contains(r#"role="tablist""#));
+        assert!(html.contains(r#"role="tab""#));
+        assert!(html.contains(r#"role="tabpanel""#));
+        // First trigger is selected + has tabindex=0.
+        assert!(html.contains(r#"aria-selected="true""#));
+        assert!(html.contains(r#"aria-selected="false""#));
+        // Trigger ↔ panel binding via aria-controls + aria-labelledby.
+        assert!(html.contains(r#"id="tab-overview""#));
+        assert!(html.contains(r#"id="panel-overview""#));
+        assert!(html.contains(r#"aria-controls="panel-overview""#));
+        assert!(html.contains(r#"aria-labelledby="tab-overview""#));
+    }
+
+    #[test]
+    fn cms_block_tabs_first_panel_visible_others_hidden() {
+        let json = r#"{
+            "kind":"tabs",
+            "items":[
+                {"label":"A","slug":"a","content":[]},
+                {"label":"B","slug":"b","content":[]},
+                {"label":"C","slug":"c","content":[]}
+            ]
+        }"#;
+        let block: CmsBlock = serde_json::from_str(json).expect("parses");
+        let html = render_block(&block).into_string();
+        // Exactly 2 hidden attrs — second + third panel.
+        assert_eq!(html.matches(" hidden").count(), 2);
+        // First tab has tabindex=0; others tabindex=-1 (per ARIA spec).
+        assert_eq!(html.matches(r#"tabindex="0""#).count(), 4);
+        assert_eq!(html.matches(r#"tabindex="-1""#).count(), 2);
     }
 
     #[test]
