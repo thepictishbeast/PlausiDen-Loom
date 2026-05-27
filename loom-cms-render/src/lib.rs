@@ -5503,9 +5503,15 @@ pub enum ChromeKind {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum HeroBackground {
-    /// Animated three-radial gradient mesh in the accent palette.
-    /// The default — works in every theme without configuration.
+    /// No backdrop at all — section emits no `bg-*` class. The
+    /// neutralized default per #360 doctrine: substrate doesn't
+    /// silently apply consumer-band gradients to tenants that
+    /// didn't ask for one.
     #[default]
+    None,
+    /// Animated three-radial gradient mesh in the accent palette.
+    /// Tenants must opt in explicitly. Suitable for SaaS-landing
+    /// register; substrate doesn't apply automatically.
     GradientMesh,
     /// Solid color. `token` references a loom color token slug
     /// (e.g. `"loom-color-surface"`).
@@ -9216,6 +9222,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
             after_cta,
         } => {
             let bg_class = match background {
+                HeroBackground::None => "none",
                 HeroBackground::GradientMesh => "gradient-mesh",
                 HeroBackground::Solid { .. } => "solid",
                 HeroBackground::Stripes => "stripes",
@@ -9569,6 +9576,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
             align,
         } => {
             let bg_class = match background {
+                HeroBackground::None => "none",
                 HeroBackground::GradientMesh => "gradient-mesh",
                 HeroBackground::Solid { .. } => "solid",
                 HeroBackground::Stripes => "stripes",
