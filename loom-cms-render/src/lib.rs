@@ -19948,6 +19948,7 @@ pub fn page_shell_themed(
                     | "rose"
                     | "sepia"
                     | "press"
+                    | "editorial"
                     | "hc-dark"
                     | "hc-light"
             ) =>

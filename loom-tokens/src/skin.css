@@ -3442,6 +3442,42 @@
     --loom-color-gradient-b:    hsl(35 80% 45%);
   }
 
+  /* data-theme="editorial" — magazine / publication aesthetic.
+   * Warm-neutral cream canvas, dark ink, accent in publication-red.
+   * Designed for kinfolk / NYT Magazine / longform-editorial sites.
+   * Pairs with [style.fonts] override for serif display + serif body;
+   * the substrate intentionally does NOT bundle a serif font because
+   * font-loading is a tenant decision (license, performance, network).
+   * Per docs/SUBSTRATE_GAP_CATALOG_2026_05_27.md Tier 1 #2 + #358. */
+  :root[data-theme="editorial"] {
+    --loom-color-bg-canvas:     hsl(38 22% 95%);
+    --loom-color-surface:       hsl(38 25% 97%);
+    --loom-color-surface-muted: hsl(38 18% 90%);
+    --loom-color-surface-subtle: hsl(38 20% 93%);
+    --loom-color-bg-overlay:    hsl(28 30% 18% / 8%);
+    --loom-color-ink:           hsl(28 30% 14%);
+    --loom-color-ink-muted:     hsl(28 18% 38%);
+    --loom-color-border:        hsl(38 14% 78%);
+    --loom-color-border-strong: hsl(38 14% 58%);
+    --loom-color-primary:       hsl(0 55% 38%);
+    --loom-color-primary-fg:    hsl(38 25% 97%);
+    --loom-color-accent:        hsl(0 55% 38%);
+    --loom-color-on-accent:     hsl(38 25% 97%);
+    --loom-color-accent-glow:   hsl(0 45% 50%);
+    --loom-color-info:          hsl(210 50% 32%);
+    --loom-color-info-subtle:   hsl(38 30% 88%);
+    --loom-color-success:       hsl(140 38% 28%);
+    --loom-color-success-subtle: hsl(140 35% 86%);
+    --loom-color-warn:          hsl(35 75% 32%);
+    --loom-color-warning:       hsl(35 75% 32%);
+    --loom-color-warning-subtle: hsl(35 60% 86%);
+    --loom-color-danger:        hsl(0 55% 38%);
+    --loom-color-danger-subtle: hsl(0 50% 90%);
+    --loom-color-tier-medium:   hsl(28 15% 42%);
+    --loom-color-gradient-a:    hsl(0 55% 38%);
+    --loom-color-gradient-b:    hsl(28 30% 14%);
+  }
+
   /* Font variants — swap the entire type system.
    * data-font="display" is the default (already set in tokens layer). */
   :root[data-font="serif"] {
