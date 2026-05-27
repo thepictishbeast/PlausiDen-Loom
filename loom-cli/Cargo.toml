@@ -18,7 +18,7 @@ loom-tokens = { path = "../loom-tokens", version = "0.1" }
 clap = { workspace = true }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
-sha2 = "0.10"
+sha2 = "0.11"
 base64 = "0.22"
 toml = "0.8"
 toml_edit = "0.22"
