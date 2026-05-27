@@ -3230,6 +3230,23 @@ pub enum CmsSection {
         items: Vec<GalleryImage>,
         interval_ms: u32,
     },
+    /// Hero-shaped auto-rotating slideshow: each slide carries a
+    /// background image + text overlay (eyebrow / title / lede /
+    /// optional CTA). Pure-CSS cycling; no JS.
+    ///
+    /// Substrate-general: any tenant can author N slides; render
+    /// emits CSS-only auto-rotation via staggered animation-delay
+    /// per slide.
+    HeroSlideshow {
+        /// Per-slide content. 1..=8 recommended; substrate accepts
+        /// any non-empty list.
+        slides: Vec<HeroSlide>,
+        /// Interval per slide in milliseconds (e.g. 5000 = 5s).
+        interval_ms: u32,
+        /// Text-overlay alignment ("start" / "center" / "end").
+        #[serde(default)]
+        align: Option<String>,
+    },
     /// Before/after slider comparison.
     BeforeAfter {
         before_alt: String,
@@ -6196,6 +6213,31 @@ pub struct HeroCta {
     /// Backend key (must match a `[backends.X]` in backends.toml).
     /// Forge's phantom_button phase verifies this at build time.
     pub data_backend: String,
+}
+
+/// One slide inside a [`CmsSection::HeroSlideshow`].
+///
+/// Substrate-general; any tenant can author. `src` accepts any
+/// path or full URL (.webp, .jpg, .png, .avif, …) — substrate
+/// does not constrain image format.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HeroSlide {
+    /// Image src — path (e.g. "/assets/slides/foo.webp") or full URL.
+    pub src: String,
+    /// Accessible image description.
+    pub alt: String,
+    /// Optional small eyebrow text above the title.
+    #[serde(default)]
+    pub eyebrow: Option<String>,
+    /// Slide headline.
+    pub title: String,
+    /// Slide body / lede.
+    #[serde(default)]
+    pub lede: Option<String>,
+    /// Optional call-to-action button.
+    #[serde(default)]
+    pub cta: Option<HeroCta>,
 }
 
 /// Banner tone — closed enum mirroring the standard color
@@ -10388,6 +10430,53 @@ import init, {{ init as crucible_init }} from "{widget_url}";
                             alt=(img.alt)
                             loading=(if i == 0 { "eager" } else { "lazy" })
                             decoding="async";
+                    }
+                }
+            }
+        },
+        CmsSection::HeroSlideshow { slides, interval_ms, align } => {
+            let n = slides.len().max(1);
+            let total_ms = (*interval_ms as u64) * (n as u64);
+            let align_class = match align.as_deref() {
+                Some("center") => "loom-hero-slideshow--align-center",
+                Some("end") => "loom-hero-slideshow--align-end",
+                _ => "loom-hero-slideshow--align-start",
+            };
+            html! {
+                section class=(format!("loom-hero-slideshow {align_class}"))
+                    data-loom-hero-slideshow
+                    data-slide-count=(n.to_string())
+                    data-interval-ms=(interval_ms.to_string())
+                    data-total-ms=(total_ms.to_string())
+                    style=(format!("--loom-slideshow-total-ms: {total_ms}ms; --loom-slideshow-slide-count: {n};"))
+                    data-loom-reveal {
+                    @for (i, slide) in slides.iter().enumerate() {
+                        article class="loom-hero-slideshow__slide"
+                            data-index=(i.to_string())
+                            data-active=(if i == 0 { "true" } else { "false" })
+                            style=(format!("--loom-slideshow-slide-index: {i};")) {
+                            img class="loom-hero-slideshow__bg"
+                                src=(slide.src)
+                                alt=(slide.alt)
+                                loading=(if i == 0 { "eager" } else { "lazy" })
+                                decoding="async";
+                            div class="loom-hero-slideshow__overlay" {
+                                @if let Some(eyebrow) = &slide.eyebrow {
+                                    p class="loom-hero-slideshow__eyebrow" { (eyebrow) }
+                                }
+                                h2 class="loom-hero-slideshow__title" { (slide.title) }
+                                @if let Some(lede) = &slide.lede {
+                                    p class="loom-hero-slideshow__lede" { (lede) }
+                                }
+                                @if let Some(cta) = &slide.cta {
+                                    a class="loom-button" data-variant="primary"
+                                        href=(cta.href)
+                                        data-backend=(cta.data_backend) {
+                                        (cta.label)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

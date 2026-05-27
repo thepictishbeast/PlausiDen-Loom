@@ -11656,3 +11656,104 @@ footer[data-loom-footer-style="dense"] h3 {
   font-style: italic;
   opacity: 0.85;
 }
+
+/* ===================================================================
+ * loom-hero-slideshow — pure-CSS auto-rotating hero with text overlay
+ * Substrate-general; any tenant can use. No JS. Respects
+ * prefers-reduced-motion (slides held statically when set).
+ * ===================================================================
+ */
+.loom-hero-slideshow {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: clamp(360px, 50vw, 640px);
+  overflow: hidden;
+  background: var(--loom-color-surface, #ffffff);
+}
+.loom-hero-slideshow__slide {
+  position: absolute;
+  inset: 0;
+  display: block;
+  opacity: 0;
+  animation: loom-hero-slideshow-cycle var(--loom-slideshow-total-ms, 24s) infinite;
+  animation-delay: calc(
+    (var(--loom-slideshow-total-ms, 24s) / var(--loom-slideshow-slide-count, 4))
+    * var(--loom-slideshow-slide-index, 0)
+  );
+}
+.loom-hero-slideshow__slide[data-active="true"] {
+  /* First slide gets a small head start so the page does not load
+     blank for the duration of the first interval. */
+  opacity: 1;
+}
+.loom-hero-slideshow__bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  z-index: 0;
+}
+.loom-hero-slideshow__overlay {
+  position: relative;
+  z-index: 1;
+  max-width: 56ch;
+  padding: clamp(1.5rem, 5vw, 4rem);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 100%;
+  color: var(--loom-color-on-hero, var(--loom-color-ink, #111));
+  text-shadow: 0 1px 2px rgba(255,255,255,0.6);
+}
+.loom-hero-slideshow--align-start  .loom-hero-slideshow__overlay { margin-right: auto; }
+.loom-hero-slideshow--align-center .loom-hero-slideshow__overlay { margin: 0 auto; text-align: center; }
+.loom-hero-slideshow--align-end    .loom-hero-slideshow__overlay { margin-left: auto; text-align: right; }
+.loom-hero-slideshow__eyebrow {
+  margin: 0 0 .5em;
+  font-size: .875rem;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--loom-color-primary);
+}
+.loom-hero-slideshow__title {
+  margin: 0 0 .5em;
+  font-family: var(--loom-font-display, var(--loom-font-body));
+  font-size: clamp(1.75rem, 4.5vw, 3.5rem);
+  font-weight: 700;
+  line-height: 1.1;
+}
+.loom-hero-slideshow__lede {
+  margin: 0 0 1.25em;
+  font-size: clamp(1rem, 1.5vw, 1.25rem);
+  line-height: 1.55;
+  max-width: 50ch;
+}
+.loom-hero-slideshow__slide .loom-button {
+  align-self: flex-start;
+}
+.loom-hero-slideshow--align-center .loom-hero-slideshow__slide .loom-button { align-self: center; }
+.loom-hero-slideshow--align-end    .loom-hero-slideshow__slide .loom-button { align-self: flex-end; }
+
+@keyframes loom-hero-slideshow-cycle {
+  /* Each slide is visible for (1/N) of the cycle, then fades. The
+     animation-delay offsets each slide by its index × interval so
+     they take turns. Slide-count-agnostic via the 30%/40% timing
+     points which work well for N=2..=6. */
+  0%   { opacity: 0; }
+  6%   { opacity: 1; }
+  30%  { opacity: 1; }
+  36%  { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loom-hero-slideshow__slide {
+    animation: none;
+    opacity: 0;
+  }
+  .loom-hero-slideshow__slide[data-active="true"] { opacity: 1; }
+}
