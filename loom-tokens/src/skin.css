@@ -5194,10 +5194,43 @@ body[data-loom-drawer-open] .loom-drawer-scrim {
 }
 @media (prefers-reduced-motion: no-preference) {
   .loom-button {
-    transition: filter 160ms ease, transform 160ms ease;
+    transition: filter 160ms ease, transform 160ms ease,
+                background-color 220ms ease, color 220ms ease,
+                border-color 220ms ease;
   }
   .loom-button:hover:not(:disabled) { filter: brightness(1.08); }
   .loom-button:active:not(:disabled) { transform: translateY(1px); }
+}
+
+/* Tenant-overridable hover color swap. Default (no override) leaves
+   the brightness shift above as the only hover feedback. When a
+   tenant sets one of these CSS variables via tenant_style, the
+   button :hover state swaps to that color — supports any palette,
+   not tied to any specific tenant's brand. */
+.loom-button:hover:not(:disabled) {
+  background: var(--loom-color-button-bg-hover, inherit);
+  color: var(--loom-color-button-fg-hover, inherit);
+}
+.loom-button[data-variant="primary"]:hover:not(:disabled) {
+  background: var(--loom-color-button-primary-hover,
+                  var(--loom-color-button-bg-hover,
+                  var(--loom-color-accent)));
+  color: var(--loom-color-button-primary-fg-hover,
+              var(--loom-color-on-accent, #ffffff));
+}
+.loom-button[data-variant="secondary"]:hover:not(:disabled) {
+  background: var(--loom-color-button-secondary-hover,
+                  var(--loom-color-button-bg-hover,
+                  var(--loom-color-surface-subtle,
+                  var(--loom-color-surface))));
+  color: var(--loom-color-button-secondary-fg-hover,
+              var(--loom-color-ink));
+}
+.loom-button[data-variant="ghost"]:hover:not(:disabled) {
+  background: var(--loom-color-button-ghost-hover,
+                  color-mix(in oklab, var(--loom-color-primary) 10%, transparent));
+  color: var(--loom-color-button-ghost-fg-hover,
+              var(--loom-color-primary));
 }
 .loom-button[data-variant="secondary"] {
   background: var(--loom-color-surface-subtle, var(--loom-color-surface));
