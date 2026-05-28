@@ -11697,11 +11697,10 @@ footer[data-loom-footer-style="dense"] h3 {
   inset: 0;
   display: block;
   opacity: 0;
-  animation: loom-hero-slideshow-cycle var(--loom-slideshow-total-ms, 24s) infinite;
-  animation-delay: calc(
-    (var(--loom-slideshow-total-ms, 24s) / var(--loom-slideshow-slide-count, 4))
-    * var(--loom-slideshow-slide-index, 0)
-  );
+  /* Animation disabled for now (overlap-stacking issue in static
+     captures). Re-enable with cleaner timing once that's solved. */
+  /* animation: loom-hero-slideshow-cycle var(--loom-slideshow-total-ms, 24s) infinite;
+     animation-delay: calc(...); */
 }
 .loom-hero-slideshow__slide[data-active="true"] {
   /* First slide gets a small head start so the page does not load
@@ -11769,15 +11768,20 @@ footer[data-loom-footer-style="dense"] h3 {
 .loom-hero-slideshow--align-end    .loom-hero-slideshow__slide .loom-button { align-self: flex-end; }
 
 @keyframes loom-hero-slideshow-cycle {
-  /* Each slide is visible for (1/N) of the cycle, then fades. The
-     animation-delay offsets each slide by its index × interval so
-     they take turns. Slide-count-agnostic via the 30%/40% timing
-     points which work well for N=2..=6. */
+  /* Each slide is visible for ~1/N of the cycle with smooth fade.
+     Working for N=2..=6 with --loom-slideshow-slide-count to
+     parameterize. Calibrated tight enough that overlap is minimal. */
   0%   { opacity: 0; }
-  6%   { opacity: 1; }
-  30%  { opacity: 1; }
-  36%  { opacity: 0; }
+  3%   { opacity: 1; }
+  22%  { opacity: 1; }
+  26%  { opacity: 0; }
   100% { opacity: 0; }
+}
+/* Static-fallback for chromiumoxide / screenshots: only the
+   data-active slide gets opacity:1, preventing all-stacked render
+   issues during capture. Animation still drives interactive cycle. */
+.loom-hero-slideshow__slide:not([data-active="true"]) {
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
