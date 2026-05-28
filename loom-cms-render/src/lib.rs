@@ -3265,6 +3265,30 @@ pub enum CmsSection {
         items: Vec<GalleryImage>,
         interval_ms: u32,
     },
+    /// Two-column image+text row. Generic content section for
+    /// alternating image+text marketing rows. Substrate-general:
+    /// any tenant authors `image_src` + `heading` + `body`;
+    /// `image_side` chooses which side the image goes on.
+    ImageTextRow {
+        /// Image src — any path or URL (.webp/.jpg/.png/.avif).
+        image_src: String,
+        /// Accessible image description.
+        image_alt: String,
+        /// Optional eyebrow text above the heading.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow: Option<String>,
+        /// Section heading.
+        heading: String,
+        /// Body paragraph(s). Multiple entries → multiple <p> tags.
+        body: Vec<String>,
+        /// Which side the image goes on: "left" or "right".
+        /// Defaults to "left" when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image_side: Option<String>,
+        /// Optional CTA below the body text.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cta: Option<HeroCta>,
+    },
     /// Hero-shaped auto-rotating slideshow: each slide carries a
     /// background image + text overlay (eyebrow / title / lede /
     /// optional CTA). Pure-CSS cycling; no JS.
@@ -10481,6 +10505,48 @@ import init, {{ init as crucible_init }} from "{widget_url}";
                             alt=(img.alt)
                             loading=(if i == 0 { "eager" } else { "lazy" })
                             decoding="async";
+                    }
+                }
+            }
+        },
+        CmsSection::ImageTextRow {
+            image_src,
+            image_alt,
+            eyebrow,
+            heading,
+            body,
+            image_side,
+            cta,
+        } => {
+            let side_class = match image_side.as_deref() {
+                Some("right") => "loom-image-text-row--image-right",
+                _ => "loom-image-text-row--image-left",
+            };
+            html! {
+                section class=(format!("loom-image-text-row {side_class}"))
+                    data-loom-image-text-row
+                    data-loom-reveal {
+                    figure class="loom-image-text-row__media" {
+                        img src=(image_src)
+                            alt=(image_alt)
+                            loading="lazy"
+                            decoding="async";
+                    }
+                    div class="loom-image-text-row__body" {
+                        @if let Some(e) = eyebrow {
+                            p class="loom-image-text-row__eyebrow" { (e) }
+                        }
+                        h2 class="loom-image-text-row__heading" { (heading) }
+                        @for p in body.iter() {
+                            p class="loom-image-text-row__prose" { (p) }
+                        }
+                        @if let Some(c) = cta {
+                            a class="loom-button" data-variant="primary"
+                                href=(c.href)
+                                data-backend=(c.data_backend) {
+                                (c.label)
+                            }
+                        }
                     }
                 }
             }

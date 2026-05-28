@@ -11848,3 +11848,71 @@ header.loom-page-header[data-nav-bg-role="secondary"] {
 .loom-page-header[data-nav-bg-role="accent"] .loom-page-brand {
   color: var(--loom-color-on-accent, #111);
 }
+
+/* ===================================================================
+ * loom-image-text-row — two-column image+text marketing row (#415)
+ * Substrate-general; any tenant authors. Image-left or image-right
+ * variants. Collapses to stacked single-column on narrow viewports.
+ * =================================================================== */
+.loom-image-text-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(1.5rem, 4vw, 3rem);
+  align-items: center;
+  padding: clamp(2rem, 5vw, 4rem) clamp(1rem, 3vw, 2rem);
+  max-width: 80rem;
+  margin: 0 auto;
+}
+.loom-image-text-row--image-right .loom-image-text-row__media { order: 2; }
+.loom-image-text-row--image-right .loom-image-text-row__body  { order: 1; }
+.loom-image-text-row__media {
+  margin: 0;
+  border-radius: var(--loom-radius-lg, 14px);
+  overflow: hidden;
+  box-shadow: 0 8px 30px rgba(0,0,0,.08);
+}
+.loom-image-text-row__media img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+.loom-image-text-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.loom-image-text-row__eyebrow {
+  margin: 0;
+  font-size: .875rem;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--loom-color-primary, var(--loom-primary));
+}
+.loom-image-text-row__heading {
+  margin: 0;
+  font-family: var(--loom-font-display, var(--loom-font-body));
+  font-size: clamp(1.5rem, 3.5vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--loom-color-primary, var(--loom-primary));
+}
+.loom-image-text-row__prose {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.65;
+  color: var(--loom-color-ink, var(--loom-fg));
+}
+.loom-image-text-row__body .loom-button {
+  align-self: flex-start;
+  margin-top: .75rem;
+}
+@media (max-width: 768px) {
+  .loom-image-text-row {
+    grid-template-columns: 1fr;
+  }
+  .loom-image-text-row--image-right .loom-image-text-row__media { order: 1; }
+  .loom-image-text-row--image-right .loom-image-text-row__body  { order: 2; }
+}
