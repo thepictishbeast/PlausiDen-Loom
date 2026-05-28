@@ -12121,3 +12121,37 @@ header.loom-page-header[data-nav-bg-role="secondary"] {
   font-size: 0.875rem !important;
   font-weight: 500;
 }
+
+/* Logo on its own row — bigger when in 2-row header. */
+.loom-page-header[data-nav-bg-role] .loom-page-brand img,
+.loom-page-header[data-nav-bg-role] .loom-page-brand__logo {
+  max-height: 100px !important;
+  height: auto;
+}
+
+/* Hero buttons — make them larger + flat-square per real-site shape. */
+.loom-hero-slideshow .loom-button,
+.loom-hero-slideshow__cta-row .loom-button {
+  padding: 0.85rem 1.5rem !important;
+  font-size: 0.95rem !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: .03em !important;
+  border-radius: 4px !important;
+}
+.loom-hero-slideshow .loom-button[data-variant="secondary"] {
+  background: var(--loom-color-primary) !important;
+  color: var(--loom-color-on-primary, #fff) !important;
+}
+
+/* Footer yellow accent bar at very bottom. */
+.loom-page-footer--rich {
+  border-bottom: 4px solid var(--loom-color-accent, #C9921A);
+}
+.loom-page-footer__colophon {
+  background: var(--loom-color-accent, #C9921A) !important;
+  color: var(--loom-color-on-accent, #282828) !important;
+  margin: 0 -1.75rem -2.5rem !important;
+  padding: .75rem 1.75rem !important;
+  text-align: center !important;
+}
