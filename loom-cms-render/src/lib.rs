@@ -5103,6 +5103,11 @@ pub enum FeatureSpotlightDecoration {
     Editorial,
     /// Tight grid, no decoration. Title + body, no icon, no border.
     Minimal,
+    /// Bordered cards: 4px colored top border (cycles
+    /// primary/secondary/accent), bold uppercase heading in the
+    /// same color, card chrome (rounded + light shadow + padding).
+    /// Common publication / WordPress card aesthetic.
+    Bordered,
 }
 
 impl FeatureSpotlightDecoration {
@@ -5112,6 +5117,7 @@ impl FeatureSpotlightDecoration {
             Self::Decorated => "deco-decorated",
             Self::Editorial => "deco-editorial",
             Self::Minimal => "deco-minimal",
+            Self::Bordered => "deco-bordered",
         }
     }
 }
