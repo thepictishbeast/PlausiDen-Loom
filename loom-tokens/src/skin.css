@@ -11961,3 +11961,64 @@ header.loom-page-header[data-nav-bg-role="secondary"] {
   line-height: 1.55;
   margin: 0;
 }
+
+/* ===================================================================
+ * loom-hero-slideshow--split — text-left + image-right layout (#418)
+ * Default mode is overlay (text on top of full-bleed image). Split
+ * puts text in a left column and image in a right column, both
+ * 50% width on desktop, stacked on mobile.
+ * =================================================================== */
+.loom-hero-slideshow--split {
+  min-height: clamp(320px, 42vw, 480px);
+  position: relative;
+}
+/* Slides STAY position:absolute (inherited from base) so the
+   opacity-cycle keeps working. Inside each slide, content is
+   laid out in a 2-col grid via the existing position:absolute
+   inset:0 + display:grid combination. */
+.loom-hero-slideshow--split .loom-hero-slideshow__slide {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(1.5rem, 4vw, 3rem);
+  align-items: center;
+  padding: clamp(1.5rem, 4vw, 3rem);
+}
+.loom-hero-slideshow--split .loom-hero-slideshow__bg {
+  position: relative;
+  inset: auto;
+  grid-column: 2;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  max-height: 420px;
+  object-fit: cover;
+  border-radius: 0;
+}
+.loom-hero-slideshow--split .loom-hero-slideshow__overlay {
+  grid-column: 1;
+  position: relative;
+  padding: 0;
+  height: auto;
+  margin: 0;
+  max-width: none;
+  text-shadow: none;
+  z-index: 2;
+}
+.loom-hero-slideshow--split .loom-hero-slideshow__title {
+  color: var(--loom-color-primary, var(--loom-color-ink, var(--loom-fg)));
+}
+.loom-hero-slideshow--split .loom-hero-slideshow__lede {
+  color: var(--loom-color-ink, var(--loom-fg));
+}
+@media (max-width: 768px) {
+  .loom-hero-slideshow--split .loom-hero-slideshow__slide {
+    grid-template-columns: 1fr;
+  }
+  .loom-hero-slideshow--split .loom-hero-slideshow__bg {
+    order: 1;
+    max-height: 280px;
+  }
+  .loom-hero-slideshow--split .loom-hero-slideshow__overlay {
+    order: 2;
+  }
+}

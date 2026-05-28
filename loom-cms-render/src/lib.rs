@@ -3305,6 +3305,11 @@ pub enum CmsSection {
         /// Text-overlay alignment ("start" / "center" / "end").
         #[serde(default)]
         align: Option<String>,
+        /// Layout mode. Default "overlay" puts text overlaid on a
+        /// full-bleed background image; "split" puts text in a
+        /// left column and image in a right column (50/50).
+        #[serde(default)]
+        layout: Option<String>,
     },
     /// Before/after slider comparison.
     BeforeAfter {
@@ -10557,7 +10562,7 @@ import init, {{ init as crucible_init }} from "{widget_url}";
                 }
             }
         },
-        CmsSection::HeroSlideshow { slides, interval_ms, align } => {
+        CmsSection::HeroSlideshow { slides, interval_ms, align, layout } => {
             let n = slides.len().max(1);
             let total_ms = (*interval_ms as u64) * (n as u64);
             let align_class = match align.as_deref() {
@@ -10565,8 +10570,12 @@ import init, {{ init as crucible_init }} from "{widget_url}";
                 Some("end") => "loom-hero-slideshow--align-end",
                 _ => "loom-hero-slideshow--align-start",
             };
+            let layout_class = match layout.as_deref() {
+                Some("split") => "loom-hero-slideshow--split",
+                _ => "loom-hero-slideshow--overlay",
+            };
             html! {
-                section class=(format!("loom-hero-slideshow {align_class}"))
+                section class=(format!("loom-hero-slideshow {align_class} {layout_class}"))
                     data-loom-hero-slideshow
                     data-slide-count=(n.to_string())
                     data-interval-ms=(interval_ms.to_string())
