@@ -97,6 +97,19 @@ pub struct CmsPage {
     /// accessible name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brand_logo: Option<BrandLogo>,
+    /// Optional utility strip rendered ABOVE the page-header chrome.
+    /// Used for top-of-page email/phone bars, language selectors,
+    /// or other site-wide secondary info. Substrate-general: any
+    /// tenant can opt in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub utility_strip: Option<UtilityStrip>,
+    /// Optional palette role to color the primary nav bar
+    /// background (e.g. `"primary"` → `var(--loom-color-primary)`).
+    /// When set, the nav row gets a colored band background +
+    /// the matching `--loom-color-on-<role>` foreground. When
+    /// absent, nav has the substrate-default transparent bg.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nav_bar_color_role: Option<String>,
     /// Canonical URL path (e.g. `"/leaderboard"`). Required.
     /// Used by the layout shell to emit `<link rel="canonical">`.
     pub path: String,
@@ -204,6 +217,28 @@ pub struct BrandLogo {
     /// recommended — see `width`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<u32>,
+}
+
+/// Top-of-page utility strip — narrow bar above the main page-
+/// header used for site-wide secondary info (email/phone,
+/// language selector, status, etc.). Substrate-general; any
+/// tenant can author. Plain-text fields only (no inline HTML);
+/// renders inside the page-shell chrome above the header element.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UtilityStrip {
+    /// Left-aligned text content. E.g. `"Email: hello@example.com"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left: Option<String>,
+    /// Right-aligned text content. E.g. `"Call (555) 123-4567"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub right: Option<String>,
+    /// Palette role for the background color (substrate kebab-cases
+    /// to `var(--loom-color-<role>)`). Common values:
+    /// `"primary"` / `"secondary"` / `"accent"` / `"surface"`.
+    /// When absent, the strip uses a neutral muted background.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bg_role: Option<String>,
 }
 
 /// Typed page footer.
@@ -6241,9 +6276,17 @@ pub struct HeroSlide {
     /// Slide body / lede.
     #[serde(default)]
     pub lede: Option<String>,
-    /// Optional call-to-action button.
-    #[serde(default)]
+    /// Optional single call-to-action button (back-compat with
+    /// existing single-CTA slides).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cta: Option<HeroCta>,
+    /// Optional multi-button CTA row. When present, renders after
+    /// the (optional) primary `cta`. First entry styled as
+    /// primary; subsequent entries styled as secondary. Many
+    /// landing-page heroes use 2 buttons (e.g. "Contact us" +
+    /// "Learn more"); substrate supports any count.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ctas: Vec<HeroCta>,
 }
 
 /// Banner tone — closed enum mirroring the standard color
@@ -10481,6 +10524,18 @@ import init, {{ init as crucible_init }} from "{widget_url}";
                                         href=(cta.href)
                                         data-backend=(cta.data_backend) {
                                         (cta.label)
+                                    }
+                                }
+                                @if !slide.ctas.is_empty() {
+                                    div class="loom-hero-slideshow__cta-row" {
+                                        @for (ci, c) in slide.ctas.iter().enumerate() {
+                                            a class="loom-button"
+                                                data-variant=(if ci == 0 && slide.cta.is_none() { "primary" } else { "secondary" })
+                                                href=(c.href)
+                                                data-backend=(c.data_backend) {
+                                                (c.label)
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -15626,6 +15681,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -15655,6 +15712,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -15682,6 +15741,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -15710,6 +15771,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -15749,6 +15812,8 @@ mod tests {
             let p = CmsPage {
                 brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
                 theme: None,
                 chrome: None,
                 content_width: None,
@@ -15848,6 +15913,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -15882,6 +15949,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -15998,6 +16067,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16031,6 +16102,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16069,6 +16142,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16108,6 +16183,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16196,6 +16273,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16233,6 +16312,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16271,6 +16352,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16313,6 +16396,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16350,6 +16435,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16384,6 +16471,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16474,6 +16563,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16507,6 +16598,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16569,6 +16662,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16603,6 +16698,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16638,6 +16735,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16669,6 +16768,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16751,6 +16852,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16787,6 +16890,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -16822,6 +16927,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -17464,6 +17571,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -17496,6 +17605,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -17548,6 +17659,8 @@ mod tests {
         CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -17670,6 +17783,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -17702,6 +17817,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -17730,6 +17847,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -17763,6 +17882,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -17792,6 +17913,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -17824,6 +17947,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -17859,6 +17984,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -17887,6 +18014,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -17916,6 +18045,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -17943,6 +18074,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -17970,6 +18103,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -18020,6 +18155,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -18054,6 +18191,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -18092,6 +18231,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -18162,6 +18303,8 @@ mod tests {
         CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -18222,6 +18365,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -18318,6 +18463,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -18370,6 +18517,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -18419,6 +18568,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -18463,6 +18614,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -18499,6 +18652,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -18552,6 +18707,8 @@ mod tests {
         CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -18679,6 +18836,8 @@ mod tests {
         CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -18779,6 +18938,8 @@ mod tests {
         CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -18881,6 +19042,8 @@ mod tests {
         CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -18990,6 +19153,8 @@ mod tests {
         CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -19042,6 +19207,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -19072,6 +19239,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -19101,6 +19270,8 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -19478,6 +19649,14 @@ border-radius:var(--loom-radius);z-index:1000;box-shadow:var(--loom-shadow-md)}\
 header.loom-page-header{padding:1rem 1.75rem;border-bottom:1px solid color-mix(in oklab,var(--loom-border) 60%,transparent);\
 background:color-mix(in oklab,var(--loom-bg) 88%,transparent);position:sticky;top:0;z-index:50;\
 backdrop-filter:saturate(160%) blur(var(--loom-blur-md));-webkit-backdrop-filter:saturate(160%) blur(var(--loom-blur-md))}\
+header.loom-page-header[data-nav-bg-role=\"primary\"]{background:var(--loom-color-primary)!important;color:var(--loom-color-on-primary,#fff)!important;backdrop-filter:none;-webkit-backdrop-filter:none;border-bottom:none}\
+header.loom-page-header[data-nav-bg-role=\"secondary\"]{background:var(--loom-color-secondary)!important;color:var(--loom-color-on-secondary,#fff)!important;backdrop-filter:none;-webkit-backdrop-filter:none;border-bottom:none}\
+header.loom-page-header[data-nav-bg-role=\"accent\"]{background:var(--loom-color-accent)!important;color:var(--loom-color-on-accent,#111)!important;backdrop-filter:none;-webkit-backdrop-filter:none;border-bottom:none}\
+header.loom-page-header[data-nav-bg-role] nav.loom-page-nav a,header.loom-page-header[data-nav-bg-role] a.loom-page-brand{color:inherit!important}\
+.loom-utility-strip{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.5rem 1.5rem;font-size:.875rem}\
+.loom-utility-strip[data-bg-role=\"primary\"]{background:var(--loom-color-primary);color:var(--loom-color-on-primary,#fff)}\
+.loom-utility-strip[data-bg-role=\"secondary\"]{background:var(--loom-color-secondary);color:var(--loom-color-on-secondary,#fff)}\
+.loom-utility-strip[data-bg-role=\"accent\"]{background:var(--loom-color-accent);color:var(--loom-color-on-accent,#111)}\
 footer.loom-page-footer{padding:2.5rem 1.75rem;border-top:1px solid var(--loom-border);\
 color:var(--loom-muted);margin-top:4rem;font-size:.92rem}\
 nav.loom-page-nav{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}\
@@ -20013,6 +20192,15 @@ pub fn page_shell_themed(
     let nav_actions_html = render_nav_actions(&page.nav_actions);
     let content_width = page.content_width.unwrap_or_default();
     let footer_html = render_page_footer(page.footer.as_ref());
+    // Optional utility strip + nav-bg attribute (#414).
+    // Computed here where `page` is in scope, passed to
+    // render_chrome_body as plain strings.
+    let utility_strip_html_owned = render_utility_strip(page.utility_strip.as_ref());
+    let nav_bg_attr_owned = page
+        .nav_bar_color_role
+        .as_deref()
+        .map(|r| format!(" data-nav-bg-role=\"{}\"", escape_html_attr(r)))
+        .unwrap_or_default();
     let body_html = render_chrome_body(
         chrome,
         &brand,
@@ -20023,6 +20211,8 @@ pub fn page_shell_themed(
         content_width,
         noscript_mode,
         &footer_html,
+        &utility_strip_html_owned,
+        &nav_bg_attr_owned,
     );
     // T37 v1 + T66 (closes #649): closed allow-list for the
     // `data-theme` attribute. T66 extends to named palettes
@@ -20084,6 +20274,42 @@ pub fn page_shell_themed(
 /// Render the body innards for a given chrome variant. Returns
 /// the complete `<body>...</body>` element including header,
 /// main, footer, and theme-toggle script.
+/// Render the optional top-of-page utility strip (#414).
+/// Empty string when absent.
+fn render_utility_strip(strip: Option<&UtilityStrip>) -> String {
+    match strip {
+        None => String::new(),
+        Some(s) => {
+            let bg_attr = s
+                .bg_role
+                .as_deref()
+                .map(|r| format!(" data-bg-role=\"{}\"", escape_html_attr(r)))
+                .unwrap_or_default();
+            let left = s
+                .left
+                .as_deref()
+                .map(|t| {
+                    format!(
+                        "<span class=\"loom-utility-strip__left\">{}</span>",
+                        escape_html_text(t)
+                    )
+                })
+                .unwrap_or_default();
+            let right = s
+                .right
+                .as_deref()
+                .map(|t| {
+                    format!(
+                        "<span class=\"loom-utility-strip__right\">{}</span>",
+                        escape_html_text(t)
+                    )
+                })
+                .unwrap_or_default();
+            format!("<div class=\"loom-utility-strip\"{bg_attr}>{left}{right}</div>\n  ")
+        }
+    }
+}
+
 fn render_chrome_body(
     chrome: ChromeKind,
     brand: &str,
@@ -20094,6 +20320,8 @@ fn render_chrome_body(
     content_width: ContentWidth,
     noscript_mode: bool,
     footer_html: &str,
+    utility_strip_html: &str,
+    nav_bg_attr: &str,
 ) -> String {
     let _ = nav_actions_html; // PageShell ignores nav_actions today
     let cw = content_width.attr_value();
@@ -20139,7 +20367,7 @@ fn render_chrome_body(
         ChromeKind::PageShell => format!(
             "<body data-chrome=\"page-shell\" data-content-width=\"{cw}\">\n  \
 <a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n  \
-<header class=\"loom-page-header\">\n    \
+{utility_strip_html}<header class=\"loom-page-header\"{nav_bg_attr}>\n    \
 <nav class=\"loom-page-nav\" aria-label=\"Primary\">\n      \
 <a class=\"loom-page-brand\" href=\"/\" data-loom-rich-link=\"true\">{brand}</a>{nav_links}\n      \
 {toggle_btn_pageshell}</nav>{page_title_block}\n  \
@@ -20387,6 +20615,8 @@ mod page_shell_tests {
         CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,
@@ -20730,6 +20960,8 @@ mod page_shell_tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
             theme: None,
             chrome: None,
             content_width: None,

@@ -819,6 +819,27 @@
     --loom-color-badge-accent-bg: hsl(226 100% 94%);
     --loom-color-badge-accent-text: hsl(229 76% 40%);
     --loom-color-badge-accent-border: hsl(230 94% 77%);
+
+    /* Legacy-namespace bridge. ~478 places in skin.css consume the
+       pre-#336 var names (--loom-accent / --loom-fg / --loom-bg /
+       --loom-border / --loom-muted / --loom-primary) directly. The
+       modern tenant_style emits the --loom-color-* namespace only.
+       Without this bridge, tenants who set their palette via
+       forge.toml [style.palette] see partial colorization: rules
+       using new vars pick up the override, rules using legacy vars
+       fall through to hardcoded fallbacks. Substrate-general
+       (works for any tenant, not tied to any specific palette). */
+    --loom-accent:   var(--loom-color-accent, hsl(239 84% 67%));
+    --loom-accent-2: var(--loom-color-accent-2, hsl(239 84% 67%));
+    --loom-fg:       var(--loom-color-ink, hsl(222 47% 11%));
+    --loom-bg:       var(--loom-color-bg, #ffffff);
+    --loom-border:   var(--loom-color-border, hsl(214 32% 91%));
+    --loom-muted:    var(--loom-color-muted, hsl(215 16% 47%));
+    --loom-primary:  var(--loom-color-primary, hsl(217 91% 60%));
+    --loom-secondary:var(--loom-color-secondary, hsl(143 64% 32%));
+    --loom-link:     var(--loom-color-link, var(--loom-color-primary, hsl(217 91% 60%)));
+    --loom-text:     var(--loom-color-text, var(--loom-color-ink, hsl(222 47% 11%)));
+    --loom-surface:  var(--loom-color-surface, var(--loom-color-bg, #ffffff));
   }
   @media (min-width: 768px) {
     :root {
@@ -11735,6 +11756,15 @@ footer[data-loom-footer-style="dense"] h3 {
 .loom-hero-slideshow__slide .loom-button {
   align-self: flex-start;
 }
+.loom-hero-slideshow__cta-row {
+  display: flex;
+  gap: .75rem;
+  flex-wrap: wrap;
+  margin-top: .75rem;
+}
+.loom-hero-slideshow__cta-row .loom-button {
+  align-self: auto;
+}
 .loom-hero-slideshow--align-center .loom-hero-slideshow__slide .loom-button { align-self: center; }
 .loom-hero-slideshow--align-end    .loom-hero-slideshow__slide .loom-button { align-self: flex-end; }
 
@@ -11756,4 +11786,65 @@ footer[data-loom-footer-style="dense"] h3 {
     opacity: 0;
   }
   .loom-hero-slideshow__slide[data-active="true"] { opacity: 1; }
+}
+
+/* ===================================================================
+ * loom-utility-strip — narrow top-of-page bar (#414)
+ * Substrate-general; any tenant opts in via CmsPage.utility_strip.
+ * =================================================================== */
+.loom-utility-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 1.5rem;
+  font-size: 0.875rem;
+  background: var(--loom-color-muted, #f3f4f6);
+  color: var(--loom-color-ink, #111);
+}
+div.loom-utility-strip[data-bg-role="primary"]   { background: var(--loom-color-primary) !important;   color: var(--loom-color-on-primary, #fff) !important; }
+div.loom-utility-strip[data-bg-role="secondary"] { background: var(--loom-color-secondary) !important; color: var(--loom-color-on-secondary, #fff) !important; }
+.loom-utility-strip[data-bg-role="accent"]    { background: var(--loom-color-accent);    color: var(--loom-color-on-accent, #fff); }
+.loom-utility-strip[data-bg-role="surface"]   { background: var(--loom-color-bg);        color: var(--loom-color-ink); }
+.loom-utility-strip__left  { margin-right: auto; }
+.loom-utility-strip__right { margin-left: auto; }
+.loom-utility-strip a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Color-banded nav: when CmsPage.nav_bar_color_role is set, the
+   header gets a colored band background + matching foreground. */
+.loom-page-header[data-nav-bg-role] {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom: none;
+}
+header.loom-page-header[data-nav-bg-role="primary"] {
+  background: var(--loom-color-primary) !important;
+  color: var(--loom-color-on-primary, #fff) !important;
+}
+.loom-page-header[data-nav-bg-role="primary"] .loom-page-nav a,
+.loom-page-header[data-nav-bg-role="primary"] .loom-page-brand {
+  color: var(--loom-color-on-primary, #fff);
+}
+.loom-page-header[data-nav-bg-role="primary"] .loom-page-nav a:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--loom-color-on-primary, #fff);
+}
+header.loom-page-header[data-nav-bg-role="secondary"] {
+  background: var(--loom-color-secondary) !important;
+  color: var(--loom-color-on-secondary, #fff) !important;
+}
+.loom-page-header[data-nav-bg-role="secondary"] .loom-page-nav a,
+.loom-page-header[data-nav-bg-role="secondary"] .loom-page-brand {
+  color: var(--loom-color-on-secondary, #fff);
+}
+.loom-page-header[data-nav-bg-role="accent"] {
+  background: var(--loom-color-accent);
+  color: var(--loom-color-on-accent, #111);
+}
+.loom-page-header[data-nav-bg-role="accent"] .loom-page-nav a,
+.loom-page-header[data-nav-bg-role="accent"] .loom-page-brand {
+  color: var(--loom-color-on-accent, #111);
 }
