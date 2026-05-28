@@ -12085,3 +12085,39 @@ header.loom-page-header[data-nav-bg-role="secondary"] {
   align-items: center;
   gap: 0.5rem;
 }
+
+/* When the header has a colored nav-bg, force a 2-row layout:
+   brand-row on white above, colored nav-row below. Achieves her
+   real-site layout via flex-wrap without changing the substrate HTML. */
+.loom-page-header[data-nav-bg-role] {
+  padding: 0 !important;
+}
+.loom-page-header[data-nav-bg-role] .loom-page-nav {
+  flex-wrap: wrap;
+  padding: 0;
+}
+.loom-page-header[data-nav-bg-role] .loom-page-brand {
+  flex: 0 0 100%;
+  background: var(--loom-color-bg, #fff) !important;
+  color: var(--loom-color-ink, #111) !important;
+  padding: 1rem 1.75rem !important;
+  border-bottom: 1px solid var(--loom-color-border, #eee);
+  margin: 0 !important;
+}
+.loom-page-header[data-nav-bg-role] .loom-page-brand img {
+  max-height: 70px;
+}
+.loom-page-header[data-nav-bg-role] .loom-page-nav__link,
+.loom-page-header[data-nav-bg-role] .loom-theme-toggle {
+  padding: 0.75rem 1rem;
+}
+.loom-page-header[data-nav-bg-role="primary"] .loom-page-nav > a:not(.loom-page-brand),
+.loom-page-header[data-nav-bg-role="primary"] .loom-page-nav > button {
+  margin-left: 0 !important;
+}
+/* Utility strip: bigger padding so the strip is visible. */
+.loom-utility-strip {
+  padding: 0.6rem 1.5rem !important;
+  font-size: 0.875rem !important;
+  font-weight: 500;
+}
