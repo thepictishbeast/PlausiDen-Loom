@@ -12022,3 +12022,46 @@ header.loom-page-header[data-nav-bg-role="secondary"] {
     order: 2;
   }
 }
+
+/* ===================================================================
+ * loom-page-footer extensions — buttons + decoration + back-to-top (#417)
+ * Substrate-general additions to the existing rich footer.
+ * =================================================================== */
+.loom-page-footer[data-bg-role="surface"]   { background: var(--loom-color-surface, var(--loom-color-bg, #fff)); }
+.loom-page-footer[data-bg-role="muted"]     { background: color-mix(in oklab, var(--loom-color-muted, #f3f4f6) 30%, var(--loom-color-bg, #fff)); }
+.loom-page-footer[data-bg-role="secondary"] {
+  background: color-mix(in oklab, var(--loom-color-secondary) 12%, var(--loom-color-bg, #fff));
+}
+.loom-page-footer__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1.5rem 1.75rem 0.5rem;
+  justify-content: flex-start;
+}
+.loom-page-footer__decoration {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.loom-page-footer__decoration-img {
+  max-width: 100%;
+  max-height: 240px;
+  height: auto;
+  object-fit: contain;
+  opacity: .9;
+}
+.loom-page-footer__back-to-top {
+  display: inline-block;
+  padding: .5rem 1rem;
+  margin: 1.25rem 1.75rem 0;
+  font-size: .875rem;
+  color: var(--loom-color-primary);
+  text-decoration: none;
+  border: 1px solid var(--loom-color-border, var(--loom-border));
+  border-radius: var(--loom-radius-full, 9999px);
+  transition: background var(--loom-motion-fast) var(--loom-ease-out);
+}
+.loom-page-footer__back-to-top:hover {
+  background: color-mix(in oklab, var(--loom-color-primary) 10%, transparent);
+}

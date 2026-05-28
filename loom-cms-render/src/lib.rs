@@ -260,6 +260,24 @@ pub struct CmsFooter {
     /// Optional copyright / colophon line at the very bottom.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub colophon: Option<String>,
+    /// Optional row of CTA buttons above the columns. Used by sites
+    /// that want prominent "Learn more" / "Subscribe" actions in
+    /// the footer.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub buttons: Vec<HeroCta>,
+    /// Optional decorative image src (typically a region map or
+    /// service area). Renders as a column to the right of the
+    /// contact block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decoration_image: Option<BrandLogo>,
+    /// When true, append a "Back to top" link beside the legal-link row.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub back_to_top: bool,
+    /// Palette role for the footer background (substrate kebab-cases
+    /// to var(--loom-color-<role>)). Common values: surface, muted,
+    /// secondary. When absent, footer uses substrate-default subtle bg.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bg_role: Option<String>,
 }
 
 /// One footer link column.
@@ -20596,7 +20614,31 @@ fn render_page_footer(footer: Option<&CmsFooter>) -> String {
         return "<footer class=\"loom-page-footer\"></footer>".to_owned();
     };
     let mut out = String::new();
-    out.push_str("<footer class=\"loom-page-footer loom-page-footer--rich\">");
+    let bg_attr = f
+        .bg_role
+        .as_deref()
+        .map(|r| format!(" data-bg-role=\"{}\"", escape_html_attr(r)))
+        .unwrap_or_default();
+    out.push_str(&format!("<footer class=\"loom-page-footer loom-page-footer--rich\"{bg_attr}>"));
+    // Optional CTA buttons row at top of footer.
+    if !f.buttons.is_empty() {
+        out.push_str("<div class=\"loom-page-footer__buttons\">");
+        for (i, b) in f.buttons.iter().enumerate() {
+            let href = if loom_components::composer::is_safe_url(&b.href) {
+                b.href.as_str()
+            } else {
+                "#invalid-cta"
+            };
+            let variant = if i == 0 { "primary" } else { "secondary" };
+            out.push_str(&format!(
+                "<a class=\"loom-button\" data-variant=\"{variant}\" href=\"{}\" data-backend=\"{}\">{}</a>",
+                escape_html_attr(href),
+                escape_html_attr(&b.data_backend),
+                escape_html_text(&b.label),
+            ));
+        }
+        out.push_str("</div>");
+    }
     out.push_str("<div class=\"loom-page-footer__columns\">");
     for col in &f.columns {
         out.push_str("<section class=\"loom-page-footer__col\">");
@@ -20660,7 +20702,21 @@ fn render_page_footer(footer: Option<&CmsFooter>) -> String {
         }
         out.push_str("</section>");
     }
+    if let Some(deco) = &f.decoration_image {
+        if loom_components::composer::is_safe_url(&deco.src) {
+            out.push_str("<section class=\"loom-page-footer__col loom-page-footer__decoration\">");
+            out.push_str("<img class=\"loom-page-footer__decoration-img\" src=\"");
+            out.push_str(&escape_html_attr(&deco.src));
+            out.push_str("\" alt=\"");
+            out.push_str(&escape_html_attr(&deco.alt));
+            out.push_str("\" loading=\"lazy\" decoding=\"async\">");
+            out.push_str("</section>");
+        }
+    }
     out.push_str("</div>");
+    if f.back_to_top {
+        out.push_str("<a class=\"loom-page-footer__back-to-top\" href=\"#content\">Back to top ↑</a>");
+    }
     if !f.legal_links.is_empty() {
         out.push_str("<nav class=\"loom-page-footer__legal\" aria-label=\"Legal\"><ul>");
         for link in &f.legal_links {
@@ -21118,7 +21174,7 @@ mod page_shell_tests {
                 jurisdiction: Some("Massachusetts, USA".into()),
             }),
             legal_links: vec![],
-            colophon: None,
+            buttons: Vec::new(), decoration_image: None, back_to_top: false, bg_role: None, colophon: None,
         });
         let h = page_shell_themed(&p, "/x.css", "<main></main>", None, None);
         assert!(h.contains("\"telephone\":\"978-351-6495\""));
