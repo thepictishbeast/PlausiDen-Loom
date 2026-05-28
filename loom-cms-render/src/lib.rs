@@ -20178,6 +20178,7 @@ pub fn page_shell_themed(
                 | CmsSection::CallToAction { .. }
                 | CmsSection::Banner { .. }
                 | CmsSection::AnnouncementBar { .. }
+                | CmsSection::HeroSlideshow { .. }
         )
     });
     // When the first section is hero-class, suppress the

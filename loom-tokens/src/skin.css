@@ -12069,3 +12069,19 @@ header.loom-page-header[data-nav-bg-role="secondary"] {
 .loom-page-footer__back-to-top:hover {
   background: color-mix(in oklab, var(--loom-color-primary) 10%, transparent);
 }
+
+/* Brand logo image — substrate-general sizing. Auto-fits within
+   the page-header height; tenants can override via tenant_style or
+   forge.toml [identity.logo_max_height]. */
+.loom-page-brand__logo {
+  display: block;
+  max-height: clamp(40px, 5vw, 80px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+.loom-page-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
