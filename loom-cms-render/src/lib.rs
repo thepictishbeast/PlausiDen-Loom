@@ -97,6 +97,32 @@ pub struct CmsPage {
     /// accessible name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brand_logo: Option<BrandLogo>,
+    /// Optional icon-mark slug (resolved via `loom_icons::by_slug`,
+    /// e.g. `"shield"`) rendered as an inline SVG inside the
+    /// `loom-page-brand` link, BEFORE the brand text / logo. Lets a
+    /// tenant prefix its wordmark with a vetted glyph without an image
+    /// asset. Unknown slug → silently omitted. The SVG inherits the
+    /// brand link colour via `currentColor`; size + accent come from
+    /// the `.loom-page-brand__icon` skin rule. Substrate-general.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brand_icon_slug: Option<String>,
+    /// When true, the `brand_icon_slug` glyph renders inside a filled,
+    /// rounded container (accent-colored box, on-accent glyph) instead
+    /// of a bare inline mark — the wordmark then reads as a logo
+    /// lockup. No-op when `brand_icon_slug` is absent. Default false
+    /// preserves the bare-glyph treatment for existing tenants.
+    /// Substrate-general: any tenant opts into the boxed mark.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub brand_icon_boxed: bool,
+    /// Optional trailing portion of the brand wordmark to render in the
+    /// accent color (e.g. `"LLC"` in `"PlausiDen LLC"`). When the brand
+    /// text ends with this exact substring, the renderer wraps it in
+    /// `<span class="loom-page-brand__name-accent">`. Absent or
+    /// non-matching → whole wordmark in the default ink. Generic: any
+    /// tenant two-tones the tail of its wordmark with no hand-authored
+    /// CSS.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brand_accent_tail: Option<String>,
     /// Optional utility strip rendered ABOVE the page-header chrome.
     /// Used for top-of-page email/phone bars, language selectors,
     /// or other site-wide secondary info. Substrate-general: any
@@ -110,6 +136,68 @@ pub struct CmsPage {
     /// absent, nav has the substrate-default transparent bg.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nav_bar_color_role: Option<String>,
+    /// Optional palette role for a thin accent line *under* the
+    /// nav row. Use INSTEAD of [`nav_bar_color_role`] when you
+    /// want a white nav with a colored accent (a common style
+    /// for marketing sites). Renders as a 3px solid border-
+    /// bottom in the named role colour. Substrate-general.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nav_border_role: Option<String>,
+    /// Optional social links rendered on the brand row right side.
+    /// Each link emits an `<a>` with an icon class derived from its
+    /// `platform` field. Substrate-general: any tenant can opt in.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub social_links: Vec<SocialLink>,
+    /// Optional language selector rendered on the brand row right side
+    /// after `social_links`. Renders as a `<details>` disclosure (no
+    /// JS needed). Substrate-general; any tenant authors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lang_selector: Option<LangSelector>,
+    /// When true, prepends a home icon link to the nav row before
+    /// `nav_links`. Substrate-general icon (CSS-rendered house glyph).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub nav_home_icon: bool,
+    /// When true, the hamburger MENU collapse pattern applies at
+    /// EVERY viewport (not just ≤768px). Use for sites where the
+    /// owner prefers a compact nav that's gated behind a tap/click
+    /// regardless of screen size. Substrate-general; default false
+    /// keeps the inline-at-desktop behavior most marketing sites use.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub nav_collapse_always: bool,
+    /// When true, suppresses the theme-toggle control in the page
+    /// chrome (the JS button or, in noscript mode, the radio
+    /// fieldset) and its inline init script. Default false keeps the
+    /// toggle — the light/dark a11y default. Set true for tenants
+    /// whose design has no theme switcher (e.g. a pixel-faithful
+    /// reproduction of a single-theme site). Substrate-general; the
+    /// slideshow script is emitted regardless.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hide_theme_toggle: bool,
+    /// When true, the single-row desktop nav (Path A, no brand-extras)
+    /// right-packs the link+action cluster: brand stays far-left, the
+    /// links and action buttons group together on the far right. Default
+    /// false keeps the links left-hugging the brand (the layout most
+    /// marketing sites use). Only affects desktop (≥769px); the ≤768px
+    /// hamburger collapse is unchanged. Substrate-general opt-in.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub nav_links_align_end: bool,
+    /// When true, the nav hamburger toggle renders as a plain, borderless
+    /// glyph at the inherited text color instead of the default
+    /// accent-filled button. Default false keeps the filled button.
+    /// Substrate-general opt-in for tenants whose design uses a bare
+    /// menu icon. Affects only the toggle's own styling, at any viewport
+    /// where the toggle is shown.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub nav_toggle_plain: bool,
+    /// When true, the single-row desktop nav (Path A) collapses to the
+    /// hamburger only at ≤640px instead of the default ≤768px — so a nav
+    /// whose links fit one row at tablet width keeps the full horizontal
+    /// bar at 768 and only collapses below 641px. In the 641–768 band the
+    /// inline row + any `nav_links_align_end` cluster are restored; at
+    /// ≤640 the default collapse applies unchanged. Default false keeps
+    /// the ≤768 collapse for existing tenants. Substrate-general opt-in.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub nav_collapse_sm: bool,
     /// Canonical URL path (e.g. `"/leaderboard"`). Required.
     /// Used by the layout shell to emit `<link rel="canonical">`.
     pub path: String,
@@ -138,6 +226,19 @@ pub struct CmsPage {
     /// dense-grid content; `Full` removes the cap entirely.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_width: Option<ContentWidth>,
+    /// Global spacing density for the page. Wires to `data-density`
+    /// on `<html>`; see [`Density`]. Default `Comfortable` emits no
+    /// attribute (byte-identical to pre-density output).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub density: Option<Density>,
+    /// Optional breadcrumb trail rendered above the first body
+    /// section as `<nav aria-label="Breadcrumb">` (e.g.
+    /// "Prosperity Club » About » Our Team"). Each [`Crumb`] with an
+    /// `href` is a link; the last usually omits it to mark the
+    /// current page. Empty/omitted → no breadcrumb (back-compat,
+    /// byte-identical to pre-breadcrumb output).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub breadcrumb: Vec<Crumb>,
     /// Action CTAs rendered in the header (e.g. "Sign in",
     /// "Get started"). Distinct from `nav_links` — these are
     /// buttons, not page-to-page links.
@@ -171,11 +272,14 @@ pub struct CmsPage {
     pub dev_devtools: bool,
     /// Optional fully-qualified site origin (e.g.
     /// `"https://example.com"`). When set, the renderer
-    /// prefixes `og:url` and `og:image` with this origin so
-    /// social-card crawlers see fully-qualified URLs (the OG
-    /// spec requires absolute URLs). When `None`, the renderer
-    /// emits the relative path — works for most crawlers but
-    /// not all.
+    /// prefixes `<link rel="canonical">`, `og:url`, and
+    /// `og:image` with this origin so search + social-card
+    /// crawlers see fully-qualified URLs (a relative canonical
+    /// is an SEO bug; the OG spec requires absolute URLs).
+    /// When `None`, the renderer emits the relative path —
+    /// works for most crawlers but not all. Inheritable
+    /// site-wide via `index.json` (see `fill_opt!`), so a
+    /// tenant sets it once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub site_origin: Option<String>,
     /// Optional social-card preview image path (e.g.
@@ -192,6 +296,194 @@ pub struct CmsPage {
     /// links.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub footer: Option<CmsFooter>,
+}
+
+/// Site-wide chrome shared by every page of a site (#573).
+///
+/// PROBLEM IT SOLVES
+/// -----------------
+/// Before this, every `cms/<page>.json` re-declared its own
+/// nav / footer / brand / flags. A multi-page site that drifted
+/// between pages (e.g. one page sets `nav_collapse_always`, the
+/// next omits it) produced a nav that visibly changed shape on
+/// navigation. Authors had to keep N copies of the chrome in sync
+/// by hand — a standing source of "the menu acts weird between
+/// pages" bugs.
+///
+/// CONVENTION
+/// ----------
+/// A site MAY ship one `site.json` document of this shape at the
+/// TENANT ROOT — sibling to `forge.toml` / `variables.json` /
+/// `palette.json`, NOT inside `cms/`. Keeping it at the root means
+/// the ~30 build phases that walk `cms/*.json` as pages never see it
+/// (it has no `title` / `path` / `sections`, so they would otherwise
+/// flag it as a malformed page). Every field is optional. For each
+/// page, [`apply_site_chrome`] fills any chrome field the page left
+/// unset from `site.json`; a value the PAGE specifies always wins.
+///
+/// BACK-COMPAT
+/// -----------
+/// A site with no `site.json` is rendered exactly as before —
+/// `apply_site_chrome` is never invoked, so output is byte-identical.
+/// This struct is purely additive; `CmsPage`'s field types are
+/// unchanged, so existing constructors and fixtures are untouched.
+///
+/// SECURITY
+/// --------
+/// `#[serde(deny_unknown_fields)]` — `_site.json` may only carry
+/// chrome. Page content keys (`title`, `sections`, `path`, …) fail
+/// deserialization at the boundary rather than being silently
+/// dropped, so a misplaced page body in `_site.json` is a loud error.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SiteChrome {
+    /// JSON Schema reference for editor autocomplete. Ignored by the
+    /// merge — present only so `_site.json` can carry `"$schema"`.
+    #[serde(rename = "$schema", skip_serializing_if = "Option::is_none", default)]
+    #[schemars(rename = "$schema")]
+    pub schema: Option<String>,
+    /// See [`CmsPage::brand`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brand: Option<String>,
+    /// See [`CmsPage::brand_logo`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brand_logo: Option<BrandLogo>,
+    /// See [`CmsPage::brand_icon_slug`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brand_icon_slug: Option<String>,
+    /// See [`CmsPage::brand_icon_boxed`]. `Some(true)` turns it on
+    /// site-wide; pages can still independently set their own `true`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brand_icon_boxed: Option<bool>,
+    /// See [`CmsPage::brand_accent_tail`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brand_accent_tail: Option<String>,
+    /// See [`CmsPage::utility_strip`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub utility_strip: Option<UtilityStrip>,
+    /// See [`CmsPage::nav_bar_color_role`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nav_bar_color_role: Option<String>,
+    /// See [`CmsPage::nav_border_role`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nav_border_role: Option<String>,
+    /// See [`CmsPage::social_links`]. Empty → unset (page keeps its own).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub social_links: Vec<SocialLink>,
+    /// See [`CmsPage::lang_selector`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lang_selector: Option<LangSelector>,
+    /// See [`CmsPage::nav_home_icon`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nav_home_icon: Option<bool>,
+    /// See [`CmsPage::nav_collapse_always`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nav_collapse_always: Option<bool>,
+    /// See [`CmsPage::hide_theme_toggle`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hide_theme_toggle: Option<bool>,
+    /// See [`CmsPage::nav_links_align_end`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nav_links_align_end: Option<bool>,
+    /// See [`CmsPage::nav_toggle_plain`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nav_toggle_plain: Option<bool>,
+    /// See [`CmsPage::nav_collapse_sm`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nav_collapse_sm: Option<bool>,
+    /// See [`CmsPage::theme`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
+    /// See [`CmsPage::chrome`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chrome: Option<ChromeKind>,
+    /// See [`CmsPage::content_width`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_width: Option<ContentWidth>,
+    /// See [`CmsPage::density`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub density: Option<Density>,
+    /// See [`CmsPage::nav_actions`]. Empty → unset.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nav_actions: Vec<HeroCta>,
+    /// See [`CmsPage::nav_links`]. Empty → unset.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nav_links: Vec<CmsNavLink>,
+    /// See [`CmsPage::footer`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub footer: Option<CmsFooter>,
+    /// See [`CmsPage::site_origin`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site_origin: Option<String>,
+    /// See [`CmsPage::social_image`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub social_image: Option<String>,
+}
+
+/// Fill any chrome field `page` left unset from the site-wide
+/// `site` defaults (#573). A value the page specifies always wins;
+/// `site` only supplies fallbacks.
+///
+/// MERGE RULES
+/// - `Option<T>` page fields: filled when the page is `None`.
+/// - `Vec` page fields (`nav_links`, `nav_actions`, `social_links`):
+///   filled when the page's vec is empty.
+/// - `bool` page fields: ON-only — `page.flag |= site.flag`. The site
+///   can switch a flag on for every page; a page can independently
+///   switch its own on. A page CANNOT switch off a flag the site set
+///   on (the plain-`bool` default of `false` is indistinguishable from
+///   "unset"). This is the one expressible limitation; it has not
+///   mattered in practice because chrome flags are site-wide design
+///   decisions. If per-page opt-OUT is ever needed, promote the page
+///   field to `Option<bool>` in a follow-up.
+///
+/// Idempotent and order-independent across distinct fields.
+pub fn apply_site_chrome(page: &mut CmsPage, site: &SiteChrome) {
+    macro_rules! fill_opt {
+        ($field:ident) => {
+            if page.$field.is_none() {
+                page.$field = site.$field.clone();
+            }
+        };
+    }
+    macro_rules! fill_vec {
+        ($field:ident) => {
+            if page.$field.is_empty() {
+                page.$field = site.$field.clone();
+            }
+        };
+    }
+    macro_rules! fill_bool {
+        ($field:ident) => {
+            page.$field = page.$field || site.$field.unwrap_or(false);
+        };
+    }
+
+    fill_opt!(brand);
+    fill_opt!(brand_logo);
+    fill_opt!(brand_icon_slug);
+    fill_bool!(brand_icon_boxed);
+    fill_opt!(brand_accent_tail);
+    fill_opt!(utility_strip);
+    fill_opt!(nav_bar_color_role);
+    fill_opt!(nav_border_role);
+    fill_vec!(social_links);
+    fill_opt!(lang_selector);
+    fill_bool!(nav_home_icon);
+    fill_bool!(nav_collapse_always);
+    fill_bool!(hide_theme_toggle);
+    fill_bool!(nav_links_align_end);
+    fill_bool!(nav_toggle_plain);
+    fill_bool!(nav_collapse_sm);
+    fill_opt!(theme);
+    fill_opt!(chrome);
+    fill_opt!(content_width);
+    fill_opt!(density);
+    fill_vec!(nav_actions);
+    fill_vec!(nav_links);
+    fill_opt!(footer);
+    fill_opt!(site_origin);
+    fill_opt!(social_image);
 }
 
 /// Brand logo asset surfaced inside the page-shell brand
@@ -230,15 +522,88 @@ pub struct UtilityStrip {
     /// Left-aligned text content. E.g. `"Email: hello@example.com"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub left: Option<String>,
+    /// Optional leading icon glyph for the left text, by slug
+    /// (kebab-case → `loom-utility-strip__icon--<slug>`). The glyph
+    /// is drawn by a pure-CSS `::before` rule, same mechanism as
+    /// social links. Built-in slugs: `envelope`, `phone`. Tenants
+    /// may add their own by extending the substrate glyph CSS.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left_icon: Option<String>,
     /// Right-aligned text content. E.g. `"Call (555) 123-4567"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub right: Option<String>,
+    /// Optional leading icon glyph for the right text. See
+    /// [`UtilityStrip::left_icon`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub right_icon: Option<String>,
     /// Palette role for the background color (substrate kebab-cases
     /// to `var(--loom-color-<role>)`). Common values:
     /// `"primary"` / `"secondary"` / `"accent"` / `"surface"`.
     /// When absent, the strip uses a neutral muted background.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bg_role: Option<String>,
+}
+
+/// One social link in a [`CmsPage::social_links`] list.
+///
+/// Substrate-general. The `platform` field maps to a CSS class
+/// (e.g. `loom-social-link--facebook`) that controls the icon glyph
+/// via a pure-CSS rule. Any tenant can add their own platform by
+/// extending the substrate's social-glyph CSS rules.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SocialLink {
+    /// Platform identifier — kebab-case (e.g. `facebook`, `linkedin`,
+    /// `twitter`, `x`, `instagram`, `youtube`, `github`, `mastodon`).
+    pub platform: String,
+    /// Destination URL. Same-origin or `https://...`.
+    pub href: String,
+    /// Accessible label (e.g. `"Prosperity Club on Facebook"`).
+    pub label: String,
+}
+
+/// Language selector in the header. Renders as a `<details>`
+/// disclosure (no JS needed for accessibility). Substrate-general.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LangSelector {
+    /// Currently-active language label (e.g. `"English"`).
+    pub current_label: String,
+    /// Optional flag/emoji or character preceding the current label
+    /// (e.g. `"🇬🇧"`). Substrate doesn't constrain content; tenant
+    /// chooses any short visual marker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_marker: Option<String>,
+    /// Optional image URL for the current-language marker (e.g. a flag
+    /// SVG/PNG). Takes precedence over `current_marker` when set:
+    /// emoji flags render as tofu boxes in any environment without an
+    /// emoji font (headless browsers, many Linux/desktop fonts), so an
+    /// image marker is the robust choice. Rendered as a decorative
+    /// `<img alt="" aria-hidden>` — the visible label carries meaning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_marker_image: Option<String>,
+    /// List of language options.
+    pub options: Vec<LangSelectorOption>,
+}
+
+/// One language option inside a [`LangSelector`]. Separate from the
+/// pre-existing [`LangOption`] type which is used by the games/
+/// nav-tab catalogue and has different fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LangSelectorOption {
+    /// Language label (e.g. `"Español"`).
+    pub label: String,
+    /// URL to navigate to for this language.
+    pub href: String,
+    /// Optional marker (flag emoji, etc.).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker: Option<String>,
+    /// Optional image URL for this option's marker (flag SVG/PNG).
+    /// Takes precedence over `marker`; see
+    /// [`LangSelector::current_marker_image`]. Decorative (`alt=""`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker_image: Option<String>,
 }
 
 /// Typed page footer.
@@ -260,6 +625,13 @@ pub struct CmsFooter {
     /// Optional copyright / colophon line at the very bottom.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub colophon: Option<String>,
+    /// Optional palette role for a coloured band wrapping the
+    /// colophon line. When set, the colophon renders inside a
+    /// full-width band with the named role's background (e.g.
+    /// `"accent"` → `var(--loom-color-accent)`). When absent the
+    /// colophon sits flush in the footer's normal bg.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub colophon_bg_role: Option<String>,
     /// Optional row of CTA buttons above the columns. Used by sites
     /// that want prominent "Learn more" / "Subscribe" actions in
     /// the footer.
@@ -278,6 +650,33 @@ pub struct CmsFooter {
     /// secondary. When absent, footer uses substrate-default subtle bg.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bg_role: Option<String>,
+    /// Optional 'Find Us' row with label + social links. Rendered
+    /// near the bottom of the footer, beside the back-to-top link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub find_us: Option<FindUs>,
+    /// Optional 'Contact Us For More Information' style text link
+    /// rendered on the bottom row above the colophon. Substrate-general
+    /// label-link pair; any tenant can author.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contact_cta: Option<CmsNavLink>,
+    /// When true, the colophon and legal-link row render together on a
+    /// single justify-between bottom bar (colophon left, legal links
+    /// right) sharing one top border — the conventional site-footer
+    /// baseline. When false (default), they render as separate stacked
+    /// blocks exactly as before, so existing footers stay byte-identical.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bottom_bar_inline: bool,
+}
+
+/// 'Find Us' row in the footer: a small label (e.g. `"FIND US"`)
+/// followed by social-link icons. Substrate-general.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FindUs {
+    /// Label text (e.g. `"FIND US"`).
+    pub label: String,
+    /// Social link icons.
+    pub social_links: Vec<SocialLink>,
 }
 
 /// One footer link column.
@@ -286,8 +685,63 @@ pub struct CmsFooter {
 pub struct CmsFooterColumn {
     /// Column heading (rendered as small uppercase label).
     pub heading: String,
+    /// Optional descriptive body text rendered above the link list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
     /// Vertical link list.
+    #[serde(default)]
     pub links: Vec<CmsNavLink>,
+    /// Optional CTA button rendered at the bottom of the column.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub button: Option<HeroCta>,
+    /// Optional embedded language selector. When present the column
+    /// renders the disclosure widget after `links` and before `button`.
+    /// Lets tenants put a Translate dropdown directly inside the footer
+    /// column instead of (or in addition to) the header brand row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lang_selector: Option<LangSelector>,
+    /// Optional brand-mark lockup rendered at the top of the column
+    /// (vetted icon glyph + wordmark), mirroring the header brand. Lets a
+    /// tenant repeat its logo lockup in the footer's first column — a
+    /// near-universal pattern. When present, the visible `heading` is
+    /// rendered screen-reader-only (the wordmark is the visible label).
+    /// Additive: columns without `brand` render exactly as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brand: Option<CmsBrandMark>,
+    /// Optional plain-text items rendered as non-link `<li>` entries
+    /// appended to the link list — for footer entries that name a
+    /// capability or category without a destination (e.g. "IT Operations"
+    /// listed among linked solutions). Additive: empty → identical output.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub text_items: Vec<String>,
+}
+
+/// A reusable brand-mark lockup: an optional vetted icon glyph followed
+/// by a wordmark whose trailing portion may render in the accent color,
+/// optionally wrapped in a link. Substrate-general — folds the header
+/// brand fields (#536 icon / #543 accent-tail / #553 boxed) into a single
+/// composable unit any surface can embed (footer column, sidebar, card).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CmsBrandMark {
+    /// Wordmark text (e.g. "PlausiDen LLC").
+    pub name: String,
+    /// Optional `loom-icons` slug rendered as a leading glyph. Unknown
+    /// slug → glyph omitted (the wordmark still renders).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_slug: Option<String>,
+    /// When true, the icon renders inside a filled, rounded container so
+    /// the icon + wordmark read as a logo lockup. No-op without `icon_slug`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub icon_boxed: bool,
+    /// Optional trailing portion of the wordmark rendered in the accent
+    /// color (e.g. "LLC"). Non-matching tail → whole wordmark in ink.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accent_tail: Option<String>,
+    /// Optional link target wrapping the lockup (e.g. "/"). Unsafe URL →
+    /// rendered as a non-link container.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub href: Option<String>,
 }
 
 /// Contact-info block for the footer.
@@ -310,6 +764,29 @@ pub struct CmsFooterContact {
     /// Jurisdiction line (e.g. "Massachusetts, USA").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jurisdiction: Option<String>,
+    /// When true, emit actionable channels first (phone, email) before
+    /// physical location (address, jurisdiction) — the order most
+    /// business footers use. When false (default), keep the original
+    /// location-first reading order so existing footers are unchanged.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub actionable_first: bool,
+}
+
+/// One breadcrumb trail item. Trails render as
+/// `<nav aria-label="Breadcrumb">` above the first body section
+/// (e.g. "Prosperity Club » About » Our Team"). A crumb with an
+/// `href` renders as a link; the final crumb usually omits `href`
+/// to mark the current page (`aria-current="page"`). Href is
+/// validated via `is_safe_url`; unsafe → rendered as a plain leaf.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Crumb {
+    /// Visible label for this trail step.
+    pub label: String,
+    /// Same-origin path or `https://` URL. Absent → current-page
+    /// leaf (non-link, `aria-current="page"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub href: Option<String>,
 }
 
 /// One primary-nav link.
@@ -327,6 +804,14 @@ pub struct CmsNavLink {
     /// `aria-current="page"`).
     #[serde(default)]
     pub current: bool,
+    /// Optional dropdown submenu. When non-empty, this link becomes a
+    /// parent: it renders a disclosure caret and an attached submenu
+    /// listing the children (CSS-only reveal on hover / focus-within;
+    /// children may themselves nest to any depth). Empty (the default)
+    /// → a plain flat link with unchanged markup, so existing navs and
+    /// the footer/legal link lists are wholly back-compatible.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<CmsNavLink>,
 }
 
 /// One section of a page. Adding a variant requires a paired
@@ -356,6 +841,35 @@ pub struct CmsNavLink {
 /// primitives — both coexist for the migration window. Operators
 /// who already author with section primitives keep working; new
 /// operators (and the eventual visual builder) use blocks.
+///
+/// Input type for a [`CmsBlock::TextField`] — maps to the native
+/// `<input type=...>` value. `Text` is the default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TextFieldType {
+    /// `<input type="text">` (default).
+    #[default]
+    Text,
+    /// `<input type="email">` — browser-validated email format.
+    Email,
+    /// `<input type="tel">` — telephone, mobile numeric keypad.
+    Tel,
+    /// `<input type="url">` — browser-validated URL format.
+    Url,
+}
+
+impl TextFieldType {
+    /// The HTML `type` attribute value.
+    fn as_html(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Email => "email",
+            Self::Tel => "tel",
+            Self::Url => "url",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 #[allow(missing_docs)]
@@ -1444,6 +1958,37 @@ pub enum CmsBlock {
         #[serde(default)]
         disabled: bool,
     },
+    /// Single-line text input — native `<input>` of type
+    /// text / email / tel / url. The text-entry counterpart to
+    /// [`CmsBlock::NumberField`]; the field-block primitive a
+    /// [`CmsBlock::Form`] uses for name / email / phone rows.
+    /// Browser-native validation (`type=email`, `required`,
+    /// `pattern`) with no JS. Behavioral contract mirrors React
+    /// Aria's `TextField`. No source copied.
+    TextField {
+        /// Unique HTML `id`.
+        id: String,
+        /// Visible label text.
+        label: String,
+        /// Optional form-field `name` attribute.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Input type (text / email / tel / url). Default `text`.
+        #[serde(default)]
+        input_type: TextFieldType,
+        /// Optional placeholder.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placeholder: Option<String>,
+        /// Optional regex pattern for browser-side validation.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pattern: Option<String>,
+        /// When true, the field is required for form submission.
+        #[serde(default)]
+        required: bool,
+        /// When true, render as disabled.
+        #[serde(default)]
+        disabled: bool,
+    },
     /// Transient notification banner. Renders with ARIA live-
     /// region semantics so screen readers announce the message
     /// as it appears. `role` + `aria-live` are derived from
@@ -2437,6 +2982,31 @@ pub enum CmsSection {
         image_side: HeroSplitSide,
         /// Optional primary CTA.
         cta: Option<HeroCta>,
+        /// Optional small eyebrow label above the headline (e.g.
+        /// "About Us"). Mirrors the ImageTextRow eyebrow shape.
+        /// Generic. Absent → no eyebrow (back-compat unchanged).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow: Option<String>,
+        /// Render the eyebrow as a filled brand-tinted pill rather
+        /// than a bare uppercase label. Only meaningful when
+        /// `eyebrow` is set.
+        #[serde(default)]
+        eyebrow_badge: bool,
+        /// Optional leading icon slug for the eyebrow (resolved via
+        /// `loom_icons::by_slug`; unknown slug → glyph omitted, label
+        /// still renders).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow_icon: Option<String>,
+        /// Extra body paragraphs rendered after the lede, in order.
+        /// Empty by default — lede-only heroes render unchanged.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        body: Vec<String>,
+        /// Optional secondary CTA rendered beside the primary as an
+        /// outline button. When present, both CTAs are wrapped in an
+        /// actions row; when absent, the primary CTA renders exactly
+        /// as before (byte-identical back-compat).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cta_secondary: Option<HeroCta>,
     },
     /// Minimal hero — text-only, no decoration, no eyebrow, no
     /// background tint. Just a heading + optional lede + optional
@@ -2705,12 +3275,30 @@ pub enum CmsSection {
     ImageHero {
         /// Optional eyebrow chip above the title.
         eyebrow: Option<String>,
+        /// When `true`, the eyebrow renders as a solid brand-tinted
+        /// badge (filled primary tint + primary text, no glass blur)
+        /// rather than the default translucent glass pill. Opt-in so
+        /// existing heroes are unchanged. Absent / `false` → glass.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow_badge: Option<bool>,
         /// Display title.
         title: String,
+        /// Optional accent fragment appended to the title and rendered
+        /// in `--loom-color-accent`. Renders as
+        /// `<h2>TITLE <span class="loom-image-hero__title-accent">ACCENT</span></h2>`.
+        /// Mirrors `image_text_row` `heading_accent_suffix` — lets a
+        /// marketing hero two-tone the headline (real-site pattern).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title_accent: Option<String>,
         /// Optional lede paragraph below the title.
         lede: Option<String>,
         /// Optional primary CTA.
         cta: Option<HeroCta>,
+        /// Optional secondary CTA rendered beside the primary in a
+        /// button row. Emits the outline button variant so the two
+        /// read as primary + secondary (real marketing dual-CTA).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cta_secondary: Option<HeroCta>,
         /// Backdrop kind — gradient-mesh / solid / pattern.
         #[serde(default)]
         background: HeroBackground,
@@ -2783,6 +3371,57 @@ pub enum CmsSection {
         /// chrome without inventing a parallel primitive.
         #[serde(default)]
         decoration: FeatureSpotlightDecoration,
+        /// Heading-color treatment. `Cycle` (default) keeps the
+        /// per-card palette rotation; the single-role variants render
+        /// every card heading in one palette role. Only affects the
+        /// `Bordered` decoration.
+        #[serde(default)]
+        heading_color: SpotlightHeadingColor,
+        /// Top-border-color treatment. `Cycle` (default) keeps the
+        /// per-card palette rotation; the single-role variants render
+        /// every card's top border in one palette role. Independent of
+        /// `heading_color`. Only affects the `Bordered` decoration.
+        #[serde(default)]
+        border_color: SpotlightBorderColor,
+        /// Border geometry. `Top` (default) keeps the 4px top rule;
+        /// `Box` draws a thin border on all four sides. Only affects
+        /// the `Bordered` decoration.
+        #[serde(default)]
+        border_style: SpotlightBorderStyle,
+        /// Center the section heading + lede (centered-marketing
+        /// shape). Default `false` keeps the start-aligned editorial
+        /// layout. Emits `--centered`, which the skin already styles.
+        #[serde(default)]
+        centered: bool,
+        /// Render a numbered badge (1, 2, 3 …) before each item —
+        /// the "process / engagement steps" shape (e.g. a three-step
+        /// engagement or a verification lifecycle). Default `false`.
+        /// Distinct from [`CmsBlock::Stepper`], which is a status
+        /// progress indicator with no body copy.
+        #[serde(default)]
+        numbered: bool,
+    },
+    /// Centered heading over a grid of compact icon+label pills.
+    /// Each pill is a single horizontal row — an icon chip on the
+    /// left, a short label on the right — inside a light card. Use
+    /// for value lists, capability checklists, certifications, or
+    /// trust badges: short labels, not paragraphs. Distinct from
+    /// `FeatureSpotlight` (vertical title+body cards) and `Steps`
+    /// (numbered sequence).
+    PillGrid {
+        /// Optional centered heading above the grid.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        heading: Option<String>,
+        /// Optional centered lede paragraph under the heading.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lede: Option<String>,
+        /// The pills, in render order.
+        items: Vec<PillItem>,
+        /// Columns at the widest breakpoint. Clamped to 1..=4 by the
+        /// renderer; collapses toward a single column on narrow
+        /// viewports. Defaults to 2.
+        #[serde(default = "default_columns_2")]
+        columns: u8,
     },
     /// Row of large animated numbers with labels. Used for "by
     /// the numbers" / "stats that matter" social-proof bands.
@@ -3295,10 +3934,44 @@ pub enum CmsSection {
         /// Optional eyebrow text above the heading.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         eyebrow: Option<String>,
+        /// When true, render the eyebrow as a solid brand-tinted pill
+        /// badge (mirrors ImageHero's `--badge` eyebrow) rather than the
+        /// default bare uppercase label. Opt-in; pairs with `eyebrow`
+        /// (no effect when `eyebrow` is absent). Generic.
+        #[serde(default)]
+        eyebrow_badge: bool,
+        /// Optional `loom-icons` slug rendered as a leading glyph inside
+        /// the eyebrow, before the text. No effect when `eyebrow` is
+        /// absent or the slug is unknown. Pairs naturally with
+        /// `eyebrow_badge` (icon + label in one pill). Generic.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eyebrow_icon: Option<String>,
         /// Section heading.
         heading: String,
+        /// Optional accent-colored suffix appended to the heading.
+        /// Renders as `<h2>HEADING <span class="...">SUFFIX</span></h2>`
+        /// with the suffix in `--loom-color-accent`. Used to highlight
+        /// the second half of a long heading (real marketing pattern).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        heading_accent_suffix: Option<String>,
         /// Body paragraph(s). Multiple entries → multiple <p> tags.
         body: Vec<String>,
+        /// Optional secondary heading inserted between the first and
+        /// second body paragraphs. Renders as
+        /// `<h3 class="loom-image-text-row__mid-heading">`. Useful
+        /// when the row carries two distinct ideas under one image.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mid_heading: Option<String>,
+        /// Optional bullet list rendered after the body paragraphs.
+        /// Each entry → one `<li>`. Empty → no list emitted.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        bullets: Vec<String>,
+        /// Optional loom-icons slug rendered as a leading glyph on each
+        /// bullet (e.g. "check"). When set, the list drops disc markers
+        /// and lays each item out as icon + label. Unknown slug → plain
+        /// disc bullets. Generic; any tenant picks any vetted icon.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bullets_icon: Option<String>,
         /// Which side the image goes on: "left" or "right".
         /// Defaults to "left" when absent.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3306,6 +3979,13 @@ pub enum CmsSection {
         /// Optional CTA below the body text.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cta: Option<HeroCta>,
+        /// Optional surface tone for the whole row. One of
+        /// "secondary" / "primary" / "accent" / "muted". When set the
+        /// row paints a full-bleed tinted band (palette color + on-*
+        /// text) behind the media + body — used for dark "feature"
+        /// rows. Absent → transparent (inherits page background).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        surface: Option<String>,
     },
     /// Hero-shaped auto-rotating slideshow: each slide carries a
     /// background image + text overlay (eyebrow / title / lede /
@@ -5131,6 +5811,12 @@ pub enum FeatureSpotlightDecoration {
     /// same color, card chrome (rounded + light shadow + padding).
     /// Common publication / WordPress card aesthetic.
     Bordered,
+    /// Soft cards: filled muted surface + 1px hairline border +
+    /// rounded corners + generous padding. No icon tile, no top
+    /// accent, no hover lift. The quiet "info card" shape used for
+    /// mission / vision / values blurbs — distinct from the SaaS
+    /// `Decorated` card and the chrome-less `Minimal`/`Editorial`.
+    Soft,
 }
 
 impl FeatureSpotlightDecoration {
@@ -5141,6 +5827,128 @@ impl FeatureSpotlightDecoration {
             Self::Editorial => "deco-editorial",
             Self::Minimal => "deco-minimal",
             Self::Bordered => "deco-bordered",
+            Self::Soft => "deco-soft",
+        }
+    }
+}
+
+/// Heading-color treatment for [`CmsSection::FeatureSpotlight`] cards.
+///
+/// `Cycle` (default) keeps the per-card palette rotation the
+/// `Bordered` decoration applies (1st card primary, 2nd secondary,
+/// 3rd accent, repeating every 3). The single-role variants override
+/// that rotation so EVERY card heading renders in one palette role —
+/// the common look for sites that brand all card titles with a single
+/// accent color rather than a rotation.
+///
+/// Substrate-general: any tenant picks rotation vs. a uniform role
+/// without inventing a parallel primitive. Only meaningful for the
+/// `Bordered` decoration (the only treatment that colors headings).
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum SpotlightHeadingColor {
+    /// Per-card rotation primary→secondary→accent (the `Bordered`
+    /// default). Kept as the default for back-compat.
+    #[default]
+    Cycle,
+    /// Every card heading uses `--loom-color-primary`.
+    Primary,
+    /// Every card heading uses `--loom-color-secondary`.
+    Secondary,
+    /// Every card heading uses `--loom-color-accent`.
+    Accent,
+}
+
+impl SpotlightHeadingColor {
+    /// Class-modifier emitted on the section element. `Cycle` emits
+    /// nothing (preserves the legacy rotation); the single-role
+    /// variants emit `heading-fixed heading-<role>` so the skin can
+    /// override the rotation with one uniform color.
+    pub const fn modifier_class(self) -> &'static str {
+        match self {
+            Self::Cycle => "",
+            Self::Primary => "heading-fixed heading-primary",
+            Self::Secondary => "heading-fixed heading-secondary",
+            Self::Accent => "heading-fixed heading-accent",
+        }
+    }
+}
+
+/// Top-border-color treatment for [`CmsSection::FeatureSpotlight`] cards.
+///
+/// `Cycle` (default) keeps the per-card palette rotation the
+/// `Bordered` decoration applies to each card's 4px top border (1st
+/// card primary, 2nd secondary, 3rd accent, repeating every 3). The
+/// single-role variants override that rotation so EVERY card's top
+/// border renders in one palette role — the common look for sites that
+/// brand all cards with a single accent edge rather than a rotation.
+///
+/// Independent of [`SpotlightHeadingColor`]: a tenant can pin the
+/// border to one role while leaving headings rotating, or vice versa.
+/// Only meaningful for the `Bordered` decoration (the only treatment
+/// with a colored top border).
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum SpotlightBorderColor {
+    /// Per-card rotation primary→secondary→accent (the `Bordered`
+    /// default). Kept as the default for back-compat.
+    #[default]
+    Cycle,
+    /// Every card's top border uses `--loom-color-primary`.
+    Primary,
+    /// Every card's top border uses `--loom-color-secondary`.
+    Secondary,
+    /// Every card's top border uses `--loom-color-accent`.
+    Accent,
+}
+
+impl SpotlightBorderColor {
+    /// Class-modifier emitted on the section element. `Cycle` emits
+    /// nothing (preserves the legacy rotation); the single-role
+    /// variants emit `border-fixed border-<role>` so the skin can
+    /// override the rotation with one uniform border color.
+    pub const fn modifier_class(self) -> &'static str {
+        match self {
+            Self::Cycle => "",
+            Self::Primary => "border-fixed border-primary",
+            Self::Secondary => "border-fixed border-secondary",
+            Self::Accent => "border-fixed border-accent",
+        }
+    }
+}
+
+/// Border-geometry treatment for [`CmsSection::FeatureSpotlight`] cards
+/// under the `Bordered` decoration.
+///
+/// `Top` (default) keeps the 4px colored top rule (back-compat). `Box`
+/// draws a thin border on all four sides instead, squared with no
+/// shadow, the color still following the per-card cycle. Substrate-
+/// general: any tenant wanting a fully-outlined card opts in without a
+/// parallel primitive. Independent of [`SpotlightBorderColor`].
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum SpotlightBorderStyle {
+    /// 4px colored top rule only (the `Bordered` default).
+    #[default]
+    Top,
+    /// Thin 2px border on all four sides, squared, no shadow.
+    Box,
+}
+
+impl SpotlightBorderStyle {
+    /// Class-modifier emitted on the section element. `Top` emits
+    /// nothing (preserves the legacy top-only rule); `Box` emits
+    /// `border-box` so the skin draws a full four-sided border.
+    pub const fn modifier_class(self) -> &'static str {
+        match self {
+            Self::Top => "",
+            Self::Box => "border-box",
         }
     }
 }
@@ -5224,7 +6032,7 @@ pub mod loom_facts {
     /// `primitive_count_is_not_wildly_off` test cross-checks this
     /// against the schemars-emitted oneOf cardinality and fails
     /// the build if they drift, so the const can't go stale.
-    pub const PRIMITIVE_COUNT: u32 = 163;
+    pub const PRIMITIVE_COUNT: u32 = 164;
     /// Current named-theme count. Defined in `BASE_THEME_CSS` +
     /// `THEME_TOGGLE_CSS`.
     pub const THEME_COUNT: u32 = 14;
@@ -5548,6 +6356,9 @@ fn default_true() -> bool {
 fn default_columns_3() -> u8 {
     3
 }
+fn default_columns_2() -> u8 {
+    2
+}
 fn default_speed() -> u8 {
     5
 }
@@ -5604,13 +6415,26 @@ pub enum HeroBackground {
     /// Solid color. `token` references a loom color token slug
     /// (e.g. `"loom-color-surface"`).
     Solid {
-        /// Loom color token slug.
+        /// Loom color token slug for the background fill (e.g.
+        /// `"loom-color-primary"`). Emitted as
+        /// `background: var(--<token>)` on the section.
         token: String,
+        /// Optional text color token slug for legibility on a dark
+        /// fill (e.g. `"loom-color-on-primary"`). Emitted as
+        /// `color: var(--<ink>)`, inherited by the hero title/lede.
+        /// Absent → text keeps the default ink color (back-compat).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ink: Option<String>,
     },
     /// Diagonal-stripe pattern in the accent color.
     Stripes,
     /// Subtle dot-grid pattern.
     Dots,
+    /// Faint square grid-line pattern (orthogonal ruled lines in the
+    /// primary color at low opacity). Distinct from `Dots`: ruled
+    /// lines rather than dots. Common backdrop for enterprise /
+    /// engineering marketing heroes.
+    Grid,
     /// Photographic background. `src` is a same-origin asset path
     /// (e.g. `"/assets/hero-bg.jpg"`). `alt` is the SEO/a11y
     /// description; even though the image is rendered as a CSS
@@ -5733,6 +6557,21 @@ pub enum SplitVisual {
     },
 }
 
+/// One pill in a [`CmsSection::PillGrid`] — an icon chip plus a
+/// short label, laid out as a single horizontal row. Labels are
+/// phrases, not paragraphs (use [`SpotlightItem`] for title+body).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PillItem {
+    /// Optional leading icon slug (resolved via `loom_icons::by_slug`).
+    /// Unknown slug → the icon chip renders empty; the label still
+    /// shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_slug: Option<String>,
+    /// Short label (a phrase, not a paragraph).
+    pub label: String,
+}
+
 /// One feature spotlight item.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -5740,6 +6579,16 @@ pub struct SpotlightItem {
     /// Optional loom-assets icon slug (e.g. `icon-arrow-right`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_slug: Option<String>,
+    /// Optional small pill label above the title (e.g. "Mail
+    /// Infrastructure"). Brand-tinted badge pill mirroring the
+    /// ImageHero eyebrow-badge. Absent → no pill (back-compat).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eyebrow: Option<String>,
+    /// When true, `image` renders as a centered portrait (natural
+    /// aspect, max-width ~220px) instead of the default 16:10 cover
+    /// panel — for team/profile headshots. Default false (cover).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub image_portrait: bool,
     /// Optional per-item photograph. Renders as a 16:9
     /// `object-fit: cover` panel above the title. Mutually
     /// composable with `icon_slug` — the icon renders in the
@@ -5758,6 +6607,55 @@ pub struct SpotlightItem {
     /// Backend slug paired with href.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_backend: Option<String>,
+    /// Optional trailing inline link rendered as the final phrase
+    /// of the body paragraph (in-flow, not a separate block). Used
+    /// for editorial cards whose body sentence continues into a
+    /// linked phrase; distinct from the block-level `href`/"learn
+    /// more" affordance above.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_link: Option<SpotlightBodyLink>,
+    /// Optional structured sub-blocks rendered after the body
+    /// paragraph — each a bold lead-in heading followed by its own
+    /// paragraph. For case-study cards with discrete "What mattered
+    /// / What we shipped / Outcome" sections. Absent → plain body
+    /// paragraph only (back-compat). When present, `body` may be an
+    /// empty string and is then omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segments: Option<Vec<SpotlightSegment>>,
+    /// Optional meta row rendered just under the eyebrow / above
+    /// the title — dot-separated chips, e.g.
+    /// `["Apr 27, 2026", "11 min read"]`. For blog/article cards
+    /// whose category sits in `eyebrow`, the date + read-time sit
+    /// here, and a "Read more" link uses `href`. Absent → no row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<Vec<String>>,
+}
+
+/// One headed sub-block of a [`SpotlightItem`] (e.g. the
+/// "What mattered" / "What we shipped" / "Outcome" structure of a
+/// case-study card). Rendered as a bold lead-in heading followed by
+/// a paragraph.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SpotlightSegment {
+    /// Bold lead-in heading (e.g. "What mattered").
+    pub heading: String,
+    /// Paragraph body for this segment.
+    pub body: String,
+}
+
+/// Trailing inline link for a [`SpotlightItem`] body.
+///
+/// `href` is validated via `composer::is_safe_url` at render time;
+/// hostile schemes route to `#invalid-link` and mark
+/// `data-invalid="true"`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SpotlightBodyLink {
+    /// Visible link text (the trailing phrase of the body).
+    pub text: String,
+    /// Link target (root-relative or https:// only).
+    pub href: String,
 }
 
 /// Per-item photograph for a [`SpotlightItem`].
@@ -6010,6 +6908,9 @@ pub enum ContentWidth {
     /// 64rem — default. Generous body + side-margin gutters.
     #[default]
     Comfortable,
+    /// 70rem — standard marketing/brochure column, a touch wider
+    /// than comfortable. Common full-site reading width.
+    Roomy,
     /// 90rem — dense-grid / app-shell pages.
     Wide,
     /// No max — full-bleed content.
@@ -6023,8 +6924,45 @@ impl ContentWidth {
         match self {
             Self::Narrow => "narrow",
             Self::Comfortable => "comfortable",
+            Self::Roomy => "roomy",
             Self::Wide => "wide",
             Self::Full => "full",
+        }
+    }
+}
+
+/// Global spacing-density preference. Wires through to a
+/// `data-density="X"` attribute on `<html>` that skin.css matches
+/// with `:root[data-density="X"]` to swap the spacing scale
+/// (`--loom-pad-*` / `--loom-gap-*`) site-wide for the page.
+/// `Comfortable` is the skin's `:root` baseline and emits NO
+/// attribute, so a page (or tenant) that doesn't opt in is
+/// byte-identical to pre-density output. `Spacious` enlarges the
+/// vertical rhythm (airier prose-heavy pages); `Compact` tightens it.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Density {
+    /// Tighter spacing scale (`--loom-space-2/3`).
+    Compact,
+    /// Skin baseline — emits no `data-density` attribute.
+    #[default]
+    Comfortable,
+    /// Enlarged vertical rhythm (`--loom-space-6/8/12`).
+    Spacious,
+}
+
+impl Density {
+    /// `Some("compact"|"spacious")` for the `<html>` attribute, or
+    /// `None` for `Comfortable` — the skin default needs no attribute,
+    /// so non-opted-in pages stay byte-identical.
+    #[must_use]
+    pub fn attr_value(self) -> Option<&'static str> {
+        match self {
+            Self::Compact => Some("compact"),
+            Self::Comfortable => None,
+            Self::Spacious => Some("spacious"),
         }
     }
 }
@@ -6307,6 +7245,18 @@ pub struct HeroCta {
     /// Backend key (must match a `[backends.X]` in backends.toml).
     /// Forge's phantom_button phase verifies this at build time.
     pub data_backend: String,
+    /// Optional icon-mark slug (resolved via `loom_icons::by_slug`,
+    /// e.g. `"shield"` / `"arrow-right"`). Unknown slug → omitted.
+    /// Nav actions render it as a leading glyph; ImageHero primary CTAs
+    /// render it as a trailing glyph after the label. Generic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_slug: Option<String>,
+    /// Optional explicit visual variant: `"primary"` / `"secondary"` /
+    /// `"success"`. When absent the consumer picks a default (nav
+    /// actions fall back to the last-action-is-primary heuristic).
+    /// Generic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
 }
 
 /// One slide inside a [`CmsSection::HeroSlideshow`].
@@ -6329,6 +7279,12 @@ pub struct HeroSlide {
     /// Slide body / lede.
     #[serde(default)]
     pub lede: Option<String>,
+    /// Optional emphasized continuation of the lede, rendered as a
+    /// separate italic line beneath `lede`. Lets a slide split its
+    /// subtitle into a plain clause plus an emphasized tagline
+    /// without baking markup into the content string.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lede_accent: Option<String>,
     /// Optional single call-to-action button (back-compat with
     /// existing single-CTA slides).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -6831,6 +7787,25 @@ impl From<CmsFit> for PictureFit {
 pub fn render_page(page: &CmsPage) -> Markup {
     html! {
         div class="loom-page" data-cms-path=(page.path) {
+            @if !page.breadcrumb.is_empty() {
+                nav class="loom-breadcrumb" aria-label="Breadcrumb" {
+                    ol class="loom-breadcrumb__list" {
+                        @for crumb in &page.breadcrumb {
+                            li class="loom-breadcrumb__item" {
+                                @if let Some(h) = &crumb.href {
+                                    @if is_safe_url(h) {
+                                        a class="loom-breadcrumb__link" href=(h) { (crumb.label) }
+                                    } @else {
+                                        span class="loom-breadcrumb__current" aria-current="page" { (crumb.label) }
+                                    }
+                                } @else {
+                                    span class="loom-breadcrumb__current" aria-current="page" { (crumb.label) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             @for section in &page.sections {
                 (render_section(section))
             }
@@ -8177,6 +9152,37 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                     aria-label=(label);
             }
         },
+        CmsBlock::TextField {
+            id,
+            label,
+            name,
+            input_type,
+            placeholder,
+            pattern,
+            required,
+            disabled,
+        } => html! {
+            div class="loom-block-text-field" data-loom-slot="text-field" {
+                label
+                    class="loom-block-text-field__label"
+                    data-loom-slot="text-field-label"
+                    for=(id)
+                {
+                    (label)
+                }
+                input
+                    type=(input_type.as_html())
+                    class="loom-block-text-field__input"
+                    data-loom-slot="text-field-input"
+                    id=(id)
+                    name=[name.as_deref()]
+                    placeholder=[placeholder.as_deref()]
+                    pattern=[pattern.as_deref()]
+                    required[*required]
+                    disabled[*disabled]
+                    aria-label=(label);
+            }
+        },
         CmsBlock::Toast {
             id,
             tone,
@@ -8902,8 +9908,16 @@ pub fn render_section(section: &CmsSection) -> Markup {
             image_alt,
             image_side,
             cta,
+            eyebrow,
+            eyebrow_badge,
+            eyebrow_icon,
+            body,
+            cta_secondary,
         } => {
             let cta_href_safe = cta
+                .as_ref()
+                .is_none_or(|c| loom_components::composer::is_safe_url(&c.href));
+            let cta2_href_safe = cta_secondary
                 .as_ref()
                 .is_none_or(|c| loom_components::composer::is_safe_url(&c.href));
             let image_safe = loom_components::composer::is_safe_url(image_url);
@@ -8915,9 +9929,53 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 {
                     div class="loom-section-hero-split__grid" {
                         div class="loom-section-hero-split__text" {
-                            h1 class="loom-section-hero-split__title" { (title) }
+                            @if let Some(e) = eyebrow {
+                                p class=(if *eyebrow_badge { "loom-section-hero-split__eyebrow loom-section-hero-split__eyebrow--badge" } else { "loom-section-hero-split__eyebrow" }) {
+                                    @if let Some(slug) = eyebrow_icon {
+                                        @if let Some(reg) = loom_icons::by_slug(slug) {
+                                            span class="loom-section-hero-split__eyebrow-icon" aria-hidden="true" {
+                                                (maud::PreEscaped(reg.render_with_class("loom-section-hero-split__eyebrow-icon-svg")))
+                                            }
+                                        }
+                                    }
+                                    (e)
+                                }
+                            }
+                            // h2, not h1: the page-shell emits the single
+                            // document <h1> (sr-only on hero-first pages, see
+                            // first_is_hero). A hero section title is a
+                            // section heading — matching ImageHero / the rest
+                            // of the hero family — so a HeroSplit-first page
+                            // carries exactly one h1, not two. (#587)
+                            h2 class="loom-section-hero-split__title" { (title) }
                             p class="loom-section-hero-split__lede" { (lede) }
-                            @if let Some(c) = cta {
+                            @for paragraph in body {
+                                p class="loom-section-hero-split__body" { (paragraph) }
+                            }
+                            @if cta_secondary.is_some() {
+                                div class="loom-section-hero-split__actions" {
+                                    @if let Some(c) = cta {
+                                        a
+                                            class="loom-section-hero-split__cta"
+                                            href=(if cta_href_safe { c.href.as_str() } else { "#invalid-cta" })
+                                            data-backend=(c.data_backend)
+                                            data-invalid=[(!cta_href_safe).then_some("true")]
+                                        {
+                                            (c.label)
+                                        }
+                                    }
+                                    @if let Some(c) = cta_secondary {
+                                        a
+                                            class="loom-section-hero-split__cta loom-section-hero-split__cta--secondary"
+                                            href=(if cta2_href_safe { c.href.as_str() } else { "#invalid-cta" })
+                                            data-backend=(c.data_backend)
+                                            data-invalid=[(!cta2_href_safe).then_some("true")]
+                                        {
+                                            (c.label)
+                                        }
+                                    }
+                                }
+                            } @else if let Some(c) = cta {
                                 a
                                     class="loom-section-hero-split__cta"
                                     href=(if cta_href_safe { c.href.as_str() } else { "#invalid-cta" })
@@ -8949,7 +10007,10 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 .is_none_or(|c| loom_components::composer::is_safe_url(&c.href));
             html! {
                 section class="loom-section-hero-minimal" data-loom-hero-minimal {
-                    h1 class="loom-section-hero-minimal__title" { (title) }
+                    // h2, not h1: page-shell owns the single document h1
+                    // (sr-only on hero-first pages). Section title is a
+                    // heading, consistent with the rest of the hero family. (#587)
+                    h2 class="loom-section-hero-minimal__title" { (title) }
                     @if let Some(l) = lede {
                         p class="loom-section-hero-minimal__lede" { (l) }
                     }
@@ -9308,9 +10369,12 @@ pub fn render_section(section: &CmsSection) -> Markup {
         }
         CmsSection::ImageHero {
             eyebrow,
+            eyebrow_badge,
             title,
+            title_accent,
             lede,
             cta,
+            cta_secondary,
             background,
             height,
             align,
@@ -9323,7 +10387,18 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 HeroBackground::Solid { .. } => "solid",
                 HeroBackground::Stripes => "stripes",
                 HeroBackground::Dots => "dots",
+                HeroBackground::Grid => "grid",
                 HeroBackground::Photo { .. } => "photo",
+            };
+            let bg_style: Option<String> = match background {
+                HeroBackground::Solid { token, ink } => {
+                    let mut s = format!("background: var(--{token});");
+                    if let Some(i) = ink {
+                        s.push_str(&format!(" color: var(--{i});"));
+                    }
+                    Some(s)
+                }
+                _ => None,
             };
             let height_class = match height {
                 HeroHeight::Comfortable => "h-comfortable",
@@ -9331,7 +10406,15 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 HeroHeight::Tall => "h-tall",
             };
             let align_attr = align.attr();
+            let eyebrow_class = if *eyebrow_badge == Some(true) {
+                "loom-image-hero__eyebrow loom-image-hero__eyebrow--badge"
+            } else {
+                "loom-image-hero__eyebrow"
+            };
             let cta_href_safe = cta
+                .as_ref()
+                .is_none_or(|c| loom_components::composer::is_safe_url(&c.href));
+            let cta2_href_safe = cta_secondary
                 .as_ref()
                 .is_none_or(|c| loom_components::composer::is_safe_url(&c.href));
             // For HeroBackground::Photo, emit an <img> as a positioned
@@ -9351,6 +10434,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
             };
             html! {
                 section class={ "loom-image-hero loom-bleed bg-" (bg_class) " " (height_class) }
+                    style=[bg_style.as_deref()]
                     data-loom-image-hero data-loom-reveal data-align=(align_attr) {
                     @if let Some((src, alt, overlay_class, src_safe)) = photo_block {
                         img class={ "loom-image-hero__photo " (overlay_class) }
@@ -9369,17 +10453,42 @@ pub fn render_section(section: &CmsSection) -> Markup {
                             }
                         }
                         @if let Some(e) = eyebrow {
-                            span class="loom-image-hero__eyebrow" { (e) }
+                            span class=(eyebrow_class) { (e) }
                         }
-                        h2 class="loom-image-hero__title" { (title) }
+                        h2 class="loom-image-hero__title" {
+                            (title)
+                            @if let Some(acc) = title_accent {
+                                " "
+                                span class="loom-image-hero__title-accent" { (acc) }
+                            }
+                        }
                         @if let Some(l) = lede {
                             p class="loom-image-hero__lede" { (l) }
                         }
-                        @if let Some(c) = cta {
-                            a class="loom-image-hero__cta loom-btn loom-btn--primary"
-                              href=(if cta_href_safe { c.href.as_str() } else { "#invalid-cta" })
-                              data-backend=(c.data_backend)
-                              data-invalid=[(!cta_href_safe).then_some("true")] { (c.label) }
+                        @if cta.is_some() || cta_secondary.is_some() {
+                            div class="loom-image-hero__cta-row" {
+                                @if let Some(c) = cta {
+                                    a class="loom-image-hero__cta loom-btn loom-btn--primary"
+                                      href=(if cta_href_safe { c.href.as_str() } else { "#invalid-cta" })
+                                      data-backend=(c.data_backend)
+                                      data-invalid=[(!cta_href_safe).then_some("true")] {
+                                        (c.label)
+                                        @if let Some(slug) = &c.icon_slug {
+                                            @if let Some(reg) = loom_icons::by_slug(slug) {
+                                                span class="loom-image-hero__cta-icon" aria-hidden="true" {
+                                                    (maud::PreEscaped(reg.render_with_class("loom-image-hero__cta-icon-svg")))
+                                                }
+                                            }
+                                        }
+                                      }
+                                }
+                                @if let Some(c2) = cta_secondary {
+                                    a class="loom-image-hero__cta loom-image-hero__cta--secondary loom-btn loom-btn--outline"
+                                      href=(if cta2_href_safe { c2.href.as_str() } else { "#invalid-cta" })
+                                      data-backend=(c2.data_backend)
+                                      data-invalid=[(!cta2_href_safe).then_some("true")] { (c2.label) }
+                                }
+                            }
                         }
                         @if !after_cta.is_empty() {
                             div class="loom-image-hero__slot loom-image-hero__slot--after-cta" {
@@ -9459,11 +10568,20 @@ pub fn render_section(section: &CmsSection) -> Markup {
             items,
             columns,
             decoration,
+            heading_color,
+            border_color,
+            border_style,
+            centered,
+            numbered,
         } => {
             let cols = (*columns).clamp(1, 4);
             let deco = decoration.modifier_class();
+            let head_color = heading_color.modifier_class();
+            let border_color_class = border_color.modifier_class();
+            let border_style_class = border_style.modifier_class();
+            let centered_class = if *centered { "loom-feature-spotlight--centered" } else { "" };
             html! {
-                section class={ "loom-feature-spotlight cols-" (cols) " " (deco) }
+                section class={ "loom-feature-spotlight cols-" (cols) " " (deco) " " (head_color) " " (border_color_class) " " (border_style_class) " " (centered_class) }
                     data-loom-feature-spotlight data-loom-reveal {
                     @if let Some(h) = heading {
                         h2 class="loom-feature-spotlight__heading" { (h) }
@@ -9472,11 +10590,19 @@ pub fn render_section(section: &CmsSection) -> Markup {
                         p class="loom-feature-spotlight__lede" { (l) }
                     }
                     div class="loom-feature-spotlight__grid" {
-                        @for item in items {
+                        @for (i, item) in items.iter().enumerate() {
                             article class="loom-feature-spotlight__item" data-loom-reveal {
+                                @if *numbered {
+                                    span class="loom-feature-spotlight__number" aria-hidden="true" { ((i + 1).to_string()) }
+                                }
                                 @if let Some(img) = &item.image {
                                     @if loom_components::composer::is_safe_url(&img.src) {
-                                        img class="loom-feature-spotlight__photo"
+                                        @let photo_class = if item.image_portrait {
+                                            "loom-feature-spotlight__photo loom-feature-spotlight__photo--portrait"
+                                        } else {
+                                            "loom-feature-spotlight__photo"
+                                        };
+                                        img class=(photo_class)
                                             src=(img.src)
                                             alt=(img.alt)
                                             width=[img.width]
@@ -9493,8 +10619,40 @@ pub fn render_section(section: &CmsSection) -> Markup {
                                         }
                                     }
                                 }
+                                @if let Some(eb) = &item.eyebrow {
+                                    span class="loom-feature-spotlight__eyebrow" { (eb) }
+                                }
+                                @if let Some(m) = &item.meta {
+                                    div class="loom-feature-spotlight__meta" {
+                                        @for (j, x) in m.iter().enumerate() {
+                                            @if j > 0 { span class="loom-feature-spotlight__meta-sep" aria-hidden="true" { "·" } }
+                                            span class="loom-feature-spotlight__meta-item" { (x) }
+                                        }
+                                    }
+                                }
                                 h3 class="loom-feature-spotlight__title" { (item.title) }
-                                p class="loom-feature-spotlight__body" { (item.body) }
+                                @if !item.body.is_empty() {
+                                    p class="loom-feature-spotlight__body" {
+                                        (item.body)
+                                        @if let Some(bl) = &item.body_link {
+                                            @let bl_safe = loom_components::composer::is_safe_url(&bl.href);
+                                            " "
+                                            a class="loom-feature-spotlight__body-link"
+                                              href=(if bl_safe { bl.href.as_str() } else { "#invalid-link" })
+                                              data-invalid=[(!bl_safe).then_some("true")] {
+                                                (bl.text)
+                                            }
+                                        }
+                                    }
+                                }
+                                @if let Some(segs) = &item.segments {
+                                    @for seg in segs {
+                                        div class="loom-feature-spotlight__segment" {
+                                            span class="loom-feature-spotlight__segment-heading" { (seg.heading) }
+                                            p class="loom-feature-spotlight__segment-body" { (seg.body) }
+                                        }
+                                    }
+                                }
                                 @if let Some(href) = &item.href {
                                     @let href_safe = loom_components::composer::is_safe_url(href);
                                     a class="loom-feature-spotlight__more"
@@ -9504,6 +10662,38 @@ pub fn render_section(section: &CmsSection) -> Markup {
                                         "Learn more →"
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        CmsSection::PillGrid {
+            heading,
+            lede,
+            items,
+            columns,
+        } => {
+            let cols = (*columns).clamp(1, 4);
+            html! {
+                section class={ "loom-pill-grid cols-" (cols) } data-loom-pill-grid data-loom-reveal {
+                    @if let Some(h) = heading {
+                        h2 class="loom-pill-grid__heading" { (h) }
+                    }
+                    @if let Some(l) = lede {
+                        p class="loom-pill-grid__lede" { (l) }
+                    }
+                    div class="loom-pill-grid__grid" {
+                        @for item in items {
+                            div class="loom-pill-grid__item" data-loom-reveal {
+                                span class="loom-pill-grid__icon" aria-hidden="true" {
+                                    @if let Some(slug) = &item.icon_slug {
+                                        @if let Some(reg) = loom_icons::by_slug(slug) {
+                                            (maud::PreEscaped(reg.render_with_class("loom-pill-grid__icon-svg")))
+                                        }
+                                    }
+                                }
+                                span class="loom-pill-grid__label" { (item.label) }
                             }
                         }
                     }
@@ -9677,6 +10867,7 @@ pub fn render_section(section: &CmsSection) -> Markup {
                 HeroBackground::Solid { .. } => "solid",
                 HeroBackground::Stripes => "stripes",
                 HeroBackground::Dots => "dots",
+                HeroBackground::Grid => "grid",
                 HeroBackground::Photo { .. } => "photo",
             };
             let align_attr = align.attr();
@@ -10542,18 +11733,32 @@ import init, {{ init as crucible_init }} from "{widget_url}";
             image_src,
             image_alt,
             eyebrow,
+            eyebrow_badge,
+            eyebrow_icon,
             heading,
+            heading_accent_suffix,
             body,
+            mid_heading,
+            bullets,
+            bullets_icon,
             image_side,
             cta,
+            surface,
         } => {
             let side_class = match image_side.as_deref() {
                 Some("right") => "loom-image-text-row--image-right",
                 _ => "loom-image-text-row--image-left",
             };
+            // Allowlisted surface tone. Unknown values fall through to
+            // None → transparent row (inherits page background).
+            let surface_attr = surface.as_deref().and_then(|s| match s {
+                "secondary" | "primary" | "accent" | "muted" => Some(s),
+                _ => None,
+            });
             html! {
                 section class=(format!("loom-image-text-row {side_class}"))
                     data-loom-image-text-row
+                    data-surface=[surface_attr]
                     data-loom-reveal {
                     figure class="loom-image-text-row__media" {
                         img src=(image_src)
@@ -10563,11 +11768,52 @@ import init, {{ init as crucible_init }} from "{widget_url}";
                     }
                     div class="loom-image-text-row__body" {
                         @if let Some(e) = eyebrow {
-                            p class="loom-image-text-row__eyebrow" { (e) }
+                            p class=(if *eyebrow_badge { "loom-image-text-row__eyebrow loom-image-text-row__eyebrow--badge" } else { "loom-image-text-row__eyebrow" }) {
+                                @if let Some(slug) = eyebrow_icon {
+                                    @if let Some(reg) = loom_icons::by_slug(slug) {
+                                        span class="loom-image-text-row__eyebrow-icon" aria-hidden="true" {
+                                            (maud::PreEscaped(reg.render_with_class("loom-image-text-row__eyebrow-icon-svg")))
+                                        }
+                                    }
+                                }
+                                (e)
+                            }
                         }
-                        h2 class="loom-image-text-row__heading" { (heading) }
-                        @for p in body.iter() {
+                        h2 class="loom-image-text-row__heading" {
+                            (heading)
+                            @if let Some(suffix) = heading_accent_suffix {
+                                " "
+                                span class="loom-image-text-row__heading-accent" { (suffix) }
+                            }
+                        }
+                        @for (idx, p) in body.iter().enumerate() {
+                            @if idx == 1 {
+                                @if let Some(mh) = mid_heading {
+                                    h3 class="loom-image-text-row__mid-heading" { (mh) }
+                                }
+                            }
                             p class="loom-image-text-row__prose" { (p) }
+                        }
+                        @if body.len() < 2 {
+                            @if let Some(mh) = mid_heading {
+                                h3 class="loom-image-text-row__mid-heading" { (mh) }
+                            }
+                        }
+                        @if !bullets.is_empty() {
+                            @let bullet_icon = bullets_icon.as_deref().and_then(loom_icons::by_slug);
+                            ul class={
+                                "loom-image-text-row__bullets"
+                                @if bullet_icon.is_some() { " loom-image-text-row__bullets--iconed" }
+                            } {
+                                @for b in bullets.iter() {
+                                    li {
+                                        @if let Some(icon) = bullet_icon {
+                                            (maud::PreEscaped(icon.render_with_class("loom-image-text-row__bullet-icon")))
+                                        }
+                                        span class="loom-image-text-row__bullet-label" { (b) }
+                                    }
+                                }
+                            }
                         }
                         @if let Some(c) = cta {
                             a class="loom-button" data-variant="primary"
@@ -10592,19 +11838,24 @@ import init, {{ init as crucible_init }} from "{widget_url}";
                 Some("split") => "loom-hero-slideshow--split",
                 _ => "loom-hero-slideshow--overlay",
             };
+            // Per-slide stagger + cycle timing come from static skin.css
+            // rules keyed off this count class (.loom-hero-slideshow--count-N);
+            // inline custom-property styles get stripped by the page-shell CSP.
+            let count_class = match n {
+                2..=6 => format!(" loom-hero-slideshow--count-{n}"),
+                _ => String::new(),
+            };
             html! {
-                section class=(format!("loom-hero-slideshow {align_class} {layout_class}"))
+                section class=(format!("loom-hero-slideshow {align_class} {layout_class}{count_class}"))
                     data-loom-hero-slideshow
                     data-slide-count=(n.to_string())
                     data-interval-ms=(interval_ms.to_string())
                     data-total-ms=(total_ms.to_string())
-                    style=(format!("--loom-slideshow-total-ms: {total_ms}ms; --loom-slideshow-slide-count: {n};"))
                     data-loom-reveal {
                     @for (i, slide) in slides.iter().enumerate() {
                         article class="loom-hero-slideshow__slide"
                             data-index=(i.to_string())
-                            data-active=(if i == 0 { "true" } else { "false" })
-                            style=(format!("--loom-slideshow-slide-index: {i};")) {
+                            data-active=(if i == 0 { "true" } else { "false" }) {
                             img class="loom-hero-slideshow__bg"
                                 src=(slide.src)
                                 alt=(slide.alt)
@@ -10617,6 +11868,9 @@ import init, {{ init as crucible_init }} from "{widget_url}";
                                 h2 class="loom-hero-slideshow__title" { (slide.title) }
                                 @if let Some(lede) = &slide.lede {
                                     p class="loom-hero-slideshow__lede" { (lede) }
+                                }
+                                @if let Some(lede_accent) = &slide.lede_accent {
+                                    p class="loom-hero-slideshow__lede loom-hero-slideshow__lede--accent" { (lede_accent) }
                                 }
                                 @if let Some(cta) = &slide.cta {
                                     a class="loom-button" data-variant="primary"
@@ -10638,6 +11892,20 @@ import init, {{ init as crucible_init }} from "{widget_url}";
                                     }
                                 }
                             }
+                        }
+                    }
+                    @if n > 1 {
+                        button type="button"
+                            class="loom-hero-slideshow__nav loom-hero-slideshow__nav--prev"
+                            data-loom-hero-slideshow-prev
+                            aria-label="Previous slide" {
+                            span class="loom-visually-hidden" { "Previous slide" }
+                        }
+                        button type="button"
+                            class="loom-hero-slideshow__nav loom-hero-slideshow__nav--next"
+                            data-loom-hero-slideshow-next
+                            aria-label="Next slide" {
+                            span class="loom-visually-hidden" { "Next slide" }
                         }
                     }
                 }
@@ -13701,6 +14969,36 @@ mod tests {
     }
 
     #[test]
+    fn render_nav_links_active_marks_route_match() {
+        let links = vec![
+            CmsNavLink {
+                label: "Home".into(),
+                href: "/".into(),
+                data_backend: "nav-home".into(),
+                current: false,
+                children: vec![],
+            },
+            CmsNavLink {
+                label: "Services".into(),
+                href: "/services/".into(),
+                data_backend: "nav-services".into(),
+                current: false,
+                children: vec![],
+            },
+        ];
+        // Homepage: only the "/" link is current.
+        let home = render_nav_links_active(&links, Some("/"));
+        assert!(home.contains(r#"href="/" data-backend="nav-home" aria-current="page""#));
+        assert_eq!(home.matches(r#"aria-current="page""#).count(), 1);
+        // Services page: trailing-slash-insensitive ("/services" ↔ "/services/").
+        let svc = render_nav_links_active(&links, Some("/services"));
+        assert!(svc.contains(r#"href="/services/" data-backend="nav-services" aria-current="page""#));
+        assert_eq!(svc.matches(r#"aria-current="page""#).count(), 1);
+        // No path → no marking (back-compatible with bare render_nav_links).
+        assert_eq!(render_nav_links(&links).matches("aria-current").count(), 0);
+    }
+
+    #[test]
     fn cms_block_breadcrumb_marks_last_item_as_current() {
         let json = r#"{
             "kind": "breadcrumb",
@@ -14699,6 +15997,11 @@ mod tests {
             image_alt: "Alt".into(),
             image_side: HeroSplitSide::Left,
             cta: None,
+            eyebrow: None,
+            eyebrow_badge: false,
+            eyebrow_icon: None,
+            body: Vec::new(),
+            cta_secondary: None,
         };
         let html = render_section(&s).into_string();
         assert!(html.contains("loom-section-hero-split"));
@@ -14723,6 +16026,11 @@ mod tests {
             image_alt: "x".into(),
             image_side: HeroSplitSide::Right,
             cta: None,
+            eyebrow: None,
+            eyebrow_badge: false,
+            eyebrow_icon: None,
+            body: Vec::new(),
+            cta_secondary: None,
         };
         let html = render_section(&s).into_string();
         assert!(!html.contains("javascript:"));
@@ -15780,11 +17088,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "Home".to_owned(),
@@ -15811,11 +17127,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -15840,11 +17164,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -15870,11 +17202,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -15911,11 +17251,19 @@ mod tests {
             let p = CmsPage {
                 brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
                 theme: None,
                 chrome: None,
                 content_width: None,
+                density: None,
                 nav_actions: vec![],
                 schema: None,
                 title: "x".to_owned(),
@@ -16012,11 +17360,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16048,11 +17404,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16166,11 +17530,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16201,11 +17573,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16241,11 +17621,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16282,11 +17670,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16372,11 +17768,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16411,11 +17815,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16451,11 +17863,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16495,11 +17915,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16534,11 +17962,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16570,11 +18006,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16662,11 +18106,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16697,11 +18149,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16761,11 +18221,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16797,11 +18265,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16834,11 +18310,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16867,11 +18351,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16951,11 +18443,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -16989,11 +18489,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -17026,11 +18534,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -17572,6 +19088,39 @@ mod tests {
     }
 
     #[test]
+    fn spotlight_border_style_box_emits_border_box_class() {
+        assert_eq!(SpotlightBorderStyle::Top.modifier_class(), "");
+        assert_eq!(SpotlightBorderStyle::Box.modifier_class(), "border-box");
+        let json = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind":"feature_spotlight",
+                "decoration":"bordered",
+                "border_style":"box",
+                "items":[{"title":"T","body":"B"}]
+            }]
+        }"#;
+        let page: CmsPage = serde_json::from_str(json).expect("parses");
+        let html = render_to_string(&page);
+        assert!(html.contains("border-box"));
+        // Default (omitted) stays top-only — no border-box class.
+        let json_default = r#"{
+            "brand": null, "theme": null, "chrome": null, "content_width": null,
+            "nav_actions": [], "title": "t", "description": "d",
+            "path": "/p", "nav_links": [], "dev_devtools": false,
+            "sections": [{
+                "kind":"feature_spotlight",
+                "decoration":"bordered",
+                "items":[{"title":"T","body":"B"}]
+            }]
+        }"#;
+        let page2: CmsPage = serde_json::from_str(json_default).expect("parses");
+        assert!(!render_to_string(&page2).contains("border-box"));
+    }
+
+    #[test]
     fn sublede_renders_with_class() {
         let json = r#"{
             "brand": null, "theme": null, "chrome": null, "content_width": null,
@@ -17670,11 +19219,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -17704,11 +19261,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -17758,11 +19323,19 @@ mod tests {
         CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -17882,11 +19455,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -17916,11 +19497,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -17946,11 +19535,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -17981,11 +19578,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18012,11 +19617,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18046,11 +19659,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18083,11 +19704,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18113,11 +19742,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18144,11 +19781,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18173,11 +19818,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18202,11 +19855,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18254,11 +19915,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18290,11 +19959,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18330,11 +20007,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18402,11 +20087,19 @@ mod tests {
         CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18464,11 +20157,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18562,11 +20263,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18616,11 +20325,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18667,11 +20384,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18713,11 +20438,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18751,11 +20484,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18806,11 +20547,19 @@ mod tests {
         CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".to_owned(),
@@ -18935,11 +20684,19 @@ mod tests {
         CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "C".to_owned(),
@@ -19037,11 +20794,19 @@ mod tests {
         CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "Q".to_owned(),
@@ -19141,11 +20906,19 @@ mod tests {
         CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "LW".to_owned(),
@@ -19252,11 +21025,19 @@ mod tests {
         CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "KV".to_owned(),
@@ -19306,11 +21087,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".into(),
@@ -19338,11 +21127,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".into(),
@@ -19369,11 +21166,19 @@ mod tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "x".into(),
@@ -19746,7 +21551,7 @@ h1,h2,h3,h4,h5,h6{font-family:var(--loom-font-display);letter-spacing:-.012em;li
 background:var(--loom-bg);color:var(--loom-fg);border:2px solid var(--loom-focus);\
 border-radius:var(--loom-radius);z-index:1000;box-shadow:var(--loom-shadow-md)}\
 header.loom-page-header{padding:1rem 1.75rem;border-bottom:1px solid color-mix(in oklab,var(--loom-border) 60%,transparent);\
-background:color-mix(in oklab,var(--loom-bg) 88%,transparent);position:sticky;top:0;z-index:50;\
+background:color-mix(in oklab,var(--loom-bg) 88%,transparent);position:var(--loom-nav-header-position,sticky);top:0;z-index:50;\
 backdrop-filter:saturate(160%) blur(var(--loom-blur-md));-webkit-backdrop-filter:saturate(160%) blur(var(--loom-blur-md))}\
 header.loom-page-header[data-nav-bg-role=\"primary\"]{background:var(--loom-color-primary)!important;color:var(--loom-color-on-primary,#fff)!important;backdrop-filter:none;-webkit-backdrop-filter:none;border-bottom:none}\
 header.loom-page-header[data-nav-bg-role=\"secondary\"]{background:var(--loom-color-secondary)!important;color:var(--loom-color-on-secondary,#fff)!important;backdrop-filter:none;-webkit-backdrop-filter:none;border-bottom:none}\
@@ -19756,8 +21561,8 @@ header.loom-page-header[data-nav-bg-role] nav.loom-page-nav a,header.loom-page-h
 .loom-utility-strip[data-bg-role=\"primary\"]{background:var(--loom-color-primary);color:var(--loom-color-on-primary,#fff)}\
 .loom-utility-strip[data-bg-role=\"secondary\"]{background:var(--loom-color-secondary);color:var(--loom-color-on-secondary,#fff)}\
 .loom-utility-strip[data-bg-role=\"accent\"]{background:var(--loom-color-accent);color:var(--loom-color-on-accent,#111)}\
-footer.loom-page-footer{padding:2.5rem 1.75rem;border-top:1px solid var(--loom-border);\
-color:var(--loom-muted);margin-top:4rem;font-size:.92rem}\
+footer.loom-page-footer{padding:1.5rem 1.75rem;border-top:1px solid var(--loom-border);\
+color:var(--loom-muted);margin-top:0;font-size:.92rem}\
 nav.loom-page-nav{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}\
 nav.loom-page-nav a{text-decoration:none;color:var(--loom-muted);\
 display:inline-flex;align-items:center;min-height:var(--loom-tap-min);padding:.5rem .9rem;\
@@ -19772,11 +21577,7 @@ nav.loom-page-nav a.loom-page-brand:hover{background:none}\
 font-weight:800;letter-spacing:-.022em;font-size:1.4rem;line-height:1.2;color:var(--loom-fg);\
 display:flex;align-items:center;padding-left:.6rem;border-left:3px solid color-mix(in oklab,var(--loom-accent,#4338CA) 70%,transparent);\
 margin-left:.4rem}\
-main#content{padding:1.5rem;max-width:64rem;margin:0 auto}\
-body[data-content-width=\"narrow\"] main#content{max-width:42rem}\
-body[data-content-width=\"comfortable\"] main#content{max-width:64rem}\
-body[data-content-width=\"wide\"] main#content{max-width:90rem}\
-body[data-content-width=\"full\"] main#content{max-width:none}\
+main#content{padding:0 1rem}\
 @media (prefers-reduced-motion:reduce){\
 *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;\
 transition-duration:.001ms !important;scroll-behavior:auto !important}\
@@ -19800,6 +21601,22 @@ pub const DEFER_ONLOAD_JS: &str = "this.media='all';this.removeAttribute('onload
 /// SECURITY: only writes to data-theme on html element + localStorage
 /// with a fixed key. No DOM injection, no eval, no fetch.
 pub const THEME_TOGGLE_JS: &str = "(function(){var K='loom-theme';var B=document.querySelector('[data-loom-theme-toggle]');if(!B)return;var T=['light','dark','auto'];function r(){var v=null;try{v=localStorage.getItem(K);}catch(_){}if(T.indexOf(v)>=0)return v;var s=document.documentElement.getAttribute('data-theme');return s||'light';}function a(t){document.documentElement.setAttribute('data-theme',t);B.setAttribute('aria-label','Theme: '+t+' (click to cycle)');B.setAttribute('aria-pressed',t==='dark'?'true':'false');B.textContent=t==='light'?'☀':(t==='dark'?'☾':'◐');}a(r());B.addEventListener('click',function(){var c=r();var i=T.indexOf(c);var n=T[(i<0?0:i+1)%T.length];try{localStorage.setItem(K,n);}catch(_){}a(n);});})();";
+
+/// Hero-slideshow rotator. Cycles `data-active` between slides at
+/// the interval declared on the slideshow root via `data-interval-ms`.
+/// Pauses when the document is hidden (battery + correctness). Pure
+/// substrate, no tenant coupling. Hash-pinned in CSP `script-src`.
+///
+/// Reads:
+///   - `[data-loom-hero-slideshow]` — slideshow root element(s)
+///   - `[data-interval-ms]` on root — ms between slide swaps
+///   - `.loom-hero-slideshow__slide` — slide children
+///   - `[data-active="true"]` on initial active slide
+///
+/// Writes:
+///   - `data-active="true"` on the current slide (sets opacity:1 via CSS)
+///   - `data-active="false"` on all others (opacity:0)
+pub const SLIDESHOW_JS: &str = "(function(){document.querySelectorAll('[data-loom-hero-slideshow]').forEach(function(R){var S=R.querySelectorAll('.loom-hero-slideshow__slide');if(S.length<2)return;var I=parseInt(R.getAttribute('data-interval-ms'),10)||5000;var i=0;for(var k=0;k<S.length;k++){if(S[k].getAttribute('data-active')==='true'){i=k;break;}}function go(n){S[i].setAttribute('data-active','false');i=(n+S.length)%S.length;S[i].setAttribute('data-active','true');}var T=setInterval(function(){if(document.hidden)return;go(i+1);},I);var P=R.querySelector('[data-loom-hero-slideshow-prev]');var N=R.querySelector('[data-loom-hero-slideshow-next]');function reset(){clearInterval(T);T=setInterval(function(){if(document.hidden)return;go(i+1);},I);}if(P)P.addEventListener('click',function(){go(i-1);reset();});if(N)N.addEventListener('click',function(){go(i+1);reset();});});})();";
 
 /// Dev-only Eruda loader. Inlined into `<head>` when
 /// `CmsPage.dev_devtools = true`. Runs always; only loads the
@@ -19968,6 +21785,7 @@ pub fn escape_html_attr(s: &str) -> String {
 #[must_use]
 pub fn render_nav_actions(actions: &[HeroCta]) -> String {
     let mut out = String::new();
+    let n = actions.len();
     for (i, a) in actions.iter().enumerate() {
         let label = escape_html_text(&a.label);
         let safe = loom_components::composer::is_safe_url(&a.href);
@@ -19978,15 +21796,26 @@ pub fn render_nav_actions(actions: &[HeroCta]) -> String {
         };
         let invalid_attr = if safe { "" } else { " data-invalid=\"true\"" };
         let backend = escape_html_attr(&a.data_backend);
-        // Last action gets the primary variant; earlier ones are
-        // secondary. The "Sign in / Get started" pattern.
-        let variant = if i + 1 == actions.len() {
-            "loom-btn--primary"
-        } else {
-            "loom-btn--secondary"
+        // Explicit per-action variant wins (#544). Otherwise the last
+        // action gets primary and earlier ones secondary — the
+        // "Sign in / Get started" pattern.
+        let variant = match a.variant.as_deref() {
+            Some("primary") => "loom-btn--primary",
+            Some("secondary") => "loom-btn--secondary",
+            Some("success") => "loom-btn--success",
+            _ if i + 1 == n => "loom-btn--primary",
+            _ => "loom-btn--secondary",
         };
+        // Optional leading icon-mark (#544). Unknown slug → no icon.
+        // SVG is a trusted static const (never author-supplied markup).
+        let icon_html = a
+            .icon_slug
+            .as_deref()
+            .and_then(loom_icons::by_slug)
+            .map(|ic| ic.render_with_class("loom-nav-action__icon"))
+            .unwrap_or_default();
         out.push_str(&format!(
-            "\n        <a class=\"loom-btn loom-btn--sm {variant} loom-floating-pill__action\" href=\"{href}\" data-backend=\"{backend}\"{invalid_attr}>{label}</a>"
+            "\n        <a class=\"loom-btn loom-btn--sm {variant} loom-nav-action\" href=\"{href}\" data-backend=\"{backend}\"{invalid_attr}>{icon_html}{label}</a>"
         ));
     }
     out
@@ -19999,31 +21828,189 @@ pub fn render_nav_actions(actions: &[HeroCta]) -> String {
 /// page WITHOUT leaking the bad URL into a real anchor.
 #[must_use]
 pub fn render_nav_links(links: &[CmsNavLink]) -> String {
+    render_nav_links_active(links, None)
+}
+
+/// Like [`render_nav_links`], but also marks the link whose href
+/// matches `current_path` with `aria-current="page"` (in addition to
+/// any link authored with `current: true`). `current_path` is the
+/// page's own `path` (e.g. `"/"` or `"/services/"`); trailing slashes
+/// are normalized so `/about` and `/about/` match. External
+/// (`https://`) hrefs never match. Substrate-general — active-nav
+/// marking derived from the route, with no per-site CSS or per-link
+/// `current:` authoring required.
+#[must_use]
+pub fn render_nav_links_active(links: &[CmsNavLink], current_path: Option<&str>) -> String {
     let mut out = String::new();
     for link in links {
-        let label = escape_html_text(&link.label);
+        render_nav_link_into(&mut out, link, 0, current_path);
+    }
+    out
+}
+
+/// True when a same-origin nav href points at `current_path` (trailing
+/// slashes normalized). A `None` path or an external (`https://`) href
+/// is never current.
+fn nav_href_is_current(href: &str, current_path: Option<&str>) -> bool {
+    let Some(cur) = current_path else {
+        return false;
+    };
+    if !href.starts_with('/') {
+        return false;
+    }
+    href.trim_end_matches('/') == cur.trim_end_matches('/')
+}
+
+/// Append one nav link's markup to `out`. `depth` 0 is a top-level
+/// nav item; deeper levels are submenu entries. A link with no
+/// `children` renders as a bare anchor — at depth 0 this is the exact
+/// pre-dropdown markup, so flat navs are byte-for-byte unchanged. A
+/// link WITH children becomes a parent: an item wrapper holding the
+/// parent anchor (caret + `aria-haspopup`) and an attached submenu
+/// that lists the children, which may themselves nest. The submenu is
+/// revealed by CSS `:hover` / `:focus-within` — no JavaScript.
+fn render_nav_link_into(out: &mut String, link: &CmsNavLink, depth: usize, current_path: Option<&str>) {
+    let label = escape_html_text(&link.label);
+    let href_safe = loom_components::composer::is_safe_url(&link.href);
+    let href = if href_safe {
+        escape_html_attr(&link.href)
+    } else {
+        "#invalid-nav-link".to_owned()
+    };
+    let invalid_attr = if href_safe {
+        ""
+    } else {
+        " data-invalid=\"true\""
+    };
+    let backend = escape_html_attr(&link.data_backend);
+    let current = if link.current || nav_href_is_current(&link.href, current_path) {
+        " aria-current=\"page\""
+    } else {
+        ""
+    };
+    let link_class = if depth == 0 {
+        "loom-page-nav__link"
+    } else {
+        "loom-page-nav__sublink"
+    };
+    let menuitem_role = if depth == 0 { "" } else { " role=\"menuitem\"" };
+
+    if link.children.is_empty() {
+        out.push_str(&format!(
+            "<a class=\"{link_class}\" href=\"{href}\"{invalid_attr} data-backend=\"{backend}\"{current}{menuitem_role}>{label}</a>"
+        ));
+        return;
+    }
+
+    let item_class = if depth == 0 {
+        "loom-page-nav__item"
+    } else {
+        "loom-page-nav__subitem"
+    };
+    out.push_str(&format!(
+        "<span class=\"{item_class} {item_class}--has-children\">"
+    ));
+    out.push_str(&format!(
+        "<a class=\"{link_class} {link_class}--parent\" href=\"{href}\"{invalid_attr} data-backend=\"{backend}\"{current}{menuitem_role} aria-haspopup=\"true\" aria-expanded=\"false\">{label}<span class=\"loom-page-nav__caret\" aria-hidden=\"true\"></span></a>"
+    ));
+    out.push_str("<span class=\"loom-page-nav__submenu\" role=\"menu\">");
+    for child in &link.children {
+        render_nav_link_into(out, child, depth + 1, current_path);
+    }
+    out.push_str("</span></span>");
+}
+
+/// Render the header social-link icons. Empty list → empty string.
+/// Each link emits `<a class="loom-social-link loom-social-link--<platform>">`
+/// — substrate-general; CSS handles the glyph rendering per platform.
+#[must_use]
+pub fn render_social_links(links: &[SocialLink]) -> String {
+    if links.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("<div class=\"loom-social-links\" role=\"list\">");
+    for link in links {
         let href_safe = loom_components::composer::is_safe_url(&link.href);
         let href = if href_safe {
             escape_html_attr(&link.href)
         } else {
-            "#invalid-nav-link".to_owned()
+            "#invalid-social-link".to_owned()
         };
-        let invalid_attr = if href_safe {
-            ""
-        } else {
-            " data-invalid=\"true\""
-        };
-        let backend = escape_html_attr(&link.data_backend);
-        let current = if link.current {
-            " aria-current=\"page\""
-        } else {
-            ""
-        };
+        let platform = escape_html_attr(&link.platform);
+        let label = escape_html_attr(&link.label);
+        let label_text = escape_html_text(&link.label);
         out.push_str(&format!(
-            "<a class=\"loom-page-nav__link\" href=\"{href}\"{invalid_attr} data-backend=\"{backend}\"{current}>{label}</a>"
+            "<a class=\"loom-social-link loom-social-link--{platform}\" href=\"{href}\" aria-label=\"{label}\" role=\"listitem\"><span class=\"loom-visually-hidden\">{label_text}</span></a>"
         ));
     }
+    out.push_str("</div>");
     out
+}
+
+/// Render the header language-selector. Returns empty string when None.
+/// Uses `<details>`/`<summary>` for a JS-free disclosure. Substrate-general.
+#[must_use]
+/// Build the marker HTML preceding a language label. An image marker
+/// (a flag SVG/PNG) wins over an emoji/text marker because emoji flags
+/// render as tofu wherever no emoji font is installed. The flag is
+/// decorative (`alt=""` + `aria-hidden`); the visible label is the
+/// accessible name. An unsafe image URL falls back to the text marker.
+fn lang_marker_html(text: Option<&str>, image: Option<&str>) -> String {
+    if let Some(src) = image {
+        if loom_components::composer::is_safe_url(src) {
+            return format!(
+                "<img class=\"loom-lang-selector__flag\" src=\"{}\" alt=\"\" aria-hidden=\"true\" decoding=\"async\">",
+                escape_html_attr(src)
+            );
+        }
+    }
+    text.map(|m| {
+        format!(
+            "<span class=\"loom-lang-selector__marker\" aria-hidden=\"true\">{}</span>",
+            escape_html_text(m)
+        )
+    })
+    .unwrap_or_default()
+}
+
+/// Render the language selector dropdown markup, or an empty string when
+/// no selector is configured. Markers fall back from image flag to emoji.
+pub fn render_lang_selector(sel: Option<&LangSelector>) -> String {
+    let Some(sel) = sel else {
+        return String::new();
+    };
+    let marker = lang_marker_html(
+        sel.current_marker.as_deref(),
+        sel.current_marker_image.as_deref(),
+    );
+    let current = escape_html_text(&sel.current_label);
+    let mut options_html = String::new();
+    for opt in &sel.options {
+        let href_safe = loom_components::composer::is_safe_url(&opt.href);
+        let href = if href_safe {
+            escape_html_attr(&opt.href)
+        } else {
+            "#invalid-lang-href".to_owned()
+        };
+        let label = escape_html_text(&opt.label);
+        let opt_marker = lang_marker_html(opt.marker.as_deref(), opt.marker_image.as_deref());
+        options_html.push_str(&format!(
+            "<li><a href=\"{href}\">{opt_marker}{label}</a></li>"
+        ));
+    }
+    format!(
+        "<details class=\"loom-lang-selector\"><summary>{marker}<span class=\"loom-lang-selector__current\">{current}</span></summary><ul class=\"loom-lang-selector__menu\">{options_html}</ul></details>"
+    )
+}
+
+/// Render the home-icon nav link (substrate-general CSS-rendered icon).
+/// Returns empty string when disabled. Linked to `/`.
+#[must_use]
+pub fn render_home_icon(enabled: bool) -> String {
+    if !enabled {
+        return String::new();
+    }
+    "<a class=\"loom-page-nav__home-icon\" href=\"/\" aria-label=\"Home\"><span class=\"loom-visually-hidden\">Home</span></a>".to_owned()
 }
 
 /// Wrap rendered body markup in the smallest valid HTML5 page
@@ -20076,7 +22063,7 @@ pub fn page_shell_themed(
     let description = escape_html_text(&page.description);
     let path = escape_html_attr(&page.path);
     let css = escape_html_attr(css_href);
-    let nav_links = render_nav_links(&page.nav_links);
+    let nav_links = render_nav_links_active(&page.nav_links, Some(&page.path));
     // OG / Twitter URL — fully-qualified when `site_origin` set,
     // path-only otherwise. og:image / twitter:image emitted only
     // when `social_image` is set; same origin prefix rule.
@@ -20143,6 +22130,26 @@ pub fn page_shell_themed(
         t.to_owned()
     });
     let brand_text_escaped = escape_html_text(&brand_raw);
+    // #543: optional two-tone wordmark — render a trailing accent
+    // portion (e.g. "LLC") in the accent color. Split on the RAW brand
+    // so the match is against author intent, then escape each part
+    // independently. The emitted <span> is trusted markup (built from
+    // escaped fragments), inserted raw alongside the rest of the brand.
+    let brand_name_html: String = match page.brand_accent_tail.as_deref() {
+        Some(tail)
+            if !tail.is_empty()
+                && brand_raw.len() > tail.len()
+                && brand_raw.ends_with(tail) =>
+        {
+            let head = &brand_raw[..brand_raw.len() - tail.len()];
+            format!(
+                "{}<span class=\"loom-page-brand__name-accent\">{}</span>",
+                escape_html_text(head),
+                escape_html_text(tail)
+            )
+        }
+        _ => brand_text_escaped.to_string(),
+    };
     // When `brand_logo` is set AND `src` is safe, render the
     // logo image visually + a visually-hidden span for AT
     // (which announces the brand name). When unset or hostile
@@ -20163,7 +22170,25 @@ pub fn page_shell_themed(
                 "<img class=\"loom-page-brand__logo\" src=\"{src}\" alt=\"{alt}\"{width_attr}{height_attr} decoding=\"async\"><span class=\"loom-page-brand__name loom-visually-hidden\">{brand_text_escaped}</span>"
             ))
         }
-        _ => std::borrow::Cow::Owned(brand_text_escaped.to_string()),
+        _ => std::borrow::Cow::Owned(brand_name_html.clone()),
+    };
+    // Optional brand icon-mark (#536): a vetted loom-icons glyph
+    // rendered inline before the brand text / logo. Unknown slug →
+    // omitted. SVG is a trusted static const (never user-authored).
+    let brand: std::borrow::Cow<'_, str> = match page
+        .brand_icon_slug
+        .as_deref()
+        .and_then(loom_icons::by_slug)
+    {
+        Some(icon) => {
+            let icon_class = if page.brand_icon_boxed {
+                "loom-page-brand__icon loom-page-brand__icon--boxed"
+            } else {
+                "loom-page-brand__icon"
+            };
+            std::borrow::Cow::Owned(format!("{}{brand}", icon.render_with_class(icon_class)))
+        }
+        None => brand,
     };
     // Suppress the auto-emitted <h1 class="loom-page-title"> when
     // the first section is hero-class — heroes carry their own
@@ -20173,6 +22198,8 @@ pub fn page_shell_themed(
         matches!(
             s,
             CmsSection::Hero { .. }
+                | CmsSection::HeroSplit { .. }
+                | CmsSection::HeroMinimal { .. }
                 | CmsSection::ImageHero { .. }
                 | CmsSection::SplitHero { .. }
                 | CmsSection::CallToAction { .. }
@@ -20204,7 +22231,14 @@ pub fn page_shell_themed(
     // group, and the matching fallback CSS is appended so the
     // group's checked state actually swaps the palette. Hash is
     // recomputed naturally from whichever CSS string we bundled.
-    let base_with_toggle = if noscript_mode {
+    let base_with_toggle = if page.hide_theme_toggle {
+        // Tenant opted out of the theme toggle (#501): the button is
+        // never rendered, so THEME_TOGGLE_CSS (and its noscript radio
+        // fallback) are dead rules. Omit them so the critical-inline
+        // block carries only live CSS. base_theme_hash recomputes
+        // from this string, keeping the CSP self-consistent.
+        BASE_THEME_CSS.to_string()
+    } else if noscript_mode {
         format!("{BASE_THEME_CSS}{THEME_TOGGLE_CSS}{THEME_TOGGLE_NOSCRIPT_CSS}")
     } else {
         format!("{BASE_THEME_CSS}{THEME_TOGGLE_CSS}")
@@ -20212,6 +22246,7 @@ pub fn page_shell_themed(
     let base_theme_hash = csp_sha256(base_with_toggle.as_bytes());
     let base_theme_block = format!("<style>{base_with_toggle}</style>\n  ");
     let toggle_script_hash = csp_sha256(THEME_TOGGLE_JS.as_bytes());
+    let slideshow_script_hash = csp_sha256(SLIDESHOW_JS.as_bytes());
     let eruda_hash = csp_sha256(ERUDA_LOADER_JS.as_bytes());
     // Dev-only devtools loader: emitted in <head>, gated on
     // localStorage["loom_eruda"] == "on" so it does nothing for
@@ -20257,11 +22292,11 @@ pub fn page_shell_themed(
             )
         } else if page.dev_devtools {
             format!(
-                "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-hashes' '{onload_hash}' '{toggle_script_hash}' '{eruda_hash}'; connect-src 'self'; frame-ancestors 'none'"
+                "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-hashes' '{onload_hash}' '{toggle_script_hash}' '{slideshow_script_hash}' '{eruda_hash}'; connect-src 'self'; frame-ancestors 'none'"
             )
         } else {
             format!(
-                "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}' '{style_hash}'; script-src 'self' 'unsafe-hashes' '{onload_hash}' '{toggle_script_hash}'; require-trusted-types-for 'script'; trusted-types 'none'; frame-ancestors 'none'"
+                "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}' '{style_hash}'; script-src 'self' 'unsafe-hashes' '{onload_hash}' '{toggle_script_hash}' '{slideshow_script_hash}'; require-trusted-types-for 'script'; trusted-types 'none'; frame-ancestors 'none'"
             )
         };
         (extra_block, css_link, csp)
@@ -20273,11 +22308,11 @@ pub fn page_shell_themed(
             )
         } else if page.dev_devtools {
             format!(
-                "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' '{toggle_script_hash}' '{eruda_hash}'; connect-src 'self'; frame-ancestors 'none'"
+                "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' '{toggle_script_hash}' '{slideshow_script_hash}' '{eruda_hash}'; connect-src 'self'; frame-ancestors 'none'"
             )
         } else {
             format!(
-                "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}'; script-src 'self' '{toggle_script_hash}'; require-trusted-types-for 'script'; trusted-types 'none'; frame-ancestors 'none'"
+                "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}'; script-src 'self' '{toggle_script_hash}' '{slideshow_script_hash}'; require-trusted-types-for 'script'; trusted-types 'none'; frame-ancestors 'none'"
             )
         };
         (String::new(), css_link, csp)
@@ -20291,16 +22326,38 @@ pub fn page_shell_themed(
     // ignores nav_actions today).
     let nav_actions_html = render_nav_actions(&page.nav_actions);
     let content_width = page.content_width.unwrap_or_default();
+    // #597: per-page global density → `data-density` on <html>.
+    // `Comfortable` (default / unset) yields None → empty fragment →
+    // byte-identical output for tenants that don't opt in.
+    let density_frag = match page.density.unwrap_or_default().attr_value() {
+        Some(d) => format!(" data-density=\"{d}\""),
+        None => String::new(),
+    };
     let footer_html = render_page_footer(page.footer.as_ref());
     // Optional utility strip + nav-bg attribute (#414).
     // Computed here where `page` is in scope, passed to
     // render_chrome_body as plain strings.
     let utility_strip_html_owned = render_utility_strip(page.utility_strip.as_ref());
-    let nav_bg_attr_owned = page
-        .nav_bar_color_role
-        .as_deref()
-        .map(|r| format!(" data-nav-bg-role=\"{}\"", escape_html_attr(r)))
-        .unwrap_or_default();
+    let nav_bg_attr_owned = {
+        let mut s = String::new();
+        if let Some(r) = page.nav_bar_color_role.as_deref() {
+            s.push_str(&format!(" data-nav-bg-role=\"{}\"", escape_html_attr(r)));
+        }
+        if let Some(r) = page.nav_border_role.as_deref() {
+            s.push_str(&format!(" data-nav-border-role=\"{}\"", escape_html_attr(r)));
+        }
+        s
+    };
+    let social_links_html_owned = render_social_links(&page.social_links);
+    let lang_selector_html_owned = render_lang_selector(page.lang_selector.as_ref());
+    let home_icon_html_owned = render_home_icon(page.nav_home_icon);
+    let brand_extras_html_owned = if social_links_html_owned.is_empty() && lang_selector_html_owned.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<div class=\"loom-page-brand-extras\">{social_links_html_owned}{lang_selector_html_owned}</div>"
+        )
+    };
     let body_html = render_chrome_body(
         chrome,
         &brand,
@@ -20313,6 +22370,13 @@ pub fn page_shell_themed(
         &footer_html,
         &utility_strip_html_owned,
         &nav_bg_attr_owned,
+        &brand_extras_html_owned,
+        &home_icon_html_owned,
+        page.nav_collapse_always,
+        page.hide_theme_toggle,
+        page.nav_links_align_end,
+        page.nav_toggle_plain,
+        page.nav_collapse_sm,
     );
     // T37 v1 + T66 (closes #649): closed allow-list for the
     // `data-theme` attribute. T66 extends to named palettes
@@ -20340,9 +22404,9 @@ pub fn page_shell_themed(
                     | "hc-light"
             ) =>
         {
-            format!("<html lang=\"en\" data-theme=\"{t}\">")
+            format!("<html lang=\"en\" data-theme=\"{t}\"{density_frag}>")
         }
-        _ => "<html lang=\"en\">".to_owned(),
+        _ => format!("<html lang=\"en\"{density_frag}>"),
     };
     format!(
         "<!doctype html>\n\
@@ -20355,7 +22419,7 @@ pub fn page_shell_themed(
   <meta name=\"color-scheme\" content=\"light dark\">\n\
   <title>{title}</title>\n\
   <meta name=\"description\" content=\"{description}\">\n\
-  <link rel=\"canonical\" href=\"{path}\">\n\
+  <link rel=\"canonical\" href=\"{og_url}\">\n\
   <meta property=\"og:title\" content=\"{title}\">\n\
   <meta property=\"og:description\" content=\"{description}\">\n\
   <meta property=\"og:type\" content=\"website\">\n\
@@ -20385,12 +22449,22 @@ fn render_utility_strip(strip: Option<&UtilityStrip>) -> String {
                 .as_deref()
                 .map(|r| format!(" data-bg-role=\"{}\"", escape_html_attr(r)))
                 .unwrap_or_default();
+            let icon_span = |icon: Option<&str>| {
+                icon.map(|i| {
+                    format!(
+                        "<span class=\"loom-utility-strip__icon loom-utility-strip__icon--{}\" aria-hidden=\"true\"></span>",
+                        escape_html_attr(i)
+                    )
+                })
+                .unwrap_or_default()
+            };
             let left = s
                 .left
                 .as_deref()
                 .map(|t| {
                     format!(
-                        "<span class=\"loom-utility-strip__left\">{}</span>",
+                        "<span class=\"loom-utility-strip__left\">{}{}</span>",
+                        icon_span(s.left_icon.as_deref()),
                         escape_html_text(t)
                     )
                 })
@@ -20400,7 +22474,8 @@ fn render_utility_strip(strip: Option<&UtilityStrip>) -> String {
                 .as_deref()
                 .map(|t| {
                     format!(
-                        "<span class=\"loom-utility-strip__right\">{}</span>",
+                        "<span class=\"loom-utility-strip__right\">{}{}</span>",
+                        icon_span(s.right_icon.as_deref()),
                         escape_html_text(t)
                     )
                 })
@@ -20422,15 +22497,31 @@ fn render_chrome_body(
     footer_html: &str,
     utility_strip_html: &str,
     nav_bg_attr: &str,
+    brand_extras_html: &str,
+    home_icon_html: &str,
+    nav_collapse_always: bool,
+    hide_theme_toggle: bool,
+    nav_links_align_end: bool,
+    nav_toggle_plain: bool,
+    nav_collapse_sm: bool,
 ) -> String {
-    let _ = nav_actions_html; // PageShell ignores nav_actions today
+    // PageShell renders nav_actions as a right-aligned button cluster in
+    // the header (#533). FloatingPill consumes nav_actions_html directly
+    // in its own actions container. Empty → no cluster emitted.
+    let nav_actions_block = if nav_actions_html.trim().is_empty() {
+        String::new()
+    } else {
+        format!("<div class=\"loom-page-nav__actions\">{nav_actions_html}</div>")
+    };
     let cw = content_width.attr_value();
     // #102 (2026-05-20): in noscript_mode emit a CSS-only :has()
     // radio fieldset in place of the JS-driven button. The
     // matching CSS (THEME_TOGGLE_NOSCRIPT_CSS) is bundled into the
     // critical-CSS block by page_shell_themed. Without it, this
     // markup would render but clicks wouldn't swap the palette.
-    let toggle_btn_pageshell = if noscript_mode {
+    let toggle_btn_pageshell = if hide_theme_toggle {
+        ""
+    } else if noscript_mode {
         concat!(
             "<fieldset class=\"loom-theme-toggle-nf\"><legend class=\"loom-sr-only\">Theme</legend>",
             "<input type=\"radio\" name=\"loom-theme-nf\" id=\"loom-theme-nf-auto\" value=\"auto\" checked>",
@@ -20444,7 +22535,9 @@ fn render_chrome_body(
     } else {
         "<button type=\"button\" class=\"loom-theme-toggle\" data-loom-theme-toggle aria-label=\"Theme: light (click to cycle)\" aria-pressed=\"false\">☀</button>\n    "
     };
-    let toggle_btn_floating = if noscript_mode {
+    let toggle_btn_floating = if hide_theme_toggle {
+        ""
+    } else if noscript_mode {
         concat!(
             "<fieldset class=\"loom-theme-toggle-nf\"><legend class=\"loom-sr-only\">Theme</legend>",
             "<input type=\"radio\" name=\"loom-theme-nf\" id=\"loom-theme-nf-auto-fp\" value=\"auto\" checked>",
@@ -20460,22 +22553,58 @@ fn render_chrome_body(
     };
     let toggle_script = if noscript_mode {
         String::new()
+    } else if hide_theme_toggle {
+        // Toggle suppressed, but the slideshow still needs its driver.
+        format!("<script>{SLIDESHOW_JS}</script>\n")
     } else {
-        format!("<script>{THEME_TOGGLE_JS}</script>\n")
+        format!("<script>{THEME_TOGGLE_JS}</script>\n<script>{SLIDESHOW_JS}</script>\n")
     };
     match chrome {
-        ChromeKind::PageShell => format!(
-            "<body data-chrome=\"page-shell\" data-content-width=\"{cw}\">\n  \
+        ChromeKind::PageShell => {
+            let header_inner = if brand_extras_html.is_empty() {
+                // Path A (no brand-extras): brand + inline nav. The collapse
+                // wrapper is `display:contents` at desktop, so brand, links,
+                // actions and the theme toggle flow in the nav flex exactly as
+                // if it weren't there — zero desktop change. At <=768px the
+                // wrapper becomes a real box that the shared toggle checkbox
+                // shows or hides: a JS-free hamburger. Reuses the Path B toggle
+                // classes + checkbox id (only one path renders per page, so the
+                // shared id never collides).
+                format!(
+                    "<nav class=\"loom-page-nav{nav_end_class}{collapse_sm_class}\" aria-label=\"Primary\">\n      \
+<a class=\"loom-page-brand\" href=\"/\" data-loom-rich-link=\"true\">{brand}</a>\n      \
+<label for=\"loom-page-nav-toggle-cb\" class=\"loom-page-nav-toggle{toggle_plain_class}\" aria-label=\"Toggle navigation menu\"><span class=\"loom-page-nav-toggle__icon\" aria-hidden=\"true\">☰</span></label>\n      \
+<input type=\"checkbox\" id=\"loom-page-nav-toggle-cb\" class=\"loom-page-nav-toggle-cb\" hidden aria-hidden=\"true\">\n      \
+<div class=\"loom-page-nav__collapse-inline\">{home_icon_html}{nav_links}{nav_actions_block}{toggle_btn_pageshell}</div></nav>",
+                    nav_end_class = if nav_links_align_end { " loom-page-nav--links-end" } else { "" },
+                    collapse_sm_class = if nav_collapse_sm { " loom-page-nav--collapse-sm" } else { "" },
+                    toggle_plain_class = if nav_toggle_plain { " loom-page-nav-toggle--plain" } else { "" }
+                )
+            } else {
+                format!(
+                    "<nav class=\"loom-page-nav loom-page-nav--brand-row\" aria-label=\"Brand\">\n      \
+<a class=\"loom-page-brand\" href=\"/\" data-loom-rich-link=\"true\">{brand}</a>{brand_extras_html}\n      \
+{toggle_btn_pageshell}<label for=\"loom-page-nav-toggle-cb\" class=\"{toggle_class}\" aria-label=\"Toggle navigation menu\"><span class=\"loom-page-nav-toggle__icon\" aria-hidden=\"true\">☰</span><span class=\"loom-page-nav-toggle__label\">Menu</span></label></nav>\n    \
+<div class=\"loom-page-nav-collapse{collapse_mode}\">\n      \
+<input type=\"checkbox\" id=\"loom-page-nav-toggle-cb\" class=\"loom-page-nav-toggle-cb\" hidden aria-hidden=\"true\">\n      \
+<nav class=\"loom-page-nav loom-page-nav--links-row\" aria-label=\"Primary\">\n        \
+{home_icon_html}{nav_links}{nav_actions_block}</nav>\n    \
+</div>",
+                    collapse_mode = if nav_collapse_always { " loom-page-nav-collapse--always" } else { "" },
+                    toggle_class = if nav_collapse_always { "loom-page-nav-toggle loom-page-nav-toggle--always" } else { "loom-page-nav-toggle" }
+                )
+            };
+            format!(
+                "<body data-chrome=\"page-shell\" data-content-width=\"{cw}\">\n  \
 <a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n  \
 {utility_strip_html}<header class=\"loom-page-header\"{nav_bg_attr}>\n    \
-<nav class=\"loom-page-nav\" aria-label=\"Primary\">\n      \
-<a class=\"loom-page-brand\" href=\"/\" data-loom-rich-link=\"true\">{brand}</a>{nav_links}\n      \
-{toggle_btn_pageshell}</nav>{page_title_block}\n  \
+{header_inner}{page_title_block}\n  \
 </header>\n  \
 <main id=\"content\">\n{body}\n  </main>\n  \
 {footer_html}\n  \
 {toggle_script}</body>\n"
-        ),
+            )
+        },
         ChromeKind::FloatingPill => format!(
             "<body data-chrome=\"floating-pill\" data-content-width=\"{cw}\">\n  \
 <a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n  \
@@ -20608,6 +22737,57 @@ fn jsonld_escape(s: &str) -> String {
     out
 }
 
+/// Render a brand-mark lockup (vetted icon glyph + wordmark, optional
+/// two-tone accent tail, optional link). Shares the header brand's
+/// `.loom-page-brand__*` classes for visual parity. Emitted by footer
+/// columns that carry a `brand` (#552).
+fn render_brand_mark(b: &CmsBrandMark) -> String {
+    // Two-tone wordmark: split the RAW name on the accent tail, escape
+    // each fragment independently, wrap the tail in the accent span.
+    let name_html = match b.accent_tail.as_deref() {
+        Some(tail)
+            if !tail.is_empty() && b.name.len() > tail.len() && b.name.ends_with(tail) =>
+        {
+            let head = &b.name[..b.name.len() - tail.len()];
+            format!(
+                "{}<span class=\"loom-page-brand__name-accent\">{}</span>",
+                escape_html_text(head),
+                escape_html_text(tail)
+            )
+        }
+        _ => escape_html_text(&b.name),
+    };
+    // Optional vetted icon glyph (unknown slug → omitted). SVG is a
+    // trusted static const, never user-authored.
+    let icon_html = match b.icon_slug.as_deref().and_then(loom_icons::by_slug) {
+        Some(icon) => {
+            let class = if b.icon_boxed {
+                "loom-page-brand__icon loom-page-brand__icon--boxed"
+            } else {
+                "loom-page-brand__icon"
+            };
+            icon.render_with_class(class)
+        }
+        None => String::new(),
+    };
+    // Wrap the wordmark (head + optional accent tail) in a single
+    // `__name` span. `.loom-page-brand` is an inline-flex row with a
+    // gap; without this wrapper the head text and the accent span are
+    // separate flex items, so the gap is injected BETWEEN "PlausiDen"
+    // and "LLC". Grouping them leaves the gap only between icon and
+    // wordmark (matches real plausiden.com's tight two-tone wordmark).
+    let name_html = format!("<span class=\"loom-page-brand__name\">{name_html}</span>");
+    match b.href.as_deref() {
+        Some(href) if loom_components::composer::is_safe_url(href) => format!(
+            "<a class=\"loom-page-footer__brand loom-page-brand\" href=\"{}\">{icon_html}{name_html}</a>",
+            escape_html_attr(href)
+        ),
+        _ => format!(
+            "<div class=\"loom-page-footer__brand loom-page-brand\">{icon_html}{name_html}</div>"
+        ),
+    }
+}
+
 /// (just the styled tag). `Some` → typed multi-column layout
 /// with columns / contact info / legal links / colophon.
 fn render_page_footer(footer: Option<&CmsFooter>) -> String {
@@ -20643,24 +22823,66 @@ fn render_page_footer(footer: Option<&CmsFooter>) -> String {
     out.push_str("<div class=\"loom-page-footer__columns\">");
     for col in &f.columns {
         out.push_str("<section class=\"loom-page-footer__col\">");
-        out.push_str("<h3 class=\"loom-page-footer__heading\">");
-        out.push_str(&escape_html_text(&col.heading));
-        out.push_str("</h3><ul class=\"loom-page-footer__links\">");
-        for link in &col.links {
-            let href = if loom_components::composer::is_safe_url(&link.href) {
-                link.href.as_str()
-            } else {
-                "#invalid-link"
-            };
-            out.push_str("<li><a href=\"");
-            out.push_str(&escape_html_attr(href));
-            out.push_str("\" data-backend=\"");
-            out.push_str(&escape_html_attr(&link.data_backend));
-            out.push_str("\">");
-            out.push_str(&escape_html_text(&link.label));
-            out.push_str("</a></li>");
+        if let Some(b) = &col.brand {
+            // Brand lockup replaces the visible heading; keep the heading
+            // text as a screen-reader-only label so the column landmark
+            // stays named for assistive tech.
+            out.push_str(&render_brand_mark(b));
+            out.push_str("<h3 class=\"loom-page-footer__heading loom-visually-hidden\">");
+            out.push_str(&escape_html_text(&col.heading));
+            out.push_str("</h3>");
+        } else {
+            out.push_str("<h3 class=\"loom-page-footer__heading\">");
+            out.push_str(&escape_html_text(&col.heading));
+            out.push_str("</h3>");
         }
-        out.push_str("</ul></section>");
+        if let Some(body) = &col.body {
+            out.push_str("<p class=\"loom-page-footer__col-body\">");
+            out.push_str(&escape_html_text(body));
+            out.push_str("</p>");
+        }
+        if !col.links.is_empty() || !col.text_items.is_empty() {
+            out.push_str("<ul class=\"loom-page-footer__links\">");
+            for link in &col.links {
+                let href = if loom_components::composer::is_safe_url(&link.href) {
+                    link.href.as_str()
+                } else {
+                    "#invalid-link"
+                };
+                out.push_str("<li><a href=\"");
+                out.push_str(&escape_html_attr(href));
+                out.push_str("\" data-backend=\"");
+                out.push_str(&escape_html_attr(&link.data_backend));
+                out.push_str("\">");
+                out.push_str(&escape_html_text(&link.label));
+                out.push_str("</a></li>");
+            }
+            for item in &col.text_items {
+                out.push_str("<li class=\"loom-page-footer__text-item\">");
+                out.push_str(&escape_html_text(item));
+                out.push_str("</li>");
+            }
+            out.push_str("</ul>");
+        }
+        if let Some(sel) = &col.lang_selector {
+            out.push_str("<div class=\"loom-page-footer__col-lang\">");
+            out.push_str(&render_lang_selector(Some(sel)));
+            out.push_str("</div>");
+        }
+        if let Some(b) = &col.button {
+            let href = if loom_components::composer::is_safe_url(&b.href) {
+                b.href.as_str()
+            } else {
+                "#invalid-cta"
+            };
+            out.push_str(&format!(
+                "<a class=\"loom-button loom-page-footer__col-button\" data-variant=\"primary\" href=\"{}\" data-backend=\"{}\">{}</a>",
+                escape_html_attr(href),
+                escape_html_attr(&b.data_backend),
+                escape_html_text(&b.label),
+            ));
+        }
+        out.push_str("</section>");
     }
     if let Some(c) = &f.contact {
         let heading = c.heading.as_deref().unwrap_or("Contact");
@@ -20668,42 +22890,82 @@ fn render_page_footer(footer: Option<&CmsFooter>) -> String {
         out.push_str("<h3 class=\"loom-page-footer__heading\">");
         out.push_str(&escape_html_text(heading));
         out.push_str("</h3>");
-        if let Some(phone) = &c.phone {
+        // Each typed contact field leads with a decorative line-icon
+        // (a CSS SVG-mask glyph that inherits the text color) keyed to
+        // the field type: address→map-marker, phone→handset,
+        // email→envelope, jurisdiction→region/globe. The icon spans are
+        // aria-hidden because the adjacent text already conveys the
+        // information. Order follows the conventional "where → call →
+        // write → service-area" reading order (location first), which
+        // also matches typical real-world tenant footers; the line text
+        // is wrapped so the icon + text are flex siblings.
+        // Build each contact line independently, then emit in the
+        // configured order. Default = location-first (address, phone,
+        // email, jurisdiction) — byte-identical to the original fixed
+        // emission. actionable_first = phone, email, then address,
+        // jurisdiction (the order most business footers use).
+        let addr_html = c.address.as_ref().map_or(String::new(), |addr| {
+            format!(
+                "<p><span class=\"loom-page-footer__contact-icon loom-page-footer__contact-icon--location\" aria-hidden=\"true\"></span><span>{}</span></p>",
+                escape_html_text(addr)
+            )
+        });
+        let phone_html = c.phone.as_ref().map_or(String::new(), |phone| {
             let bytes = phone.as_bytes();
             let dialable = !bytes.is_empty() && (bytes[0] == b'+' || bytes[0].is_ascii_digit());
-            if dialable {
+            let inner = if dialable {
                 let tel = phone.replace([' ', '-', '(', ')'], "");
-                out.push_str("<p><a href=\"tel:");
-                out.push_str(&escape_html_attr(&tel));
-                out.push_str("\">");
-                out.push_str(&escape_html_text(phone));
-                out.push_str("</a></p>");
+                format!(
+                    "<a href=\"tel:{}\">{}</a>",
+                    escape_html_attr(&tel),
+                    escape_html_text(phone)
+                )
             } else {
-                out.push_str("<p>");
-                out.push_str(&escape_html_text(phone));
-                out.push_str("</p>");
+                format!("<span>{}</span>", escape_html_text(phone))
+            };
+            format!(
+                "<p><span class=\"loom-page-footer__contact-icon loom-page-footer__contact-icon--phone\" aria-hidden=\"true\"></span>{inner}</p>"
+            )
+        });
+        let email_html = c.email.as_ref().map_or(String::new(), |email| {
+            format!(
+                "<p><span class=\"loom-page-footer__contact-icon loom-page-footer__contact-icon--email\" aria-hidden=\"true\"></span><a href=\"mailto:{}\">{}</a></p>",
+                escape_html_attr(email),
+                escape_html_text(email)
+            )
+        });
+        let juris_html = c.jurisdiction.as_ref().map_or(String::new(), |j| {
+            format!(
+                "<p class=\"loom-page-footer__jurisdiction\"><span class=\"loom-page-footer__contact-icon loom-page-footer__contact-icon--region\" aria-hidden=\"true\"></span><span>{}</span></p>",
+                escape_html_text(j)
+            )
+        });
+        if c.actionable_first {
+            out.push_str(&phone_html);
+            out.push_str(&email_html);
+            out.push_str(&addr_html);
+            out.push_str(&juris_html);
+        } else {
+            out.push_str(&addr_html);
+            out.push_str(&phone_html);
+            out.push_str(&email_html);
+            out.push_str(&juris_html);
+        }
+        // When the footer carries both a contact block and a decoration
+        // image, embed the image as the contact column's background so
+        // they share a single grid cell (matches real-world tenant
+        // layouts that overlay a regional map behind contact text).
+        if let Some(deco) = &f.decoration_image {
+            if loom_components::composer::is_safe_url(&deco.src) {
+                out.push_str("<img class=\"loom-page-footer__contact-bg\" src=\"");
+                out.push_str(&escape_html_attr(&deco.src));
+                out.push_str("\" alt=\"");
+                out.push_str(&escape_html_attr(&deco.alt));
+                out.push_str("\" loading=\"lazy\" decoding=\"async\" aria-hidden=\"true\">");
             }
         }
-        if let Some(email) = &c.email {
-            out.push_str("<p><a href=\"mailto:");
-            out.push_str(&escape_html_attr(email));
-            out.push_str("\">");
-            out.push_str(&escape_html_text(email));
-            out.push_str("</a></p>");
-        }
-        if let Some(addr) = &c.address {
-            out.push_str("<p>");
-            out.push_str(&escape_html_text(addr));
-            out.push_str("</p>");
-        }
-        if let Some(j) = &c.jurisdiction {
-            out.push_str("<p class=\"loom-page-footer__jurisdiction\">");
-            out.push_str(&escape_html_text(j));
-            out.push_str("</p>");
-        }
         out.push_str("</section>");
-    }
-    if let Some(deco) = &f.decoration_image {
+    } else if let Some(deco) = &f.decoration_image {
         if loom_components::composer::is_safe_url(&deco.src) {
             out.push_str("<section class=\"loom-page-footer__col loom-page-footer__decoration\">");
             out.push_str("<img class=\"loom-page-footer__decoration-img\" src=\"");
@@ -20715,31 +22977,89 @@ fn render_page_footer(footer: Option<&CmsFooter>) -> String {
         }
     }
     out.push_str("</div>");
-    if f.back_to_top {
-        out.push_str("<a class=\"loom-page-footer__back-to-top\" href=\"#content\">Back to top ↑</a>");
+    // 'CONTACT US FOR MORE INFORMATION' + 'FIND US' + back-to-top —
+    // the bottom-row footer band, all substrate-general.
+    if f.contact_cta.is_some() || f.find_us.is_some() || f.back_to_top {
+        out.push_str("<div class=\"loom-page-footer__bottomrow\">");
+        if let Some(cc) = &f.contact_cta {
+            let href = if loom_components::composer::is_safe_url(&cc.href) {
+                cc.href.as_str()
+            } else {
+                "#invalid-link"
+            };
+            out.push_str(&format!(
+                "<a class=\"loom-page-footer__contact-cta\" href=\"{}\" data-backend=\"{}\">{}</a>",
+                escape_html_attr(href),
+                escape_html_attr(&cc.data_backend),
+                escape_html_text(&cc.label),
+            ));
+        }
+        if let Some(fu) = &f.find_us {
+            out.push_str("<div class=\"loom-page-footer__find-us\">");
+            out.push_str(&format!(
+                "<span class=\"loom-page-footer__find-us-label\">{}</span>",
+                escape_html_text(&fu.label)
+            ));
+            out.push_str(&render_social_links(&fu.social_links));
+            out.push_str("</div>");
+        }
+        if f.back_to_top {
+            out.push_str("<a class=\"loom-page-footer__back-to-top\" href=\"#content\">Back to top</a>");
+        }
+        out.push_str("</div>");
     }
-    if !f.legal_links.is_empty() {
-        out.push_str("<nav class=\"loom-page-footer__legal\" aria-label=\"Legal\"><ul>");
+    // Legal-link nav, built once so both the stacked (default) and the
+    // inline bottom-bar layouts can place it without duplicating markup.
+    let legal_html = if f.legal_links.is_empty() {
+        String::new()
+    } else {
+        let mut s = String::from("<nav class=\"loom-page-footer__legal\" aria-label=\"Legal\"><ul>");
         for link in &f.legal_links {
             let href = if loom_components::composer::is_safe_url(&link.href) {
                 link.href.as_str()
             } else {
                 "#invalid-link"
             };
-            out.push_str("<li><a href=\"");
-            out.push_str(&escape_html_attr(href));
-            out.push_str("\" data-backend=\"");
-            out.push_str(&escape_html_attr(&link.data_backend));
-            out.push_str("\">");
-            out.push_str(&escape_html_text(&link.label));
-            out.push_str("</a></li>");
+            s.push_str("<li><a href=\"");
+            s.push_str(&escape_html_attr(href));
+            s.push_str("\" data-backend=\"");
+            s.push_str(&escape_html_attr(&link.data_backend));
+            s.push_str("\">");
+            s.push_str(&escape_html_text(&link.label));
+            s.push_str("</a></li>");
         }
-        out.push_str("</ul></nav>");
-    }
-    if let Some(c) = &f.colophon {
-        out.push_str("<p class=\"loom-page-footer__colophon\">");
-        out.push_str(&escape_html_text(c));
-        out.push_str("</p>");
+        s.push_str("</ul></nav>");
+        s
+    };
+    if f.bottom_bar_inline && (!legal_html.is_empty() || f.colophon.is_some()) {
+        // Single justify-between row: colophon left, legal links right.
+        out.push_str("<div class=\"loom-page-footer__bottombar\">");
+        if let Some(c) = &f.colophon {
+            out.push_str("<p class=\"loom-page-footer__colophon\">");
+            out.push_str(&escape_html_text(c));
+            out.push_str("</p>");
+        }
+        out.push_str(&legal_html);
+        out.push_str("</div>");
+    } else {
+        // Default: stacked legal nav then colophon — byte-identical to
+        // the original emission.
+        out.push_str(&legal_html);
+        if let Some(c) = &f.colophon {
+            if let Some(role) = &f.colophon_bg_role {
+                out.push_str("<div class=\"loom-page-footer__colophon-band\" data-bg-role=\"");
+                out.push_str(&escape_html_attr(role));
+                out.push_str("\">");
+                out.push_str("<p class=\"loom-page-footer__colophon\">");
+                out.push_str(&escape_html_text(c));
+                out.push_str("</p>");
+                out.push_str("</div>");
+            } else {
+                out.push_str("<p class=\"loom-page-footer__colophon\">");
+                out.push_str(&escape_html_text(c));
+                out.push_str("</p>");
+            }
+        }
     }
     out.push_str("</footer>");
     out
@@ -20753,11 +23073,19 @@ mod page_shell_tests {
         CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "T".into(),
@@ -21098,11 +23426,19 @@ mod page_shell_tests {
         let p = CmsPage {
             brand: None,
             brand_logo: None,
+            brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
+        nav_border_role: None,
+        social_links: vec![],
+        lang_selector: None,
+        nav_home_icon: false,
+        nav_collapse_always: false,
+            hide_theme_toggle: false,
             theme: None,
             chrome: None,
             content_width: None,
+            density: None,
             nav_actions: vec![],
             schema: None,
             title: "Test".into(),
@@ -21173,9 +23509,10 @@ mod page_shell_tests {
                 email: Some("team@x.example".into()),
                 address: None,
                 jurisdiction: Some("Massachusetts, USA".into()),
+                actionable_first: false,
             }),
             legal_links: vec![],
-            buttons: Vec::new(), decoration_image: None, back_to_top: false, bg_role: None, colophon: None,
+            buttons: Vec::new(), decoration_image: None, back_to_top: false, bg_role: None, find_us: None, contact_cta: None, colophon: None, colophon_bg_role: None, bottom_bar_inline: false,
         });
         let h = page_shell_themed(&p, "/x.css", "<main></main>", None, None);
         assert!(h.contains("\"telephone\":\"978-351-6495\""));
