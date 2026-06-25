@@ -16058,6 +16058,8 @@ mod tests {
             title: "T".into(),
             lede: Some("L".into()),
             cta: Some(HeroCta {
+                icon_slug: None,
+                variant: None,
                 label: "Go".into(),
                 href: "/x".into(),
                 data_backend: "noop".into(),
@@ -17086,6 +17088,12 @@ mod tests {
         // The <main> landmark belongs to page_shell, not render_page,
         // to avoid nested <main> tags in the composed output.
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -17125,6 +17133,12 @@ mod tests {
     #[test]
     fn paragraph_renders_loom_prose() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -17162,6 +17176,12 @@ mod tests {
     #[test]
     fn paragraph_html_is_escaped() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -17200,6 +17220,12 @@ mod tests {
     #[test]
     fn heading_level_2_renders_h2() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -17249,6 +17275,12 @@ mod tests {
             (HeadingLevel::H6, "h6"),
         ] {
             let p = CmsPage {
+                brand_icon_boxed: false,
+                brand_accent_tail: None,
+                nav_links_align_end: false,
+                nav_toggle_plain: false,
+                nav_collapse_sm: false,
+                breadcrumb: vec![],
                 brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -17358,6 +17390,12 @@ mod tests {
     #[test]
     fn composer_section_renders_loom_composer() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -17402,6 +17440,12 @@ mod tests {
     #[test]
     fn picture_section_renders_loom_picture() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -17528,6 +17572,12 @@ mod tests {
     #[test]
     fn hero_renders_required_title_only() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -17571,6 +17621,12 @@ mod tests {
     #[test]
     fn hero_renders_all_optional_slots() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -17601,6 +17657,8 @@ mod tests {
                 title: "Welcome".to_owned(),
                 lede: Some("Skill battles, decided by your crew.".to_owned()),
                 cta: Some(HeroCta {
+                    icon_slug: None,
+                    variant: None,
                     label: "Sign up".to_owned(),
                     href: "/sign-up".to_owned(),
                     data_backend: "sign-up".to_owned(),
@@ -17619,6 +17677,12 @@ mod tests {
     #[test]
     fn hero_editorial_renders_required_fields() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -17668,6 +17732,12 @@ mod tests {
     #[test]
     fn hero_editorial_renders_all_optional_slots() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -17699,6 +17769,8 @@ mod tests {
                 headline_accent: Some("carries the page".to_owned()),
                 lede: "Editorial composition replaces SaaS heroes.".to_owned(),
                 cta: Some(HeroCta {
+                    icon_slug: None,
+                    variant: None,
                     label: "Read the dispatch".to_owned(),
                     href: "/dispatch".to_owned(),
                     data_backend: "view-dispatch".to_owned(),
@@ -17766,6 +17838,12 @@ mod tests {
     #[test]
     fn hero_editorial_invalid_cta_href_substitutes_placeholder() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -17797,6 +17875,8 @@ mod tests {
                 headline_accent: None,
                 lede: "x".to_owned(),
                 cta: Some(HeroCta {
+                    icon_slug: None,
+                    variant: None,
                     label: "bad".to_owned(),
                     href: "javascript:alert(1)".to_owned(),
                     data_backend: "x".to_owned(),
@@ -17813,6 +17893,12 @@ mod tests {
     #[test]
     fn crucible_challenge_renders_mount_and_script() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -17861,6 +17947,12 @@ mod tests {
     #[test]
     fn crucible_challenge_honors_custom_base_path() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -17913,6 +18005,12 @@ mod tests {
     #[test]
     fn pull_quote_renders_body_only() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -17960,6 +18058,12 @@ mod tests {
     #[test]
     fn pull_quote_renders_attribution_and_cite() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -18004,6 +18108,12 @@ mod tests {
     #[test]
     fn pull_quote_splits_paragraphs_on_blank_lines() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -18104,6 +18214,12 @@ mod tests {
         // — those belong to the legacy testimonial card. PullQuote
         // is the editorial sibling.
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -18147,6 +18263,12 @@ mod tests {
     #[test]
     fn code_shell_renders_typed_lines() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -18219,6 +18341,12 @@ mod tests {
     #[test]
     fn code_shell_custom_prompt_replaces_default() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -18263,6 +18391,12 @@ mod tests {
     #[test]
     fn code_shell_header_chrome_renders_title() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -18308,6 +18442,12 @@ mod tests {
     #[test]
     fn code_shell_minimal_chrome_omits_header_even_with_title() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -18349,6 +18489,12 @@ mod tests {
     #[test]
     fn code_shell_amoled_tone_attribute() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -18441,6 +18587,12 @@ mod tests {
         // Anti-shape guarantee: no fake macOS traffic-light circles,
         // no gradient header bar, no copy-button decoration.
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -18487,6 +18639,12 @@ mod tests {
     #[test]
     fn hero_invalid_cta_href_substitutes_placeholder() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -18517,6 +18675,8 @@ mod tests {
                 title: "x".to_owned(),
                 lede: None,
                 cta: Some(HeroCta {
+                    icon_slug: None,
+                    variant: None,
                     label: "x".to_owned(),
                     href: "javascript:alert(1)".to_owned(),
                     data_backend: "x".to_owned(),
@@ -18532,6 +18692,12 @@ mod tests {
     #[test]
     fn hero_text_is_escaped() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -19217,6 +19383,12 @@ mod tests {
     #[test]
     fn group_renders_title_and_multiple_body_paragraphs() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -19259,6 +19431,12 @@ mod tests {
     #[test]
     fn group_with_empty_body_renders_just_title() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -19321,6 +19499,12 @@ mod tests {
 
     fn page_with_card(c: CmsCard) -> CmsPage {
         CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -19453,6 +19637,12 @@ mod tests {
     #[test]
     fn card_feed_renders_each_item() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -19495,6 +19685,12 @@ mod tests {
     #[test]
     fn card_feed_no_heading_omits_h2() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -19533,6 +19729,12 @@ mod tests {
     #[test]
     fn card_emits_stats_grid_when_present() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -19576,6 +19778,12 @@ mod tests {
         let mut c = card("X", "/x");
         c.stats.clear();
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -19615,6 +19823,12 @@ mod tests {
         let mut c = card("X", "javascript:alert(1)");
         c.tag = None;
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -19657,6 +19871,12 @@ mod tests {
         c.host = Some("<img onerror=x>".to_owned());
         c.tag = Some("<x>".to_owned());
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -19702,6 +19922,12 @@ mod tests {
             alt: "evil".to_owned(),
         };
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -19740,6 +19966,12 @@ mod tests {
     #[test]
     fn card_feed_empty_items_emits_only_section_wrapper() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -19779,6 +20011,12 @@ mod tests {
     #[test]
     fn sidebar_renders_aside_with_aria_label() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -19816,6 +20054,12 @@ mod tests {
     #[test]
     fn sidebar_default_label_is_side_panels() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -19853,6 +20097,12 @@ mod tests {
     #[test]
     fn panel_with_list_body_renders_each_row() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -19913,6 +20163,12 @@ mod tests {
     #[test]
     fn panel_with_text_body_renders_each_paragraph() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -19957,6 +20213,12 @@ mod tests {
     #[test]
     fn panel_list_invalid_href_falls_back_to_span() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -20005,6 +20267,12 @@ mod tests {
     #[test]
     fn panel_text_body_is_escaped() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -20085,6 +20353,12 @@ mod tests {
 
     fn form_page() -> CmsPage {
         CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -20155,6 +20429,12 @@ mod tests {
     #[test]
     fn form_select_field() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -20261,6 +20541,12 @@ mod tests {
     fn required_select_renders_marker() {
         // Reuse the select test's CmsPage with required=true.
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -20323,6 +20609,12 @@ mod tests {
         // Build a fresh page with a required Textarea (simple_form's
         // textarea has required=false).
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -20382,6 +20674,12 @@ mod tests {
     #[test]
     fn form_readonly_field_is_readonly() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -20436,6 +20734,12 @@ mod tests {
     #[test]
     fn form_invalid_action_substitutes_placeholder() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -20482,6 +20786,12 @@ mod tests {
     #[test]
     fn form_field_text_is_escaped() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -20545,6 +20855,12 @@ mod tests {
         id: Option<&str>,
     ) -> CmsPage {
         CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -20682,6 +20998,12 @@ mod tests {
 
     fn code_page(lang: &str, body: &str, caption: Option<&str>, terminal: bool) -> CmsPage {
         CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -20792,6 +21114,12 @@ mod tests {
 
     fn quote_page(body: &str, attribution: &str, role: Option<&str>) -> CmsPage {
         CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -20904,6 +21232,12 @@ mod tests {
 
     fn logo_page(items: Vec<CmsLogoItem>, heading: Option<&str>) -> CmsPage {
         CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -21023,6 +21357,12 @@ mod tests {
 
     fn kv_page(items: Vec<CmsKvItem>, heading: Option<&str>) -> CmsPage {
         CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -21085,6 +21425,12 @@ mod tests {
             hint: None,
         }];
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -21125,6 +21471,12 @@ mod tests {
     #[test]
     fn kv_pair_density_spacious_surfaces_attribute() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -21164,6 +21516,12 @@ mod tests {
     #[test]
     fn kv_pair_amoled_tone_surfaces_attribute() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -23071,6 +23429,12 @@ mod page_shell_tests {
 
     fn empty_page() -> CmsPage {
         CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -23424,6 +23788,12 @@ mod page_shell_tests {
     #[test]
     fn page_shell_with_rendered_body_produces_exactly_one_main() {
         let p = CmsPage {
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             brand_logo: None,
             brand_icon_slug: None,
@@ -23794,11 +24164,15 @@ mod page_shell_tests {
             title: None,
             body: "Welcome.".into(),
             cta: Some(HeroCta {
+                icon_slug: None,
+                variant: None,
                 label: "Continue".into(),
                 href: "/dashboard".into(),
                 data_backend: "dashboard".into(),
             }),
             secondary_cta: Some(HeroCta {
+                icon_slug: None,
+                variant: None,
                 label: "Help".into(),
                 href: "/help".into(),
                 data_backend: "help".into(),
@@ -23823,6 +24197,8 @@ mod page_shell_tests {
             title: None,
             body: "Welcome.".into(),
             cta: Some(HeroCta {
+                icon_slug: None,
+                variant: None,
                 label: "X".into(),
                 href: "javascript:alert(1)".into(),
                 data_backend: "d".into(),
@@ -25961,6 +26337,8 @@ mod page_shell_tests {
             last_active: None,
             current,
             revoke_cta: revoke_href.map(|h| HeroCta {
+                icon_slug: None,
+                variant: None,
                 label: "Revoke".into(),
                 href: h.into(),
                 data_backend: "revoke".into(),
@@ -26052,6 +26430,8 @@ mod page_shell_tests {
             description: None,
             devices: vec![device("D1", true, None)],
             revoke_all_cta: Some(HeroCta {
+                icon_slug: None,
+                variant: None,
                 label: "Sign out everywhere".into(),
                 href: "/sessions/revoke-all".into(),
                 data_backend: "revoke-all".into(),
@@ -26074,6 +26454,8 @@ mod page_shell_tests {
             description: None,
             devices: vec![device("D", true, None)],
             revoke_all_cta: Some(HeroCta {
+                icon_slug: None,
+                variant: None,
                 label: "X".into(),
                 href: "javascript:alert(1)".into(),
                 data_backend: "x".into(),
@@ -26133,6 +26515,8 @@ mod page_shell_tests {
 
     fn cta(label: &str, href: &str) -> HeroCta {
         HeroCta {
+            icon_slug: None,
+            variant: None,
             label: label.into(),
             href: href.into(),
             data_backend: "test".into(),
@@ -26414,11 +26798,15 @@ mod page_shell_tests {
             state: BackupCodesState::Fresh,
             codes: vec!["abc".into()],
             download_cta: Some(HeroCta {
+                icon_slug: None,
+                variant: None,
                 label: "Download".into(),
                 href: "/codes.txt".into(),
                 data_backend: "codes-txt".into(),
             }),
             acknowledge_cta: Some(HeroCta {
+                icon_slug: None,
+                variant: None,
                 label: "Continue".into(),
                 href: "/dashboard".into(),
                 data_backend: "dashboard".into(),
@@ -26444,6 +26832,8 @@ mod page_shell_tests {
             state: BackupCodesState::Fresh,
             codes: vec!["abc".into()],
             download_cta: Some(HeroCta {
+                icon_slug: None,
+                variant: None,
                 label: "D".into(),
                 href: "javascript:void(0)".into(),
                 data_backend: "x".into(),

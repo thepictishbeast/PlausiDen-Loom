@@ -1840,6 +1840,22 @@ mod cms_render_tests {
 
     fn empty_page() -> CmsPage {
         CmsPage {
+            brand_logo: None,
+            brand_icon_slug: None,
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
+            hide_theme_toggle: false,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             theme: None,
             chrome: None,
@@ -2009,12 +2025,14 @@ mod cms_render_tests {
         let mut p = empty_page();
         p.nav_links = vec![
             CmsNavLink {
+                children: vec![],
                 label: "Battle Feed".to_owned(),
                 href: "/".to_owned(),
                 data_backend: "list-challenges".to_owned(),
                 current: true,
             },
             CmsNavLink {
+                children: vec![],
                 label: "Leaderboard".to_owned(),
                 href: "/leaderboard.html".to_owned(),
                 data_backend: "list-leaderboard".to_owned(),
@@ -2040,6 +2058,7 @@ mod cms_render_tests {
         use loom_cms_render::CmsNavLink;
         let mut p = empty_page();
         p.nav_links = vec![CmsNavLink {
+            children: vec![],
             label: "Evil".to_owned(),
             href: "javascript:alert(1)".to_owned(),
             data_backend: "x".to_owned(),
@@ -2056,6 +2075,7 @@ mod cms_render_tests {
         use loom_cms_render::CmsNavLink;
         let mut p = empty_page();
         p.nav_links = vec![CmsNavLink {
+            children: vec![],
             label: "<script>".to_owned(),
             href: "/x".to_owned(),
             data_backend: "x".to_owned(),
@@ -19342,6 +19362,22 @@ mod editor_schema_tests {
 
     fn empty_cms_page() -> loom_cms_render::CmsPage {
         loom_cms_render::CmsPage {
+            brand_logo: None,
+            brand_icon_slug: None,
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
+            hide_theme_toggle: false,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             theme: None,
             chrome: None,
@@ -19492,6 +19528,22 @@ mod editor_schema_tests {
     fn page_shell_emits_color_scheme_meta() {
         let s = page_shell(
             &loom_cms_render::CmsPage {
+                brand_logo: None,
+                brand_icon_slug: None,
+                brand_icon_boxed: false,
+                brand_accent_tail: None,
+                utility_strip: None,
+                nav_bar_color_role: None,
+                nav_border_role: None,
+                social_links: vec![],
+                lang_selector: None,
+                nav_home_icon: false,
+                nav_collapse_always: false,
+                hide_theme_toggle: false,
+                nav_links_align_end: false,
+                nav_toggle_plain: false,
+                nav_collapse_sm: false,
+                breadcrumb: vec![],
                 brand: None,
                 theme: None,
                 chrome: None,
@@ -19526,6 +19578,22 @@ mod editor_schema_tests {
     fn page_shell_emits_main_landmark() {
         let s = page_shell(
             &loom_cms_render::CmsPage {
+                brand_logo: None,
+                brand_icon_slug: None,
+                brand_icon_boxed: false,
+                brand_accent_tail: None,
+                utility_strip: None,
+                nav_bar_color_role: None,
+                nav_border_role: None,
+                social_links: vec![],
+                lang_selector: None,
+                nav_home_icon: false,
+                nav_collapse_always: false,
+                hide_theme_toggle: false,
+                nav_links_align_end: false,
+                nav_toggle_plain: false,
+                nav_collapse_sm: false,
+                breadcrumb: vec![],
                 brand: None,
                 theme: None,
                 chrome: None,
@@ -19703,6 +19771,22 @@ mod edit_overlay_tests {
             })
             .collect();
         CmsPage {
+            brand_logo: None,
+            brand_icon_slug: None,
+            brand_icon_boxed: false,
+            brand_accent_tail: None,
+            utility_strip: None,
+            nav_bar_color_role: None,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
+            hide_theme_toggle: false,
+            nav_links_align_end: false,
+            nav_toggle_plain: false,
+            nav_collapse_sm: false,
+            breadcrumb: vec![],
             brand: None,
             theme: None,
             chrome: None,
