@@ -62,6 +62,7 @@ fn chrome_slug(c: ChromeKind) -> &'static str {
 fn width_slug(w: ContentWidth) -> &'static str {
     match w {
         ContentWidth::Comfortable => "comfortable",
+        ContentWidth::Roomy => "roomy",
         ContentWidth::Narrow => "narrow",
         ContentWidth::Wide => "wide",
         ContentWidth::Full => "full",
