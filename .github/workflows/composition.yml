@@ -18,6 +18,6 @@ jobs:
     name: composition / mixins-traits-inheritance enforcement
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Run composition audit
         run: python3 .github/scripts/composition.py all .
