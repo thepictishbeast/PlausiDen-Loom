@@ -26,7 +26,7 @@ jobs:
       RUST_LOG: info
       CARGO_TERM_COLOR: always
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -41,7 +41,7 @@ jobs:
       RUST_LOG: info
       CARGO_TERM_COLOR: always
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -58,6 +58,6 @@ jobs:
       # T-doc-debt: re-enable RUSTDOCFLAGS=-D warnings when the
       # missing_docs gap on Loom's loom-cli/loom-cms-render is closed.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo doc --workspace --no-deps --locked --verbose
