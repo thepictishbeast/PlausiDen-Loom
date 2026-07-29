@@ -20,7 +20,7 @@ schemars = "0.8"
 # already pulling — moving the helper into the render layer
 # rather than the CLI layer so Forge inherits the same
 # dual-theme + a11y defaults via `loom_cms_render::page_shell`.
-sha2 = "0.10"
+sha2 = "0.11"
 base64 = "0.22"
 
 [dev-dependencies]
