@@ -31,7 +31,7 @@ thiserror = "1"
 subtle = "2"
 # T46.4: HMAC-SHA256-signed session cookies. RustCrypto stack —
 # audited, no-std-friendly, zeroize-aware.
-hmac = "0.12"
+hmac = "0.13"
 sha2 = "0.10"
 zeroize = { version = "1", features = ["zeroize_derive"] }
 

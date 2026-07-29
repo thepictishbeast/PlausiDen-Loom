@@ -34,7 +34,7 @@ urlencoding = "2"
 # GPU-resistant. RustCrypto, audited.
 argon2 = "0.5"
 # T43: HMAC-SHA256 for stateless signed session cookies. RustCrypto.
-hmac = "0.12"
+hmac = "0.13"
 # T43: constant-time secret comparison.
 subtle = "2"
 # T43: persist auth secrets + session signing key to disk via a
