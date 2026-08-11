@@ -7575,7 +7575,12 @@ a.loom-page-footer__brand:hover {
 .loom-feature-spotlight__title {
   margin: 0 0 0.55rem;
   font: 700 1.2rem/1.25 var(--loom-font-body);
-  letter-spacing: -0.018em;
+  /* Tokenized (2026-08-11): fonts with narrow space glyphs at 700
+   * (e.g. the Plus Jakarta Sans subsets) merge words under fixed
+   * negative tracking. Tenants tune via [style.text] tracking_title /
+   * word_title; defaults preserve the prior look. */
+  letter-spacing: var(--loom-text-tracking-title, -0.018em);
+  word-spacing: var(--loom-text-word-title, normal);
   color: var(--loom-color-ink, var(--loom-fg));
 }
 .loom-feature-spotlight__body {
