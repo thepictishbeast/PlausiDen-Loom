@@ -5,3 +5,7 @@ target/
 .DS_Store
 *.swp
 /target
+
+# agent onboarding kept local-only (cruft standard)
+AGENTS.md
+CLAUDE.md
