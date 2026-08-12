@@ -139,7 +139,14 @@ impl Nav<'_> {
                             }
                         }
                     }
-                    div class="hidden md:flex items-center gap-8" {
+                    // Collapse below lg (1024px), not md (768px): the full strip
+                    // (brand + 6 links + 2 CTAs) measures ~1120px at gap-8 and
+                    // ~1000px at gap-4, so at phone-landscape widths (~750–930px)
+                    // an md: breakpoint shows a strip that cannot fit — the CTAs
+                    // render past the right edge ("Encrypted Inquiry" cut off,
+                    // Paul 2026-08-11). gap-4 lets it fit from 1024; xl restores
+                    // the roomy gap-8.
+                    div class="hidden lg:flex items-center gap-4 xl:gap-8" {
                         @for link in self.links {
                             (render_desktop_link(link, self.current, self.style))
                         }
@@ -147,11 +154,11 @@ impl Nav<'_> {
                             (render_desktop_cta(cta))
                         }
                     }
-                    button id="mobile-menu-toggle" aria-expanded="false" aria-controls="mobile-menu" class="md:hidden p-2 text-slate-600" aria-label="Toggle menu" {
+                    button id="mobile-menu-toggle" aria-expanded="false" aria-controls="mobile-menu" class="lg:hidden p-2 text-slate-600" aria-label="Toggle menu" {
                         (PreEscaped(menu_icon))
                     }
                 }
-                div id="mobile-menu" class="md:hidden hidden border-t border-slate-200 bg-white" aria-hidden="true" {
+                div id="mobile-menu" class="lg:hidden hidden border-t border-slate-200 bg-white" aria-hidden="true" {
                     div class="container mx-auto px-4 py-4 flex flex-col gap-3" {
                         @for link in self.links {
                             a href=(link.href) class="text-sm font-medium text-slate-700 hover:text-primary py-2" { (link.label) }
@@ -437,10 +444,10 @@ mod tests {
         .render()
         .into_string();
         // The desktop links lose the hover-text transition. Scope to
-        // the desktop strip — `<div class="hidden md:flex ...">` —
+        // the desktop strip — `<div class="hidden lg:flex ...">` —
         // since the mobile drawer's links still use the hover
         // transition (tap-only context, not editorial-relevant).
-        let desktop_pos = s.find("hidden md:flex").expect("desktop strip present");
+        let desktop_pos = s.find("hidden lg:flex").expect("desktop strip present");
         let mobile_pos = s
             .find(r#"id="mobile-menu""#)
             .expect("mobile drawer present");
