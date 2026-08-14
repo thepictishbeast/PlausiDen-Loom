@@ -51,7 +51,17 @@ impl Hero<'_> {
         };
         let show_decoration = matches!(self.background, HeroBackground::GridLight);
         html! {
-            section class=(format!("relative pt-32 pb-16 md:pt-44 md:pb-24 overflow-hidden {bg_class}")) {
+            // `pd-hero` carries the desktop vertical cadence. The md: utilities
+            // stay as the sub-768px cadence and as the fallback if a consuming
+            // site does not ship the class; the site stylesheet loads last and
+            // wins the tie where it does.
+            //
+            // It is a class rather than different utilities because the value
+            // the site wants (9rem) is not in its compiled Tailwind bundle, and
+            // because every hero on the site — including the ones that predate
+            // this component and are still hand-rolled — has to share one number
+            // or the front door ends up tighter than the pages behind it.
+            section class=(format!("pd-hero relative pt-32 pb-16 md:pt-44 md:pb-24 overflow-hidden {bg_class}")) {
                 @if show_decoration {
                     div class="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]" {}
                     div class="absolute top-0 right-0 w-1/3 h-full bg-gradient-to-l from-primary/5 to-transparent skew-x-12 transform origin-top-right translate-x-32" {}
