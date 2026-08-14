@@ -14,8 +14,8 @@
 //! `forge` + `crawler` toolchain available).
 
 use loom_cms_render::{
-    page_shell_themed, ChromeKind, CmsPage, CmsSection, ContentWidth, HeroEditorialBackground,
-    HeroSplitSide,
+    ChromeKind, CmsPage, CmsSection, ContentWidth, HeroEditorialBackground, HeroSplitSide,
+    page_shell_themed,
 };
 use std::collections::HashSet;
 
@@ -72,13 +72,12 @@ fn width_slug(w: ContentWidth) -> &'static str {
 #[test]
 fn theme_chrome_width_matrix_is_pairwise_distinct() {
     // 4 themes × 3 chromes × 4 widths = 48 combinations.
-    let themes: &[Option<&str>] = &[
-        Some("light"),
-        Some("dark"),
-        Some("warm"),
-        Some("ocean"),
+    let themes: &[Option<&str>] = &[Some("light"), Some("dark"), Some("warm"), Some("ocean")];
+    let chromes = [
+        ChromeKind::PageShell,
+        ChromeKind::FloatingPill,
+        ChromeKind::Minimal,
     ];
-    let chromes = [ChromeKind::PageShell, ChromeKind::FloatingPill, ChromeKind::Minimal];
     let widths = [
         ContentWidth::Comfortable,
         ContentWidth::Narrow,
@@ -92,8 +91,7 @@ fn theme_chrome_width_matrix_is_pairwise_distinct() {
         for chrome in chromes {
             for width in widths {
                 let page = page_with(theme, chrome, width);
-                let html =
-                    page_shell_themed(&page, "/loom-skin.css", "<main></main>", None, theme);
+                let html = page_shell_themed(&page, "/loom-skin.css", "<main></main>", None, theme);
                 if !seen.insert(html.clone()) {
                     duplicates.push((count, chrome_slug(chrome)));
                 }

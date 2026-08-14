@@ -146,10 +146,22 @@ impl FeatureCard<'_> {
                 "text-slate-600 leading-relaxed",
             ),
         };
+        // CardHover::None, not Lift. A FeatureCard is a content tile — an
+        // icon, a heading and a paragraph — and nothing about it is
+        // clickable. Lifting it on hover borrows the affordance of a link:
+        // the reader's cursor crosses a row of them, every one rises, and
+        // none of them do anything. Measured on plausiden.com before this
+        // change: 21 cards moved on hover and 0 were links, while the only
+        // genuinely clickable cards on the site (blog posts, which are
+        // anchors) got their lift from somewhere else entirely.
+        //
+        // `Card` still offers CardHover::Lift for callers that wrap it in an
+        // anchor. This is about what a *feature tile* should default to, and
+        // it should default to not making a promise it cannot keep.
         let card_class = compose_class(
             CardElevation::Soft,
             card_padding,
-            CardHover::Lift,
+            CardHover::None,
             CardShape::Rounded,
         );
         // Bold style hooks on `.group` so its child can `group-hover:`.
@@ -404,6 +416,34 @@ mod tests {
         assert!(s.contains("svg data-test=\"f\""));
         assert!(s.contains(">Confidential email<"));
         assert!(s.contains(">Self-hosted mail"));
+    }
+
+    /// A feature tile must not offer the hover affordance of a link.
+    ///
+    /// It renders an icon, a heading and a paragraph, and it is not wrapped in
+    /// an anchor by anything in this crate. Lifting it on hover tells the
+    /// reader it is clickable; it is not. Both styles are checked because the
+    /// lift used to be baked into the shared `render_with_style` and so
+    /// applied to every variant at once.
+    #[test]
+    fn feature_card_does_not_pretend_to_be_clickable() {
+        for style in [FeatureCardStyle::Subtle, FeatureCardStyle::Bold] {
+            let s = FeatureCard {
+                icon_svg: "<svg></svg>",
+                title: "Confidential email",
+                description: "Self-hosted mail.",
+            }
+            .render_with_style(style)
+            .into_string();
+            assert!(
+                !s.contains("hover:-translate-y"),
+                "{style:?} feature card lifts on hover, which promises a click target it does not have"
+            );
+            assert!(
+                !s.contains("hover:shadow-lg"),
+                "{style:?} feature card deepens its shadow on hover, reading as interactive"
+            );
+        }
     }
 
     #[test]

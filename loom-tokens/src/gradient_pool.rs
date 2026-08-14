@@ -355,10 +355,8 @@ pub fn select_for_identity_mood(
     mood: GradientMood,
     recently_used: &[&str],
 ) -> &'static GradientPair {
-    let filtered: Vec<&'static GradientPair> = GRADIENT_POOL
-        .iter()
-        .filter(|p| p.mood == mood)
-        .collect();
+    let filtered: Vec<&'static GradientPair> =
+        GRADIENT_POOL.iter().filter(|p| p.mood == mood).collect();
     if filtered.is_empty() {
         return select_for_identity(site_id, tenant, recently_used);
     }

@@ -50,7 +50,7 @@ pub use loom_components::composer::is_safe_url;
 /// so downstream consumers can apply tenant placeholder
 /// substitution without taking a direct dependency on
 /// `loom-variables`. Pairs with [`apply_variables`] below.
-pub use loom_variables::{substitute as substitute_text, TenantVariables};
+pub use loom_variables::{TenantVariables, substitute as substitute_text};
 use maud::{Markup, html};
 use serde::{Deserialize, Serialize};
 
@@ -844,7 +844,9 @@ pub struct CmsNavLink {
 ///
 /// Input type for a [`CmsBlock::TextField`] — maps to the native
 /// `<input type=...>` value. `Text` is the default.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum TextFieldType {
     /// `<input type="text">` (default).
@@ -2250,7 +2252,9 @@ pub enum CmsBlock {
 /// `<dialog>` element — the browser closes the dialog with the
 /// submitter's value when the form is submitted (no network
 /// round-trip).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)]
 pub enum FormMethod {
@@ -2261,7 +2265,9 @@ pub enum FormMethod {
 }
 
 /// Edge a [`CmsBlock::Sheet`] docks against.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)]
 pub enum SheetEdge {
@@ -2273,7 +2279,9 @@ pub enum SheetEdge {
 }
 
 /// Orientation for a [`CmsBlock::Toolbar`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)]
 pub enum ToolbarOrientation {
@@ -2283,7 +2291,9 @@ pub enum ToolbarOrientation {
 }
 
 /// Selection mode for a [`CmsBlock::ToggleGroup`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)]
 pub enum ToggleGroupMode {
@@ -2311,7 +2321,9 @@ pub struct BlockToggleItem {
 }
 
 /// Pane orientation for a [`CmsBlock::Resizable`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)]
 pub enum ResizableOrientation {
@@ -2392,7 +2404,9 @@ pub struct BlockBreadcrumbItem {
 }
 
 /// Scroll axis for a [`CmsBlock::ScrollArea`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)]
 pub enum ScrollAxis {
@@ -2511,7 +2525,9 @@ pub struct BlockAccordionItem {
 ///
 /// Maps directly onto the HTML `iframe sandbox` token list per
 /// <https://html.spec.whatwg.org/#attr-iframe-sandbox>.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)]
 pub struct IframeSandbox {
@@ -2583,7 +2599,9 @@ pub struct EmptyStateAction {
 /// Concrete `animation-duration` values flow from the cascade
 /// via the `data-speed` attribute; substrate ships sensible
 /// defaults that tenants can override.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)]
 pub enum MarqueeSpeed {
@@ -2616,7 +2634,9 @@ pub struct StepperStep {
 }
 
 /// Three canonical states for a [`StepperStep`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum StepperState {
     /// Completed — checkmark + accent color.
@@ -2678,7 +2698,9 @@ pub struct StatTrend {
 }
 
 /// Three canonical directions for a [`StatTrend`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum StatTrendDirection {
     /// Positive movement (typically green).
@@ -2718,7 +2740,9 @@ pub struct DefinitionEntry {
 /// Token-scale size step for [`CmsBlock::Avatar`]. Concrete
 /// pixel sizes flow from tenant `[style]` config; substrate only
 /// asserts the semantic step.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)]
 pub enum AvatarSize {
@@ -2756,7 +2780,9 @@ pub fn avatar_initials(name: &str) -> String {
 /// substrate ships six semantic tones; tenant `[style]` config
 /// maps each to concrete fill / border / text colors. Authors
 /// pick the semantic name, tenants own the visual register.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum BadgeTone {
     /// Neutral / default — unscoped state, generic chip.
@@ -2794,7 +2820,9 @@ impl BadgeTone {
 /// substrate ships the two canonical semantic flavours; visual
 /// register (marker style, indent) flows from the tenant's
 /// `[style]` config rather than per-instance overrides.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ListStyle {
     /// `<ul>` — disc / circle / square marker per tenant style.
@@ -2807,7 +2835,9 @@ pub enum ListStyle {
 /// Token-scale spacing step. Resolves to actual pixel / rem at
 /// render time via the tenant's `[style.spacing]` config. The
 /// substrate ships sensible defaults; tenants override.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)]
 pub enum BlockSpacing {
@@ -2823,7 +2853,9 @@ pub enum BlockSpacing {
 
 /// Severity / accent tone for a [`CmsBlock::Toast`]. Drives the
 /// `role` + `aria-live` policy as well as the visual accent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)]
 pub enum ToastTone {
@@ -2837,7 +2869,9 @@ pub enum ToastTone {
 /// Placement of a [`CmsBlock::Tooltip`] relative to its trigger.
 /// The slug is emitted as `data-placement` so the skin cascade
 /// can position the floating body via CSS without JS.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)]
 pub enum TooltipPlacement {
@@ -2865,7 +2899,9 @@ pub enum BlockAlign {
 /// against the tenant's `[style.button.size]` config at render
 /// time. Reuses the existing [`ButtonVariant`] enum
 /// (Primary/Secondary/Ghost/Danger).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)]
 pub enum ButtonSize {
@@ -8065,7 +8101,11 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         },
-        CmsBlock::EmptyState { title, body, action } => {
+        CmsBlock::EmptyState {
+            title,
+            body,
+            action,
+        } => {
             let safe_action = action.as_ref().filter(|a| is_safe_url(&a.href));
             html! {
                 div class="loom-block-empty" role="status" {
@@ -8120,7 +8160,11 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 }
             }
         },
-        CmsBlock::Stat { value, label, trend } => html! {
+        CmsBlock::Stat {
+            value,
+            label,
+            trend,
+        } => html! {
             dl class="loom-block-stat" {
                 dt class="loom-block-stat__label" { (label) }
                 dd class="loom-block-stat__value" {
@@ -8187,13 +8231,9 @@ pub fn render_block(block: &CmsBlock) -> Markup {
             image_url,
             size,
         } => {
-            let safe_img = image_url.as_deref().and_then(|u| {
-                if is_safe_url(u) {
-                    Some(u)
-                } else {
-                    None
-                }
-            });
+            let safe_img = image_url
+                .as_deref()
+                .and_then(|u| if is_safe_url(u) { Some(u) } else { None });
             let initials = avatar_initials(name);
             html! {
                 span class="loom-block-avatar" data-size=(size.slug()) aria-label=(name) {
@@ -8232,13 +8272,9 @@ pub fn render_block(block: &CmsBlock) -> Markup {
             if !is_safe_url(src) {
                 return html! {};
             }
-            let safe_poster = poster.as_deref().and_then(|p| {
-                if is_safe_url(p) {
-                    Some(p)
-                } else {
-                    None
-                }
-            });
+            let safe_poster = poster
+                .as_deref()
+                .and_then(|p| if is_safe_url(p) { Some(p) } else { None });
             html! {
                 video class="loom-block-video" controls preload="metadata"
                     src=(src) poster=[safe_poster] width=[*width] height=[*height]
@@ -8314,13 +8350,9 @@ pub fn render_block(block: &CmsBlock) -> Markup {
             attribution,
             cite_url,
         } => {
-            let safe_cite = cite_url.as_deref().and_then(|u| {
-                if is_safe_url(u) {
-                    Some(u)
-                } else {
-                    None
-                }
-            });
+            let safe_cite = cite_url
+                .as_deref()
+                .and_then(|u| if is_safe_url(u) { Some(u) } else { None });
             html! {
                 blockquote class="loom-block-quote" cite=[safe_cite] {
                     p class="loom-block-quote__text" { (text) }
@@ -8639,8 +8671,8 @@ pub fn render_block(block: &CmsBlock) -> Markup {
                 ResizableOrientation::Vertical => "vertical",
             };
             let aria_orient = match orientation {
-                ResizableOrientation::Horizontal => "vertical",   // handle is vertical
-                ResizableOrientation::Vertical => "horizontal",   // handle is horizontal
+                ResizableOrientation::Horizontal => "vertical", // handle is vertical
+                ResizableOrientation::Vertical => "horizontal", // handle is horizontal
             };
             let s = (*start_size).clamp(0, 100);
             let e = 100u8.saturating_sub(s);
@@ -10579,7 +10611,11 @@ pub fn render_section(section: &CmsSection) -> Markup {
             let head_color = heading_color.modifier_class();
             let border_color_class = border_color.modifier_class();
             let border_style_class = border_style.modifier_class();
-            let centered_class = if *centered { "loom-feature-spotlight--centered" } else { "" };
+            let centered_class = if *centered {
+                "loom-feature-spotlight--centered"
+            } else {
+                ""
+            };
             html! {
                 section class={ "loom-feature-spotlight cols-" (cols) " " (deco) " " (head_color) " " (border_color_class) " " (border_style_class) " " (centered_class) }
                     data-loom-feature-spotlight data-loom-reveal {
@@ -11825,8 +11861,13 @@ import init, {{ init as crucible_init }} from "{widget_url}";
                     }
                 }
             }
-        },
-        CmsSection::HeroSlideshow { slides, interval_ms, align, layout } => {
+        }
+        CmsSection::HeroSlideshow {
+            slides,
+            interval_ms,
+            align,
+            layout,
+        } => {
             let n = slides.len().max(1);
             let total_ms = (*interval_ms as u64) * (n as u64);
             let align_class = match align.as_deref() {
@@ -11910,7 +11951,7 @@ import init, {{ init as crucible_init }} from "{widget_url}";
                     }
                 }
             }
-        },
+        }
         CmsSection::BeforeAfter {
             before_alt,
             after_alt,
@@ -14992,7 +15033,9 @@ mod tests {
         assert_eq!(home.matches(r#"aria-current="page""#).count(), 1);
         // Services page: trailing-slash-insensitive ("/services" ↔ "/services/").
         let svc = render_nav_links_active(&links, Some("/services"));
-        assert!(svc.contains(r#"href="/services/" data-backend="nav-services" aria-current="page""#));
+        assert!(
+            svc.contains(r#"href="/services/" data-backend="nav-services" aria-current="page""#)
+        );
         assert_eq!(svc.matches(r#"aria-current="page""#).count(), 1);
         // No path → no marking (back-compatible with bare render_nav_links).
         assert_eq!(render_nav_links(&links).matches("aria-current").count(), 0);
@@ -15115,7 +15158,10 @@ mod tests {
         assert!(html.contains(r#"data-loom-slot="tag-input""#));
         assert!(html.contains(r#"data-max-tags="10""#));
         // Three chips, one per tag.
-        assert_eq!(html.matches(r#"data-loom-slot="tag-input-chip""#).count(), 3);
+        assert_eq!(
+            html.matches(r#"data-loom-slot="tag-input-chip""#).count(),
+            3
+        );
         assert!(html.contains(">urgent</span>"));
         assert!(html.contains(">needs-review</span>"));
         assert!(html.contains(">blocked</span>"));
@@ -15638,8 +15684,8 @@ mod tests {
         let html = render_block(&block).into_string();
         let aria_pos = html.find("aria-describedby=\"").unwrap();
         let aria_val_start = aria_pos + "aria-describedby=\"".len();
-        let aria_val_end = aria_pos + "aria-describedby=\"".len()
-            + html[aria_val_start..].find('"').unwrap();
+        let aria_val_end =
+            aria_pos + "aria-describedby=\"".len() + html[aria_val_start..].find('"').unwrap();
         let aria_val = &html[aria_val_start..aria_val_end];
         // The same id appears as the body span's id.
         assert!(html.contains(&format!("id=\"{aria_val}\"")));
@@ -15836,9 +15882,11 @@ mod tests {
             ButtonVariant::Ghost,
             ButtonVariant::Danger,
         ] {
-            assert!(button_variant_slug(v)
-                .chars()
-                .all(|c| c.is_ascii_lowercase()));
+            assert!(
+                button_variant_slug(v)
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase())
+            );
         }
         for s in [ButtonSize::Sm, ButtonSize::Md, ButtonSize::Lg] {
             assert!(button_size_slug(s).chars().all(|c| c.is_ascii_lowercase()));
@@ -16119,9 +16167,15 @@ mod tests {
         let c = CmsBlock::Carousel {
             label: "Customer testimonials".into(),
             slides: vec![
-                CmsBlock::Text { text: "First".into() },
-                CmsBlock::Text { text: "Second".into() },
-                CmsBlock::Text { text: "Third".into() },
+                CmsBlock::Text {
+                    text: "First".into(),
+                },
+                CmsBlock::Text {
+                    text: "Second".into(),
+                },
+                CmsBlock::Text {
+                    text: "Third".into(),
+                },
             ],
         };
         let html = render_block(&c).into_string();
@@ -16194,7 +16248,10 @@ mod tests {
     #[test]
     fn cms_block_marquee_default_speed_and_direction() {
         assert_eq!(MarqueeSpeed::default().slug(), "medium");
-        assert!(matches!(MarqueeDirection::default(), MarqueeDirection::Left));
+        assert!(matches!(
+            MarqueeDirection::default(),
+            MarqueeDirection::Left
+        ));
     }
 
     #[test]
@@ -16397,10 +16454,9 @@ mod tests {
 
     #[test]
     fn cms_block_progress_defaults_max_to_100_via_serde() {
-        let p: CmsBlock = serde_json::from_str(
-            r#"{"kind":"progress_bar","value":33,"tone":"info"}"#,
-        )
-        .expect("parses with omitted max");
+        let p: CmsBlock =
+            serde_json::from_str(r#"{"kind":"progress_bar","value":33,"tone":"info"}"#)
+                .expect("parses with omitted max");
         let html = render_block(&p).into_string();
         assert!(html.contains(r#"max="100""#));
         assert!(html.contains(r#"value="33""#));
@@ -17099,11 +17155,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -17144,11 +17200,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -17187,11 +17243,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -17231,11 +17287,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -17282,16 +17338,16 @@ mod tests {
                 nav_collapse_sm: false,
                 breadcrumb: vec![],
                 brand: None,
-            brand_logo: None,
-            brand_icon_slug: None,
-            utility_strip: None,
-            nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
-            hide_theme_toggle: false,
+                brand_logo: None,
+                brand_icon_slug: None,
+                utility_strip: None,
+                nav_bar_color_role: None,
+                nav_border_role: None,
+                social_links: vec![],
+                lang_selector: None,
+                nav_home_icon: false,
+                nav_collapse_always: false,
+                hide_theme_toggle: false,
                 theme: None,
                 chrome: None,
                 content_width: None,
@@ -17401,11 +17457,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -17451,11 +17507,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -17583,11 +17639,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -17632,11 +17688,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -17688,11 +17744,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -17743,11 +17799,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -17849,11 +17905,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -17904,11 +17960,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -17958,11 +18014,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -18016,11 +18072,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -18069,11 +18125,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -18119,11 +18175,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -18225,11 +18281,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -18274,11 +18330,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -18352,11 +18408,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -18402,11 +18458,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -18453,11 +18509,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -18500,11 +18556,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -18598,11 +18654,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -18650,11 +18706,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -18703,11 +18759,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -18976,8 +19032,14 @@ mod tests {
         }"#;
         let page: CmsPage = serde_json::from_str(json).expect("page parses");
         let html = render_to_string(&page);
-        assert!(html.contains("ov-none"), "expected ov-none default, got:\n{html}");
-        assert!(!html.contains("ov-dark"), "ov-dark should NOT be the default");
+        assert!(
+            html.contains("ov-none"),
+            "expected ov-none default, got:\n{html}"
+        );
+        assert!(
+            !html.contains("ov-dark"),
+            "ov-dark should NOT be the default"
+        );
     }
 
     #[test]
@@ -19394,11 +19456,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -19442,11 +19504,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -19510,11 +19572,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -19648,11 +19710,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -19696,11 +19758,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -19740,11 +19802,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -19789,11 +19851,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -19834,11 +19896,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -19882,11 +19944,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -19933,11 +19995,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -19977,11 +20039,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -20022,11 +20084,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -20065,11 +20127,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -20108,11 +20170,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -20174,11 +20236,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -20224,11 +20286,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -20278,11 +20340,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -20364,11 +20426,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -20440,11 +20502,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -20552,11 +20614,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -20620,11 +20682,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -20685,11 +20747,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -20745,11 +20807,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -20797,11 +20859,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -20866,11 +20928,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -21009,11 +21071,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -21125,11 +21187,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -21243,11 +21305,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -21368,11 +21430,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -21436,11 +21498,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -21482,11 +21544,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -21527,11 +21589,11 @@ mod tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -22227,7 +22289,12 @@ fn nav_href_is_current(href: &str, current_path: Option<&str>) -> bool {
 /// parent anchor (caret + `aria-haspopup`) and an attached submenu
 /// that lists the children, which may themselves nest. The submenu is
 /// revealed by CSS `:hover` / `:focus-within` — no JavaScript.
-fn render_nav_link_into(out: &mut String, link: &CmsNavLink, depth: usize, current_path: Option<&str>) {
+fn render_nav_link_into(
+    out: &mut String,
+    link: &CmsNavLink,
+    depth: usize,
+    current_path: Option<&str>,
+) {
     let label = escape_html_text(&link.label);
     let href_safe = loom_components::composer::is_safe_url(&link.href);
     let href = if href_safe {
@@ -22495,9 +22562,7 @@ pub fn page_shell_themed(
     // escaped fragments), inserted raw alongside the rest of the brand.
     let brand_name_html: String = match page.brand_accent_tail.as_deref() {
         Some(tail)
-            if !tail.is_empty()
-                && brand_raw.len() > tail.len()
-                && brand_raw.ends_with(tail) =>
+            if !tail.is_empty() && brand_raw.len() > tail.len() && brand_raw.ends_with(tail) =>
         {
             let head = &brand_raw[..brand_raw.len() - tail.len()];
             format!(
@@ -22702,14 +22767,19 @@ pub fn page_shell_themed(
             s.push_str(&format!(" data-nav-bg-role=\"{}\"", escape_html_attr(r)));
         }
         if let Some(r) = page.nav_border_role.as_deref() {
-            s.push_str(&format!(" data-nav-border-role=\"{}\"", escape_html_attr(r)));
+            s.push_str(&format!(
+                " data-nav-border-role=\"{}\"",
+                escape_html_attr(r)
+            ));
         }
         s
     };
     let social_links_html_owned = render_social_links(&page.social_links);
     let lang_selector_html_owned = render_lang_selector(page.lang_selector.as_ref());
     let home_icon_html_owned = render_home_icon(page.nav_home_icon);
-    let brand_extras_html_owned = if social_links_html_owned.is_empty() && lang_selector_html_owned.is_empty() {
+    let brand_extras_html_owned = if social_links_html_owned.is_empty()
+        && lang_selector_html_owned.is_empty()
+    {
         String::new()
     } else {
         format!(
@@ -22934,9 +23004,21 @@ fn render_chrome_body(
 <label for=\"loom-page-nav-toggle-cb\" class=\"loom-page-nav-toggle{toggle_plain_class}\" aria-label=\"Toggle navigation menu\"><span class=\"loom-page-nav-toggle__icon\" aria-hidden=\"true\">☰</span></label>\n      \
 <input type=\"checkbox\" id=\"loom-page-nav-toggle-cb\" class=\"loom-page-nav-toggle-cb\" hidden aria-hidden=\"true\">\n      \
 <div class=\"loom-page-nav__collapse-inline\">{home_icon_html}{nav_links}{nav_actions_block}{toggle_btn_pageshell}</div></nav>",
-                    nav_end_class = if nav_links_align_end { " loom-page-nav--links-end" } else { "" },
-                    collapse_sm_class = if nav_collapse_sm { " loom-page-nav--collapse-sm" } else { "" },
-                    toggle_plain_class = if nav_toggle_plain { " loom-page-nav-toggle--plain" } else { "" }
+                    nav_end_class = if nav_links_align_end {
+                        " loom-page-nav--links-end"
+                    } else {
+                        ""
+                    },
+                    collapse_sm_class = if nav_collapse_sm {
+                        " loom-page-nav--collapse-sm"
+                    } else {
+                        ""
+                    },
+                    toggle_plain_class = if nav_toggle_plain {
+                        " loom-page-nav-toggle--plain"
+                    } else {
+                        ""
+                    }
                 )
             } else {
                 format!(
@@ -22948,8 +23030,16 @@ fn render_chrome_body(
 <nav class=\"loom-page-nav loom-page-nav--links-row\" aria-label=\"Primary\">\n        \
 {home_icon_html}{nav_links}{nav_actions_block}</nav>\n    \
 </div>",
-                    collapse_mode = if nav_collapse_always { " loom-page-nav-collapse--always" } else { "" },
-                    toggle_class = if nav_collapse_always { "loom-page-nav-toggle loom-page-nav-toggle--always" } else { "loom-page-nav-toggle" }
+                    collapse_mode = if nav_collapse_always {
+                        " loom-page-nav-collapse--always"
+                    } else {
+                        ""
+                    },
+                    toggle_class = if nav_collapse_always {
+                        "loom-page-nav-toggle loom-page-nav-toggle--always"
+                    } else {
+                        "loom-page-nav-toggle"
+                    }
                 )
             };
             format!(
@@ -22962,7 +23052,7 @@ fn render_chrome_body(
 {footer_html}\n  \
 {toggle_script}</body>\n"
             )
-        },
+        }
         ChromeKind::FloatingPill => format!(
             "<body data-chrome=\"floating-pill\" data-content-width=\"{cw}\">\n  \
 <a class=\"loom-skip\" href=\"#content\">Skip to content</a>\n  \
@@ -23103,9 +23193,7 @@ fn render_brand_mark(b: &CmsBrandMark) -> String {
     // Two-tone wordmark: split the RAW name on the accent tail, escape
     // each fragment independently, wrap the tail in the accent span.
     let name_html = match b.accent_tail.as_deref() {
-        Some(tail)
-            if !tail.is_empty() && b.name.len() > tail.len() && b.name.ends_with(tail) =>
-        {
+        Some(tail) if !tail.is_empty() && b.name.len() > tail.len() && b.name.ends_with(tail) => {
             let head = &b.name[..b.name.len() - tail.len()];
             format!(
                 "{}<span class=\"loom-page-brand__name-accent\">{}</span>",
@@ -23158,7 +23246,9 @@ fn render_page_footer(footer: Option<&CmsFooter>) -> String {
         .as_deref()
         .map(|r| format!(" data-bg-role=\"{}\"", escape_html_attr(r)))
         .unwrap_or_default();
-    out.push_str(&format!("<footer class=\"loom-page-footer loom-page-footer--rich\"{bg_attr}>"));
+    out.push_str(&format!(
+        "<footer class=\"loom-page-footer loom-page-footer--rich\"{bg_attr}>"
+    ));
     // Optional CTA buttons row at top of footer.
     if !f.buttons.is_empty() {
         out.push_str("<div class=\"loom-page-footer__buttons\">");
@@ -23362,7 +23452,9 @@ fn render_page_footer(footer: Option<&CmsFooter>) -> String {
             out.push_str("</div>");
         }
         if f.back_to_top {
-            out.push_str("<a class=\"loom-page-footer__back-to-top\" href=\"#content\">Back to top</a>");
+            out.push_str(
+                "<a class=\"loom-page-footer__back-to-top\" href=\"#content\">Back to top</a>",
+            );
         }
         out.push_str("</div>");
     }
@@ -23371,7 +23463,8 @@ fn render_page_footer(footer: Option<&CmsFooter>) -> String {
     let legal_html = if f.legal_links.is_empty() {
         String::new()
     } else {
-        let mut s = String::from("<nav class=\"loom-page-footer__legal\" aria-label=\"Legal\"><ul>");
+        let mut s =
+            String::from("<nav class=\"loom-page-footer__legal\" aria-label=\"Legal\"><ul>");
         for link in &f.legal_links {
             let href = if loom_components::composer::is_safe_url(&link.href) {
                 link.href.as_str()
@@ -23440,11 +23533,11 @@ mod page_shell_tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -23799,11 +23892,11 @@ mod page_shell_tests {
             brand_icon_slug: None,
             utility_strip: None,
             nav_bar_color_role: None,
-        nav_border_role: None,
-        social_links: vec![],
-        lang_selector: None,
-        nav_home_icon: false,
-        nav_collapse_always: false,
+            nav_border_role: None,
+            social_links: vec![],
+            lang_selector: None,
+            nav_home_icon: false,
+            nav_collapse_always: false,
             hide_theme_toggle: false,
             theme: None,
             chrome: None,
@@ -23882,7 +23975,15 @@ mod page_shell_tests {
                 actionable_first: false,
             }),
             legal_links: vec![],
-            buttons: Vec::new(), decoration_image: None, back_to_top: false, bg_role: None, find_us: None, contact_cta: None, colophon: None, colophon_bg_role: None, bottom_bar_inline: false,
+            buttons: Vec::new(),
+            decoration_image: None,
+            back_to_top: false,
+            bg_role: None,
+            find_us: None,
+            contact_cta: None,
+            colophon: None,
+            colophon_bg_role: None,
+            bottom_bar_inline: false,
         });
         let h = page_shell_themed(&p, "/x.css", "<main></main>", None, None);
         assert!(h.contains("\"telephone\":\"978-351-6495\""));

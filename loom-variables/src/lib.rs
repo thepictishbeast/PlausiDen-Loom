@@ -130,7 +130,9 @@ pub fn substitute(text: &str, vars: &TenantVariables) -> String {
         // @asset-slug reference
         if bytes[i] == b'@'
             && i + 1 < bytes.len()
-            && (bytes[i + 1].is_ascii_alphanumeric() || bytes[i + 1] == b'_' || bytes[i + 1] == b'-')
+            && (bytes[i + 1].is_ascii_alphanumeric()
+                || bytes[i + 1] == b'_'
+                || bytes[i + 1] == b'-')
         {
             let mut j = i + 1;
             while j < bytes.len()
