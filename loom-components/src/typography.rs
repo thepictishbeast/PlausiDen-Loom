@@ -493,3 +493,73 @@ mod eyebrow_and_definition_tests {
         assert!(s.contains("<dd"), "description is not a <dd>");
     }
 }
+
+/// A section heading inside long-form article prose.
+///
+/// Distinct from [`Heading`], which sizes headings for marketing pages where
+/// a section heading is a landmark. Inside an article the same level needs
+/// less weight and a rhythm tuned for reading: space above to separate it
+/// from the paragraph before, less below because the paragraph after belongs
+/// to it.
+///
+/// Extracted because all five blog posts wrote the identical class string
+/// thirty-four times. `loom report` counts the posts as the largest single
+/// cluster of design drift in the site, and this is the biggest share of it.
+#[derive(Debug, Clone, Copy)]
+pub struct ArticleHeading<'a> {
+    /// Heading text.
+    pub text: &'a str,
+}
+
+impl ArticleHeading<'_> {
+    /// Render as `<h2>`.
+    ///
+    /// Always an `h2`: a post's `<h1>` is its title, rendered by the blog
+    /// chrome, so every heading the author writes inside the body sits one
+    /// level below it. Making that structural rather than a caller's choice
+    /// is what stops a post from skipping a level.
+    #[must_use]
+    pub fn render(&self) -> Markup {
+        html! {
+            h2 class="font-display text-2xl md:text-3xl font-bold text-slate-900 mt-12 mb-4" {
+                (self.text)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod article_heading_tests {
+    use super::*;
+
+    #[test]
+    fn article_heading_is_an_h2_with_reading_rhythm() {
+        let s = ArticleHeading {
+            text: "What a doctrine is",
+        }
+        .render()
+        .into_string();
+        assert!(s.starts_with("<h2"), "article headings must stay h2: {s}");
+        assert!(
+            s.contains("mt-12"),
+            "lost the space that separates it from the previous paragraph"
+        );
+        assert!(
+            s.contains("mb-4"),
+            "lost the tighter space binding it to the paragraph it introduces"
+        );
+        assert!(s.contains("What a doctrine is"));
+    }
+
+    /// The rhythm is asymmetric on purpose — more space above than below —
+    /// because that is what visually attaches a heading to the text it
+    /// introduces rather than the text it follows.
+    #[test]
+    fn spacing_above_exceeds_spacing_below() {
+        let s = ArticleHeading { text: "x" }.render().into_string();
+        assert!(
+            s.contains("mt-12") && s.contains("mb-4"),
+            "heading rhythm changed; above must exceed below: {s}"
+        );
+    }
+}

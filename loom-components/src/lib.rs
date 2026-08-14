@@ -50,6 +50,6 @@ pub use section::{Section, SectionPadding, SectionTheme, SectionWidth};
 pub use slots::EditorialSlot;
 pub use toast::{Toast, ToastDuration, ToastElevation, ToastShape, ToastTone};
 pub use typography::{
-    BodyText, DefinitionRow, Eyebrow, EyebrowSize, Heading, HeadingLevel, HeadingTone,
-    HeadingVariant, HelperSize, HelperText, Lede,
+    ArticleHeading, BodyText, DefinitionRow, Eyebrow, EyebrowSize, Heading, HeadingLevel,
+    HeadingTone, HeadingVariant, HelperSize, HelperText, Lede,
 };
