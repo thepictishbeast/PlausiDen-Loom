@@ -163,7 +163,17 @@ impl Footer<'_> {
 fn column(col: &FooterColumn<'_>) -> Markup {
     html! {
         div class="space-y-6" {
-            h3 class="text-white font-display font-semibold text-lg" { (col.heading) }
+            // h2, not h3. Footer columns are top-level sections of the
+            // contentinfo landmark, not subsections of whatever heading the
+            // page content happened to end on. As h3 they produced a skipped
+            // level (h1 -> h3) on any page whose main content has only an h1
+            // — placeholder legal pages, status — and on richer pages they
+            // read as children of the last content h2, which they are not.
+            //
+            // Level only; the classes are unchanged, and Tailwind preflight
+            // normalises heading font-size and margin, so this is not a
+            // visual change.
+            h2 class="text-white font-display font-semibold text-lg" { (col.heading) }
             ul class={ "space-y-3" @if any_contact(col.items) { " space-y-4" } } {
                 @for item in col.items {
                     (item_li(item))
@@ -288,6 +298,28 @@ mod tests {
         assert!(s.contains("PlausiDen"));
         assert!(s.contains(">LLC<"));
         assert!(s.contains("Test tagline"));
+    }
+
+    /// Column headings are h2, and no h3 is emitted anywhere in the footer.
+    ///
+    /// The level is load-bearing, not cosmetic: a footer is rendered on every
+    /// page, so an h3 here silently skips a level on any page whose main
+    /// content stops at h1. Consumers cannot see that from the call site,
+    /// which is why it is pinned here rather than in a consumer's test.
+    #[test]
+    fn column_headings_are_h2() {
+        let s = fixture().render().into_string();
+        assert!(s.contains("<h2"), "footer column headings must be h2");
+        assert!(
+            !s.contains("<h3"),
+            "footer must emit no h3: it would skip a level under an h1-only page"
+        );
+        for heading in ["Company", "Solutions", "Contact"] {
+            assert!(
+                s.contains(&format!(">{heading}</h2>")),
+                "expected {heading} to render inside an h2"
+            );
+        }
     }
 
     #[test]
