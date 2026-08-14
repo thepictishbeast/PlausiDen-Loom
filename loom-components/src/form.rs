@@ -127,6 +127,17 @@ pub struct TextInput<'a> {
     pub max_length: Option<usize>,
     /// `required` attribute.
     pub required: bool,
+    /// HTML `autocomplete` token, e.g. `"email"`, `"tel"`, `"organization"`.
+    ///
+    /// WCAG 2.1 SC 1.3.5 (Identify Input Purpose, AA) asks that a field
+    /// collecting information about the user names its purpose in a way
+    /// software can act on. It is also the difference between a phone keyboard
+    /// filling the form in one tap and the visitor typing their address again,
+    /// which is a conversion cost as much as an accessibility one.
+    ///
+    /// `None` emits no attribute. Use `Some("off")` deliberately for fields a
+    /// browser should not remember.
+    pub autocomplete: Option<&'a str>,
     /// Visual chrome. Defaults to `Rounded` (the back-compat SaaS shape).
     pub style: FormStyle,
     /// Vertical density. Defaults to `Comfortable` (h-12).
@@ -148,6 +159,7 @@ impl TextInput<'_> {
                     class=(class)
                     placeholder=[self.placeholder]
                     maxlength=[self.max_length.map(|n| n.to_string())]
+                    autocomplete=[self.autocomplete]
                     required[self.required];
             }
         }
@@ -257,6 +269,7 @@ mod tests {
             input_type: InputType::Email,
             placeholder: Some("you@example.com"),
             max_length: Some(200),
+            autocomplete: None,
             required: true,
             style: FormStyle::default(),
             density: FormDensity::default(),
@@ -285,6 +298,7 @@ mod tests {
             input_type: InputType::Text,
             placeholder: None,
             max_length: None,
+            autocomplete: None,
             required: false,
             style: FormStyle::default(),
             density: FormDensity::default(),
@@ -304,6 +318,7 @@ mod tests {
             input_type: InputType::Text,
             placeholder: None,
             max_length: None,
+            autocomplete: None,
             required: false,
             style: FormStyle::Editorial,
             density: FormDensity::default(),
@@ -327,6 +342,7 @@ mod tests {
             input_type: InputType::Text,
             placeholder: None,
             max_length: None,
+            autocomplete: None,
             required: false,
             style: FormStyle::Minimal,
             density: FormDensity::default(),
@@ -346,6 +362,7 @@ mod tests {
             input_type: InputType::Text,
             placeholder: None,
             max_length: None,
+            autocomplete: None,
             required: false,
             style: FormStyle::default(),
             density: FormDensity::Compact,
@@ -364,6 +381,7 @@ mod tests {
             input_type: InputType::Text,
             placeholder: None,
             max_length: None,
+            autocomplete: None,
             required: false,
             style: FormStyle::default(),
             density: FormDensity::Comfortable,

@@ -502,7 +502,10 @@ mod tests {
             let start = s.find(needle).expect("attr present") + needle.len();
             let end = s[start..].find('"').expect("attr closed");
             let value = s[start..start + end].to_owned();
-            assert!(seen.insert(value.clone()), "duplicate data-loom-nav-style: {value}");
+            assert!(
+                seen.insert(value.clone()),
+                "duplicate data-loom-nav-style: {value}"
+            );
         }
         assert_eq!(seen.len(), 4);
     }

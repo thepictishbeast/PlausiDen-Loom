@@ -402,17 +402,15 @@ mod tests {
         ];
         let mut seen = std::collections::BTreeSet::new();
         for style in styles {
-            let s = Footer {
-                style,
-                ..fixture()
-            }
-            .render()
-            .into_string();
+            let s = Footer { style, ..fixture() }.render().into_string();
             let needle = "data-loom-footer-style=\"";
             let start = s.find(needle).expect("attr present") + needle.len();
             let end = s[start..].find('"').expect("attr closed");
             let value = s[start..start + end].to_owned();
-            assert!(seen.insert(value.clone()), "duplicate data-loom-footer-style: {value}");
+            assert!(
+                seen.insert(value.clone()),
+                "duplicate data-loom-footer-style: {value}"
+            );
         }
         assert_eq!(seen.len(), 4);
     }
