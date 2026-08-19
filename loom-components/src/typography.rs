@@ -324,6 +324,26 @@ pub enum EyebrowSize {
     /// so a span is correct there. The size therefore also decides the
     /// element, because in practice the two are the same decision.
     Subhead,
+    /// `Section` metrics in the brand navy instead of grey, for a label that
+    /// introduces a block the page wants read first.
+    ///
+    /// This is a named variant rather than a colour prop on purpose. The
+    /// component refuses a free colour knob because that is how the eyebrow
+    /// drifted below the contrast threshold one page at a time; a fixed second
+    /// colour that has been measured keeps the guarantee. `text-primary` is
+    /// `#073288`, which sweeps at 11.5:1 on white and 10.6:1 on the
+    /// `bg-primary/5` tint it is used over — both far above the 4.5 floor,
+    /// and unlike the greys it has headroom to spare.
+    Accent,
+}
+
+impl EyebrowSize {
+    /// Every variant, for tests that must cover all of them.
+    ///
+    /// Callers iterate this instead of writing their own list. The previous
+    /// contrast test hard-coded `[Section, Subhead]`, so a third variant would
+    /// have gone untested while the test still reported green.
+    pub const ALL: &'static [Self] = &[Self::Section, Self::Subhead, Self::Accent];
 }
 
 /// The small capitalised label that introduces a section.
@@ -348,12 +368,16 @@ pub struct Eyebrow<'a> {
 }
 
 impl Eyebrow<'_> {
-    /// Render as a `<span>` (Section) or an `<h3>` (Subhead).
+    /// Render as a `<span>` (Section, Accent) or an `<h3>` (Subhead).
     #[must_use]
     pub fn render(&self) -> Markup {
         match self.size {
             EyebrowSize::Section => {
                 let class = "text-[10px] uppercase tracking-[0.2em] font-semibold text-slate-500";
+                html! { span class=(class) { (self.text) } }
+            }
+            EyebrowSize::Accent => {
+                let class = "text-[10px] uppercase tracking-[0.2em] font-semibold text-primary";
                 html! { span class=(class) { (self.text) } }
             }
             EyebrowSize::Subhead => {
@@ -402,11 +426,25 @@ impl DefinitionRow<'_> {
 mod eyebrow_and_definition_tests {
     use super::*;
 
-    /// Both sizes must keep the contrast-safe grey. A caller cannot change
-    /// it, so the only way it regresses is an edit here.
+    /// Every size must carry a colour that has been measured against the 4.5:1
+    /// floor. A caller cannot change it, so the only way it regresses is an
+    /// edit here.
+    ///
+    /// The match is deliberately exhaustive and has no catch-all arm: adding a
+    /// variant stops this test compiling until whoever added it writes down
+    /// which colour it uses. That is the guarantee worth having — not that the
+    /// list is complete, but that no variant can reach the site without its
+    /// contrast having been stated.
     #[test]
-    fn eyebrows_use_the_contrast_safe_grey() {
-        for size in [EyebrowSize::Section, EyebrowSize::Subhead] {
+    fn every_eyebrow_colour_has_been_measured() {
+        for &size in EyebrowSize::ALL {
+            let required = match size {
+                // slate-500 measures 4.76:1 on white — the lightest grey that
+                // clears the floor at these sizes.
+                EyebrowSize::Section | EyebrowSize::Subhead => "text-slate-500",
+                // #073288 measures 11.5:1 on white, 10.6:1 on bg-primary/5.
+                EyebrowSize::Accent => "text-primary",
+            };
             let s = Eyebrow {
                 text: "Method",
                 size,
@@ -414,14 +452,17 @@ mod eyebrow_and_definition_tests {
             .render()
             .into_string();
             assert!(
-                s.contains("text-slate-500"),
-                "eyebrow dropped the 4.76:1 grey: {s}"
+                s.contains(required),
+                "{size:?} eyebrow dropped its measured colour {required}: {s}"
             );
             assert!(
                 !s.contains("text-slate-400") && !s.contains("text-slate-300"),
-                "eyebrow uses a grey that cannot reach 4.5:1 at this size: {s}"
+                "{size:?} eyebrow uses a grey that cannot reach 4.5:1 at this size: {s}"
             );
-            assert!(s.contains("uppercase"), "eyebrow is no longer capitalised");
+            assert!(
+                s.contains("uppercase"),
+                "{size:?} eyebrow is no longer capitalised"
+            );
         }
     }
 
