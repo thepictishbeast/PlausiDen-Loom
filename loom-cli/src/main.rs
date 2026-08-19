@@ -1887,7 +1887,25 @@ mod cms_render_tests {
         let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
         assert!(s.contains("Content-Security-Policy"));
         assert!(s.contains("default-src 'self'"));
-        assert!(s.contains("frame-ancestors 'none'"));
+    }
+
+    #[test]
+    fn shell_csp_omits_directives_browsers_ignore_in_meta() {
+        // CSP3 requires user agents to IGNORE frame-ancestors, report-uri and
+        // sandbox when the policy is delivered in a <meta> element. This test
+        // previously asserted `frame-ancestors 'none'` was present, which is
+        // how a directive that provided zero protection — and logged a console
+        // error on every page — survived review looking like security.
+        //
+        // Framing protection is a response-header concern; the render phase
+        // emits deploy/headers.caddy for the origin to serve.
+        let s = page_shell(&empty_page(), "/loom-skin.css", "", None);
+        for inert in ["frame-ancestors", "report-uri", "report-to", "sandbox"] {
+            assert!(
+                !s.contains(inert),
+                "meta CSP must not carry `{inert}` — browsers ignore it there"
+            );
+        }
     }
 
     #[test]
@@ -4968,10 +4986,8 @@ fn serve_tutorial(request: tiny_http::Request) -> std::io::Result<()> {
          style-src 'self' '{skip_hash}' '{page_hash}'; \
          script-src 'self'; \
          connect-src 'self'; \
-         frame-ancestors 'self'; \
          base-uri 'self'; \
-         form-action 'self'; \
-         report-to default"
+         form-action 'self'"
     );
 
     let mut body = String::new();
@@ -5265,10 +5281,8 @@ fn serve_index(request: tiny_http::Request, cms_root: &std::path::Path) -> std::
          style-src 'self' '{skip_hash}' '{page_hash}'; \
          script-src 'self'; \
          connect-src 'self'; \
-         frame-ancestors 'self'; \
          base-uri 'self'; \
-         form-action 'self'; \
-         report-to default"
+         form-action 'self'"
     );
 
     let mut body = String::new();
@@ -6129,12 +6143,10 @@ form.submit();\
          script-src 'self' '{edit_script_hash}'; \
          frame-src 'self'; \
          connect-src 'self'; \
-         frame-ancestors 'self'; \
          base-uri 'self'; \
          form-action 'self'; \
          require-trusted-types-for 'script'; \
-         trusted-types loom-editor; \
-         report-to default"
+         trusted-types loom-editor"
     );
 
     let mut body = String::new();
@@ -8135,7 +8147,7 @@ fn build_edit_preview_html(
         "default-src 'self'; img-src 'self' data:; \
          style-src 'self' '{base_theme_hash}' '{css_hash}'; \
          script-src 'self' '{js_hash}'; \
-         connect-src 'self'; frame-ancestors 'self'"
+         connect-src 'self'"
     );
     // T37 v2: data-theme attribute on <html> for explicit picks.
     // Closed allow-list: "light" | "dark"; anything else dropped
@@ -17265,10 +17277,8 @@ fn serve_uploads_gallery(
          style-src 'self' '{skip_hash}' '{page_hash}'; \
          script-src 'self'; \
          connect-src 'self'; \
-         frame-ancestors 'self'; \
          base-uri 'self'; \
-         form-action 'self'; \
-         report-to default"
+         form-action 'self'"
     );
 
     // REGRESSION-GUARD cycle 53: the page-specific <style> block

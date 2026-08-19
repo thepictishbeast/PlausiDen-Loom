@@ -22708,18 +22708,35 @@ pub fn page_shell_themed(
         // Trusted Types and allow 'unsafe-inline' styles so Eruda
         // can inject its panel UI. Eruda lives in /eruda.min.js
         // (same-origin) so script-src 'self' is still enough.
+        // NOTE — do not add `frame-ancestors` back to these strings.
+        //
+        // CSP3 § "Delivery" lists three directives that a user agent MUST
+        // ignore when the policy arrives in a `<meta http-equiv>` element:
+        // `frame-ancestors`, `report-uri` and `sandbox`. We shipped
+        // `frame-ancestors 'none'` in the meta anyway, which bought exactly no
+        // clickjacking protection and made every browser log
+        //   "The Content Security Policy directive 'frame-ancestors' is
+        //    ignored when delivered via a <meta> element"
+        // on every page of every Forge-built site. Worse than the noise: it
+        // read like protection in code review while providing none.
+        //
+        // Framing protection is a RESPONSE HEADER concern. The `render` phase
+        // emits `deploy/headers.caddy` naming the headers the origin must send
+        // (`Content-Security-Policy: frame-ancestors 'none'` plus
+        // `X-Frame-Options: DENY`), and the `csp` phase fails the build if any
+        // meta-inert directive reappears here.
         let csp = if noscript_mode {
             // Strictest CSP — no inline scripts allowed at all.
             format!(
-                "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}' '{style_hash}'; script-src 'none'; require-trusted-types-for 'script'; trusted-types 'none'; frame-ancestors 'none'"
+                "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}' '{style_hash}'; script-src 'none'; require-trusted-types-for 'script'; trusted-types 'none'"
             )
         } else if page.dev_devtools {
             format!(
-                "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-hashes' '{onload_hash}' '{toggle_script_hash}' '{slideshow_script_hash}' '{eruda_hash}'; connect-src 'self'; frame-ancestors 'none'"
+                "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-hashes' '{onload_hash}' '{toggle_script_hash}' '{slideshow_script_hash}' '{eruda_hash}'; connect-src 'self'"
             )
         } else {
             format!(
-                "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}' '{style_hash}'; script-src 'self' 'unsafe-hashes' '{onload_hash}' '{toggle_script_hash}' '{slideshow_script_hash}'; require-trusted-types-for 'script'; trusted-types 'none'; frame-ancestors 'none'"
+                "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}' '{style_hash}'; script-src 'self' 'unsafe-hashes' '{onload_hash}' '{toggle_script_hash}' '{slideshow_script_hash}'; require-trusted-types-for 'script'; trusted-types 'none'"
             )
         };
         (extra_block, css_link, csp)
@@ -22727,15 +22744,15 @@ pub fn page_shell_themed(
         let css_link = format!("<link rel=\"stylesheet\" href=\"{css}\">");
         let csp = if noscript_mode {
             format!(
-                "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}'; script-src 'none'; require-trusted-types-for 'script'; trusted-types 'none'; frame-ancestors 'none'"
+                "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}'; script-src 'none'; require-trusted-types-for 'script'; trusted-types 'none'"
             )
         } else if page.dev_devtools {
             format!(
-                "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' '{toggle_script_hash}' '{slideshow_script_hash}' '{eruda_hash}'; connect-src 'self'; frame-ancestors 'none'"
+                "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' '{toggle_script_hash}' '{slideshow_script_hash}' '{eruda_hash}'; connect-src 'self'"
             )
         } else {
             format!(
-                "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}'; script-src 'self' '{toggle_script_hash}' '{slideshow_script_hash}'; require-trusted-types-for 'script'; trusted-types 'none'; frame-ancestors 'none'"
+                "default-src 'self'; img-src 'self' data:; style-src 'self' '{base_theme_hash}'; script-src 'self' '{toggle_script_hash}' '{slideshow_script_hash}'; require-trusted-types-for 'script'; trusted-types 'none'"
             )
         };
         (String::new(), css_link, csp)
