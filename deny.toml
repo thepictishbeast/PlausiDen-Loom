@@ -22,6 +22,20 @@ ignore = [
   # picks up a constant-time alternative, AND on any expansion of
   # loom-bridge transport beyond ed25519-only auth.
   "RUSTSEC-2023-0071",
+
+  # 2026-08-19 — unmaintained/unsound-class advisories with no upstream
+  # fix path from our position; all pre-existing, none reachable as a
+  # vulnerability. Re-check each on the parent crate's next major bump.
+  #
+  # anyhow Error::downcast_mut unsoundness (warning-class). anyhow
+  # 1.0.102 is the CURRENT release; no fixed version exists yet.
+  "RUSTSEC-2026-0190",
+  # paste is unmaintained; pulled by ratatui 0.28 (loom-tui). Goes
+  # away when ratatui is next upgraded.
+  "RUSTSEC-2024-0436",
+  # ttf-parser is unmaintained; pulled by egui 0.29 (loom-egui). Goes
+  # away when egui is next upgraded.
+  "RUSTSEC-2026-0192",
 ]
 
 [licenses]

@@ -25,7 +25,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use ed25519_dalek::SigningKey;
@@ -35,19 +34,17 @@ use loom_bridge::{BridgeHostKey, TenantId, TenantRegistry, TenantUid};
 use rand_core::OsRng;
 use russh::ChannelMsg;
 use russh::client;
-use russh::keys::key::KeyPair;
 use russh::server::Server as _;
 use tokio::net::TcpListener;
 
 struct AcceptAllServerKeys;
 
-#[async_trait]
 impl client::Handler for AcceptAllServerKeys {
     type Error = russh::Error;
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::key::PublicKey,
+        _server_public_key: &russh::keys::PublicKey,
     ) -> Result<bool, Self::Error> {
         Ok(true)
     }
@@ -119,10 +116,23 @@ async fn end_to_end_auth_and_channel_open_hello_banner() {
         .await
         .expect("client connect");
     let auth_ok = session
-        .authenticate_publickey("acme", Arc::new(KeyPair::Ed25519(tenant_signing)))
+        .authenticate_publickey(
+            "acme",
+            russh::keys::PrivateKeyWithHashAlg::new(
+                Arc::new(russh::keys::PrivateKey::from(
+                    russh::keys::ssh_key::private::Ed25519Keypair::from_seed(
+                        &tenant_signing.to_bytes(),
+                    ),
+                )),
+                None,
+            ),
+        )
         .await
         .expect("authenticate_publickey runs");
-    assert!(auth_ok, "ed25519 auth must succeed for a registered key");
+    assert!(
+        auth_ok.success(),
+        "ed25519 auth must succeed for a registered key"
+    );
 
     // 7. Open a session channel + drain ALL messages until the
     //    server-side close. The cycle-5d handler sends three
@@ -309,10 +319,20 @@ async fn end_to_end_sandbox_params_some_spawn_round_trip() {
         .await
         .expect("client connect");
     let auth_ok = session
-        .authenticate_publickey("acme", Arc::new(KeyPair::Ed25519(tenant_signing)))
+        .authenticate_publickey(
+            "acme",
+            russh::keys::PrivateKeyWithHashAlg::new(
+                Arc::new(russh::keys::PrivateKey::from(
+                    russh::keys::ssh_key::private::Ed25519Keypair::from_seed(
+                        &tenant_signing.to_bytes(),
+                    ),
+                )),
+                None,
+            ),
+        )
         .await
         .expect("authenticate runs");
-    assert!(auth_ok, "auth must succeed");
+    assert!(auth_ok.success(), "auth must succeed");
 
     // --- 6. Open channel + drain ---
     let mut channel = session.channel_open_session().await.expect("open channel");

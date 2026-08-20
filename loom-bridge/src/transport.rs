@@ -21,10 +21,12 @@
 //!
 //! ## Defence-in-depth note (Marvin Attack / RUSTSEC-2023-0071)
 //!
-//! `russh-keys` 0.45 ships with the `rsa` crate as an unconditional
-//! transitive dep; we've accepted the residual risk in deny.toml +
+//! russh (0.62, via ssh-key 0.7) still pulls the `rsa` crate (0.10-rc)
+//! as a transitive dep; we've accepted the residual risk in deny.toml +
 //! `.cargo/audit.toml` *on the basis that no RSA codepath is ever
-//! exercised at runtime*. The ed25519-only enforcement here is the
+//! exercised at runtime*. Re-check the ignore when rsa 0.10 goes
+//! stable — the 0.10 rewrite targets the Marvin timing class.
+//! The ed25519-only enforcement here is the
 //! technical bind that backs that SHIP-DECISION: any non-ed25519
 //! key offered for auth is rejected at the russh `Handler` layer
 //! BEFORE russh attempts any RSA verify. The check belongs here,
@@ -41,7 +43,6 @@ use crate::resolver::SharedResolver;
 use crate::sandbox_params::BridgeSandboxParams;
 use crate::spawn_async::{PrepareAsyncError, prepare_blocking_async};
 use crate::tenant::{TenantId, TenantRegistry};
-use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use std::net::SocketAddr;
@@ -174,16 +175,21 @@ pub enum AuthOutcome {
 /// Returns `None` for any non-ed25519 key — the bridge refuses to
 /// reason about RSA / ECDSA keys at all (see Marvin Attack note).
 ///
-/// BUG ASSUMPTION: the format is stable across russh-keys 0.45.x.
-/// A breaking change in the upstream `ed25519_dalek::VerifyingKey`
-/// byte layout would silently invalidate every entry in the on-disk
+/// BUG ASSUMPTION: the format is stable across ssh-key 0.7.x — the
+/// `Ed25519PublicKey` payload is the same raw 32-byte point dalek's
+/// `VerifyingKey::as_bytes()` yielded under russh 0.45, so entries
+/// written before the 0.61 migration stay valid. A upstream byte-
+/// layout change would silently invalidate every entry in the on-disk
 /// registry. The `pubkey_to_b64_ed25519_round_trips` test below is
 /// the canary.
 #[must_use]
-pub fn pubkey_to_base64_no_pad(pk: &russh::keys::key::PublicKey) -> Option<String> {
-    use russh::keys::key::PublicKey;
-    match pk {
-        PublicKey::Ed25519(vk) => Some(STANDARD_NO_PAD.encode(vk.as_bytes())),
+pub fn pubkey_to_base64_no_pad(pk: &russh::keys::PublicKey) -> Option<String> {
+    match pk.key_data() {
+        // ssh-key's Ed25519PublicKey is the raw 32-byte point — the
+        // same bytes ed25519_dalek::VerifyingKey::as_bytes() yielded
+        // under russh 0.45, so the on-disk registry format is stable
+        // across the 0.61 migration (pinned by the round-trip canary).
+        russh::keys::ssh_key::public::KeyData::Ed25519(k) => Some(STANDARD_NO_PAD.encode(k.0)),
         // Defence in depth: do not even ATTEMPT to b64 anything else.
         // The auth layer must short-circuit before it gets here.
         _ => None,
@@ -239,7 +245,7 @@ impl BridgeHandler {
     /// retry-on-Arc-update path. Cycle-4 swap behaviour requires
     /// caller-side rebind.
     #[must_use]
-    pub fn classify(&self, key: &russh::keys::key::PublicKey) -> AuthOutcome {
+    pub fn classify(&self, key: &russh::keys::PublicKey) -> AuthOutcome {
         let Some(b64) = pubkey_to_base64_no_pad(key) else {
             return AuthOutcome::Reject {
                 reason: "non-ed25519-key",
@@ -300,10 +306,7 @@ impl BridgeHandler {
                             match stdout.read(&mut buf).await {
                                 Ok(0) => break,
                                 Ok(n) => {
-                                    if h.data(chan_id, russh::CryptoVec::from_slice(&buf[..n]))
-                                        .await
-                                        .is_err()
-                                    {
+                                    if h.data(chan_id, buf[..n].to_vec()).await.is_err() {
                                         break;
                                     }
                                 }
@@ -322,13 +325,9 @@ impl BridgeHandler {
                             match stderr.read(&mut buf).await {
                                 Ok(0) => break,
                                 Ok(n) => {
-                                    if h.extended_data(
-                                        chan_id,
-                                        1,
-                                        russh::CryptoVec::from_slice(&buf[..n]),
-                                    )
-                                    .await
-                                    .is_err()
+                                    if h.extended_data(chan_id, 1, buf[..n].to_vec())
+                                        .await
+                                        .is_err()
                                     {
                                         break;
                                     }
@@ -430,14 +429,13 @@ pub fn format_hello_banner(tenant: &TenantId) -> Vec<u8> {
     .into_bytes()
 }
 
-#[async_trait]
 impl russh::server::Handler for BridgeHandler {
     type Error = BridgeError;
 
     async fn auth_publickey(
         &mut self,
         _user: &str,
-        public_key: &russh::keys::key::PublicKey,
+        public_key: &russh::keys::PublicKey,
     ) -> Result<russh::server::Auth, Self::Error> {
         // SECURITY: enforce ed25519-only at this exact line. Russh
         // would otherwise call into the RSA verify path before we
@@ -456,6 +454,7 @@ impl russh::server::Handler for BridgeHandler {
                 tracing::warn!(reason, "ssh auth reject");
                 Ok(russh::server::Auth::Reject {
                     proceed_with_methods: None,
+                    partial_success: false,
                 })
             }
         }
@@ -477,14 +476,20 @@ impl russh::server::Handler for BridgeHandler {
     async fn channel_open_session(
         &mut self,
         channel: russh::Channel<russh::server::Msg>,
+        reply: russh::server::ChannelOpenHandle,
         session: &mut russh::server::Session,
-    ) -> Result<bool, Self::Error> {
+    ) -> Result<(), Self::Error> {
         let Some(tenant) = self.authenticated_as.clone() else {
             // SECURITY: russh's auth gate runs BEFORE channel_open,
             // so this should be unreachable. Belt + suspenders.
+            // Dropping `reply` sends AdministrativelyProhibited —
+            // the russh-0.62 handle makes reject the default.
             tracing::error!("channel_open_session without prior publickey auth — refusing");
-            return Ok(false);
+            return Ok(());
         };
+        // Accept before the first data frame — banners below write to
+        // the channel, which requires the open to be confirmed.
+        reply.accept().await;
         tracing::info!(
             tenant = %tenant,
             channel_id = ?channel.id(),
@@ -574,7 +579,7 @@ impl russh::server::Handler for BridgeHandler {
                     // sees EOF immediately and exits quickly.
                     self.spawn_session_for_channel(channel, session, prepared, &tenant)
                         .await?;
-                    return Ok(true);
+                    return Ok(());
                 }
                 Err(PrepareAsyncError::Launch(e)) => {
                     tracing::warn!(tenant = %tenant, error = %e, "launch prepare failed");
@@ -599,7 +604,7 @@ impl russh::server::Handler for BridgeHandler {
             .close()
             .await
             .map_err(|e| BridgeError::Russh(format!("hello-banner close: {e}")))?;
-        Ok(true)
+        Ok(())
     }
 
     /// T46 cycle 5u (2026-05-17): forward inbound channel data to
@@ -702,13 +707,18 @@ impl BridgeServer {
     #[must_use]
     pub fn build_russh_config(&self) -> russh::server::Config {
         let mut cfg = russh::server::Config::default();
-        cfg.methods = russh::MethodSet::PUBLICKEY;
+        cfg.methods = russh::MethodSet::from(&[russh::MethodKind::PublicKey][..]);
         cfg.auth_rejection_time = Duration::from_secs(2);
         cfg.auth_rejection_time_initial = Some(Duration::from_secs(2));
         cfg.max_auth_attempts = 3;
         cfg.inactivity_timeout = Some(Duration::from_secs(60));
-        cfg.keys = vec![russh::keys::key::KeyPair::Ed25519(
-            self.host_key.signing_key().clone(),
+        cfg.keys = vec![russh::keys::PrivateKey::from(
+            // ssh-key 0.7 dropped the direct dalek From impl; the seed
+            // bytes ARE the dalek SigningKey bytes, so building from
+            // seed preserves the exact host key identity.
+            russh::keys::ssh_key::private::Ed25519Keypair::from_seed(
+                &self.host_key.signing_key().to_bytes(),
+            ),
         )];
         cfg
     }
@@ -744,7 +754,6 @@ impl BridgeServer {
     }
 }
 
-#[async_trait]
 impl russh::server::Server for BridgeServer {
     type Handler = BridgeHandler;
 
@@ -778,6 +787,15 @@ mod tests {
         (sk, vk, b64)
     }
 
+    /// Build the ssh-key-backed `russh::keys::PublicKey` russh 0.61
+    /// hands to `auth_publickey`, from a dalek verifying key — the
+    /// same 32 raw bytes, so the b64 the registry stores is unchanged.
+    fn russh_pubkey(vk: &ed25519_dalek::VerifyingKey) -> russh::keys::PublicKey {
+        russh::keys::PublicKey::from(russh::keys::ssh_key::public::KeyData::Ed25519(
+            russh::keys::ssh_key::public::Ed25519PublicKey(vk.to_bytes()),
+        ))
+    }
+
     fn fresh_host_key() -> BridgeHostKey {
         BridgeHostKey::from_signing_key(SigningKey::generate(&mut OsRng))
     }
@@ -809,7 +827,7 @@ mod tests {
     #[test]
     fn pubkey_to_b64_ed25519_round_trips() {
         let (_sk, vk, b64_direct) = fresh_ed25519();
-        let pk = russh::keys::key::PublicKey::Ed25519(vk);
+        let pk = russh_pubkey(&vk);
         let b64_via = pubkey_to_base64_no_pad(&pk).expect("ed25519 → b64");
         assert_eq!(b64_via, b64_direct);
     }
@@ -819,7 +837,7 @@ mod tests {
         let (_sk, vk, b64) = fresh_ed25519();
         let r = registry_with("acme", &b64);
         let h = BridgeHandler::new(r, empty_resolver(), None);
-        let pk = russh::keys::key::PublicKey::Ed25519(vk);
+        let pk = russh_pubkey(&vk);
         match h.classify(&pk) {
             AuthOutcome::Accept(id) => assert_eq!(id.as_str(), "acme"),
             AuthOutcome::Reject { reason } => panic!("expected accept, got reject: {reason}"),
@@ -832,7 +850,7 @@ mod tests {
         let (_sk_b, vk_b, _b64_b) = fresh_ed25519();
         let r = registry_with("acme", &b64_a);
         let h = BridgeHandler::new(r, empty_resolver(), None);
-        let pk = russh::keys::key::PublicKey::Ed25519(vk_b);
+        let pk = russh_pubkey(&vk_b);
         assert_eq!(
             h.classify(&pk),
             AuthOutcome::Reject {
@@ -846,7 +864,7 @@ mod tests {
         let (_sk, vk, _b64) = fresh_ed25519();
         let r = Arc::new(TenantRegistry::empty());
         let h = BridgeHandler::new(r, empty_resolver(), None);
-        let pk = russh::keys::key::PublicKey::Ed25519(vk);
+        let pk = russh_pubkey(&vk);
         assert_eq!(
             h.classify(&pk),
             AuthOutcome::Reject {
@@ -926,16 +944,14 @@ mod tests {
         let s = BridgeServer::new(BridgeServerConfig::new(r, addr, hk, empty_resolver()));
         let cfg = s.build_russh_config();
         assert_eq!(cfg.keys.len(), 1, "exactly one host keypair");
-        match &cfg.keys[0] {
-            russh::keys::key::KeyPair::Ed25519(kp) => {
+        match cfg.keys[0].key_data() {
+            russh::keys::ssh_key::private::KeypairData::Ed25519(kp) => {
                 assert_eq!(
-                    kp.verifying_key().to_bytes(),
-                    hk_bytes,
-                    "russh keypair must wrap the BridgeHostKey signing key"
+                    kp.public.0, hk_bytes,
+                    "russh host key must wrap the BridgeHostKey signing key"
                 );
             }
-            #[allow(unreachable_patterns)]
-            _ => panic!("russh keys::KeyPair must be Ed25519"),
+            _ => panic!("russh host key must be Ed25519"),
         }
     }
 
@@ -957,7 +973,7 @@ mod tests {
         let cfg = s.build_russh_config();
         assert_eq!(
             cfg.methods,
-            russh::MethodSet::PUBLICKEY,
+            russh::MethodSet::from(&[russh::MethodKind::PublicKey][..]),
             "auth methods must be PUBLICKEY only"
         );
     }

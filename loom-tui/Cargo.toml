@@ -9,7 +9,7 @@ description = "Loom — typed CmsPage → ratatui Text. Pure renderer; the CLI b
 
 [dependencies]
 serde = { workspace = true }
-loom-cms-render = { path = "../loom-cms-render" }
+loom-cms-render = { path = "../loom-cms-render", version = "0.1" }
 # Pure-Rust TUI primitives. Default features off — we only need
 # the type layer (Line / Span / Style / Text), not the crossterm
 # backend or app loop.

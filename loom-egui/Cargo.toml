@@ -8,7 +8,7 @@ repository.workspace = true
 description = "Loom — typed CmsPage → egui Ui draws. Pure renderer; the binary that drives an eframe / wgpu / glow window is a separate concern."
 
 [dependencies]
-loom-cms-render = { path = "../loom-cms-render" }
+loom-cms-render = { path = "../loom-cms-render", version = "0.1" }
 # Pure-Rust immediate-mode UI primitives. Default features off —
 # we only need the type layer (Ui::label / Ui::heading / Style /
 # RichText), not eframe / glow / wgpu / winit. A downstream

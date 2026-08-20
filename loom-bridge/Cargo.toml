@@ -43,12 +43,12 @@ default = []
 russh-transport = ["dep:russh", "dep:tokio", "dep:async-trait", "dep:tracing"]
 
 [dependencies.russh]
-version = "0.45"
+version = "0.62.5"
 optional = true
 
 [dependencies.tokio]
 version = "1"
-features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"]
+features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "process"]
 optional = true
 
 [dependencies.async-trait]
