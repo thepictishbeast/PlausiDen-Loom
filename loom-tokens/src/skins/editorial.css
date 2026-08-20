@@ -388,6 +388,57 @@
   color: var(--loom-color-ink) !important;
 }
 
+/* ---------- Step numerals ----------------------------------------------
+ *
+ * The base paints these as white numerals on a gradient-filled disc. This skin
+ * removes the disc, which left white numerals on white paper — measured 1.06,
+ * i.e. invisible, on the Sacred Vote study. Same failure as the bands above,
+ * missed on the first pass because `steps` only appears on one page.
+ *
+ * They become accent numerals, matching the ordinals on the work index, so the
+ * two numbered sequences on the site read as the same device.
+ * --------------------------------------------------------------------- */
+
+:root .loom-steps__num.loom-steps__num {
+  background: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  color: var(--loom-color-accent) !important;
+  font-family: var(--loom-font-mono, monospace);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  width: auto;
+  height: auto;
+  min-width: 0;
+}
+
+/* The theme switch. The base gives it a bordered chip whose glyph inherits a
+ * dimmed colour; on the case-study pages, where the floating-pill chrome makes
+ * its background transparent, that measured 3.4 against AA's 4.5. It is a
+ * control, so it takes full ink — and a square, because this skin has no pills. */
+:root .loom-theme-toggle.loom-theme-toggle {
+  color: var(--loom-color-ink) !important;
+  background: transparent !important;
+  border: 1px solid var(--loom-color-border) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+:root .loom-theme-toggle.loom-theme-toggle:hover {
+  border-color: var(--loom-color-accent) !important;
+}
+
+/* Breadcrumbs: the base sets 65% ink over the page, a fixed alpha that cannot
+ * clear AA across arbitrary palettes — it measured 3.16 on near-black. The
+ * muted token is the tenant's own, chosen to be legible on both surfaces. */
+:root .loom-breadcrumb__link.loom-breadcrumb__link {
+  color: var(--loom-color-muted) !important;
+}
+:root .loom-breadcrumb__link.loom-breadcrumb__link:hover,
+:root .loom-breadcrumb__link.loom-breadcrumb__link:focus-visible {
+  color: var(--loom-color-ink) !important;
+}
+
 /* ---------- The base skin's ambient wash --------------------------------
  *
  * `body` in the base carries two large radial gradients in hardcoded blue and
