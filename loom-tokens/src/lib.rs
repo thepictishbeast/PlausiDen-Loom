@@ -39,6 +39,44 @@ pub use density::DensityTier;
 /// loop friction permanently.
 pub const SKIN_CSS: &str = include_str!("skin.css");
 
+/// Per-skin expression overlays, appended AFTER `SKIN_CSS`.
+///
+/// The base skin carries two different kinds of rule mixed together: structure
+/// (resets, layout primitives, landmarks, focus handling, motion guards) and
+/// expression (type scale, spacing rhythm, component shape, decoration). Only
+/// the second kind decides whether two sites look alike — and because there was
+/// exactly one skin, every Forge site inherited the same one. Swapping palette
+/// variables recoloured that single look; it could never replace it. That is
+/// the whole reason sites built on this substrate resemble each other.
+///
+/// An overlay is a full expression layer: it may restructure, not merely
+/// recolour. Appended last at equal-or-greater specificity, it overrides the
+/// base's expression while leaving its structure — the part that keeps pages
+/// accessible and unbroken — intact. Two tenants on different overlays share
+/// DOM and semantics and nothing visual.
+///
+/// Splitting the 555KB base into structure and expression properly is the
+/// eventual job; overlays make distinct skins possible now, without a refactor
+/// that would put every existing site at risk in one step.
+const SKIN_EDITORIAL: &str = include_str!("skins/editorial.css");
+
+/// Skin names a tenant may select via `forge.toml` `[style] skin = "…"`.
+/// `"base"` is the default and adds no overlay.
+pub const SKIN_NAMES: &[&str] = &["base", "editorial"];
+
+/// The expression overlay for `name`, or `None` for the default skin.
+///
+/// Returns `Err(())` for an unknown name rather than silently falling back:
+/// quietly shipping the wrong visual identity is worse than failing the build,
+/// because nothing downstream would report it.
+pub fn skin_overlay(name: &str) -> Result<Option<&'static str>, ()> {
+    match name {
+        "base" => Ok(None),
+        "editorial" => Ok(Some(SKIN_EDITORIAL)),
+        _ => Err(()),
+    }
+}
+
 pub use color::{Color, ColorRole};
 pub use polish::{PolishCategory, PolishSet, PolishToken};
 pub use radius::Radius;

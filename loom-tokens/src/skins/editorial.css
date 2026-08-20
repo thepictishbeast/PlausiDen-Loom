@@ -1,0 +1,415 @@
+/* ============================================================================
+ * SKIN: editorial
+ *
+ * A Swiss/editorial expression layer. Appended after the base skin, so it
+ * inherits every structural and accessibility rule and replaces the look.
+ *
+ * The design rules it commits to, and why:
+ *
+ *   NO CONTAINERS. No cards, panels, rounded corners, borders-as-decoration or
+ *   drop shadows anywhere. Grouping is expressed by whitespace and hairline
+ *   rules. This single decision is what separates an editorial page from a
+ *   generated one — boxed content is the tell, because a generator reaches for
+ *   a box whenever it does not know how much space something deserves.
+ *
+ *   SCALE CARRIES HIERARCHY. A wide type scale (a display line is ~5x body)
+ *   does the work that boxes and colour usually do. Nothing needs a background
+ *   to read as important.
+ *
+ *   ONE ACCENT, USED SPARINGLY. The accent appears on rules, ordinals and
+ *   links. Never as a fill behind text, which is where accent colours turn
+ *   muddy and contrast becomes hard to guarantee.
+ *
+ *   MEASURE IS BOUNDED. Body text is capped near 68 characters. Long lines are
+ *   the most common readability failure on wide screens and cost nothing to fix.
+ *
+ * Contrast: every foreground here resolves to --loom-color-ink or
+ * --loom-color-muted against --loom-color-bg, so a tenant that sets a legible
+ * palette (light AND dark) gets a legible skin. The skin never invents a
+ * colour of its own, which is what makes it safe to hand a tenant.
+ * ========================================================================= */
+
+:root {
+  /* Editorial rhythm. Overriding the tokens rather than individual rules means
+     every component that already consumes them shifts together. */
+  --loom-radius: 0;
+  --loom-radius-sm: 0;
+  --loom-radius-md: 0;
+  --loom-radius-lg: 0;
+  --loom-radius-xl: 0;
+  --loom-radius-pill: 0;
+  --loom-radius-full: 0;
+  --loom-radius-component: 0;
+  --loom-shadow-sm: none;
+  --loom-shadow-md: none;
+  --loom-shadow-lg: none;
+  --loom-shadow-elevated: none;
+
+  --ed-rule: 1px solid color-mix(in oklab, var(--loom-color-ink) 16%, transparent);
+  --ed-rule-strong: 1px solid color-mix(in oklab, var(--loom-color-ink) 42%, transparent);
+  --ed-measure: 68ch;
+  --ed-gutter: clamp(1.25rem, 5vw, 5rem);
+}
+
+/* ---------- Page frame -------------------------------------------------- */
+
+:root .loom-page {
+  padding-inline: var(--ed-gutter);
+  max-width: 78rem;
+  margin-inline: auto;
+}
+
+/* ---------- Masthead ---------------------------------------------------- */
+
+:root header.loom-page-header {
+  background: none !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom: var(--ed-rule-strong);
+  padding: clamp(1rem, 2.5vw, 1.75rem) var(--ed-gutter);
+  position: static;
+}
+:root nav.loom-page-nav a.loom-page-brand {
+  font-family: var(--loom-font-display);
+  font-weight: 500;
+  font-size: clamp(1rem, 1.4vw, 1.15rem);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding-left: 0;
+}
+:root nav.loom-page-nav a:not(.loom-page-brand) {
+  background: none;
+  border-radius: 0;
+  font-size: 0.8125rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 500;
+  padding: 0.35rem 0;
+  margin-inline-start: clamp(1rem, 2.5vw, 2.25rem);
+  border-bottom: 1px solid transparent;
+}
+:root nav.loom-page-nav a:not(.loom-page-brand):hover,
+:root nav.loom-page-nav a[aria-current="page"] {
+  background: none;
+  color: var(--loom-color-ink);
+  border-bottom-color: var(--loom-color-accent);
+}
+
+/* ---------- Hero: type only --------------------------------------------- */
+
+:root .loom-section-hero {
+  border: 0;
+  border-bottom: var(--ed-rule);
+  padding: clamp(3.5rem, 11vh, 8rem) 0 clamp(2.5rem, 7vh, 5rem);
+  gap: clamp(1.25rem, 2.5vw, 2rem);
+}
+:root .loom-section-hero__title,
+:root .loom-hero-title {
+  font-family: var(--loom-font-display);
+  /* The widest step in the scale. Everything else on the page is measured
+     against this line. */
+  font-size: clamp(2.5rem, 7.5vw, 5.5rem);
+  line-height: 0.98;
+  letter-spacing: -0.03em;
+  font-weight: 400;
+  max-inline-size: 20ch;
+  color: var(--loom-color-ink);
+}
+:root .loom-section-hero__eyebrow,
+:root .loom-hero-eyebrow {
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--loom-color-muted);
+  background: none;
+  border: 0;
+  padding: 0;
+}
+:root .loom-section-hero__lede,
+:root .loom-hero-subtitle {
+  font-size: clamp(1.0625rem, 1.5vw, 1.25rem);
+  line-height: 1.6;
+  max-inline-size: var(--ed-measure);
+  color: var(--loom-color-muted);
+}
+
+/* ---------- Buttons: rules, not pills ----------------------------------- */
+
+:root .loom-btn,
+:root .loom-section-hero__cta,
+:root .loom-cta-band__cta {
+  background: none !important;
+  color: var(--loom-color-ink) !important;
+  border: 0;
+  border-bottom: 2px solid var(--loom-color-accent);
+  border-radius: 0;
+  padding: 0.35rem 0;
+  font-size: 0.8125rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  box-shadow: none;
+}
+:root .loom-btn:hover,
+:root .loom-section-hero__cta:hover,
+:root .loom-cta-band__cta:hover {
+  background: none !important;
+  border-bottom-color: var(--loom-color-ink);
+  transform: none;
+}
+
+/* ---------- Work list: an index, not a card grid ------------------------ */
+
+:root .loom-card-feed {
+  display: block;
+  border: 0;
+  background: none;
+}
+:root .loom-card-feed__heading,
+:root .loom-feature-spotlight__heading,
+:root .loom-stat-band__heading {
+  font-family: var(--loom-font-body);
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--loom-color-muted);
+  margin-bottom: clamp(1.5rem, 3vw, 2.5rem);
+}
+:root .loom-card-feed-item {
+  background: none !important;
+  border: 0 !important;
+  border-top: var(--ed-rule) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: clamp(1.5rem, 3vw, 2.25rem) 0;
+  display: grid;
+  grid-template-columns: 3.5rem 1fr auto;
+  align-items: baseline;
+  gap: clamp(0.75rem, 2vw, 2rem);
+  transform: none !important;
+}
+:root .loom-card-feed-item:last-child { border-bottom: var(--ed-rule) !important; }
+/* Ordinals. counter-increment on the list, content on the item — the numbers
+   are decoration, so they are hidden from assistive tech rather than read out
+   as content the sighted user gets for free from position. */
+:root .loom-card-feed { counter-reset: ed-work; }
+:root .loom-card-feed-item { counter-increment: ed-work; }
+:root .loom-card-feed-item::before {
+  content: counter(ed-work, decimal-leading-zero);
+  font-family: var(--loom-font-mono, monospace);
+  font-size: 0.8125rem;
+  color: var(--loom-color-accent);
+  letter-spacing: 0.08em;
+}
+:root .loom-card-feed-item__title {
+  font-family: var(--loom-font-display);
+  font-size: clamp(1.375rem, 2.6vw, 2rem);
+  font-weight: 400;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  color: var(--loom-color-ink);
+}
+:root .loom-card-feed-item__tag {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--loom-color-muted);
+  white-space: nowrap;
+}
+/* The screenshot thumbnails are what made these read as cards. An editorial
+   index lists work; the imagery belongs on the case study itself. */
+:root .loom-card-feed-item__avatar { display: none; }
+:root .loom-card-feed-item:hover .loom-card-feed-item__title {
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: 1px;
+}
+
+/* ---------- Figures ----------------------------------------------------- */
+
+:root .loom-picture,
+:root figure img,
+:root .loom-image-text-row img {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  border: var(--ed-rule);
+}
+
+/* ---------- Statistics: a rule-separated row ---------------------------- */
+
+:root .loom-stat-band {
+  background: none !important;
+  border: 0;
+  border-top: var(--ed-rule-strong);
+  border-bottom: var(--ed-rule);
+  border-radius: 0;
+  padding: clamp(2rem, 4vw, 3rem) 0;
+  box-shadow: none;
+}
+:root .loom-stat-band__value,
+:root .loom-stat-value {
+  font-family: var(--loom-font-display);
+  font-size: clamp(2rem, 4.5vw, 3.25rem);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--loom-color-ink);
+}
+:root .loom-stat-band__label,
+:root .loom-stat-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--loom-color-muted);
+  font-weight: 500;
+}
+
+/* ---------- Prose ------------------------------------------------------- */
+
+:root .loom-page p,
+:root .loom-paragraph,
+:root .loom-prose p {
+  max-inline-size: var(--ed-measure);
+  font-size: 1.0625rem;
+  line-height: 1.68;
+}
+:root .loom-page h2,
+:root .loom-heading {
+  font-family: var(--loom-font-display);
+  font-size: clamp(1.5rem, 3vw, 2.25rem);
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  max-inline-size: 24ch;
+  margin-block-start: clamp(2.5rem, 5vw, 4rem);
+}
+
+/* ---------- Feature grid ------------------------------------------------ */
+
+:root .loom-feature-spotlight__item {
+  background: none !important;
+  border: 0 !important;
+  border-top: var(--ed-rule) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: clamp(1.25rem, 2.5vw, 1.75rem) 0 0;
+  transform: none !important;
+}
+:root .loom-feature-spotlight__icon,
+:root .loom-feature-spotlight__icon-svg { display: none; }
+:root .loom-feature-spotlight__title {
+  font-family: var(--loom-font-body);
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--loom-color-muted);
+}
+:root .loom-feature-spotlight__body {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--loom-color-ink);
+  margin-block-start: 0.5rem;
+}
+
+/* ---------- Closing band + footer --------------------------------------- */
+
+:root .loom-cta-band {
+  background: none !important;
+  border: 0;
+  border-top: var(--ed-rule-strong);
+  border-radius: 0;
+  padding: clamp(3rem, 7vw, 5rem) 0;
+  box-shadow: none;
+  text-align: start;
+}
+:root .loom-cta-band__title {
+  font-family: var(--loom-font-display);
+  font-size: clamp(1.75rem, 4vw, 3rem);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  max-inline-size: 22ch;
+}
+:root footer.loom-page-footer {
+  border-top: var(--ed-rule-strong);
+  padding: clamp(2rem, 4vw, 3rem) var(--ed-gutter);
+  font-size: 0.8125rem;
+}
+
+/* ---------- Foregrounds that assumed a coloured band --------------------
+ *
+ * Several components in the base skin paint a filled band and then set their
+ * text to an "on-band" colour — near-white, often with alpha. This skin
+ * removes every band, so those foregrounds were left painting white text on a
+ * white page: measured contrast of exactly 1.0, i.e. invisible.
+ *
+ * The rule is general, not a list of patches: a skin with no bands must have
+ * no on-band foregrounds. Everything resolves to the theme's own ink or muted,
+ * which is what makes this skin safe in light AND dark without a second
+ * palette to maintain.
+ * --------------------------------------------------------------------- */
+
+/* The class is repeated to raise specificity above the base skin's own
+ * descendant selectors (e.g. `nav.loom-page-nav a.loom-page-brand`). `!important`
+ * alone loses to a more specific `!important`, which is why the first pass at
+ * these rules measured no better. Repetition is deliberate and local: it beats
+ * guessing at each base selector and silently missing one. */
+:root .loom-page-brand.loom-page-brand.loom-page-brand,
+:root .loom-page-footer__heading.loom-page-footer__heading,
+:root footer.loom-page-footer a,
+:root .loom-cta-band__title.loom-cta-band__title {
+  color: var(--loom-color-ink) !important;
+}
+
+:root .loom-stat-band__lede.loom-stat-band__lede,
+:root .loom-stat-band__hint.loom-stat-band__hint,
+:root .loom-cta-band__eyebrow.loom-cta-band__eyebrow.loom-cta-band__eyebrow,
+:root .loom-cta-band__lede.loom-cta-band__lede,
+:root footer.loom-page-footer,
+:root .loom-page-footer__col.loom-page-footer__col {
+  color: var(--loom-color-muted) !important;
+}
+
+:root footer.loom-page-footer a:hover {
+  color: var(--loom-color-link-hover) !important;
+}
+
+/* Nav links: the base muted grey clears AA on paper but not on near-black. */
+:root nav.loom-page-nav a:not(.loom-page-brand) {
+  color: var(--loom-color-muted) !important;
+}
+:root nav.loom-page-nav a:not(.loom-page-brand):hover,
+:root nav.loom-page-nav a[aria-current="page"] {
+  color: var(--loom-color-ink) !important;
+}
+
+/* ---------- The base skin's ambient wash --------------------------------
+ *
+ * `body` in the base carries two large radial gradients in hardcoded blue and
+ * violet (hsl 218 / hsl 272). They ignore the tenant palette entirely, so a
+ * warm-paper site still rendered on a faintly cold, lilac-tinted field — which
+ * is a large part of why tenants looked related no matter what palette they
+ * chose. Editorial pages sit on flat paper.
+ * --------------------------------------------------------------------- */
+
+:root body {
+  background: var(--loom-color-bg) !important;
+  background-attachment: initial;
+}
+
+/* ---------- Narrow screens ---------------------------------------------- */
+
+@media (max-width: 34rem) {
+  /* The ordinal column collapses rather than squeezing the title to a few
+     characters per line. */
+  :root .loom-card-feed-item {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+  :root .loom-card-feed-item__tag { white-space: normal; }
+}
