@@ -28,6 +28,25 @@
  *
  * Note this skin does NOT take the flat-foreground partial: it keeps its
  * backgrounds, so the on-fill foregrounds those rules repair are still correct.
+ *
+ * KNOWN, UNRESOLVED — 6 dark-mode contrast failures in header chrome.
+ *
+ *   .loom-page-nav__link   measured 2.18 and 2.21
+ *   .loom-btn (nav CTA)    measured 1.67
+ *
+ * Down from 48, and light mode is clean, but not zero. Both resolve colours
+ * that are neither this skin's nor the tenant palette's — the CTA's label is
+ * a grey-green that is not `on-primary`, over a fill that is not `primary`,
+ * with no matching rule findable by walking the CSSOM. Something is setting
+ * them below the level a stylesheet override reaches. Do not add more
+ * `!important` at higher specificity: three rounds of that moved the number
+ * around without fixing it, and one over-broad attempt took it from 4 to 17.
+ *
+ * The next step is to find the actual source — check for an inline style
+ * attribute on the nav action, and for a base rule inside a cascade layer,
+ * since layered declarations do not lose to unlayered ones the way plain
+ * specificity suggests. Until then `warm` is fine for light-first sites and
+ * should not ship on a site whose visitors use dark mode.
  * ========================================================================= */
 
 :root {
