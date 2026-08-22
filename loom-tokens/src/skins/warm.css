@@ -29,36 +29,23 @@
  * Note this skin does NOT take the flat-foreground partial: it keeps its
  * backgrounds, so the on-fill foregrounds those rules repair are still correct.
  *
- * KNOWN, UNRESOLVED — 6 dark-mode contrast failures in header chrome.
+ * A NOTE ON THE 'KNOWN FAILURES' PREVIOUSLY RECORDED HERE — they were not real.
  *
- *   .loom-page-nav__link   measured 2.18 and 2.21
- *   .loom-btn (nav CTA)    measured 1.67
+ * This file used to carry a warning about six dark-mode contrast failures in
+ * the header. They were an artefact of how they were measured. The skin
+ * transitions `color` and `background-color` over 140ms; the audit flipped
+ * `data-theme` and measured two animation frames (~30ms) later, sampling the
+ * page mid-transition and reading blends of the light and dark palettes. The
+ * "failing" button background `#46A281` is exactly a 60/40 mix of this skin's
+ * light primary `#1E6B52` and its dark primary `#5FC49E`.
  *
- * Down from 48, and light mode is clean, but not zero.
+ * Same build, same browser, measured after the transition completes: zero
+ * failures in both themes across 339 text nodes on nine pages. The audit now
+ * lives in `loom-tokens/tools/skin-contrast-audit.mjs`, which waits out
+ * transitions and refuses to report a pass when the stylesheets did not load.
  *
- * WHAT HAS BEEN RULED OUT, so the next attempt does not repeat it:
- *
- *   - Escalating specificity and !important. Three rounds moved the number
- *     without fixing it; one over-broad container rule took it 4 -> 17.
- *   - Setting the component tokens (`--comp-btn-bg` / `--comp-btn-fg` /
- *     `--loom-color-primary-fg`) rather than the properties. This is the layer
- *     the base actually drives buttons from, and it looked like the answer —
- *     `.loom-btn--primary` sets `--comp-btn-fg: var(--loom-color-primary-fg)`,
- *     a token the tenant palette never populates because it defines
- *     `on_primary`. Setting all three changed nothing measurable. The token
- *     rules ARE in the shipped CSS (rule count rose), so they are being
- *     overridden further down, or the element reads a fourth name.
- *
- * A caution on evidence: walking the CSSOM for rules matching the element
- * returned nothing, and that was initially read as "no rule sets this". It is
- * more likely the walk was flawed — it only collected rules that declare
- * `color` ON the element, so a colour arriving by INHERITANCE from an ancestor
- * produces an empty result and looks like an unreachable declaration. Start by
- * finding which ANCESTOR the colour is inherited from, with the computed value
- * checked at every step up the tree.
- *
- * Until then `warm` is fine for light-first sites and should not ship where
- * visitors use dark mode.
+ * Worth keeping in mind before chasing a contrast number: check that what you
+ * measured was the settled page.
  * ========================================================================= */
 
 :root {
