@@ -1,0 +1,357 @@
+/* ============================================================================
+ * SKIN: technical
+ *
+ * For sites whose subject is infrastructure — a company that runs its own
+ * servers, a wallet, a console. The claim being made is competence, so the
+ * page is built like an instrument panel rather than a brochure.
+ *
+ * The design rules, and how they differ from `editorial`:
+ *
+ *   DENSE, NOT AIRY. Editorial buys authority with whitespace; this buys it
+ *   with information density. Tight leading, compact spacing, more on screen.
+ *   Two skins that differ only in colour read as one site in two moods — the
+ *   spacing rhythm is what actually makes them separate designs.
+ *
+ *   MONOSPACE FOR STRUCTURE, not for prose. Labels, ordinals, tags, stats and
+ *   nav are mono; body text stays proportional because long mono prose is slow
+ *   to read. Mono on the furniture reads as engineering; mono everywhere reads
+ *   as a terminal-themed novelty.
+ *
+ *   VISIBLE CELLS. Hairline boxes with square corners, sharing borders like a
+ *   table. Editorial refuses containers entirely; this one makes the container
+ *   the point — you can see where each piece of data begins and ends.
+ *
+ *   ONE SIGNAL COLOUR, used as a status marker: on rules, ordinals, and the
+ *   left edge of anything important. Never as a fill behind text.
+ *
+ * Colour comes entirely from the tenant palette, so a legible palette gives a
+ * legible skin in both themes.
+ * ========================================================================= */
+
+:root {
+  --loom-radius: 0;
+  --loom-radius-sm: 0;
+  --loom-radius-md: 0;
+  --loom-radius-lg: 0;
+  --loom-radius-xl: 0;
+  --loom-radius-pill: 2px;
+  --loom-radius-full: 2px;
+  --loom-radius-component: 0;
+  --loom-shadow-sm: none;
+  --loom-shadow-md: none;
+  --loom-shadow-lg: none;
+  --loom-shadow-elevated: none;
+
+  --tech-line: 1px solid color-mix(in oklab, var(--loom-color-ink) 18%, transparent);
+  --tech-line-strong: 1px solid color-mix(in oklab, var(--loom-color-ink) 38%, transparent);
+  --tech-gutter: clamp(1rem, 3.5vw, 3rem);
+  --tech-label: 0.6875rem;
+}
+
+:root .loom-page {
+  padding-inline: var(--tech-gutter);
+  max-width: 84rem;
+  margin-inline: auto;
+}
+
+/* ---------- Header: a status bar ---------------------------------------- */
+
+:root header.loom-page-header {
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom: var(--tech-line-strong);
+  padding: 0.75rem var(--tech-gutter);
+  position: static;
+}
+:root nav.loom-page-nav a.loom-page-brand {
+  font-family: var(--loom-font-mono, monospace);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  letter-spacing: -0.01em;
+  padding-left: 0;
+}
+/* A prompt marker before the brand: signals "this is a machine you operate"
+ * without an icon file. aria-hidden by virtue of being generated content. */
+:root nav.loom-page-nav a.loom-page-brand::before {
+  content: "› ";
+  color: var(--loom-color-accent);
+}
+:root nav.loom-page-nav a:not(.loom-page-brand) {
+  font-family: var(--loom-font-mono, monospace);
+  font-size: 0.8125rem;
+  letter-spacing: 0;
+  text-transform: lowercase;
+  font-weight: 400;
+  background: none;
+  padding: 0.3rem 0;
+  margin-inline-start: clamp(0.9rem, 2vw, 1.75rem);
+  border-bottom: 1px solid transparent;
+}
+:root nav.loom-page-nav a:not(.loom-page-brand):hover,
+:root nav.loom-page-nav a[aria-current="page"] {
+  background: none;
+  border-bottom-color: var(--loom-color-accent);
+}
+
+/* ---------- Hero: a header block, not a banner -------------------------- */
+
+:root .loom-section-hero {
+  border: 0;
+  border-bottom: var(--tech-line);
+  border-left: 3px solid var(--loom-color-accent);
+  padding: clamp(1.75rem, 4vw, 3rem) 0 clamp(1.5rem, 3vw, 2.25rem) clamp(1rem, 2vw, 1.75rem);
+  gap: 0.875rem;
+}
+:root .loom-section-hero__title,
+:root .loom-hero-title {
+  font-family: var(--loom-font-body);
+  font-size: clamp(1.875rem, 4.5vw, 3.25rem);
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  font-weight: 700;
+  max-inline-size: 24ch;
+  color: var(--loom-color-ink);
+}
+:root .loom-section-hero__eyebrow,
+:root .loom-hero-eyebrow {
+  font-family: var(--loom-font-mono, monospace);
+  font-size: var(--tech-label);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--loom-color-accent);
+  background: none;
+  border: 0;
+  padding: 0;
+}
+:root .loom-section-hero__lede,
+:root .loom-hero-subtitle {
+  font-size: 1rem;
+  line-height: 1.55;
+  max-inline-size: 74ch;
+  color: var(--loom-color-muted);
+}
+
+/* ---------- Buttons: bracketed commands --------------------------------- */
+
+:root .loom-btn,
+:root .loom-section-hero__cta,
+:root .loom-cta-band__cta {
+  background: none;
+  color: var(--loom-color-ink);
+  border: 1px solid var(--loom-color-border);
+  border-radius: 0;
+  padding: 0.5rem 0.9rem;
+  font-family: var(--loom-font-mono, monospace);
+  font-size: 0.8125rem;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 500;
+  box-shadow: none;
+}
+:root .loom-btn:hover,
+:root .loom-section-hero__cta:hover,
+:root .loom-cta-band__cta:hover {
+  background: none;
+  border-color: var(--loom-color-accent) !important;
+  color: var(--loom-color-accent) !important;
+  transform: none;
+}
+
+/* ---------- Work list: a table of records ------------------------------- */
+
+:root .loom-card-feed { display: block; border: 0; background: none; }
+:root .loom-card-feed__heading,
+:root .loom-feature-spotlight__heading,
+:root .loom-stat-band__heading {
+  font-family: var(--loom-font-mono, monospace);
+  font-size: var(--tech-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--loom-color-muted);
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: var(--tech-line);
+}
+:root .loom-card-feed-item {
+  background: none;
+  border: 0;
+  border-bottom: var(--tech-line);
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0.875rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 1rem;
+  transform: none;
+}
+:root .loom-card-feed { counter-reset: tech-row; }
+:root .loom-card-feed-item { counter-increment: tech-row; }
+:root .loom-card-feed-item__title::before {
+  /* On the TITLE, not the item: the item is a grid/flex parent whose
+     only child is the card link, so a pseudo-element there stole the
+     link's column and wrapped the title one character per line. */
+  content: counter(tech-row, decimal-leading-zero) "  ";
+  font-family: var(--loom-font-mono, monospace);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--loom-color-accent);
+  letter-spacing: 0.08em;
+}
+:root .loom-card-feed-item__title {
+  font-family: var(--loom-font-body);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--loom-color-ink);
+}
+:root .loom-card-feed-item__tag {
+  background: none;
+  border: 1px solid var(--loom-color-border);
+  padding: 0.1rem 0.4rem;
+  font-family: var(--loom-font-mono, monospace);
+  font-size: 0.6875rem;
+  letter-spacing: 0;
+  text-transform: lowercase;
+  color: var(--loom-color-muted);
+  white-space: nowrap;
+}
+:root .loom-card-feed-item__avatar { display: none; }
+:root .loom-card-feed-item:hover { background: color-mix(in oklab, var(--loom-color-ink) 4%, transparent); }
+
+/* ---------- Statistics: readout cells ----------------------------------- */
+
+:root .loom-stat-band {
+  background: none;
+  border: var(--tech-line);
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+  overflow: hidden;
+}
+/* Shared borders: each cell draws its own left edge, the first is suppressed,
+ * so the row reads as one ruled table rather than detached tiles. */
+:root .loom-stat-band__item,
+:root .loom-stat-item {
+  padding: clamp(1rem, 2.5vw, 1.5rem);
+  border-left: var(--tech-line);
+}
+:root .loom-stat-band__item:first-child,
+:root .loom-stat-item:first-child { border-left: 0; }
+:root .loom-stat-band__value,
+:root .loom-stat-value {
+  font-family: var(--loom-font-mono, monospace);
+  font-size: clamp(1.5rem, 3vw, 2.25rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--loom-color-ink);
+}
+:root .loom-stat-band__label,
+:root .loom-stat-label {
+  font-family: var(--loom-font-mono, monospace);
+  font-size: var(--tech-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--loom-color-muted);
+  font-weight: 500;
+}
+
+/* ---------- Prose ------------------------------------------------------- */
+
+:root .loom-page p,
+:root .loom-paragraph,
+:root .loom-prose p {
+  max-inline-size: 74ch;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+:root .loom-page h2,
+:root .loom-heading {
+  font-family: var(--loom-font-body);
+  font-size: clamp(1.125rem, 2vw, 1.5rem);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  margin-block-start: clamp(1.75rem, 3.5vw, 2.75rem);
+  padding-bottom: 0.4rem;
+  border-bottom: var(--tech-line);
+}
+:root code,
+:root .loom-code,
+:root .loom-code-shell {
+  font-family: var(--loom-font-mono, monospace);
+  border-radius: 0;
+  border: var(--tech-line);
+}
+
+/* ---------- Feature grid: labelled cells -------------------------------- */
+
+:root .loom-feature-spotlight__item {
+  background: none;
+  border: var(--tech-line);
+  border-radius: 0;
+  box-shadow: none;
+  padding: 1rem;
+  transform: none;
+}
+:root .loom-feature-spotlight__icon,
+:root .loom-feature-spotlight__icon-svg { display: none; }
+:root .loom-feature-spotlight__title {
+  font-family: var(--loom-font-mono, monospace);
+  font-size: var(--tech-label);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--loom-color-accent);
+}
+:root .loom-feature-spotlight__body {
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--loom-color-ink);
+  margin-block-start: 0.4rem;
+}
+
+/* ---------- Figures, closing band, footer ------------------------------- */
+
+:root .loom-picture,
+:root figure img,
+:root .loom-image-text-row img {
+  border-radius: 0;
+  box-shadow: none;
+  border: var(--tech-line);
+}
+:root .loom-cta-band {
+  background: none;
+  border: 0;
+  border-top: var(--tech-line-strong);
+  border-radius: 0;
+  padding: clamp(2rem, 4vw, 3rem) 0;
+  box-shadow: none;
+  text-align: start;
+}
+:root .loom-cta-band__title {
+  font-family: var(--loom-font-body);
+  font-size: clamp(1.25rem, 2.5vw, 1.875rem);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+:root footer.loom-page-footer {
+  border-top: var(--tech-line-strong);
+  padding: 1.5rem var(--tech-gutter);
+  font-family: var(--loom-font-mono, monospace);
+  font-size: 0.75rem;
+}
+
+@media (max-width: 34rem) {
+  :root .loom-card-feed-item { grid-template-columns: 1fr; gap: 0.35rem; }
+  :root .loom-card-feed-item__tag { white-space: normal; }
+  :root .loom-stat-band__item,
+  :root .loom-stat-item { border-left: 0; border-top: var(--tech-line); }
+  :root .loom-stat-band__item:first-child,
+  :root .loom-stat-item:first-child { border-top: 0; }
+}

@@ -184,8 +184,8 @@
   border-radius: 0 !important;
   box-shadow: none !important;
   padding: clamp(1.5rem, 3vw, 2.25rem) 0;
-  display: grid;
-  grid-template-columns: 3.5rem 1fr auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: clamp(0.75rem, 2vw, 2rem);
   transform: none !important;
@@ -196,10 +196,14 @@
    as content the sighted user gets for free from position. */
 :root .loom-card-feed { counter-reset: ed-work; }
 :root .loom-card-feed-item { counter-increment: ed-work; }
-:root .loom-card-feed-item::before {
-  content: counter(ed-work, decimal-leading-zero);
+:root .loom-card-feed-item__title::before {
+  /* On the TITLE, not the item: the item is a grid/flex parent whose
+     only child is the card link, so a pseudo-element there stole the
+     link's column and wrapped the title one character per line. */
+  content: counter(ed-work, decimal-leading-zero) "  ";
   font-family: var(--loom-font-mono, monospace);
   font-size: 0.8125rem;
+  font-weight: 500;
   color: var(--loom-color-accent);
   letter-spacing: 0.08em;
 }

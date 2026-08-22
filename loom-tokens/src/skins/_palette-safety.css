@@ -1,0 +1,110 @@
+/* ============================================================================
+ * SHARED PARTIAL — repairs every skin needs, regardless of its design.
+ *
+ * Not a skin. Prepended to ALL skins.
+ *
+ * WHY THIS IS SEPARATE FROM `_flat-foregrounds.css`
+ *
+ * The first attempt put every repair in one partial and gave it only to skins
+ * that remove the base's filled backgrounds. That partition was wrong, and the
+ * `warm` skin proved it: keeping its fills, it skipped the partial and
+ * inherited 48 contrast failures — the breadcrumb, the nav, the theme switch
+ * and the stat-band hints, none of which have anything to do with fills.
+ *
+ * The real distinction is:
+ *
+ *   - Rules here fix colours the BASE cannot guarantee across arbitrary
+ *     palettes, because they are expressed as a fixed alpha over an unknown
+ *     background (`color-mix(ink 65%, transparent)`) or a hardcoded dim. Those
+ *     land wherever the tenant's palette happens to put them: fine on paper,
+ *     3.16 on near-black. Every skin needs them, so every skin gets them.
+ *
+ *   - Rules in `_flat-foregrounds.css` fix text that was correct until a skin
+ *     DELETED the fill beneath it. Only flat skins need those, and applying
+ *     them to a skin that kept its fills would break what it kept.
+ *
+ * Everything resolves to a tenant token, which the tenant chose to be legible
+ * on its own surfaces in both themes. That is the only way a shared rule can
+ * be correct for palettes it has never seen.
+ * ========================================================================= */
+
+/* Class names are doubled to outrank the base's descendant selectors
+ * (`nav.loom-page-nav a.loom-page-brand`); `!important` alone loses to a more
+ * specific `!important`. */
+
+:root .loom-breadcrumb__link.loom-breadcrumb__link {
+  color: var(--loom-color-muted) !important;
+}
+:root .loom-breadcrumb__link.loom-breadcrumb__link:hover,
+:root .loom-breadcrumb__link.loom-breadcrumb__link:focus-visible {
+  color: var(--loom-color-ink) !important;
+}
+
+:root .loom-page-nav__link.loom-page-nav__link,
+:root nav.loom-page-nav a:not(.loom-page-brand):not(.loom-btn):not([class*="cta"]) {
+  color: var(--loom-color-muted) !important;
+}
+:root .loom-page-nav__link.loom-page-nav__link:hover,
+:root .loom-page-nav__link.loom-page-nav__link[aria-current="page"],
+:root nav.loom-page-nav a:not(.loom-page-brand):not(.loom-btn):not([class*="cta"]):hover,
+:root nav.loom-page-nav a[aria-current="page"]:not(.loom-btn):not([class*="cta"]) {
+  color: var(--loom-color-ink) !important;
+}
+
+/* The brand mark. Moved here from the flat-only partial because `warm` — which
+   keeps its fills — still rendered it in LIGHT ink on a dark page: the base
+   colours it from a token the tenant's dark palette does not reach. Every skin
+   needs it, which is the same lesson `warm` taught about the nav. */
+:root .loom-page-brand.loom-page-brand.loom-page-brand {
+  color: var(--loom-color-ink) !important;
+}
+
+/* A nav call-to-action is a filled button wherever it appears; its label must
+   be the on-fill colour, not the nav's muted grey. Measured 1.67 on warm. */
+:root .loom-nav-action.loom-nav-action.loom-nav-action,
+:root .loom-btn--primary.loom-btn--primary.loom-btn--primary {
+  color: var(--loom-color-on-primary) !important;
+}
+
+/* A control, so full ink. Its background goes transparent under floating-pill
+ * chrome, which is where a dimmed glyph measured 3.4. */
+:root .loom-theme-toggle.loom-theme-toggle {
+  color: var(--loom-color-ink) !important;
+  background: transparent !important;
+  border-color: var(--loom-color-border) !important;
+}
+:root .loom-theme-toggle.loom-theme-toggle:hover {
+  border-color: var(--loom-color-accent) !important;
+}
+
+/* Supporting copy set as a fraction of an unknown foreground. */
+:root .loom-stat-band__lede.loom-stat-band__lede,
+:root .loom-stat-band__hint.loom-stat-band__hint,
+:root .loom-cta-band__eyebrow.loom-cta-band__eyebrow.loom-cta-band__eyebrow,
+:root .loom-cta-band__lede.loom-cta-band__lede,
+:root footer.loom-page-footer,
+:root .loom-page-footer__col.loom-page-footer__col {
+  color: var(--loom-color-muted) !important;
+}
+
+:root .loom-timeline__when.loom-timeline__when,
+:root .loom-def-list__term.loom-def-list__term,
+:root .loom-source-list__note.loom-source-list__note {
+  color: var(--loom-color-ink) !important;
+}
+
+:root footer.loom-page-footer a {
+  color: var(--loom-color-ink) !important;
+}
+:root footer.loom-page-footer a:hover {
+  color: var(--loom-color-link-hover) !important;
+}
+
+/* The skip link is the first thing a keyboard user reaches. The base gives it
+ * a surface fill that a tenant palette can leave it invisible against. */
+:root .loom-skip.loom-skip,
+:root .loom-skip-link.loom-skip-link {
+  background: var(--loom-color-bg) !important;
+  color: var(--loom-color-ink) !important;
+  border: 2px solid var(--loom-color-accent) !important;
+}

@@ -1,0 +1,344 @@
+/* ============================================================================
+ * SKIN: civic
+ *
+ * For public-interest work — elections, records, anything whose credibility
+ * depends on looking impartial rather than looking sold. The reference is a
+ * public notice or a ballot paper: symmetric, ruled, unhurried, and visibly
+ * uninterested in persuading you.
+ *
+ * How it differs structurally from the other skins:
+ *
+ *   CENTRED AND SYMMETRIC. Editorial and technical are both left-aligned and
+ *   asymmetric. This one centres its masthead, hero and closing band, which
+ *   changes the page's silhouette at a glance — the fastest way two designs
+ *   read as unrelated. Body prose stays left-aligned, because centred running
+ *   text is genuinely harder to read; only the display furniture centres.
+ *
+ *   DOUBLE RULES. A 3px/1px stacked rule under the masthead and above the
+ *   footer, the way an official notice separates authority from content. It is
+ *   a distinctive, cheap, palette-driven signature that needs no imagery.
+ *
+ *   NUMBERED SECTIONS. Headings carry an automatic section number, like a
+ *   statute. It signals "this document has a structure you can cite" and
+ *   reinforces the subject matter without a word of copy.
+ *
+ *   NO ACCENT FILLS. The accent appears only in rules and numbers. Institutions
+ *   that colour things in look like campaigns.
+ * ========================================================================= */
+
+:root {
+  --loom-radius: 0;
+  --loom-radius-sm: 0;
+  --loom-radius-md: 0;
+  --loom-radius-lg: 0;
+  --loom-radius-xl: 0;
+  --loom-radius-pill: 0;
+  --loom-radius-full: 0;
+  --loom-radius-component: 0;
+  --loom-shadow-sm: none;
+  --loom-shadow-md: none;
+  --loom-shadow-lg: none;
+  --loom-shadow-elevated: none;
+
+  --civ-rule: 1px solid var(--loom-color-ink);
+  --civ-hair: 1px solid color-mix(in oklab, var(--loom-color-ink) 25%, transparent);
+  --civ-gutter: clamp(1.25rem, 5vw, 4rem);
+  --civ-measure: 66ch;
+}
+
+:root .loom-page {
+  padding-inline: var(--civ-gutter);
+  max-width: 68rem;
+  margin-inline: auto;
+}
+
+/* ---------- Masthead ---------------------------------------------------- */
+
+:root header.loom-page-header {
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  /* The stacked rule: a thick line, a gap, a hairline. */
+  border-bottom: 3px solid var(--loom-color-ink);
+  box-shadow: 0 4px 0 -3px var(--loom-color-bg), 0 5px 0 -3px color-mix(in oklab, var(--loom-color-ink) 45%, transparent);
+  padding: clamp(1rem, 3vw, 2rem) var(--civ-gutter) clamp(0.875rem, 2vw, 1.25rem);
+  position: static;
+  text-align: center;
+}
+:root nav.loom-page-nav {
+  justify-content: center;
+  flex-wrap: wrap;
+  row-gap: 0.5rem;
+}
+:root nav.loom-page-nav a.loom-page-brand {
+  font-family: var(--loom-font-display);
+  font-weight: 600;
+  font-size: clamp(1.0625rem, 1.8vw, 1.375rem);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 0 0 0.5rem;
+  /* Own line, centred above the nav — a masthead, not a logo in a bar. */
+  flex-basis: 100%;
+  text-align: center;
+}
+:root nav.loom-page-nav a:not(.loom-page-brand) {
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 500;
+  background: none;
+  padding: 0.25rem 0;
+  margin-inline: clamp(0.6rem, 1.6vw, 1.25rem);
+  border-bottom: 1px solid transparent;
+}
+:root nav.loom-page-nav a:not(.loom-page-brand):hover,
+:root nav.loom-page-nav a[aria-current="page"] {
+  background: none;
+  border-bottom-color: var(--loom-color-accent);
+}
+
+/* ---------- Hero: a notice ---------------------------------------------- */
+
+:root .loom-section-hero {
+  border: 0;
+  border-bottom: var(--civ-hair);
+  padding: clamp(2.5rem, 7vh, 5rem) 0 clamp(2rem, 5vh, 3.5rem);
+  gap: 1.125rem;
+  text-align: center;
+  align-items: center;
+}
+:root .loom-section-hero__title,
+:root .loom-hero-title {
+  font-family: var(--loom-font-display);
+  font-size: clamp(1.875rem, 4.5vw, 3.25rem);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+  max-inline-size: 24ch;
+  margin-inline: auto;
+  color: var(--loom-color-ink);
+}
+:root .loom-section-hero__eyebrow,
+:root .loom-hero-eyebrow {
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--loom-color-muted);
+  background: none;
+  border: 0;
+  padding: 0;
+}
+:root .loom-section-hero__lede,
+:root .loom-hero-subtitle {
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  max-inline-size: 58ch;
+  margin-inline: auto;
+  color: var(--loom-color-muted);
+  text-align: center;
+}
+
+/* ---------- Buttons: bordered, formal ----------------------------------- */
+
+:root .loom-btn,
+:root .loom-section-hero__cta,
+:root .loom-cta-band__cta {
+  background: none;
+  color: var(--loom-color-ink);
+  border: var(--civ-rule);
+  border-radius: 0;
+  padding: 0.6rem 1.5rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 600;
+  box-shadow: none;
+}
+:root .loom-btn:hover,
+:root .loom-section-hero__cta:hover,
+:root .loom-cta-band__cta:hover {
+  background: var(--loom-color-ink) !important;
+  color: var(--loom-color-bg) !important;
+  transform: none;
+}
+
+/* ---------- Numbered sections ------------------------------------------- */
+
+:root main#content { counter-reset: civ-sec; }
+:root .loom-page h2,
+:root .loom-heading {
+  counter-increment: civ-sec;
+  font-family: var(--loom-font-display);
+  font-size: clamp(1.25rem, 2.4vw, 1.75rem);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  line-height: 1.25;
+  max-inline-size: 30ch;
+  margin-block-start: clamp(2.25rem, 4.5vw, 3.5rem);
+  padding-top: 0.75rem;
+  border-top: var(--civ-hair);
+}
+:root .loom-page h2::before,
+:root .loom-heading::before {
+  content: "§ " counter(civ-sec) " ";
+  color: var(--loom-color-accent);
+  font-family: var(--loom-font-mono, monospace);
+  font-size: 0.75em;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+/* ---------- Record list ------------------------------------------------- */
+
+:root .loom-card-feed { display: block; border: 0; background: none; }
+:root .loom-card-feed__heading,
+:root .loom-feature-spotlight__heading,
+:root .loom-stat-band__heading {
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--loom-color-muted);
+  text-align: center;
+  margin-bottom: clamp(1.25rem, 3vw, 2rem);
+}
+:root .loom-card-feed-item {
+  background: none;
+  border: 0;
+  border-top: var(--civ-hair);
+  border-radius: 0;
+  box-shadow: none;
+  padding: clamp(1.125rem, 2.5vw, 1.75rem) 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 1.25rem;
+  transform: none;
+}
+:root .loom-card-feed-item:last-child { border-bottom: var(--civ-hair); }
+:root .loom-card-feed-item__title {
+  font-family: var(--loom-font-display);
+  font-size: clamp(1.125rem, 2.2vw, 1.5rem);
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--loom-color-ink);
+}
+:root .loom-card-feed-item__tag {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--loom-color-muted);
+  white-space: nowrap;
+}
+:root .loom-card-feed-item__avatar { display: none; }
+:root .loom-card-feed-item:hover .loom-card-feed-item__title {
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+
+/* ---------- Statistics: a ruled return ---------------------------------- */
+
+:root .loom-stat-band {
+  background: none;
+  border: 0;
+  border-top: 3px solid var(--loom-color-ink);
+  border-bottom: var(--civ-hair);
+  border-radius: 0;
+  padding: clamp(1.75rem, 3.5vw, 2.5rem) 0;
+  box-shadow: none;
+  text-align: center;
+}
+:root .loom-stat-band__value,
+:root .loom-stat-value {
+  font-family: var(--loom-font-display);
+  font-size: clamp(1.75rem, 4vw, 2.75rem);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--loom-color-ink);
+}
+:root .loom-stat-band__label,
+:root .loom-stat-label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--loom-color-muted);
+  font-weight: 600;
+}
+
+/* ---------- Prose ------------------------------------------------------- */
+
+:root .loom-page p,
+:root .loom-paragraph,
+:root .loom-prose p {
+  /* Left-aligned deliberately: centred running text is hard to read, so only
+   * the display furniture above is centred. */
+  max-inline-size: var(--civ-measure);
+  font-size: 1.0625rem;
+  line-height: 1.7;
+  text-align: start;
+}
+
+/* ---------- Feature grid, figures, closing band, footer ----------------- */
+
+:root .loom-feature-spotlight__item {
+  background: none;
+  border: 0;
+  border-top: var(--civ-hair);
+  border-radius: 0;
+  box-shadow: none;
+  padding: 1.25rem 0 0;
+  transform: none;
+}
+:root .loom-feature-spotlight__icon,
+:root .loom-feature-spotlight__icon-svg { display: none; }
+:root .loom-feature-spotlight__title {
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--loom-color-muted);
+}
+:root .loom-feature-spotlight__body {
+  font-size: 1rem;
+  line-height: 1.65;
+  color: var(--loom-color-ink);
+  margin-block-start: 0.5rem;
+}
+:root .loom-picture,
+:root figure img,
+:root .loom-image-text-row img {
+  border-radius: 0;
+  box-shadow: none;
+  border: var(--civ-hair);
+}
+:root .loom-cta-band {
+  background: none;
+  border: 0;
+  border-top: 3px solid var(--loom-color-ink);
+  border-radius: 0;
+  padding: clamp(2.5rem, 6vw, 4rem) 0;
+  box-shadow: none;
+  text-align: center;
+}
+:root .loom-cta-band__title {
+  font-family: var(--loom-font-display);
+  font-size: clamp(1.375rem, 3vw, 2.25rem);
+  font-weight: 600;
+  max-inline-size: 26ch;
+  margin-inline: auto;
+}
+:root footer.loom-page-footer {
+  border-top: 3px solid var(--loom-color-ink);
+  padding: clamp(1.75rem, 3.5vw, 2.5rem) var(--civ-gutter);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+@media (max-width: 34rem) {
+  :root .loom-card-feed-item { grid-template-columns: 1fr; gap: 0.4rem; }
+  :root .loom-card-feed-item__tag { white-space: normal; }
+}

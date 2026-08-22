@@ -58,11 +58,63 @@ pub const SKIN_CSS: &str = include_str!("skin.css");
 /// Splitting the 555KB base into structure and expression properly is the
 /// eventual job; overlays make distinct skins possible now, without a refactor
 /// that would put every existing site at risk in one step.
-const SKIN_EDITORIAL: &str = include_str!("skins/editorial.css");
+/// Foreground repair for skins that remove the base's filled backgrounds.
+///
+/// Composed into each flat skin at COMPILE time, ahead of the skin's own rules,
+/// so a new flat skin inherits the repair by construction. It is prepended
+/// rather than appended: the shared rules are a floor a skin may override, not
+/// a ceiling imposed on it.
+///
+/// Authoring `editorial` rediscovered the same defect three times — remove a
+/// filled band and its near-white "on-fill" text is left on a near-white page,
+/// invisible at a measured contrast of 1.0. Sharing the repair is what stops
+/// the fourth skin from finding it a fourth time.
+const FLAT_FOREGROUNDS: &str = include_str!("skins/_flat-foregrounds.css");
+
+/// Repairs EVERY skin needs: colours the base expresses as a fixed alpha over
+/// an unknown background, which land wherever the tenant's palette happens to
+/// put them — fine on paper, 3.16 on near-black.
+///
+/// This was originally folded into `FLAT_FOREGROUNDS` and given only to skins
+/// that remove fills. `warm` disproved that partition by keeping its fills,
+/// skipping the partial, and inheriting 48 contrast failures in components that
+/// have nothing to do with fills.
+const PALETTE_SAFETY: &str = include_str!("skins/_palette-safety.css");
+
+const SKIN_EDITORIAL: &str = concat!(
+    include_str!("skins/_palette-safety.css"),
+    include_str!("skins/_flat-foregrounds.css"),
+    include_str!("skins/editorial.css")
+);
+const SKIN_TECHNICAL: &str = concat!(
+    include_str!("skins/_palette-safety.css"),
+    include_str!("skins/_flat-foregrounds.css"),
+    include_str!("skins/technical.css")
+);
+const SKIN_CIVIC: &str = concat!(
+    include_str!("skins/_palette-safety.css"),
+    include_str!("skins/_flat-foregrounds.css"),
+    include_str!("skins/civic.css")
+);
+/// `warm` takes palette safety but NOT the flat repair: it keeps its fills, so
+/// the on-fill foregrounds that partial rewrites are still correct here.
+const SKIN_WARM: &str = concat!(
+    include_str!("skins/_palette-safety.css"),
+    include_str!("skins/warm.css")
+);
 
 /// Skin names a tenant may select via `forge.toml` `[style] skin = "…"`.
 /// `"base"` is the default and adds no overlay.
-pub const SKIN_NAMES: &[&str] = &["base", "editorial"];
+///
+/// Each is a distinct visual language, not a palette: they differ in alignment,
+/// density, whether containers exist at all, and type treatment. Two tenants on
+/// different skins share DOM and semantics and nothing visual.
+///
+/// * `editorial` — no containers, type-driven hierarchy, asymmetric, serif.
+/// * `technical` — dense, monospaced furniture, shared-border cells, square.
+/// * `civic` — centred and symmetric, stacked rules, numbered sections.
+/// * `warm` — containers, large radii, soft shadows, generous type.
+pub const SKIN_NAMES: &[&str] = &["base", "editorial", "technical", "civic", "warm"];
 
 /// The expression overlay for `name`, or `None` for the default skin.
 ///
@@ -73,7 +125,117 @@ pub fn skin_overlay(name: &str) -> Result<Option<&'static str>, ()> {
     match name {
         "base" => Ok(None),
         "editorial" => Ok(Some(SKIN_EDITORIAL)),
+        "technical" => Ok(Some(SKIN_TECHNICAL)),
+        "civic" => Ok(Some(SKIN_CIVIC)),
+        "warm" => Ok(Some(SKIN_WARM)),
         _ => Err(()),
+    }
+}
+
+#[cfg(test)]
+mod skin_tests {
+    use super::*;
+
+    #[test]
+    fn every_advertised_skin_resolves() {
+        // A name in SKIN_NAMES that does not resolve would fail the build of any
+        // tenant that trusted the list — the list IS the tenant-facing contract.
+        for name in SKIN_NAMES {
+            let got = skin_overlay(name);
+            assert!(got.is_ok(), "advertised skin {name:?} does not resolve");
+            if *name != "base" {
+                assert!(got.unwrap().is_some(), "{name:?} must carry an overlay");
+            }
+        }
+        assert!(skin_overlay("nope").is_err(), "unknown names must not fall back");
+    }
+
+    #[test]
+    fn every_skin_takes_palette_safety() {
+        // These repair colours the base expresses as a fixed alpha over an
+        // unknown background, so they are wrong for SOME palette no matter what
+        // the skin does. Omitting them is what gave `warm` 48 contrast failures
+        // in components that have nothing to do with its design.
+        for name in SKIN_NAMES.iter().filter(|n| **n != "base") {
+            let css = skin_overlay(name).unwrap().unwrap();
+            assert!(
+                css.starts_with(PALETTE_SAFETY),
+                "{name} must take palette safety as its floor"
+            );
+        }
+    }
+
+    #[test]
+    fn only_skins_that_remove_fills_take_the_flat_repair() {
+        // Applying the flat repair to a skin that KEPT its fills would rewrite
+        // foregrounds that are still correct — the mirror image of the bug it
+        // exists to prevent. So this asserts both directions.
+        for name in ["editorial", "technical", "civic"] {
+            let css = skin_overlay(name).unwrap().unwrap();
+            assert!(
+                css.contains(FLAT_FOREGROUNDS),
+                "{name} removes fills but is missing the foreground repair"
+            );
+            assert!(css.contains("loom-steps__num"), "{name}: repair looks truncated");
+        }
+        let warm = skin_overlay("warm").unwrap().unwrap();
+        assert!(
+            !warm.contains(FLAT_FOREGROUNDS),
+            "warm keeps its fills, so the flat repair must not be applied"
+        );
+    }
+
+    #[test]
+    fn skins_never_hardcode_a_colour_outside_the_tenant_palette() {
+        // Every colour must resolve through a --loom-color-* token. A literal
+        // hex is how the base ended up painting every site with the same blue
+        // and violet wash regardless of the palette the tenant chose.
+        //
+        // `#` alone is not enough to go on: an ID selector like `main#content`
+        // contains one. A hex colour is `#` plus exactly 3, 4, 6 or 8 hex
+        // digits and nothing word-like after it.
+        fn hex_colour_at(bytes: &[u8], hash: usize) -> bool {
+            let run = bytes[hash + 1..]
+                .iter()
+                .take_while(|b| b.is_ascii_hexdigit())
+                .count();
+            let ends_cleanly = bytes
+                .get(hash + 1 + run)
+                .is_none_or(|b| !b.is_ascii_alphanumeric() && *b != b'_' && *b != b'-');
+            matches!(run, 3 | 4 | 6 | 8) && ends_cleanly
+        }
+        // Prove the detector still bites. Narrowing it to exclude ID selectors
+        // could easily have narrowed it into a check that passes everything,
+        // and a green test that cannot fail is worse than no test.
+        let fires = |s: &str| {
+            let b = s.as_bytes();
+            b.iter().enumerate().any(|(i, c)| *c == b'#' && hex_colour_at(b, i))
+        };
+        assert!(fires("color: #FAF8F4;"), "must catch a 6-digit hex");
+        assert!(fires("color: #fff"), "must catch a 3-digit hex");
+        assert!(fires("border-color: #16130F80;"), "must catch an 8-digit hex");
+        assert!(!fires(":root main#content { counter-reset: x; }"), "an ID is not a colour");
+        assert!(!fires(".loom-page-footer__col"), "a class is not a colour");
+
+        for name in ["editorial", "technical", "civic", "warm"] {
+            let css = skin_overlay(name).unwrap().unwrap();
+            for (n, line) in css.lines().enumerate() {
+                let code = line.split("/*").next().unwrap_or("").trim();
+                if code.starts_with('*') || code.starts_with("//") {
+                    continue;
+                }
+                let bytes = code.as_bytes();
+                let hex = bytes
+                    .iter()
+                    .enumerate()
+                    .any(|(i, b)| *b == b'#' && hex_colour_at(bytes, i));
+                assert!(
+                    !hex && !code.contains("hsl(") && !code.contains("rgb("),
+                    "{name}:{} hardcodes a colour: {code}",
+                    n + 1
+                );
+            }
+        }
     }
 }
 

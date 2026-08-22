@@ -1,0 +1,369 @@
+/* ============================================================================
+ * SKIN: warm
+ *
+ * For sites whose readers are not specialists and did not arrive confident —
+ * financial education, community services, anything where the visitor's first
+ * question is "is this for someone like me?". Austerity reads as expertise to
+ * a professional audience and as coldness to everyone else.
+ *
+ * This is deliberately the OPPOSITE of `editorial` and `technical`, so that a
+ * tenant on this skin cannot be mistaken for a tenant on those:
+ *
+ *   CONTAINERS RETURN. Editorial removes every card on principle; here the
+ *   card is the point. A bounded, gently raised block says "this is one idea,
+ *   you can finish it" to a reader who is not skimming.
+ *
+ *   GENEROUS TYPE. Body text is 1.125rem at 1.75 line-height, well above the
+ *   other skins. The likely reader is older, or on a phone, or both, and this
+ *   costs nothing but vertical space.
+ *
+ *   LARGE RADII AND SOFT SHADOWS. The visual vocabulary of approachability.
+ *
+ *   TINTS, NOT FILLS. Section backgrounds are the tenant's own colours mixed
+ *   heavily INTO the page background, so text stays `ink` and contrast is
+ *   preserved by construction. A solid brand fill with light text on it is how
+ *   friendly designs fail accessibility — the fill looks fine in one theme and
+ *   collapses in the other. Mixing toward `bg` cannot do that: the result is
+ *   always close to the surface the ink was chosen for.
+ *
+ * Note this skin does NOT take the flat-foreground partial: it keeps its
+ * backgrounds, so the on-fill foregrounds those rules repair are still correct.
+ * ========================================================================= */
+
+:root {
+  --loom-radius: 14px;
+  --loom-radius-sm: 10px;
+  --loom-radius-md: 14px;
+  --loom-radius-lg: 20px;
+  --loom-radius-xl: 28px;
+  --loom-radius-pill: 999px;
+  --loom-radius-full: 999px;
+  --loom-radius-component: 16px;
+
+  --warm-shadow: 0 1px 2px color-mix(in oklab, var(--loom-color-ink) 6%, transparent),
+                 0 8px 24px color-mix(in oklab, var(--loom-color-ink) 8%, transparent);
+  --warm-shadow-lift: 0 2px 4px color-mix(in oklab, var(--loom-color-ink) 8%, transparent),
+                      0 14px 34px color-mix(in oklab, var(--loom-color-ink) 12%, transparent);
+  --loom-shadow-sm: var(--warm-shadow);
+  --loom-shadow-md: var(--warm-shadow);
+  --loom-shadow-lg: var(--warm-shadow-lift);
+  --loom-shadow-elevated: var(--warm-shadow-lift);
+
+  /* Tints: the tenant's own hues pulled most of the way to the page
+   * background, so ink stays legible on every one of them. */
+  --warm-tint-primary: color-mix(in oklab, var(--loom-color-primary) 8%, var(--loom-color-bg));
+  --warm-tint-accent:  color-mix(in oklab, var(--loom-color-accent) 10%, var(--loom-color-bg));
+  --warm-surface: color-mix(in oklab, var(--loom-color-ink) 3%, var(--loom-color-bg));
+  --warm-gutter: clamp(1.25rem, 5vw, 3.5rem);
+}
+
+/* The base paints `body` with hardcoded blue and violet gradients that ignore
+ * the tenant palette — the same wash on every site. A warm site gets a warm
+ * field, from its own colours. */
+:root body {
+  background:
+    radial-gradient(70rem 40rem at 85% -15%, var(--warm-tint-accent), transparent 60%),
+    radial-gradient(60rem 36rem at -10% 8%, var(--warm-tint-primary), transparent 58%),
+    var(--loom-color-bg);
+  background-attachment: fixed;
+}
+
+:root .loom-page {
+  padding-inline: var(--warm-gutter);
+  max-width: 74rem;
+  margin-inline: auto;
+}
+
+/* ---------- Header ------------------------------------------------------ */
+
+:root header.loom-page-header {
+  background: color-mix(in oklab, var(--loom-color-bg) 88%, transparent);
+  border-bottom: 1px solid color-mix(in oklab, var(--loom-color-border) 60%, transparent);
+  padding: 0.875rem var(--warm-gutter);
+}
+:root nav.loom-page-nav a.loom-page-brand {
+  font-family: var(--loom-font-display);
+  font-weight: 700;
+  font-size: clamp(1.0625rem, 1.6vw, 1.25rem);
+  letter-spacing: -0.015em;
+  text-transform: none;
+}
+:root nav.loom-page-nav a:not(.loom-page-brand) {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  border-radius: 999px;
+  padding: 0.5rem 0.9rem;
+  color: var(--loom-color-muted);
+}
+:root nav.loom-page-nav a:not(.loom-page-brand):hover,
+:root nav.loom-page-nav a[aria-current="page"] {
+  background: var(--warm-tint-primary);
+  color: var(--loom-color-ink);
+}
+
+/* ---------- Hero -------------------------------------------------------- */
+
+:root .loom-section-hero {
+  border: 0;
+  border-radius: var(--loom-radius-xl);
+  background: var(--warm-surface);
+  padding: clamp(2.25rem, 6vw, 4rem) clamp(1.5rem, 4vw, 3rem);
+  gap: 1.125rem;
+  box-shadow: var(--warm-shadow);
+}
+:root .loom-section-hero__title,
+:root .loom-hero-title {
+  font-family: var(--loom-font-display);
+  font-size: clamp(2rem, 4.5vw, 3.25rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+  max-inline-size: 20ch;
+  color: var(--loom-color-ink);
+}
+:root .loom-section-hero__eyebrow,
+:root .loom-hero-eyebrow {
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-weight: 600;
+  color: var(--loom-color-ink);
+  background: var(--warm-tint-accent);
+  border: 0;
+  border-radius: 999px;
+  padding: 0.3rem 0.85rem;
+  align-self: flex-start;
+}
+:root .loom-section-hero__lede,
+:root .loom-hero-subtitle {
+  font-size: clamp(1.0625rem, 1.4vw, 1.1875rem);
+  line-height: 1.7;
+  max-inline-size: 60ch;
+  color: var(--loom-color-muted);
+}
+
+/* ---------- Buttons: full pills ----------------------------------------- */
+
+:root .loom-btn.loom-btn.loom-btn,
+:root .loom-section-hero__cta.loom-section-hero__cta.loom-section-hero__cta,
+:root .loom-cta-band__cta.loom-cta-band__cta.loom-cta-band__cta {
+  /* Doubled to outrank the base. A single class set the FILL but lost the
+     text colour to a more specific base rule, leaving the label painted in
+     its old colour on the new background: measured 1.15, i.e. unreadable. A
+     fill and its foreground must always be set at the same specificity. */
+  background: var(--loom-color-primary) !important;
+  color: var(--loom-color-on-primary) !important;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.75rem 1.6rem;
+  font-size: 0.9375rem;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 600;
+  box-shadow: var(--warm-shadow);
+}
+:root .loom-btn.loom-btn.loom-btn:hover,
+:root .loom-section-hero__cta.loom-section-hero__cta.loom-section-hero__cta:hover,
+:root .loom-cta-band__cta.loom-cta-band__cta.loom-cta-band__cta:hover {
+  background: var(--loom-color-button-primary-hover, var(--loom-color-secondary)) !important;
+  color: var(--loom-color-button-primary-fg-hover, var(--loom-color-on-secondary)) !important;
+  box-shadow: var(--warm-shadow-lift);
+}
+
+/* ---------- Cards ------------------------------------------------------- */
+
+:root .loom-card-feed__heading,
+:root .loom-feature-spotlight__heading,
+:root .loom-stat-band__heading {
+  font-family: var(--loom-font-display);
+  font-size: clamp(1.25rem, 2.2vw, 1.625rem);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  text-transform: none;
+  color: var(--loom-color-ink);
+  margin-bottom: 1.25rem;
+}
+:root .loom-card-feed-item,
+:root .loom-feature-spotlight__item {
+  background: var(--warm-surface);
+  border: 1px solid color-mix(in oklab, var(--loom-color-border) 55%, transparent);
+  border-radius: var(--loom-radius-lg);
+  box-shadow: var(--warm-shadow);
+  padding: clamp(1.125rem, 2.5vw, 1.5rem);
+}
+:root .loom-card-feed-item::before {
+  /* The base's featured-card bar is a hardcoded blue-to-orange gradient — the
+     same two hues on every Forge site regardless of palette. Repainted from the
+     tenant's own primary and accent so the decoration belongs to the site. */
+  background: linear-gradient(90deg, var(--loom-color-primary), var(--loom-color-accent)) !important;
+}
+:root .loom-card-feed-item:hover,
+:root .loom-feature-spotlight__item:hover {
+  box-shadow: var(--warm-shadow-lift);
+  border-color: color-mix(in oklab, var(--loom-color-primary) 35%, var(--loom-color-border));
+}
+:root .loom-card-feed-item__title {
+  font-family: var(--loom-font-display);
+  font-size: 1.1875rem;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--loom-color-ink);
+}
+:root .loom-card-feed-item__tag {
+  background: var(--warm-tint-primary);
+  color: var(--loom-color-ink);
+  border: 0;
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.75rem;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 600;
+}
+:root .loom-card-feed-item__avatar {
+  border-radius: 999px;
+}
+
+/* ---------- Statistics -------------------------------------------------- */
+
+:root .loom-stat-band {
+  background: var(--warm-tint-primary);
+  border: 0;
+  border-radius: var(--loom-radius-xl);
+  padding: clamp(1.75rem, 4vw, 2.75rem);
+  box-shadow: none;
+}
+:root .loom-stat-band__value,
+:root .loom-stat-value {
+  font-family: var(--loom-font-display);
+  font-size: clamp(1.875rem, 4vw, 2.75rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  color: var(--loom-color-ink);
+}
+:root .loom-stat-band__label,
+:root .loom-stat-label {
+  font-size: 0.875rem;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--loom-color-muted);
+  font-weight: 600;
+}
+
+/* ---------- Prose: the generous part ------------------------------------ */
+
+:root .loom-page p,
+:root .loom-paragraph,
+:root .loom-prose p {
+  max-inline-size: 62ch;
+  font-size: 1.125rem;
+  line-height: 1.75;
+}
+:root .loom-page h2,
+:root .loom-heading {
+  font-family: var(--loom-font-display);
+  font-size: clamp(1.5rem, 2.8vw, 2rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  max-inline-size: 26ch;
+  margin-block-start: clamp(2.25rem, 4.5vw, 3.25rem);
+}
+:root .loom-feature-spotlight__title {
+  font-family: var(--loom-font-display);
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--loom-color-ink);
+}
+:root .loom-feature-spotlight__body {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--loom-color-muted);
+  margin-block-start: 0.5rem;
+}
+
+/* ---------- Figures, closing band, footer ------------------------------- */
+
+:root .loom-picture,
+:root figure img,
+:root .loom-image-text-row img {
+  border-radius: var(--loom-radius-lg);
+  box-shadow: var(--warm-shadow);
+  border: 0;
+}
+:root .loom-cta-band {
+  background: var(--warm-tint-accent);
+  border: 0;
+  border-radius: var(--loom-radius-xl);
+  padding: clamp(2.25rem, 5vw, 3.5rem);
+  box-shadow: none;
+  text-align: center;
+}
+:root .loom-cta-band__title {
+  font-family: var(--loom-font-display);
+  font-size: clamp(1.5rem, 3vw, 2.25rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  max-inline-size: 24ch;
+  margin-inline: auto;
+  color: var(--loom-color-ink);
+}
+:root .loom-cta-band__lede.loom-cta-band__lede,
+:root .loom-cta-band__eyebrow.loom-cta-band__eyebrow {
+  color: var(--loom-color-muted);
+}
+:root .loom-cta-band__cta { margin-inline: auto; }
+:root footer.loom-page-footer {
+  border-top: 1px solid color-mix(in oklab, var(--loom-color-border) 55%, transparent);
+  padding: clamp(1.75rem, 3.5vw, 2.5rem) var(--warm-gutter);
+  font-size: 0.9375rem;
+}
+
+/* Step numerals keep their disc here — the fill is intact, so `on-primary`
+ * remains the correct foreground. Only the gradient is replaced, because the
+ * base's used a hardcoded second hue. */
+:root .loom-steps__num.loom-steps__num {
+  background: var(--loom-color-primary);
+  color: var(--loom-color-on-primary);
+  box-shadow: var(--warm-shadow);
+  border-radius: 999px;
+}
+
+/* ---------- Nav call-to-action ------------------------------------------
+ *
+ * The header CTA carries `loom-btn loom-btn--sm loom-btn--primary
+ * loom-nav-action`, and the base styles that combination at a specificity that
+ * beat every selector tried above: neither the fill nor the label was mine, and
+ * the label measured 1.67 against its own background on dark.
+ *
+ * Matched here on the full variant stack, which is the most specific selector
+ * that can exist for this element, so the fill and its foreground are finally
+ * set together. They must always be set together — a fill that wins while its
+ * label loses is exactly how a button becomes unreadable.
+ * --------------------------------------------------------------------- */
+
+:root .loom-btn.loom-btn--primary.loom-nav-action,
+:root .loom-btn.loom-btn--sm.loom-btn--primary,
+:root .loom-page-nav__actions .loom-btn.loom-btn--primary {
+  background: var(--loom-color-primary) !important;
+  background-image: none !important;
+  color: var(--loom-color-on-primary) !important;
+}
+:root .loom-btn.loom-btn--primary.loom-nav-action:hover,
+:root .loom-btn.loom-btn--sm.loom-btn--primary:hover,
+:root .loom-page-nav__actions .loom-btn.loom-btn--primary:hover {
+  background: var(--loom-color-button-primary-hover, var(--loom-color-secondary)) !important;
+  color: var(--loom-color-button-primary-fg-hover, var(--loom-color-on-secondary)) !important;
+}
+
+/* The collapsed mobile-nav panel keeps its own link colour; repair it on the
+ * same terms as the visible nav. */
+:root .loom-page-nav__collapse-inline .loom-page-nav__link {
+  color: var(--loom-color-muted) !important;
+}

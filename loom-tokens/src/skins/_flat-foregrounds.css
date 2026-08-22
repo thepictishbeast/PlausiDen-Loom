@@ -1,0 +1,90 @@
+/* ============================================================================
+ * SHARED PARTIAL — repairs for skins that DELETE the base's filled backgrounds.
+ *
+ * Not a skin. Prepended (after `_palette-safety.css`) to flat skins only.
+ *
+ * These rules exist because removing a fill strands the text that was written
+ * for it. The base paints a band, disc or chip and sets its text to an
+ * "on-fill" colour — near-white. Take the fill away and that text is near-white
+ * on a near-white page: measured contrast 1.0, invisible, while every check
+ * that only reads declared colours still passes.
+ *
+ * Authoring `editorial` rediscovered this THREE times — the CTA band, the
+ * footer, and finally `loom-steps__num`, which surfaced only because a
+ * whole-site audit happened to cover the single page that uses steps. Sharing
+ * the repair is what stops the next flat skin finding it a fourth time.
+ *
+ * A skin that KEEPS its fills must NOT take this partial: these rules would
+ * rewrite foregrounds that are still correct over the fills it retained.
+ * Colour-safety repairs that every skin needs live in `_palette-safety.css`.
+ * ========================================================================= */
+
+/* Chrome whose fill this skin removed. */
+:root .loom-page-brand.loom-page-brand.loom-page-brand,
+:root .loom-page-footer__heading.loom-page-footer__heading,
+:root .loom-cta-band__title.loom-cta-band__title {
+  color: var(--loom-color-ink) !important;
+}
+
+/* The base draws a blue-to-orange gradient bar across the top of a featured
+ * feed card using the item's ::before. It is hardcoded decoration that ignores
+ * the tenant palette — the single most recognisable "this is a Forge site"
+ * marking — and it occupies the one pseudo-element a flat skin wants for its
+ * ordinal. Removed here so no flat skin has to fight it, and so ordinals can
+ * live on the title instead.
+ */
+:root .loom-card-feed-item::before {
+  content: none !important;
+  background: none !important;
+  border: 0 !important;
+}
+
+/* The base also promotes the FIRST feed item to a "featured" card — a peach
+ * radial wash, a rounded box and a drop shadow — via a `:first-child` rule that
+ * outranks a plain `.loom-card-feed-item` selector. In a skin built on rows
+ * that one boxed entry is the only thing that still looks like a template.
+ * Matched at higher specificity so the index stays uniform. */
+:root .loom-card-feed-item.loom-card-feed-item:first-child {
+  background: none !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+/* Buttons. A flat skin removes the fill; the base keeps the on-fill label, so
+ * the text is left painting `on-primary` on the page background — measured 1.0,
+ * i.e. an invisible button. `:not(:hover)` so a skin can still invert on hover;
+ * skins that do must mark that declaration !important to outrank this. */
+:root .loom-btn.loom-btn.loom-btn:not(:hover),
+:root .loom-nav-action.loom-nav-action.loom-nav-action:not(:hover),
+:root .loom-btn--primary.loom-btn--primary.loom-btn--primary:not(:hover),
+:root .loom-section-hero__cta.loom-section-hero__cta:not(:hover),
+:root .loom-cta-band__cta.loom-cta-band__cta:not(:hover) {
+  color: var(--loom-color-ink) !important;
+}
+
+/* Step numerals: white glyphs on a gradient disc in the base. Without the disc
+ * they are white on the page. Accent numerals instead, which also matches the
+ * ordinal treatment flat skins use on indexes. */
+:root .loom-steps__num.loom-steps__num {
+  background: none !important;
+  box-shadow: none !important;
+  color: var(--loom-color-accent) !important;
+  font-family: var(--loom-font-mono, monospace) !important;
+  font-size: 0.8125rem !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.08em !important;
+  width: auto !important;
+  height: auto !important;
+  min-width: 0 !important;
+}
+
+/* The base paints `body` with two large radial gradients in hardcoded blue and
+ * violet (hsl 218 / hsl 272). They ignore the tenant palette entirely, so every
+ * site sat on the same faintly cold, lilac-tinted field no matter what palette
+ * it chose — a large part of why tenants looked related. Flat skins sit on
+ * their own background. */
+:root body {
+  background: var(--loom-color-bg) !important;
+  background-attachment: initial !important;
+}
