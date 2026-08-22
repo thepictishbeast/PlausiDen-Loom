@@ -34,19 +34,31 @@
  *   .loom-page-nav__link   measured 2.18 and 2.21
  *   .loom-btn (nav CTA)    measured 1.67
  *
- * Down from 48, and light mode is clean, but not zero. Both resolve colours
- * that are neither this skin's nor the tenant palette's — the CTA's label is
- * a grey-green that is not `on-primary`, over a fill that is not `primary`,
- * with no matching rule findable by walking the CSSOM. Something is setting
- * them below the level a stylesheet override reaches. Do not add more
- * `!important` at higher specificity: three rounds of that moved the number
- * around without fixing it, and one over-broad attempt took it from 4 to 17.
+ * Down from 48, and light mode is clean, but not zero.
  *
- * The next step is to find the actual source — check for an inline style
- * attribute on the nav action, and for a base rule inside a cascade layer,
- * since layered declarations do not lose to unlayered ones the way plain
- * specificity suggests. Until then `warm` is fine for light-first sites and
- * should not ship on a site whose visitors use dark mode.
+ * WHAT HAS BEEN RULED OUT, so the next attempt does not repeat it:
+ *
+ *   - Escalating specificity and !important. Three rounds moved the number
+ *     without fixing it; one over-broad container rule took it 4 -> 17.
+ *   - Setting the component tokens (`--comp-btn-bg` / `--comp-btn-fg` /
+ *     `--loom-color-primary-fg`) rather than the properties. This is the layer
+ *     the base actually drives buttons from, and it looked like the answer —
+ *     `.loom-btn--primary` sets `--comp-btn-fg: var(--loom-color-primary-fg)`,
+ *     a token the tenant palette never populates because it defines
+ *     `on_primary`. Setting all three changed nothing measurable. The token
+ *     rules ARE in the shipped CSS (rule count rose), so they are being
+ *     overridden further down, or the element reads a fourth name.
+ *
+ * A caution on evidence: walking the CSSOM for rules matching the element
+ * returned nothing, and that was initially read as "no rule sets this". It is
+ * more likely the walk was flawed — it only collected rules that declare
+ * `color` ON the element, so a colour arriving by INHERITANCE from an ancestor
+ * produces an empty result and looks like an unreachable declaration. Start by
+ * finding which ANCESTOR the colour is inherited from, with the computed value
+ * checked at every step up the tree.
+ *
+ * Until then `warm` is fine for light-first sites and should not ship where
+ * visitors use dark mode.
  * ========================================================================= */
 
 :root {
@@ -354,35 +366,39 @@
   border-radius: 999px;
 }
 
-/* ---------- Nav call-to-action ------------------------------------------
+/* ---------- Buttons are driven by TOKENS, not properties ----------------
  *
- * The header CTA carries `loom-btn loom-btn--sm loom-btn--primary
- * loom-nav-action`, and the base styles that combination at a specificity that
- * beat every selector tried above: neither the fill nor the label was mine, and
- * the label measured 1.67 against its own background on dark.
+ * This is the actual reason the nav CTA resisted every override above.
  *
- * Matched here on the full variant stack, which is the most specific selector
- * that can exist for this element, so the fill and its foreground are finally
- * set together. They must always be set together — a fill that wins while its
- * label loses is exactly how a button becomes unreadable.
+ * The base does not set `background`/`color` on `.loom-btn--primary`; it sets
+ * `--comp-btn-bg` and `--comp-btn-fg`, which a single generic `.loom-btn` rule
+ * then consumes. Overriding the PROPERTIES fights that rule at the wrong layer,
+ * which is why escalating specificity kept moving the measurement without
+ * fixing it.
+ *
+ * Worse, the variant sets `--comp-btn-fg: var(--loom-color-primary-fg)` — a
+ * token name the tenant palette never populates (it defines `on_primary`, i.e.
+ * `--loom-color-on-primary`). So the label fell back to a base default: a
+ * grey-green that measured 1.67 on its own fill.
+ *
+ * Setting the tokens fixes it at the layer the component was designed around,
+ * and needs no !important at all.
  * --------------------------------------------------------------------- */
 
-:root .loom-btn.loom-btn--primary.loom-nav-action,
-:root .loom-btn.loom-btn--sm.loom-btn--primary,
-:root .loom-page-nav__actions .loom-btn.loom-btn--primary {
-  background: var(--loom-color-primary) !important;
-  background-image: none !important;
-  color: var(--loom-color-on-primary) !important;
+:root .loom-btn--primary,
+:root .loom-nav-action {
+  --comp-btn-bg: var(--loom-color-primary);
+  --comp-btn-fg: var(--loom-color-on-primary);
+  --loom-color-primary-fg: var(--loom-color-on-primary);
 }
-:root .loom-btn.loom-btn--primary.loom-nav-action:hover,
-:root .loom-btn.loom-btn--sm.loom-btn--primary:hover,
-:root .loom-page-nav__actions .loom-btn.loom-btn--primary:hover {
-  background: var(--loom-color-button-primary-hover, var(--loom-color-secondary)) !important;
-  color: var(--loom-color-button-primary-fg-hover, var(--loom-color-on-secondary)) !important;
+:root .loom-btn--primary:hover,
+:root .loom-nav-action:hover {
+  --comp-btn-bg: var(--loom-color-button-primary-hover, var(--loom-color-secondary));
+  --comp-btn-fg: var(--loom-color-button-primary-fg-hover, var(--loom-color-on-secondary));
 }
 
-/* The collapsed mobile-nav panel keeps its own link colour; repair it on the
- * same terms as the visible nav. */
+/* Collapsed mobile-nav links sit on a chip with its own mid-tone background,
+ * so `muted` measured 2.18 there. On a chip they take full ink. */
 :root .loom-page-nav__collapse-inline .loom-page-nav__link {
-  color: var(--loom-color-muted) !important;
+  color: var(--loom-color-ink) !important;
 }
