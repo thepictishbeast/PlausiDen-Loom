@@ -2159,14 +2159,30 @@
         animation-range: entry 12% entry 100%;
       }
       @keyframes loom-reveal {
+        /* TRANSFORM ONLY — deliberately no opacity.
+         *
+         * Fading text in means that for the whole animation the text is
+         * partially transparent, i.e. genuinely low-contrast against the page.
+         * Lighthouse caught exactly this on the live site: a section heading
+         * measured 1.42 and a card title 1.09 while mid-reveal, dropping
+         * accessibility from 100 to 95. It is not an artefact of auditing — a
+         * reader scrolling fast sees the same thing, and a reader who stops
+         * with a section half-entered sees it for as long as they sit there.
+         *
+         * A slide alone reads as the same effect and cannot make text
+         * unreadable, because the glyphs are always fully opaque. Rare case
+         * where the accessible choice is also the simpler one.
+         *
+         * NOTE: `loom-reveal-on-view-frames` and `loom-reveal-up` elsewhere in
+         * this file still fade opacity. They are opt-in per element rather than
+         * applied to every section, so they are not causing this, but they
+         * carry the same hazard wherever they are used. */
         from {
-          opacity: 0;
-          /* translate only — no scale. Scaling text resamples glyphs mid
-           * animation and looks blurry on non-retina displays. */
+          /* No scale either: scaling text resamples glyphs mid animation and
+           * looks blurry on non-retina displays. */
           transform: translateY(1.25rem);
         }
         to {
-          opacity: 1;
           transform: none;
         }
       }
