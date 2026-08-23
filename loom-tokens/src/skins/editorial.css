@@ -468,3 +468,167 @@
   }
   :root .loom-card-feed-item__tag { white-space: normal; }
 }
+
+
+/* ============================================================================
+ * UX pass — 2026-08-23. Every item below was MEASURED on the live site, not
+ * judged by eye, and two of them are regressions this skin introduced.
+ * ========================================================================= */
+
+/* ---------- 1. Tap targets ----------------------------------------------
+ *
+ * Measured 33x15px for the nav links and 80x15 for the header CTA, on both
+ * desktop and mobile. WCAG 2.5.5 asks for 44x44. The base had a 44px floor;
+ * this skin's `padding: 0.35rem 0` removed it while chasing a thinner look.
+ *
+ * The fix keeps the thin LOOK — the visible rule under a nav link stays where
+ * it is — and grows only the hit area, using padding plus a flex box that
+ * centres the label. Appearance and target size are separate concerns and
+ * should not have been traded off against each other.
+ */
+:root nav.loom-page-nav a:not(.loom-page-brand),
+:root .loom-breadcrumb__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding-block: 0;
+}
+:root .loom-btn,
+:root .loom-section-hero__cta,
+:root .loom-cta-band__cta {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+/* Footer links are stacked, discrete targets — not the "inline in a sentence"
+ * case WCAG exempts — and measured 15px tall. They are also the links most
+ * often tapped with a thumb at the bottom of a phone screen. */
+:root .loom-page-footer__links a,
+:root footer.loom-page-footer li > a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+/* ---------- 2. Measure -------------------------------------------------- */
+/* `p` was capped at 68ch but timeline entries measured 135ch — nearly double
+ * the comfortable maximum, because the cap was written for paragraphs and the
+ * newer section kinds render their text in other elements. Cap by role, not by
+ * tag name, so a section kind added later inherits the limit. */
+:root .loom-timeline__body,
+:root .loom-timeline__item,
+:root .loom-steps__body,
+:root .loom-def-list dd,
+:root .loom-source-list__item,
+:root .loom-aside-note,
+:root .loom-prose,
+:root .loom-feature-spotlight__body,
+:root .loom-cta-band__lede,
+:root .loom-section-hero__lede {
+  max-inline-size: var(--ed-measure);
+}
+
+/* ---------- 3. The masthead uses its width ------------------------------
+ *
+ * At 1440px the hero left roughly 60% of the page empty to the right while the
+ * lede wrapped at 89ch underneath the title. Above 75rem the hero becomes two
+ * columns: the display line takes the wider one, the supporting text and the
+ * call to action sit in the narrower one, baseline-aligned. That is the
+ * standard editorial masthead, it uses the space the old layout wasted, and it
+ * shortens the lede's measure at the same time.
+ */
+@media (min-width: 75rem) {
+  :root .loom-section-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    column-gap: clamp(2rem, 5vw, 5rem);
+    align-items: end;
+  }
+  :root .loom-section-hero__eyebrow { grid-column: 1 / -1; }
+  :root .loom-section-hero__title {
+    grid-column: 1;
+    margin: 0;
+    max-inline-size: 16ch;
+    font-size: clamp(3rem, 6vw, 5.5rem);
+  }
+  :root .loom-section-hero__lede {
+    grid-column: 2;
+    align-self: end;
+    max-inline-size: 42ch;
+    margin-block-end: 0.35rem;
+  }
+  :root .loom-section-hero__cta { grid-column: 2; justify-self: start; }
+}
+
+/* ---------- 4. Mobile nav control --------------------------------------
+ *
+ * The menu button rendered as a solid accent-red square — the one saturated
+ * block on an otherwise restrained page, and the first thing the eye lands on
+ * at phone width. Given the same treatment as the theme switch: a bordered
+ * square that reads as a control without shouting.
+ */
+:root .loom-nav-toggle,
+:root .loom-page-nav__toggle,
+:root [class*="nav-toggle"] {
+  background: transparent !important;
+  color: var(--loom-color-ink) !important;
+  border: 1px solid var(--loom-color-border) !important;
+  border-radius: 0 !important;
+  min-width: 44px;
+  min-height: 44px;
+}
+:root .loom-nav-toggle:hover,
+:root .loom-page-nav__toggle:hover,
+:root [class*="nav-toggle"]:hover {
+  border-color: var(--loom-color-accent) !important;
+}
+
+/* ---------- 5. Focus is always visible ---------------------------------
+ *
+ * One nav link reported `outline-style: none` at phone width. A focus ring
+ * that exists at some breakpoints and not others is worse than a consistent
+ * one, because keyboard users cannot predict it.
+ */
+:root a:focus-visible,
+:root button:focus-visible,
+:root [tabindex]:focus-visible {
+  outline: 2px solid var(--loom-color-accent) !important;
+  outline-offset: 3px;
+}
+
+/* ---------- 6. Mobile rhythm -------------------------------------------- */
+/* 11vh of hero padding is generous on a desktop and wasteful on a phone, where
+ * it pushed the headline most of a screen down. */
+@media (max-width: 48rem) {
+  :root .loom-section-hero {
+    padding-block: clamp(1.75rem, 5vh, 3rem) clamp(1.5rem, 4vh, 2.5rem);
+  }
+  :root .loom-page h2,
+  :root .loom-heading { margin-block-start: clamp(1.75rem, 5vw, 2.5rem); }
+}
+
+
+/* ---------- 7. Display lines never hyphenate ----------------------------
+ *
+ * The headline was breaking as "the sys-/tems that keep them running". The
+ * base sets `overflow-wrap: anywhere` on headings, which is a sensible
+ * defence against a long unbroken string overflowing its container — but at
+ * display size it lets ordinary words split mid-syllable, which is the most
+ * visible typographic error a page can make and it lands on the first line a
+ * visitor reads.
+ *
+ * `break-word` keeps the overflow protection (it only breaks when a word
+ * genuinely cannot fit) while refusing to break words that can. `text-wrap:
+ * balance` then evens the ragged edge across lines where supported.
+ */
+:root .loom-section-hero__title,
+:root .loom-hero-title,
+:root .loom-cta-band__title,
+:root .loom-card-feed-item__title,
+:root .loom-page h2,
+:root .loom-heading {
+  hyphens: none;
+  -webkit-hyphens: none;
+  overflow-wrap: break-word;
+  text-wrap: balance;
+}

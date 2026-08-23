@@ -147,7 +147,10 @@ mod skin_tests {
                 assert!(got.unwrap().is_some(), "{name:?} must carry an overlay");
             }
         }
-        assert!(skin_overlay("nope").is_err(), "unknown names must not fall back");
+        assert!(
+            skin_overlay("nope").is_err(),
+            "unknown names must not fall back"
+        );
     }
 
     #[test]
@@ -176,7 +179,10 @@ mod skin_tests {
                 css.contains(FLAT_FOREGROUNDS),
                 "{name} removes fills but is missing the foreground repair"
             );
-            assert!(css.contains("loom-steps__num"), "{name}: repair looks truncated");
+            assert!(
+                css.contains("loom-steps__num"),
+                "{name}: repair looks truncated"
+            );
         }
         let warm = skin_overlay("warm").unwrap().unwrap();
         assert!(
@@ -209,12 +215,20 @@ mod skin_tests {
         // and a green test that cannot fail is worse than no test.
         let fires = |s: &str| {
             let b = s.as_bytes();
-            b.iter().enumerate().any(|(i, c)| *c == b'#' && hex_colour_at(b, i))
+            b.iter()
+                .enumerate()
+                .any(|(i, c)| *c == b'#' && hex_colour_at(b, i))
         };
         assert!(fires("color: #FAF8F4;"), "must catch a 6-digit hex");
         assert!(fires("color: #fff"), "must catch a 3-digit hex");
-        assert!(fires("border-color: #16130F80;"), "must catch an 8-digit hex");
-        assert!(!fires(":root main#content { counter-reset: x; }"), "an ID is not a colour");
+        assert!(
+            fires("border-color: #16130F80;"),
+            "must catch an 8-digit hex"
+        );
+        assert!(
+            !fires(":root main#content { counter-reset: x; }"),
+            "an ID is not a colour"
+        );
         assert!(!fires(".loom-page-footer__col"), "a class is not a colour");
 
         for name in ["editorial", "technical", "civic", "warm"] {
