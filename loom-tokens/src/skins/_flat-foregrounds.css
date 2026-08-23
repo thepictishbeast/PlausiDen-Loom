@@ -63,6 +63,50 @@
   color: var(--loom-color-ink) !important;
 }
 
+/* Sections that DECLARE a surface --------------------------------------
+ *
+ * This is the general form of a bug that was being chased one component at a
+ * time. A CMS section can carry `data-surface="primary|secondary|accent"`,
+ * meaning the author asked for a filled band; the base then paints that fill
+ * and colours the text with the matching `on-*` token.
+ *
+ * A flat skin removed the fill and left the `on-*` text behind — white on a
+ * near-white page, measured 1.00 on a live site. Forcing those foregrounds to
+ * ink was the wrong repair twice over: it fights an ever-growing list of
+ * component parts, and it overrides an intent the content author expressed.
+ *
+ * So honour the declaration instead. Restoring the fill makes the existing
+ * `on-*` foregrounds correct again by construction, for every component inside
+ * the band at once, and a flat skin keeping the handful of bands its CONTENT
+ * asks for is a different thing from the base painting decoration nobody asked
+ * for. Contrast then rests on the tenant's own `secondary`/`on_secondary`
+ * pairing, which is the tenant's to get right.
+ */
+:root [data-surface="primary"] {
+  background: var(--loom-color-primary) !important;
+  color: var(--loom-color-on-primary) !important;
+}
+:root [data-surface="secondary"] {
+  background: var(--loom-color-secondary) !important;
+  color: var(--loom-color-on-secondary) !important;
+}
+:root [data-surface="accent"] {
+  background: var(--loom-color-accent) !important;
+  color: var(--loom-color-on-accent) !important;
+}
+/* Muted is a tint, not a brand fill, so ink stays correct on it. */
+:root [data-surface="muted"] {
+  background: var(--loom-color-surface-muted, var(--loom-color-bg)) !important;
+  color: var(--loom-color-ink) !important;
+}
+
+/* The accent half of a two-tone brand mark, which sits on the page rather than
+ * on any band. */
+:root .loom-page-brand__name-accent.loom-page-brand__name-accent {
+  color: var(--loom-color-accent) !important;
+  -webkit-text-fill-color: var(--loom-color-accent) !important;
+}
+
 /* Step numerals: white glyphs on a gradient disc in the base. Without the disc
  * they are white on the page. Accent numerals instead, which also matches the
  * ordinal treatment flat skins use on indexes. */

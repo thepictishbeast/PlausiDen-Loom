@@ -119,11 +119,40 @@ const MEASURE = `async (settleMs) => {
   return out;
 }`;
 
-const PAGES = [
-  '/', '/work/', '/code/', '/about/', '/contact/',
-  '/work/plausiden/', '/work/sacred-vote/',
-  '/work/prosperity-club/', '/work/wealth-within-walls/',
-];
+const MAX_PAGES = 12;
+
+/**
+ * Discover pages by following same-origin links from the root.
+ *
+ * A hardcoded path list only ever fits the site it was written for, and worse,
+ * a path that 404s on a different site is silently skipped — so the audit
+ * reports a clean run over pages it never looked at. Crawling means the tool
+ * measures whatever the site actually has.
+ */
+async function discover(page, origin) {
+  const seen = new Set(['/']);
+  const queue = ['/'];
+  const pages = [];
+  while (queue.length && pages.length < MAX_PAGES) {
+    const path = queue.shift();
+    let res;
+    try { res = await page.goto(origin + path, { waitUntil: 'load' }); } catch { continue; }
+    if (!res || !res.ok()) continue;
+    pages.push(path);
+    const links = await page.evaluate(() =>
+      [...document.querySelectorAll('a[href]')]
+        .map(a => a.getAttribute('href'))
+        .filter(h => h && h.startsWith('/') && !h.startsWith('//') && !h.includes('#'))
+    );
+    for (const l of links) {
+      const clean = l.split('?')[0];
+      // Only follow document-ish links; an asset would measure nothing.
+      if (/\.(css|js|png|jpe?g|webp|avif|svg|xml|txt|ico|pdf|mp4|docx)$/i.test(clean)) continue;
+      if (!seen.has(clean)) { seen.add(clean); queue.push(clean); }
+    }
+  }
+  return pages;
+}
 
 const origins = process.argv.slice(2);
 if (!origins.length) {
@@ -142,6 +171,13 @@ for (const origin of origins) {
   page.on('console', m => { if (m.type() === 'error') consoleErrors++; });
 
   let light = 0, dark = 0, nodes = 0, minRules = Infinity, notes = [];
+  const PAGES = await discover(page, origin);
+  if (!PAGES.length) {
+    console.log(`FAIL  ${origin}  no reachable pages — origin unreachable or root 404`);
+    failed = true;
+    await ctx.close();
+    continue;
+  }
   for (const path of PAGES) {
     let res;
     try {
