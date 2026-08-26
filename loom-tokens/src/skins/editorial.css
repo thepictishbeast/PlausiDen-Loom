@@ -566,21 +566,42 @@
  * block on an otherwise restrained page, and the first thing the eye lands on
  * at phone width. Given the same treatment as the theme switch: a bordered
  * square that reads as a control without shouting.
+ *
+ * The original rule keyed on [class*="nav-toggle"], which also matched the
+ * BEM children (loom-page-nav-toggle__icon, loom-page-nav-toggle-cb): the
+ * icon span grew its own 44px bordered box inside the label's box, and the
+ * doubled width forced the control onto its own header row at phone width
+ * (measured live 2026-08-26: label 81x65 with a nested 44x44 border). The
+ * substring match is kept for unknown tenant variants but the BEM children
+ * are excluded, and the icon-only control is a true centered square so the
+ * brand and the control share one row on a 390px viewport.
  */
 :root .loom-nav-toggle,
 :root .loom-page-nav__toggle,
-:root [class*="nav-toggle"] {
+:root [class*="nav-toggle"]:not([class*="nav-toggle__"]):not([class*="nav-toggle-cb"]) {
   background: transparent !important;
   color: var(--loom-color-ink) !important;
   border: 1px solid var(--loom-color-border) !important;
   border-radius: 0 !important;
   min-width: 44px;
   min-height: 44px;
+  padding: 0 !important;
+  align-items: center;
+  justify-content: center;
 }
 :root .loom-nav-toggle:hover,
 :root .loom-page-nav__toggle:hover,
-:root [class*="nav-toggle"]:hover {
+:root [class*="nav-toggle"]:not([class*="nav-toggle__"]):not([class*="nav-toggle-cb"]):hover {
   border-color: var(--loom-color-accent) !important;
+}
+/* The glyph inside the control is typography, not a second control. */
+:root .loom-page-nav-toggle__icon {
+  border: 0 !important;
+  padding: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  font-size: 1.15rem;
+  line-height: 1;
 }
 
 /* ---------- 5. Focus is always visible ---------------------------------
@@ -631,4 +652,53 @@
   -webkit-hyphens: none;
   overflow-wrap: break-word;
   text-wrap: balance;
+}
+
+/* ---------- 8. The display scale actually displays ----------------------
+ *
+ * Measured on william-armstrong.com (2026-08-26, 1440px): the hero title and
+ * the card-feed heading both computed 36px — the sections above declare
+ * clamp() display sizes, but a later layer in the compiled cascade pins
+ * heading sizes at 2.25rem and the skin's declarations lose. The result was
+ * Paul's verdict on the whole page: a 36px "display" line adrift in the
+ * whitespace budget of an 86px one.
+ *
+ * These rules end the fight deterministically: doubled class + !important,
+ * verified by injecting this exact block last in the cascade and measuring
+ * 74.9px / 37.4px before committing it here. If the pinning layer is ever
+ * found and fixed, this section can soften back to plain declarations.
+ */
+:root .loom-section-hero__title.loom-section-hero__title,
+:root .loom-hero-title.loom-hero-title {
+  font-size: clamp(2.25rem, 5.5vw, 4.75rem) !important;
+  line-height: 1.02 !important;
+}
+@media (min-width: 75rem) {
+  :root .loom-section-hero__title.loom-section-hero__title {
+    font-size: clamp(3rem, 5.2vw, 4.75rem) !important;
+  }
+}
+
+/* The card-feed band heading spoke in the base voice: uppercase, letterspaced,
+ * muted — a giant ghost that outweighed the hero while whispering. A section
+ * heading in this skin is the same display serif as every other heading:
+ * ink, sentence case, sized clearly under the hero. */
+:root .loom-card-feed__heading.loom-card-feed__heading {
+  color: var(--loom-color-ink) !important;
+  text-transform: none !important;
+  letter-spacing: -0.015em !important;
+  font-size: clamp(1.6rem, 2.6vw, 2.4rem) !important;
+  font-weight: 400 !important;
+}
+
+/* The nav's primary CTA rendered as a fourth plain nav link once the skin
+ * stripped button fills. It keeps the quiet voice but takes the accent
+ * underline — the same "this one acts" device the hero CTA already uses. */
+:root nav.loom-page-nav a.loom-btn.loom-btn {
+  color: var(--loom-color-ink) !important;
+  border-bottom: 2px solid var(--loom-color-accent) !important;
+  padding-bottom: 0.3rem !important;
+}
+:root nav.loom-page-nav a.loom-btn.loom-btn:hover {
+  color: var(--loom-color-accent) !important;
 }
