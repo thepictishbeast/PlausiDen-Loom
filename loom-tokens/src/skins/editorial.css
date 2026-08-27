@@ -709,3 +709,46 @@
 :root .loom-section-hero__lede {
   hyphens: none;
 }
+
+/* ---------- 9. Steps speak the skin's voice -----------------------------
+ *
+ * The base renders loom-steps as centered bordered cards. On the Sacred
+ * Vote study at phone width that band was the one paneled, center-aligned
+ * stranger on an otherwise flat left-ruled page (found in the 2026-08-27
+ * mobile pass). Same treatment as the feature grid: no box, a hairline
+ * top rule, everything on the page gutter. The accent numerals from
+ * section "Step numerals" already match the work-index ordinals.
+ */
+:root .loom-steps__heading.loom-steps__heading {
+  text-align: left;
+}
+/* The base skin indents prose lists with `main#content ul, ol` — an ID
+ * selector (1-0-2) no class stack can outrank, so it drags component
+ * lists like this one 24px off the gutter too. !important is the only
+ * counter available to a skin; the real fix is scoping that base rule to
+ * prose containers (flagged for the substrate lane — an ID selector in a
+ * component library is the underlying sin). */
+:root .loom-steps__list.loom-steps__list {
+  max-inline-size: none;
+  margin-inline: 0;
+  padding-inline: 0 !important;
+  padding-left: 0 !important;
+  list-style: none;
+}
+:root .loom-steps__item.loom-steps__item {
+  background: none !important;
+  border: 0 !important;
+  border-top: var(--ed-rule) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: clamp(1.25rem, 2.5vw, 1.75rem) 0 0;
+  margin-inline: 0;
+  text-align: left;
+}
+/* Numerals join the left edge like the work-index ordinals — the one
+ * centered element left in the band otherwise. */
+:root .loom-steps__num.loom-steps__num {
+  display: block;
+  text-align: left;
+  margin-inline: 0;
+}
