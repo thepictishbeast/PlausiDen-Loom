@@ -702,3 +702,10 @@
 :root nav.loom-page-nav a.loom-btn.loom-btn:hover {
   color: var(--loom-color-accent) !important;
 }
+
+/* The hero lede is a short-measure column; auto-hyphenation broke words
+ * like "ad-minister" across lines there, which reads as a typesetting
+ * error at lede sizes. Prose paragraphs keep their defaults. */
+:root .loom-section-hero__lede {
+  hyphens: none;
+}
