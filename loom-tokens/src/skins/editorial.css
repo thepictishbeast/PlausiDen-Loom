@@ -282,8 +282,13 @@
   font-size: 1.0625rem;
   line-height: 1.68;
 }
-:root .loom-page h2,
-:root .loom-heading {
+/* :where() zeroes the inner selectors' specificity: this generic rule
+ * must never outrank a component-class rule. Its old form (0,2,1 via the
+ * bare h2 type selector) silently capped the hero masthead and the
+ * card-feed heading at its own 2.25rem clamp — the "mystery pinning
+ * layer" of 2026-08-26 was this rule, three sections up from the armor
+ * it forced. */
+:root :where(.loom-page h2, .loom-heading) {
   font-family: var(--loom-font-display);
   font-size: clamp(1.5rem, 3vw, 2.25rem);
   font-weight: 400;
@@ -624,8 +629,7 @@
   :root .loom-section-hero {
     padding-block: clamp(1.75rem, 5vh, 3rem) clamp(1.5rem, 4vh, 2.5rem);
   }
-  :root .loom-page h2,
-  :root .loom-heading { margin-block-start: clamp(1.75rem, 5vw, 2.5rem); }
+  :root :where(.loom-page h2, .loom-heading) { margin-block-start: clamp(1.75rem, 5vw, 2.5rem); }
 }
 
 
@@ -670,12 +674,12 @@
  */
 :root .loom-section-hero__title.loom-section-hero__title,
 :root .loom-hero-title.loom-hero-title {
-  font-size: clamp(2.25rem, 5.5vw, 4.75rem) !important;
-  line-height: 1.02 !important;
+  font-size: clamp(2.25rem, 5.5vw, 4.75rem);
+  line-height: 1.02;
 }
 @media (min-width: 75rem) {
   :root .loom-section-hero__title.loom-section-hero__title {
-    font-size: clamp(3rem, 5.2vw, 4.75rem) !important;
+    font-size: clamp(3rem, 5.2vw, 4.75rem);
   }
 }
 
@@ -684,11 +688,11 @@
  * heading in this skin is the same display serif as every other heading:
  * ink, sentence case, sized clearly under the hero. */
 :root .loom-card-feed__heading.loom-card-feed__heading {
-  color: var(--loom-color-ink) !important;
-  text-transform: none !important;
-  letter-spacing: -0.015em !important;
-  font-size: clamp(1.6rem, 2.6vw, 2.4rem) !important;
-  font-weight: 400 !important;
+  color: var(--loom-color-ink) !important; /* colour still fights base's own foreground overrides */
+  text-transform: none;
+  letter-spacing: -0.015em;
+  font-size: clamp(1.6rem, 2.6vw, 2.4rem);
+  font-weight: 400;
 }
 
 /* The nav's primary CTA rendered as a fourth plain nav link once the skin
@@ -731,8 +735,7 @@
 :root .loom-steps__list.loom-steps__list {
   max-inline-size: none;
   margin-inline: 0;
-  padding-inline: 0 !important;
-  padding-left: 0 !important;
+  padding-inline: 0; /* base's list rule is :where()-scoped now — no ID war */
   list-style: none;
 }
 :root .loom-steps__item.loom-steps__item {
