@@ -46,6 +46,10 @@ use loom_components::picture::{Picture, PictureFit, PictureLoading, PicturePrior
 /// downstream consumers (loom-cli's page-shell) can validate
 /// URLs without taking a direct dependency on loom-components.
 pub use loom_components::composer::is_safe_url;
+/// Re-export of `loom_components::composer::is_safe_contact_href` —
+/// the contact-channel variant, which additionally admits `mailto:`
+/// and `tel:`. Only contact channels may use it.
+pub use loom_components::composer::is_safe_contact_href;
 /// Re-export of `loom_variables::{TenantVariables, substitute}`
 /// so downstream consumers can apply tenant placeholder
 /// substitution without taking a direct dependency on
@@ -6219,6 +6223,12 @@ pub struct ContactChannel {
     pub label: String,
     pub href: String,
     pub data_backend: String,
+    /// Optional leading icon-mark slug (resolved via
+    /// `loom_icons::by_slug`; unknown slug → glyph omitted, label
+    /// still renders). Decorative only — the label carries the
+    /// meaning, so the glyph is `aria-hidden`.
+    #[serde(default)]
+    pub icon_slug: Option<String>,
 }
 
 /// One gallery image.
@@ -7468,6 +7478,29 @@ pub enum CmsFormField {
         /// `required` attribute.
         #[serde(default)]
         required: bool,
+        /// Keyboard/validation hint. Defaults to `text`, so omitting
+        /// it reproduces the previous behaviour byte for byte.
+        #[serde(default)]
+        input_type: CmsInputType,
+    },
+    /// A field no human ever sees, used to catch form-filling bots.
+    ///
+    /// Hidden by a stylesheet rule rather than `display:none` in a
+    /// `style` attribute, because inline styles are refused by the
+    /// build. A bot parsing the HTML fills it; a person cannot,
+    /// because it is off-screen, skipped by the tab order, and
+    /// hidden from assistive tech.
+    ///
+    /// The server decides what a filled honeypot means — this
+    /// renders the trap, nothing more.
+    Honeypot {
+        /// `name` attribute. Pick something a naive bot wants to
+        /// fill (`company`, `website`) and that the real form does
+        /// not otherwise use.
+        name: String,
+        /// Label text. Never shown, but present so the field is not
+        /// unlabelled if the stylesheet fails to load.
+        label: String,
     },
     /// Multi-line text input.
     Textarea {
@@ -7517,6 +7550,38 @@ pub enum CmsFormField {
 
 const fn default_textarea_rows() -> u32 {
     4
+}
+
+/// Keyboard/validation hint for a [`CmsFormField::Text`].
+///
+/// Closed set on purpose: these are the four that change what a
+/// phone keyboard offers without changing what the server may
+/// trust. `Text` is the default, so every existing tenant's JSON
+/// keeps rendering `type="text"` exactly as before.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CmsInputType {
+    /// `type="text"`.
+    #[default]
+    Text,
+    /// `type="email"` — email keyboard, browser-side shape check.
+    Email,
+    /// `type="tel"` — numeric keypad.
+    Tel,
+    /// `type="url"`.
+    Url,
+}
+
+impl CmsInputType {
+    /// The literal `type` attribute value.
+    const fn attr(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Email => "email",
+            Self::Tel => "tel",
+            Self::Url => "url",
+        }
+    }
 }
 
 /// One option inside a [`CmsFormField::Select`].
@@ -11677,10 +11742,21 @@ import init, {{ init as crucible_init }} from "{widget_url}";
         CmsSection::ContactStrip { items } => html! {
             section class="loom-contact-strip" data-loom-reveal {
                 @for it in items {
-                    @let safe = is_safe_url(&it.href);
+                    // Contact channels are the one place `mailto:` and
+                    // `tel:` are the whole point, so they validate with
+                    // the contact-channel variant. Everything else in
+                    // this file still uses the stricter `is_safe_url`.
+                    @let safe = is_safe_contact_href(&it.href);
                     a class={ "loom-contact-strip__item kind-" (it.kind) }
                       href=(if safe { it.href.as_str() } else { "#invalid-link" })
                       data-backend=(it.data_backend) {
+                        @if let Some(slug) = &it.icon_slug {
+                            @if let Some(reg) = loom_icons::by_slug(slug) {
+                                span class="loom-contact-strip__icon" aria-hidden="true" {
+                                    (maud::PreEscaped(reg.render_with_class("loom-contact-strip__icon-svg")))
+                                }
+                            }
+                        }
                         span class="loom-contact-strip__label" { (it.label) }
                     }
                 }
@@ -14307,6 +14383,29 @@ fn render_form_field(field: &CmsFormField) -> Markup {
         // textbox unnamed in the AT (caught by the crawler's
         // axe-static-a11y axis). aria-label guarantees the name
         // regardless of the for/id binding state.
+        CmsFormField::Honeypot { name, label } => html! {
+            // Visual hiding comes from the class (an inline style
+            // would fail strict_no_inline_styles); `tabindex=-1` takes
+            // it out of the tab order and `autocomplete=off` stops the
+            // browser filling it for the visitor.
+            //
+            // Deliberately NOT aria-hidden: aria-hidden over a
+            // focusable control is axe's `aria-hidden-focus` violation,
+            // and the spec targets WCAG 2.1 AA. The field is labelled
+            // and off-screen, which is how a screen-reader user is
+            // meant to encounter it — the label says what it is, so
+            // anyone who reaches it can leave it alone.
+            div class="loom-form-honeypot" {
+                label class="loom-form-field__label" for=(name) { (label) }
+                input
+                    class="loom-form-field__input"
+                    type="text"
+                    id=(name)
+                    name=(name)
+                    tabindex="-1"
+                    autocomplete="off";
+            }
+        },
         CmsFormField::Text {
             name,
             label,
@@ -14314,6 +14413,7 @@ fn render_form_field(field: &CmsFormField) -> Markup {
             placeholder,
             max_length,
             required,
+            input_type,
         } => html! {
             div class="loom-form-field" {
                 label class="loom-form-field__label" for=(name) {
@@ -14322,7 +14422,7 @@ fn render_form_field(field: &CmsFormField) -> Markup {
                 }
                 input
                     class="loom-form-field__input"
-                    type="text"
+                    type=(input_type.attr())
                     id=(name)
                     name=(name)
                     aria-label=(label)
@@ -14637,6 +14737,127 @@ mod tests {
         assert!(html.contains(">Subscribe</button>"));
         // Child block rendered.
         assert!(html.contains("Your email"));
+    }
+
+    #[test]
+    fn contact_strip_renders_mailto_and_tel_as_real_links() {
+        // REGRESSION: these rendered `#invalid-link` in production
+        // because the strip validated with `is_safe_url`, which
+        // refuses both schemes. A contact page whose only channel is
+        // a dead link is the failure this guards.
+        let s: CmsSection = serde_json::from_str(
+            r#"{"kind":"contact_strip","items":[
+                {"kind":"email","label":"a@b.com","href":"mailto:a@b.com","data_backend":"e"},
+                {"kind":"phone","label":"+1 555 0123","href":"tel:+15550123","data_backend":"p"}
+            ]}"#,
+        )
+        .expect("parses");
+        let html = render_section(&s).into_string();
+        assert!(
+            !html.contains("#invalid-link"),
+            "contact channel still dead:\n{html}"
+        );
+        assert!(html.contains(r#"href="mailto:a@b.com""#), "{html}");
+        assert!(html.contains(r#"href="tel:+15550123""#), "{html}");
+    }
+
+    #[test]
+    fn contact_strip_still_refuses_hostile_schemes() {
+        let s: CmsSection = serde_json::from_str(
+            r#"{"kind":"contact_strip","items":[
+                {"kind":"link","label":"x","href":"javascript:alert(1)","data_backend":"x"}
+            ]}"#,
+        )
+        .expect("parses");
+        let html = render_section(&s).into_string();
+        assert!(html.contains("#invalid-link"), "admitted javascript:\n{html}");
+        assert!(!html.contains("javascript:"), "{html}");
+    }
+
+    #[test]
+    fn contact_strip_renders_optional_icon_and_omits_unknown_slug() {
+        let with_icon: CmsSection = serde_json::from_str(
+            r#"{"kind":"contact_strip","items":[
+                {"kind":"email","label":"a@b.com","href":"mailto:a@b.com",
+                 "data_backend":"e","icon_slug":"mail"}
+            ]}"#,
+        )
+        .expect("parses");
+        let html = render_section(&with_icon).into_string();
+        assert!(html.contains("loom-contact-strip__icon"), "{html}");
+        assert!(html.contains("<svg"), "{html}");
+        assert!(html.contains(r#"aria-hidden="true""#), "{html}");
+
+        // An unknown slug must drop the glyph, never the channel.
+        let unknown: CmsSection = serde_json::from_str(
+            r#"{"kind":"contact_strip","items":[
+                {"kind":"email","label":"a@b.com","href":"mailto:a@b.com",
+                 "data_backend":"e","icon_slug":"no-such-icon"}
+            ]}"#,
+        )
+        .expect("parses");
+        let html = render_section(&unknown).into_string();
+        assert!(!html.contains("loom-contact-strip__icon"), "{html}");
+        assert!(html.contains("a@b.com"), "label lost:\n{html}");
+    }
+
+    #[test]
+    fn contact_strip_icon_slug_is_optional_for_back_compat() {
+        // Every existing tenant omits the key; it must still parse.
+        let s: CmsSection = serde_json::from_str(
+            r#"{"kind":"contact_strip","items":[
+                {"kind":"email","label":"a@b.com","href":"mailto:a@b.com","data_backend":"e"}
+            ]}"#,
+        )
+        .expect("must parse without icon_slug");
+        let html = render_section(&s).into_string();
+        assert!(!html.contains("loom-contact-strip__icon"), "{html}");
+    }
+
+    #[test]
+    fn form_text_field_input_type_defaults_to_text() {
+        // Back-compat: JSON without `input_type` renders exactly as
+        // it did before the field existed.
+        let f: CmsFormField =
+            serde_json::from_str(r#"{"type":"text","name":"n","label":"N"}"#).expect("parses");
+        let html = render_form_field(&f).into_string();
+        assert!(html.contains(r#"type="text""#), "{html}");
+    }
+
+    #[test]
+    fn form_text_field_honours_input_type() {
+        for (json_ty, attr) in [("email", "email"), ("tel", "tel"), ("url", "url")] {
+            let f: CmsFormField = serde_json::from_str(&format!(
+                r#"{{"type":"text","name":"n","label":"N","input_type":"{json_ty}"}}"#
+            ))
+            .expect("parses");
+            let html = render_form_field(&f).into_string();
+            assert!(html.contains(&format!(r#"type="{attr}""#)), "{html}");
+        }
+    }
+
+    #[test]
+    fn honeypot_is_hidden_from_people_and_reachable_by_bots() {
+        let f: CmsFormField =
+            serde_json::from_str(r#"{"type":"honeypot","name":"company","label":"Company"}"#)
+                .expect("parses");
+        let html = render_form_field(&f).into_string();
+        // Present in the markup — that is the whole trap.
+        assert!(html.contains(r#"name="company""#), "{html}");
+        // But out of a sighted visitor's way: off-screen via the
+        // class, out of the tab order, not autofilled.
+        assert!(html.contains("loom-form-honeypot"), "{html}");
+        assert!(html.contains(r#"tabindex="-1""#), "{html}");
+        // aria-hidden over a focusable control is axe's
+        // `aria-hidden-focus` violation — the field stays exposed to
+        // assistive tech, and its label is what explains it.
+        assert!(!html.contains("aria-hidden"), "{html}");
+        assert!(html.contains("<label"), "honeypot must stay labelled: {html}");
+        assert!(html.contains(r#"autocomplete="off""#), "{html}");
+        // No inline style — strict_no_inline_styles refuses them.
+        assert!(!html.contains("style="), "{html}");
+        // Never required: a hidden required field blocks submission.
+        assert!(!html.contains("required"), "{html}");
     }
 
     #[test]
@@ -20398,6 +20619,7 @@ mod tests {
                         placeholder: Some("e.g. Half-court shot".to_owned()),
                         max_length: Some(120),
                         required: true,
+                        input_type: CmsInputType::Text,
                     },
                     CmsFormField::Textarea {
                         name: "rules".to_owned(),
@@ -20898,6 +21120,7 @@ mod tests {
                         placeholder: None,
                         max_length: None,
                         required: false,
+                        input_type: CmsInputType::Text,
                     }],
                 }],
             }],

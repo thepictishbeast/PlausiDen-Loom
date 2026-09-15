@@ -170,6 +170,79 @@ pub fn is_safe_url(p: &str) -> bool {
     !p.chars().any(|c| (c as u32) < 0x20)
 }
 
+/// Validation for a contact channel's `href`: everything
+/// [`is_safe_url`] accepts, plus the two schemes a contact strip
+/// legitimately needs — `mailto:` and `tel:`.
+///
+/// Deliberately a sibling rather than a widening of [`is_safe_url`].
+/// That function also guards avatar `src` and the composer's
+/// `submit_endpoint`, where a `mailto:` is a defect rather than a
+/// feature; admitting these schemes there too would be a strictly
+/// larger change than the one this fixes. Callers that render a
+/// contact channel opt in explicitly.
+#[must_use]
+pub fn is_safe_contact_href(p: &str) -> bool {
+    if let Some(addr) = p.strip_prefix("mailto:") {
+        return is_safe_mailto_addr(addr);
+    }
+    if let Some(num) = p.strip_prefix("tel:") {
+        return is_safe_tel_number(num);
+    }
+    is_safe_url(p)
+}
+
+/// `addr@host`, optionally followed by `?subject=…`-style parameters.
+///
+/// Rejects control characters and whitespace outright: a raw CR or LF
+/// reaching a mail client's compose window is header injection, and it
+/// is never legitimate in authored content.
+fn is_safe_mailto_addr(addr: &str) -> bool {
+    // Parameters are permitted but are not part of the address.
+    let (mailbox, params) = match addr.split_once('?') {
+        Some((m, p)) => (m, Some(p)),
+        None => (addr, None),
+    };
+    if mailbox.is_empty() || mailbox.len() > 254 {
+        return false;
+    }
+    let unsafe_char =
+        |s: &str| s.chars().any(|c| (c as u32) < 0x20 || c == '\u{7f}' || c.is_whitespace());
+    if unsafe_char(mailbox) || params.is_some_and(unsafe_char) {
+        return false;
+    }
+    // Exactly one '@', with a non-empty local part and a dotted host.
+    let Some((local, host)) = mailbox.split_once('@') else {
+        return false;
+    };
+    if local.is_empty() || host.is_empty() || host.contains('@') {
+        return false;
+    }
+    // A bare host with no dot is not a deliverable public address, and
+    // accepting one would let `mailto:root@localhost` render as a link.
+    host.contains('.') && !host.starts_with('.') && !host.ends_with('.')
+}
+
+/// Digits with the separators a printed number actually uses. No
+/// letters, so a scheme cannot be smuggled through the number.
+fn is_safe_tel_number(num: &str) -> bool {
+    if num.is_empty() || num.len() > 32 {
+        return false;
+    }
+    // A leading '+' is the only position it may occupy.
+    let body = num.strip_prefix('+').unwrap_or(num);
+    if body.contains('+') {
+        return false;
+    }
+    let digits = body.chars().filter(char::is_ascii_digit).count();
+    // E.164 allows up to 15 digits; below 3 is not a number at all.
+    if !(3..=15).contains(&digits) {
+        return false;
+    }
+    body
+        .chars()
+        .all(|c| c.is_ascii_digit() || matches!(c, ' ' | '-' | '.' | '(' | ')'))
+}
+
 /// Feed-top composer.
 ///
 /// SECURITY: `submit_endpoint` is interpolated into the prompt
@@ -305,6 +378,90 @@ mod tests {
     #[test]
     fn safe_url_rejects_javascript_scheme() {
         assert!(!is_safe_url("javascript:alert(1)"));
+    }
+
+    #[test]
+    fn contact_href_accepts_mailto_and_tel() {
+        assert!(is_safe_contact_href("mailto:william@plausiden.com"));
+        assert!(is_safe_contact_href(
+            "mailto:william@plausiden.com?subject=Work"
+        ));
+        assert!(is_safe_contact_href("tel:+15035550123"));
+        assert!(is_safe_contact_href("tel:+1 (503) 555-0123"));
+    }
+
+    #[test]
+    fn contact_href_still_accepts_everything_is_safe_url_does() {
+        for ok in ["/contact/", "/", "https://github.com/thepictishbeast"] {
+            assert!(is_safe_url(ok), "precondition: {ok}");
+            assert!(is_safe_contact_href(ok), "regression on {ok}");
+        }
+    }
+
+    #[test]
+    fn contact_href_rejects_hostile_schemes() {
+        // The whole point of the narrow widening: nothing else gets in.
+        for bad in [
+            "javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "//evil.example.com/x",
+            "vbscript:msgbox(1)",
+            "file:///etc/passwd",
+        ] {
+            assert!(!is_safe_contact_href(bad), "admitted {bad}");
+        }
+    }
+
+    #[test]
+    fn contact_href_rejects_header_injection_in_mailto() {
+        // A raw CR/LF reaching a mail client is header injection.
+        for bad in [
+            "mailto:a@b.com\r\nBcc:victim@example.com",
+            "mailto:a@b.com\nBcc:victim@example.com",
+            "mailto:a@b.com?body=x\r\nBcc:v@e.com",
+            "mailto:a b@example.com",
+        ] {
+            assert!(!is_safe_contact_href(bad), "admitted {bad:?}");
+        }
+    }
+
+    #[test]
+    fn contact_href_rejects_malformed_addresses() {
+        for bad in [
+            "mailto:",
+            "mailto:@example.com",
+            "mailto:noatsign",
+            "mailto:a@",
+            "mailto:root@localhost",
+            "mailto:a@b@c.com",
+            "mailto:a@.com",
+            "mailto:a@com.",
+        ] {
+            assert!(!is_safe_contact_href(bad), "admitted {bad}");
+        }
+    }
+
+    #[test]
+    fn contact_href_rejects_malformed_tel() {
+        for bad in [
+            "tel:",
+            "tel:12",
+            "tel:+",
+            "tel:1234567890123456789",
+            "tel:555-CALL-NOW",
+            "tel:+1+2",
+            "tel:+1\r\n555",
+        ] {
+            assert!(!is_safe_contact_href(bad), "admitted {bad:?}");
+        }
+    }
+
+    #[test]
+    fn contact_href_widening_does_not_leak_into_is_safe_url() {
+        // is_safe_url guards avatar src and submit_endpoint. If this
+        // ever starts passing, the schemes have leaked fleet-wide.
+        assert!(!is_safe_url("mailto:william@plausiden.com"));
+        assert!(!is_safe_url("tel:+15035550123"));
     }
 
     #[test]

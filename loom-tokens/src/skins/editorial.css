@@ -309,8 +309,153 @@
   padding: clamp(1.25rem, 2.5vw, 1.75rem) 0 0;
   transform: none !important;
 }
-:root .loom-feature-spotlight__icon,
-:root .loom-feature-spotlight__icon-svg { display: none; }
+/* The base paints this icon as a 48px gradient tile. The tile is a
+ * container and this skin has none, so every box property goes. The
+ * MARK is not a container: a hairline stroke glyph above a title is
+ * closer to a dingbat than to a card, and editorial layout has always
+ * used marks that way. Hiding it too was over-broad — it removed the
+ * ornament along with the box. Sized to the uppercase label beside it
+ * and painted in muted ink so it stays subordinate to the type, which
+ * is what keeps hierarchy in the type scale where this skin puts it. */
+/* NB: `display` is deliberately not set here. The base already picks
+ * the right one per decoration — inline-flex for `deco-editorial`,
+ * grid for `deco-decorated`, and `none` for `deco-minimal`. Forcing
+ * it would override that last one and make a minimal grid show marks
+ * it asked not to have. */
+:root .loom-feature-spotlight__icon {
+  place-items: center;
+  inline-size: auto !important;
+  block-size: auto !important;
+  width: auto !important;
+  height: auto !important;
+  padding: 0 !important;
+  background: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  margin-block-end: 0.6rem;
+  margin-bottom: 0.6rem;
+  /* !important is load-bearing: the base's
+   * `.loom-feature-spotlight.deco-editorial .loom-feature-spotlight__icon`
+   * is (0,3,0) against this rule's (0,2,0) and paints the mark in
+   * `--loom-color-primary`, which in this palette is full ink
+   * (#16130F). A full-ink glyph next to a 0.75rem uppercase muted
+   * label out-weighs the label it belongs to. Muted keeps the mark
+   * subordinate to the type. */
+  color: var(--loom-color-muted) !important;
+}
+:root .loom-feature-spotlight__icon-svg {
+  display: block;
+  inline-size: 1.15rem;
+  block-size: 1.15rem;
+  width: 1.15rem;
+  height: 1.15rem;
+  stroke-width: 1.5;
+}
+
+/* ---------- Contact strip ----------------------------------------------- */
+
+/* The base paints each channel as a 999px pill with a 1px border — two
+ * container properties this skin does not have. A contact channel is a
+ * link, so it should look like one: the label underlined, the mark
+ * beside it, nothing drawn around it. */
+:root .loom-contact-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin-block: 1.5rem;
+}
+:root .loom-contact-strip__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: none !important;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  /* The base's hover paints a tinted fill behind the text, which this
+   * palette's own note rules out ("never as a fill behind text, where
+   * accents turn muddy"). Hover moves the colour instead. */
+  transition: color 120ms ease;
+}
+:root .loom-contact-strip__item:hover,
+:root .loom-contact-strip__item:focus-visible {
+  background: none !important;
+  color: var(--loom-color-link-hover, var(--loom-color-accent));
+}
+
+/* ---------- Forms -------------------------------------------------------- */
+
+/* `data-loom-form-style="editorial"` is emitted by the renderer but no
+ * stylesheet consumed it, so opting a form into the editorial shape
+ * did nothing. Under this skin the form is not a panel: it is a run of
+ * fields separated by whitespace, with a rule closing it off the way a
+ * section rule does elsewhere. */
+:root .loom-form-section {
+  background: none !important;
+  border: 0 !important;
+  border-top: var(--ed-rule) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: clamp(1.5rem, 3vw, 2rem) 0 0 !important;
+}
+
+/* A step indicator is wayfinding for a multi-step flow. On a one-step
+ * form it is chrome describing a journey of length one, so it goes.
+ * The chip chrome is stripped regardless, for forms that do have
+ * several steps. */
+:root .loom-form-section__steps:has(> li:only-child) {
+  display: none;
+}
+:root .loom-form-section__step {
+  background: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--loom-color-muted);
+}
+
+/* Inputs keep a visible affordance — a field a visitor cannot find is
+ * worse than a slightly boxy one — but square, hairline, and open at
+ * the sides so the form reads as ruled paper rather than as widgets. */
+:root .loom-form-field__input,
+:root .loom-form-field__textarea {
+  border: 0 !important;
+  border-bottom: 1px solid var(--loom-color-border) !important;
+  border-radius: 0 !important;
+  background: none !important;
+  box-shadow: none !important;
+  padding: 0.5rem 0 !important;
+}
+:root .loom-form-field__input:focus,
+:root .loom-form-field__textarea:focus {
+  border-bottom-color: var(--loom-color-accent) !important;
+  outline-offset: 2px;
+}
+:root .loom-form-field__label {
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--loom-color-muted);
+}
+:root .loom-contact-strip__icon {
+  display: inline-flex;
+  color: currentColor;
+}
+:root .loom-contact-strip__icon-svg {
+  inline-size: 1.05rem;
+  block-size: 1.05rem;
+  width: 1.05rem;
+  height: 1.05rem;
+  stroke-width: 1.5;
+}
 :root .loom-feature-spotlight__title {
   font-family: var(--loom-font-body);
   font-size: 0.75rem;

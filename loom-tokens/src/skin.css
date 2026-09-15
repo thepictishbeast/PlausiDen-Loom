@@ -1598,6 +1598,21 @@
     flex-direction: column;
     gap: var(--loom-space-1);
   }
+  /* Honeypot. Positioned off-screen rather than display:none —
+   * the cheapest bots skip anything display:none'd, so hiding it
+   * that way removes most of the value. A person cannot reach it
+   * (aria-hidden, tabindex=-1, no on-screen box) while a bot that
+   * parses the markup fills it. Never put a real field in here. */
+  .loom-form-honeypot {
+    position: absolute;
+    left: var(--loom-offscreen-x, -9999px);
+    top: auto;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+  }
   .loom-form-field__label {
     font-size: var(--loom-font-sm, 0.875rem);
     color: var(--loom-color-ink);
