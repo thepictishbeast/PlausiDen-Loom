@@ -182,11 +182,20 @@ pub fn is_safe_url(p: &str) -> bool {
 /// contact channel opt in explicitly.
 #[must_use]
 pub fn is_safe_contact_href(p: &str) -> bool {
-    if let Some(addr) = p.strip_prefix("mailto:") {
-        return is_safe_mailto_addr(addr);
+    // Schemes are case-insensitive per RFC 3986 section 3.1, so
+    // `MAILTO:` is as valid as `mailto:`. Matching case-sensitively
+    // did not merely miss them -- combined with the build gate that
+    // fails on the renderer's dead-link sentinel, an uppercase scheme
+    // went from rendering a silently dead link to failing the build
+    // outright, which is worse than the defect that gate exists for.
+    let Some((scheme, rest)) = p.split_once(':') else {
+        return is_safe_url(p);
+    };
+    if scheme.eq_ignore_ascii_case("mailto") {
+        return is_safe_mailto_addr(rest);
     }
-    if let Some(num) = p.strip_prefix("tel:") {
-        return is_safe_tel_number(num);
+    if scheme.eq_ignore_ascii_case("tel") {
+        return is_safe_tel_number(rest);
     }
     is_safe_url(p)
 }
@@ -209,6 +218,38 @@ fn is_safe_mailto_addr(addr: &str) -> bool {
         |s: &str| s.chars().any(|c| (c as u32) < 0x20 || c == '\u{7f}' || c.is_whitespace());
     if unsafe_char(mailbox) || params.is_some_and(unsafe_char) {
         return false;
+    }
+    // Raw control characters are gone; percent-encoded ones are not.
+    // A mail client percent-decodes `?body=x%0d%0aBcc:...` before
+    // acting on it, so checking only the literal bytes tests the
+    // wrong string. Percent-encoding is legitimate in these fields
+    // (`?subject=Hello%20World`), so decode and re-check rather than
+    // refusing `%` outright.
+    if mailbox.contains('%') || params.is_some_and(|p| p.contains('%')) {
+        let decodes_to_control = |s: &str| {
+            let b = s.as_bytes();
+            let mut i = 0;
+            while i < b.len() {
+                if b[i] == b'%' {
+                    // A truncated escape is malformed; refuse it too.
+                    if i + 2 >= b.len() {
+                        return true;
+                    }
+                    let hex = std::str::from_utf8(&b[i + 1..i + 3]).unwrap_or("zz");
+                    match u8::from_str_radix(hex, 16) {
+                        Ok(v) if v < 0x20 || v == 0x7f => return true,
+                        Ok(_) => i += 3,
+                        Err(_) => return true,
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            false
+        };
+        if decodes_to_control(mailbox) || params.is_some_and(decodes_to_control) {
+            return false;
+        }
     }
     // Exactly one '@', with a non-empty local part and a dotted host.
     let Some((local, host)) = mailbox.split_once('@') else {
@@ -454,6 +495,47 @@ mod tests {
         ] {
             assert!(!is_safe_contact_href(bad), "admitted {bad:?}");
         }
+    }
+
+    #[test]
+    fn contact_href_accepts_uppercase_schemes() {
+        // REGRESSION: schemes are case-insensitive per RFC 3986 3.1.
+        // Matching case-sensitively did not just miss these -- with
+        // the build gate that fails on the dead-link sentinel, an
+        // uppercase scheme failed the BUILD rather than rendering a
+        // dead link, which is worse than the bug the gate is for.
+        for ok in [
+            "MAILTO:william@plausiden.com",
+            "MailTo:william@plausiden.com",
+            "TEL:+15035550123",
+            "Tel:+15035550123",
+        ] {
+            assert!(is_safe_contact_href(ok), "refused {ok}");
+        }
+    }
+
+    #[test]
+    fn contact_href_rejects_percent_encoded_crlf() {
+        // A mail client decodes before acting, so checking only the
+        // literal bytes tests the wrong string.
+        for bad in [
+            "mailto:a@b.com?body=x%0d%0aBcc:victim@example.com",
+            "mailto:a@b.com?body=x%0D%0ABcc:victim@example.com",
+            "mailto:a@b.com?subject=%09tab",
+            "mailto:a@b.com?body=%7f",
+            "mailto:a@b.com?body=%zz",
+            "mailto:a@b.com?body=%4",
+        ] {
+            assert!(!is_safe_contact_href(bad), "admitted {bad}");
+        }
+    }
+
+    #[test]
+    fn contact_href_still_allows_legitimate_percent_encoding() {
+        // Refusing '%' outright would break a real use.
+        assert!(is_safe_contact_href(
+            "mailto:a@b.com?subject=Hello%20World"
+        ));
     }
 
     #[test]
