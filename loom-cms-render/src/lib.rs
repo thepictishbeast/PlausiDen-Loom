@@ -23985,7 +23985,7 @@ mod page_shell_tests {
             columns: vec![],
             contact: Some(CmsFooterContact {
                 heading: None,
-                phone: Some("978-351-6495".into()),
+                phone: Some("617-555-0123".into()),
                 email: Some("team@x.example".into()),
                 address: None,
                 jurisdiction: Some("Massachusetts, USA".into()),
@@ -24003,7 +24003,7 @@ mod page_shell_tests {
             bottom_bar_inline: false,
         });
         let h = page_shell_themed(&p, "/x.css", "<main></main>", None, None);
-        assert!(h.contains("\"telephone\":\"978-351-6495\""));
+        assert!(h.contains("\"telephone\":\"617-555-0123\""));
         assert!(h.contains("\"email\":\"team@x.example\""));
         assert!(h.contains("\"addressRegion\":\"Massachusetts\""));
         assert!(h.contains("\"addressCountry\":\"USA\""));
